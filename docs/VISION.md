@@ -1,11 +1,11 @@
-# Orchestratarr — Vision
+# Orchestrarr — Vision
 
 > **Status**: inception. Gathered from the maintainer's notes on 2026-10-31; to be confirmed and refined in the first interview.
 > This document will feed `docs/SPEC.md`.
 
 ## 1. Pitch
 
-**Orchestratarr** is a self-hosted **orchestrator agent with real powers**. It coordinates **worker agents** to fix vulnerable dependencies, update containers and repair applications, then **verifies that nothing regressed** before proposing the change to a human. It reads the findings of [Portarr](https://github.com/MafLabs38/portarr) (Maintenance, Data, Infrastructure) and acts on them; Portarr itself never acts.
+**Orchestrarr** is a self-hosted **orchestrator agent with real powers**. It coordinates **worker agents** to fix vulnerable dependencies, update containers and repair applications, then **verifies that nothing regressed** before proposing the change to a human. It reads the findings of [Portarr](https://github.com/MafLabs38/portarr) (Maintenance, Data, Infrastructure) and acts on them; Portarr itself never acts.
 
 It is a standalone, API-first application in the spirit of the *arr suite: one container, pluggable providers, a queue/history/activity interface.
 
@@ -41,11 +41,13 @@ Out of scope (to confirm): observing the fleet (Portarr), storing long-term know
 
 ## 4. Relation to Portarr and Mnemarr
 
-- **Portarr (See)** is the source of findings. It never acts (its decision D-31); Orchestratarr is the separate brick that does, plugged into Portarr's API. The link is one-way for data (findings in) with an optional status callback so Portarr can show "a fix is in progress".
+- **Portarr (See)** is the source of findings. It never acts (its decision D-31); Orchestrarr is the separate brick that does, plugged into Portarr's API. The link is one-way for data (findings in) with an optional status callback so Portarr can show "a fix is in progress".
 - **Mnemarr (Remember)** is the memory: runbooks, past decisions and outcomes. Workers read it for context and write back what they did.
-- **Orchestratarr (Act)** owns the powers and therefore the safety model below.
+- **Orchestrarr (Act)** owns the powers and therefore the safety model below.
 
 ## 5. Safety model (draft principles)
+
+> Principles 1 and 2 are amended by [ADR 0001](adr/0001-merge-and-deploy-on-operator-approval.md): after the operator's approval on a decision card, Orchestrarr merges and deploys itself.
 
 1. **No direct push.** Workers push to a feature branch and open a pull request; protected branches are never written to. A human merges.
 2. **Human approval gates.** Pull requests are reviewed and merged by a person; deployments, restarts and any change to a running service are explicit approvals.
@@ -62,12 +64,12 @@ Out of scope (to confirm): observing the fleet (Portarr), storing long-term know
 Asked openly, one topic at a time.
 
 1. **Agent runtime.** Claude Code headless, the Agent SDK, Managed Agents, or a provider abstraction so several can coexist? What are the trade-offs in control, cost, offline use and data leaving the host?
-2. **Where workers run.** On the same host as Orchestratarr, in containers, on a dedicated build machine, or in an ephemeral cloud sandbox? How is isolation enforced, and how are builds kept from saturating a small host?
+2. **Where workers run.** On the same host as Orchestrarr, in containers, on a dedicated build machine, or in an ephemeral cloud sandbox? How is isolation enforced, and how are builds kept from saturating a small host?
 3. **Budget limits.** Cost and token ceilings per work item, per day, per month? What happens at the limit — stop, ask, or degrade?
 4. **Which repositories and which targets.** Which source repositories may be touched (allow-list)? Only application code, or also infrastructure-as-code and container definitions? Which forge (GitHub first)?
 5. **Which fixes are in scope for v1.** Dependency bumps only? Container image updates? Repairing a broken application? Where is the line between "fix" and "redesign"?
 6. **Regression verification.** What counts as "no regression": the project's own tests, health checks before and after, a synthetic smoke test, a comparison of behaviour? What if a project has no tests?
 7. **Approval policy.** Always a human per pull request, or auto-merge for low-risk classes (patch bumps with green checks) once trust is built? Who is notified, where (email, push notification, chat)?
-8. **Relation to Portarr.** Pull findings periodically or receive a webhook? Does Portarr display the state of Orchestratarr's work items?
+8. **Relation to Portarr.** Pull findings periodically or receive a webhook? Does Portarr display the state of Orchestrarr's work items?
 9. **Failure handling.** What does a failed attempt look like to the operator? Retry policy, escalation, and how a failed attempt is written to Mnemarr.
-10. **Name and scope check.** Is "Orchestratarr" confirmed? Anything explicitly out of scope for v1?
+10. **Scope check.** The name is settled (Orchestrarr, shorter than the original working name). Anything explicitly out of scope for v1?

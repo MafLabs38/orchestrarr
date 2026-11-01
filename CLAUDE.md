@@ -1,4 +1,4 @@
-# Orchestratarr
+# Orchestrarr
 
 > Self-hosted orchestrator agent that coordinates worker agents to keep a fleet of applications healthy, in the spirit of the *arr suite.
 
@@ -11,7 +11,7 @@ This file is read automatically by Claude Code. It applies to every task in this
 | Document | When |
 |---|---|
 | [docs/VISION.md](docs/VISION.md) | Always: why this exists, what it must do, safety model, open questions |
-| `docs/SPEC.md` | Does not exist yet. Created from the first interview, in the same format as Portarr's (frozen decisions `D-xx`, features `F-xx`, open questions `Q-xx`) |
+| [docs/SPEC.md](docs/SPEC.md) | Always: frozen decisions `D-xx`, features `F-xx`, open questions `Q-xx` (same format as Portarr's). Draft v0.1 from the first interview |
 
 ## Planned tech stack (not yet scaffolded)
 
@@ -28,10 +28,10 @@ Same as Portarr, so the three products share conventions:
 1. **English only** for code, comments, documentation, commits, issues and PRs. The chat with the maintainer is in French; nothing French is committed except clearly marked quotes in `docs/VISION.md`.
 2. **Public repo, generic product.** Never commit real infrastructure values (domain names, IPs, host names, personal project names, repository names of a personal setup, tokens), in code, tests, fixtures, docs or commit messages. Use examples (`homelab.example`, `server-1`, `10.0.0.10`).
 3. ***arr patterns first.** A single container, API first (the UI consumes the REST API), providers for agent runtimes and sources of findings, Sonarr-like screens (queue, history, activity). The UI follows the same design rules as Portarr; read Portarr's `docs/DESIGN.md` before writing any UI code.
-4. **The constellation** (below): Orchestratarr acts; it does not observe the fleet itself (it reads Portarr's findings) and does not keep long-term knowledge itself (it uses Mnemarr). Integrate through APIs and MCP.
+4. **The constellation** (below): Orchestrarr acts; it does not observe the fleet itself (it reads Portarr's findings) and does not keep long-term knowledge itself (it uses Mnemarr). Integrate through APIs and MCP.
 5. **Safety is a core concern, not a feature.** Fixed principles until the spec says otherwise:
-   - **No direct push** to a protected branch; every change is a pull request that a human approves and merges.
-   - **Human approval gates** for anything beyond a pull request (restarting, updating or deploying a running service).
+   - **No direct push** to a protected branch; every change goes through a pull request.
+   - **No autonomy of decision, autonomy of execution** ([ADR 0001](docs/adr/0001-merge-and-deploy-on-operator-approval.md)): every work item starts from an explicit operator approval (the decision card). Once approved, Orchestrarr merges and deploys itself, only the steps the operator left ticked. Deployment needs an automatic rollback.
    - **Isolation**: workers operate in sandboxes or git worktrees, never on the live working tree of a production service.
    - **Least privilege**: each worker gets the narrowest credential and tool set for its task, short-lived where possible; no credential is ever stored in a prompt, a log or a memory.
    - **Verify, then report**: a fix is only proposed after tests and a regression check pass; failures are reported, never hidden.
@@ -47,11 +47,11 @@ Same as Portarr, so the three products share conventions:
 
 Three products, each with one job, plugged into each other through their APIs and MCP servers:
 
-| Product | Job | Relation to Orchestratarr |
+| Product | Job | Relation to Orchestrarr |
 |---|---|---|
-| **Portarr** | See and describe the fleet. Never acts (its D-31) | Source of findings (Maintenance, Data, Infrastructure) read through its API / MCP |
+| **Portarr** | See and describe the fleet. Never acts (its D-31) | Source of findings and of the environment description (where each application runs), read through its API / MCP ([ADR 0002](docs/adr/0002-environment-description-is-a-provider.md)) |
 | **Mnemarr** | Remember: long-term memory for people and assistants | Runbooks and past outcomes read before acting; results written back |
-| **Orchestratarr** (this repo) | Act: orchestrate agents that fix, update and verify | — |
+| **Orchestrarr** (this repo) | Act: orchestrate agents that fix, update and verify | — |
 
 ## Git workflow
 
