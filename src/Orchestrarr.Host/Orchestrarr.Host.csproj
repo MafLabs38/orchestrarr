@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <AssemblyName>Orchestrarr</AssemblyName>
+    <RootNamespace>Orchestrarr.Host</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Orchestrarr.Providers.Portarr\Orchestrarr.Providers.Portarr.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Orchestrarr.Host.Test" />
+  </ItemGroup>
+</Project>

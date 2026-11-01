@@ -1,0 +1,31 @@
+.button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border: var(--borderWidth) solid var(--hairlineStrong);
+  border-radius: var(--radiusMedium);
+  background: var(--paperCard);
+  color: var(--ink);
+  font: 800 14px var(--defaultFontFamily);
+  cursor: pointer;
+}
+
+.button:disabled {
+  color: var(--inkMuted);
+  background: var(--paperSunken);
+  border-color: var(--hairline);
+  cursor: not-allowed;
+}
+
+.primary:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--inkOnAccent);
+  box-shadow: var(--shadowButton);
+}
+
+.primary:not(:disabled):active {
+  transform: translateY(3px);
+  box-shadow: var(--shadowPressed);
+}

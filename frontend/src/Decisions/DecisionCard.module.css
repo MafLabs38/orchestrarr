@@ -1,0 +1,88 @@
+.header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.title {
+  margin: 0;
+  font: 700 20px var(--monoSpaceFontFamily);
+  word-break: break-all;
+}
+
+.apps {
+  margin: 4px 0 0;
+  color: var(--inkMuted);
+}
+
+.section {
+  margin: 18px 0 6px;
+  padding: 0;
+  color: var(--inkMuted);
+  font: 800 12px var(--defaultFontFamily);
+  text-transform: uppercase;
+}
+
+.findings {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.finding {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 3px 0;
+}
+
+.finding svg {
+  flex: none;
+  margin-top: 3px;
+}
+
+.danger svg { color: var(--dangerColor); }
+.warning svg { color: var(--warningColor); }
+.info svg { color: var(--infoColor); }
+
+.plan {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 0;
+}
+
+.step input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+}
+
+.unavailable {
+  color: var(--inkMuted);
+}
+
+.reason {
+  color: var(--inkMuted);
+  font-size: 13px;
+  font-style: italic;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 18px 0 8px;
+}
+
+.count {
+  color: var(--inkSoft);
+  font-size: 13px;
+}

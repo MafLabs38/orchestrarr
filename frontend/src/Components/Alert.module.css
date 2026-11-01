@@ -1,0 +1,12 @@
+.alert {
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  border: var(--borderWidth) solid currentcolor;
+  border-radius: var(--radiusMedium);
+  background: var(--paperSunken);
+  font-weight: 700;
+}
+
+.info { color: var(--infoColor); }
+.warning { color: var(--warningColor); }
+.danger { color: var(--dangerColor); }

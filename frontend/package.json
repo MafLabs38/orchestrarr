@@ -1,0 +1,33 @@
+{
+  "name": "orchestrarr-frontend",
+  "private": true,
+  "version": "0.0.0-dev",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5178",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.105.0",
+    "classnames": "^2.5.1",
+    "lucide-react": "^1.66.0",
+    "react": "18",
+    "react-dom": "18",
+    "react-router-dom": "^7.18.5"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "16",
+    "@testing-library/user-event": "^14.6.8",
+    "@types/react": "18",
+    "@types/react-dom": "18",
+    "@vitejs/plugin-react": "^6.1.2",
+    "happy-dom": "^21.0.4",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5"
+  }
+}

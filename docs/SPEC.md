@@ -149,7 +149,14 @@ The principles of [VISION.md §5](VISION.md) apply, as amended by [ADR 0001](adr
 
 ## 8. Roadmap 🟡
 
-Not planned yet. Candidate first vertical: **intake from Portarr and a read-only decision card** (level 1: analyse and test), before any write power exists.
+| # | Vertical | Status |
+|---|---|---|
+| 1 | **Intake from Portarr and read-only decision cards** (F-INT-01, F-INT-02, F-CRD-01), before any write power exists | built, reviewed in the sandbox |
+| 2 | Read the dependency pull requests and the CI of each repository from the forge (Portarr only gives their number) | next, read-only |
+| 3 | Validate and merge: needs the agent runtime (Q-07) | blocked on Q-07 |
+| 4 | Deploy, smoke test and roll back (F-RUN-03) | after 3 |
+
+The acceptance scenarios are the rotten test repository's `SCENARIOS.md`.
 
 ---
 

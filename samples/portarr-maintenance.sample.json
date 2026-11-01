@@ -1,0 +1,116 @@
+{
+  "repositories": [
+    {
+      "fullName": "example/shop",
+      "url": "https://github.com/example/shop",
+      "archived": false,
+      "dependabot": { "state": "ok", "critical": 1, "high": 2, "medium": 1, "low": 0, "other": 0, "total": 4 },
+      "codeScanning": { "state": "ok", "critical": 0, "high": 0, "medium": 0, "low": 0, "other": 0, "total": 0 },
+      "secretScanning": { "state": "ok", "critical": 0, "high": 0, "medium": 0, "low": 0, "other": 0, "total": 0 },
+      "dependabotPullRequests": 5,
+      "ci": { "workflow": "CI", "status": "completed", "conclusion": "success", "failed": false },
+      "appIds": ["shop"],
+      "images": ["ghcr.io/example/shop:1.8.2"],
+      "deployed": true
+    },
+    {
+      "fullName": "example/recipes",
+      "url": "https://github.com/example/recipes",
+      "archived": false,
+      "dependabot": { "state": "ok", "critical": 0, "high": 0, "medium": 0, "low": 0, "other": 0, "total": 0 },
+      "codeScanning": { "state": "ok", "critical": 0, "high": 0, "medium": 0, "low": 0, "other": 0, "total": 0 },
+      "secretScanning": { "state": "ok", "critical": 0, "high": 0, "medium": 0, "low": 0, "other": 0, "total": 0 },
+      "dependabotPullRequests": 2,
+      "ci": { "workflow": "CI", "status": "completed", "conclusion": "failure", "failed": true },
+      "appIds": ["recipes"],
+      "images": ["ghcr.io/example/recipes:2.0.0"],
+      "deployed": true
+    },
+    {
+      "fullName": "example/notes-desktop",
+      "url": "https://github.com/example/notes-desktop",
+      "archived": false,
+      "dependabot": { "state": "ok", "critical": 0, "high": 1, "medium": 0, "low": 0, "other": 0, "total": 1 },
+      "codeScanning": { "state": "ok", "critical": 0, "high": 0, "medium": 0, "low": 0, "other": 0, "total": 0 },
+      "secretScanning": { "state": "ok", "critical": 0, "high": 0, "medium": 0, "low": 0, "other": 0, "total": 0 },
+      "dependabotPullRequests": 1,
+      "ci": { "workflow": "CI", "status": "completed", "conclusion": "success", "failed": false },
+      "appIds": ["notes-desktop"],
+      "images": [],
+      "deployed": false
+    },
+    {
+      "fullName": "example/api-gateway",
+      "url": "https://github.com/example/api-gateway",
+      "archived": false,
+      "dependabot": { "state": "ok", "critical": 0, "high": 0, "medium": 0, "low": 0, "other": 0, "total": 0 },
+      "codeScanning": { "state": "ok", "critical": 0, "high": 0, "medium": 0, "low": 0, "other": 0, "total": 0 },
+      "secretScanning": { "state": "ok", "critical": 0, "high": 0, "medium": 0, "low": 0, "other": 0, "total": 0 },
+      "dependabotPullRequests": 0,
+      "ci": { "workflow": "CI", "status": "completed", "conclusion": "success", "failed": false },
+      "appIds": ["api-gateway"],
+      "images": ["ghcr.io/example/api-gateway:3.1.0"],
+      "deployed": true
+    },
+    {
+      "fullName": "example/legacy-tool",
+      "url": "https://github.com/example/legacy-tool",
+      "archived": true,
+      "dependabot": { "state": "ok", "critical": 3, "high": 0, "medium": 0, "low": 0, "other": 0, "total": 3 },
+      "dependabotPullRequests": 0,
+      "appIds": [],
+      "images": [],
+      "deployed": false
+    }
+  ],
+  "images": [
+    {
+      "reference": "ghcr.io/example/shop:1.8.2",
+      "status": "up-to-date",
+      "current": "1.8.2",
+      "latest": "1.8.2",
+      "users": [
+        { "environmentId": "cluster", "environmentName": "Kubernetes cluster", "name": "shop-web-7f9c", "namespace": "shop" },
+        { "environmentId": "cluster", "environmentName": "Kubernetes cluster", "name": "shop-worker-5d2a", "namespace": "shop" }
+      ],
+      "repositoryFullName": "example/shop"
+    },
+    {
+      "reference": "ghcr.io/example/recipes:2.0.0",
+      "status": "behind",
+      "current": "2.0.0",
+      "latest": "3.0.1",
+      "change": "major",
+      "users": [
+        { "environmentId": "server-1", "environmentName": "Server 1", "name": "recipes" }
+      ],
+      "repositoryFullName": "example/recipes"
+    },
+    {
+      "reference": "ghcr.io/example/api-gateway:3.1.0",
+      "status": "behind",
+      "current": "3.1.0",
+      "latest": "3.1.4",
+      "change": "patch",
+      "users": [],
+      "repositoryFullName": "example/api-gateway"
+    },
+    {
+      "reference": "grafana/grafana:11.2.0",
+      "status": "behind",
+      "current": "11.2.0",
+      "latest": "11.4.1",
+      "change": "minor",
+      "users": [
+        { "environmentId": "cluster", "environmentName": "Kubernetes cluster", "name": "grafana-0", "namespace": "monitoring" }
+      ]
+    },
+    {
+      "reference": "postgres:16",
+      "status": "floating",
+      "users": [
+        { "environmentId": "server-1", "environmentName": "Server 1", "name": "shop-db" }
+      ]
+    }
+  ]
+}

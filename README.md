@@ -13,22 +13,29 @@ Orchestrarr reads the findings of [Portarr](https://github.com/MafLabs38/portarr
 | [docs/VISION.md](docs/VISION.md) | Why, what it must do, relation to Portarr, safety model, open questions |
 | [CLAUDE.md](CLAUDE.md) | Rules for AI assistants working in this repository |
 
-## Bootstrap
+## Repository settings
 
-The GitHub repository is created by Terraform from `repos/orchestratarr.yaml` in `MafLabs38/github-template` (pull request `repo/add-mnemarr-orchestratarr`). Once that pull request is merged and the apply has run, publish this local repository through a scaffolding pull request:
+The GitHub repository, its branches, rulesets and labels are declared as code in `repos/orchestrarr.yaml` of `MafLabs38/github-template`: change a setting with a pull request there, never in the GitHub settings. `ci.yml` is the CI of the first verticals; CodeQL is off in that file until its workflow is added (the ruleset waits for CodeQL results, so turning it on without the workflow blocks every merge).
+
+Before a push, check that no real infrastructure value slipped in (`gitleaks dir .`).
+
+## Run in the sandbox
+
+Needs the .NET 10 SDK and Node 22.
 
 ```bash
-cd path/to/orchestrarr
-git remote add origin https://github.com/MafLabs38/orchestrarr.git
-env -u GH_TOKEN git fetch -q origin develop
-git checkout -q -B chore/initial-scaffolding
-git reset -q origin/develop            # keeps the local files, rebases on the remote history
-git add -A && git commit -m "chore: initial project scaffolding"
-env -u GH_TOKEN git push -u origin chore/initial-scaffolding
-env -u GH_TOKEN gh pr create -R MafLabs38/orchestrarr --base develop --title "chore: initial scaffolding" --body "Vision, project rules, common templates."
+# API, with the sample data of samples/ (http://127.0.0.1:7878)
+dotnet run --project src/Orchestrarr.Host
+
+# Interface with hot reload (http://127.0.0.1:5178), proxying /api to the API
+cd frontend && yarn install && yarn dev
+
+# Tests
+dotnet test --solution Orchestrarr.slnx
+cd frontend && yarn test
 ```
 
-Before the first push, check that no real infrastructure value slipped in (`gitleaks dir .`). CI workflows (`ci.yml`, `codeql.yml`, `mutation.yml`) are added with the first vertical, when there is code for them to build; the options are declared in `repos/orchestratarr.yaml` (`codeql` and `mutation` on, `sonarqube` and `ai_review` off until their tokens exist).
+To read a real Portarr instead of the sample, set `Portarr:BaseUrl` and export a Portarr API key in `ORCHESTRARR_PORTARR_APIKEY` (the variable name is `Portarr:ApiKeyEnv`; the key itself never goes in a file).
 
 ## License
 

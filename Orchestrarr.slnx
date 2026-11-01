@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Orchestrarr.Core.Test/Orchestrarr.Core.Test.csproj" />
+    <Project Path="src/Orchestrarr.Core/Orchestrarr.Core.csproj" />
+    <Project Path="src/Orchestrarr.Host.Test/Orchestrarr.Host.Test.csproj" />
+    <Project Path="src/Orchestrarr.Host/Orchestrarr.Host.csproj" />
+    <Project Path="src/Orchestrarr.Providers.Portarr.Test/Orchestrarr.Providers.Portarr.Test.csproj" />
+    <Project Path="src/Orchestrarr.Providers.Portarr/Orchestrarr.Providers.Portarr.csproj" />
+  </Folder>
+</Solution>

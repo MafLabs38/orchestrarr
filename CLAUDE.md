@@ -2,7 +2,7 @@
 
 > Self-hosted orchestrator agent that coordinates worker agents to keep a fleet of applications healthy, in the spirit of the *arr suite.
 
-**Project stage: need gathering. No code yet.** The next step is a business-analyst interview with the maintainer (see [docs/VISION.md](docs/VISION.md), "Open questions"). Do not scaffold code, pick an agent runtime or grant any real power before the safety model is written into the spec and accepted.
+**Project stage: first verticals, read-only.** The safety model is accepted ([ADR 0001](docs/adr/0001-merge-and-deploy-on-operator-approval.md)) and the first vertical reads findings and shows decision cards. Orchestrarr holds **no write power yet**: do not pick an agent runtime (SPEC Q-07) or grant a power that merges, deploys or writes to a repository before the maintainer has decided it.
 
 This file is read automatically by Claude Code. It applies to every task in this repository.
 
@@ -68,4 +68,4 @@ Branches `main` (stable releases) and `develop` (integration) are protected by G
 
 Prefixes: `feature/`, `fix/`, `chore/`, `docs/`. Conventional Commits: `feat(worker): ...`, `fix(queue): ...`, `docs(spec): ...`, `chore(ci): ...`.
 
-The remote does not exist until the `repo/add-mnemarr-orchestratarr` pull request of `github-template` is merged and applied; see the README "Bootstrap" section.
+The repository settings live in `repos/orchestrarr.yaml` of `github-template`; see the README "Repository settings" section.

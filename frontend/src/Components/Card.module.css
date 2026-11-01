@@ -1,0 +1,12 @@
+.card {
+  padding: 20px 22px;
+  background: var(--paperCard);
+  border: var(--borderWidth) solid var(--hairline);
+  border-radius: var(--radiusLarge);
+  box-shadow: var(--shadowCard);
+}
+
+/* a colored left edge says the severity, next to the label that says it in words */
+.danger { border-left: 8px solid var(--dangerColor); }
+.warning { border-left: 8px solid var(--warningColor); }
+.info { border-left: 8px solid var(--infoColor); }
