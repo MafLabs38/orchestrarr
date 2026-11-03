@@ -29,7 +29,7 @@ public sealed class SqliteApprovalLedgerTests : IDisposable
         var database = _file.Open();
         var approval = Approval();
 
-        var result = await new SqliteApprovalLedger(database).TryRecordAsync([approval], [Entry(approval)], Ct);
+        var result = await new SqliteApprovalLedger(database, new InMemoryKillSwitch()).TryRecordAsync([approval], [Entry(approval)], Ct);
 
         result.Should().Be(LedgerResult.Recorded);
         new SqliteApprovalStore(database).List().Should().ContainSingle().Which.Id.Should().Be(approval.Id);
@@ -42,7 +42,7 @@ public sealed class SqliteApprovalLedgerTests : IDisposable
         var database = _file.Open();
         var first = Approval();
         var again = first with { Id = Guid.NewGuid() };
-        var ledger = new SqliteApprovalLedger(database);
+        var ledger = new SqliteApprovalLedger(database, new InMemoryKillSwitch());
         (await ledger.TryRecordAsync([first], [Entry(first)], Ct)).Should().Be(LedgerResult.Recorded);
 
         var result = await ledger.TryRecordAsync([again], [Entry(again)], Ct);
@@ -58,7 +58,7 @@ public sealed class SqliteApprovalLedgerTests : IDisposable
         var one = Approval(1);
         var same = one with { Id = Guid.NewGuid() };
 
-        var result = await new SqliteApprovalLedger(database).TryRecordAsync([one, same], [Entry(one), Entry(same)], Ct);
+        var result = await new SqliteApprovalLedger(database, new InMemoryKillSwitch()).TryRecordAsync([one, same], [Entry(one), Entry(same)], Ct);
 
         result.Should().Be(LedgerResult.AlreadyThere);
         new SqliteApprovalStore(database).List().Should().BeEmpty();
@@ -69,7 +69,7 @@ public sealed class SqliteApprovalLedgerTests : IDisposable
     public async Task A_full_queue_refuses_and_leaves_no_trace()
     {
         var database = _file.Open();
-        var ledger = new SqliteApprovalLedger(database, queueCapacity: 1);
+        var ledger = new SqliteApprovalLedger(database, new InMemoryKillSwitch(), queueCapacity: 1);
         var first = Approval(1);
         (await ledger.TryRecordAsync([first], [Entry(first)], Ct)).Should().Be(LedgerResult.Recorded);
         var second = Approval(2);
@@ -86,7 +86,7 @@ public sealed class SqliteApprovalLedgerTests : IDisposable
         var database = _file.Open();
         var approval = Approval();
 
-        var result = await new SqliteApprovalLedger(database, auditCapacity: 0).TryRecordAsync([approval], [Entry(approval)], Ct);
+        var result = await new SqliteApprovalLedger(database, new InMemoryKillSwitch(), auditCapacity: 0).TryRecordAsync([approval], [Entry(approval)], Ct);
 
         result.Should().Be(LedgerResult.Unavailable);
         new SqliteApprovalStore(database).List().Should().BeEmpty();
@@ -95,7 +95,7 @@ public sealed class SqliteApprovalLedgerTests : IDisposable
     [Fact]
     public async Task A_file_that_cannot_be_written_is_unavailable_and_nothing_is_said_recorded()
     {
-        var ledger = new SqliteApprovalLedger(_file.Open());
+        var ledger = new SqliteApprovalLedger(_file.Open(), new InMemoryKillSwitch());
         _file.Damage();
         var approval = Approval();
 
@@ -110,7 +110,7 @@ public sealed class SqliteApprovalLedgerTests : IDisposable
             async () =>
             {
                 var batch = new[] { Approval((n * 10) + 1), Approval((n * 10) + 2) };
-                return await new SqliteApprovalLedger(database, queueCapacity: 2).TryRecordAsync(batch, [.. batch.Select(Entry)], Ct);
+                return await new SqliteApprovalLedger(database, new InMemoryKillSwitch(), queueCapacity: 2).TryRecordAsync(batch, [.. batch.Select(Entry)], Ct);
             },
             Ct));
 
@@ -129,7 +129,7 @@ public sealed class SqliteApprovalLedgerTests : IDisposable
         SqliteDatabase.Run(other, "BEGIN IMMEDIATE;");
         var approval = Approval();
 
-        var result = await new SqliteApprovalLedger(database).TryRecordAsync([approval], [Entry(approval)], Ct);
+        var result = await new SqliteApprovalLedger(database, new InMemoryKillSwitch()).TryRecordAsync([approval], [Entry(approval)], Ct);
 
         result.Should().Be(LedgerResult.Unavailable);
         SqliteDatabase.Run(other, "ROLLBACK;");
@@ -142,7 +142,7 @@ public sealed class SqliteApprovalLedgerTests : IDisposable
     {
         var database = _file.Open();
         var approval = Approval();
-        var ledger = new SqliteApprovalLedger(database, auditCapacity: 4);
+        var ledger = new SqliteApprovalLedger(database, new InMemoryKillSwitch(), auditCapacity: 4);
 
         // A capacity of 4 gives refusals 3 places: a batch of the approval and 4 refusals does not fit
         var result = await ledger.TryRecordAsync([approval], [Entry(approval), Refusal(), Refusal(), Refusal(), Refusal()], Ct);
@@ -155,8 +155,8 @@ public sealed class SqliteApprovalLedgerTests : IDisposable
     {
         var database = _file.Open();
 
-        var queue = () => new SqliteApprovalLedger(database, queueCapacity: 0);
-        var audit = () => new SqliteApprovalLedger(database, auditCapacity: -1);
+        var queue = () => new SqliteApprovalLedger(database, new InMemoryKillSwitch(), queueCapacity: 0);
+        var audit = () => new SqliteApprovalLedger(database, new InMemoryKillSwitch(), auditCapacity: -1);
 
         queue.Should().Throw<ArgumentOutOfRangeException>();
         audit.Should().Throw<ArgumentOutOfRangeException>();
@@ -184,7 +184,7 @@ public sealed class SqliteApprovalLedgerTests : IDisposable
         using var stop = new InMemoryKillSwitch(startEngaged: true);
         var approval = Approval();
 
-        var result = await new SqliteApprovalLedger(database, killSwitch: stop).TryRecordAsync([approval], [Entry(approval)], Ct);
+        var result = await new SqliteApprovalLedger(database, stop).TryRecordAsync([approval], [Entry(approval)], Ct);
 
         result.Should().Be(LedgerResult.Stopped);
         new SqliteApprovalStore(database).List().Should().BeEmpty();

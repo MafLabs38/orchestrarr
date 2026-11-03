@@ -60,7 +60,7 @@ internal static class ApprovalsServiceCollectionExtensions
                 // Opened when the host starts (Program asks for it), so that a file that cannot be used stops it there and not at the first approval
                 .AddSingleton(provider => SqliteDatabase.Open(file.Path, file.StartEngagedWhenNew, provider.GetRequiredService<TimeProvider>()))
                 .AddSingleton<IApprovalStore>(provider => new SqliteApprovalStore(provider.GetRequiredService<SqliteDatabase>(), queueCapacity))
-                .AddSingleton<IApprovalLedger>(provider => new SqliteApprovalLedger(provider.GetRequiredService<SqliteDatabase>(), queueCapacity, auditCapacity, provider.GetService<ILogger<SqliteApprovalLedger>>(), provider.GetRequiredService<IKillSwitchControl>()))
+                .AddSingleton<IApprovalLedger>(provider => new SqliteApprovalLedger(provider.GetRequiredService<SqliteDatabase>(), provider.GetRequiredService<IKillSwitchControl>(), queueCapacity, auditCapacity, provider.GetService<ILogger<SqliteApprovalLedger>>()))
                 .AddSingleton(provider => new SqliteKillSwitch(provider.GetRequiredService<SqliteDatabase>(), auditCapacity, provider.GetService<ILogger<SqliteKillSwitch>>()))
                 .AddSingleton<IKillSwitchControl>(provider => provider.GetRequiredService<SqliteKillSwitch>())
                 .AddSingleton<IKillSwitch>(provider => provider.GetRequiredService<SqliteKillSwitch>())

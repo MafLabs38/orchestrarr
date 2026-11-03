@@ -20,9 +20,9 @@ public sealed class SqliteApprovalStoreTests : IDisposable
     public void An_approval_survives_a_restart_with_everything_it_said()
     {
         var approval = Approval(stepUp: Noon.AddMinutes(-3));
-        new SqliteApprovalStore(_file.Open()).TryAddRange([approval]).Should().BeTrue();
+        new SeededStore(_file.Open()).TryAddRange([approval]).Should().BeTrue();
 
-        var reopened = new SqliteApprovalStore(_file.Open()).List().Should().ContainSingle().Which;
+        var reopened = new SeededStore(_file.Open()).List().Should().ContainSingle().Which;
 
         reopened.Id.Should().Be(approval.Id);
         reopened.WorkItemId.Should().Be("repository:example/shop");
@@ -38,7 +38,7 @@ public sealed class SqliteApprovalStoreTests : IDisposable
     [Fact]
     public void An_approval_without_a_second_factor_keeps_none()
     {
-        var store = new SqliteApprovalStore(_file.Open());
+        var store = new SeededStore(_file.Open());
         store.TryAddRange([Approval()]).Should().BeTrue();
 
         store.List().Single().StepUpAt.Should().BeNull();
@@ -47,7 +47,7 @@ public sealed class SqliteApprovalStoreTests : IDisposable
     [Fact]
     public void The_newest_comes_first()
     {
-        var store = new SqliteApprovalStore(_file.Open());
+        var store = new SeededStore(_file.Open());
         store.TryAddRange([Approval(pullRequest: 1, minutes: 0), Approval(pullRequest: 2, minutes: 10), Approval(pullRequest: 3, minutes: 5)]).Should().BeTrue();
 
         store.List().Select(approval => approval.PullRequest).Should().Equal(2, 3, 1);
@@ -56,7 +56,7 @@ public sealed class SqliteApprovalStoreTests : IDisposable
     [Fact]
     public void The_same_decision_is_recorded_once_whatever_the_order_of_its_steps()
     {
-        var store = new SqliteApprovalStore(_file.Open());
+        var store = new SeededStore(_file.Open());
         var first = Approval(steps: [StepKind.Validate, StepKind.MergePullRequests]);
         var again = Approval(steps: [StepKind.MergePullRequests, StepKind.Validate]);
         store.TryAddRange([first]).Should().BeTrue();
@@ -69,7 +69,7 @@ public sealed class SqliteApprovalStoreTests : IDisposable
     [Fact]
     public void Another_commit_or_other_steps_or_another_pull_request_is_another_decision()
     {
-        var store = new SqliteApprovalStore(_file.Open());
+        var store = new SeededStore(_file.Open());
         store.TryAddRange([Approval()]).Should().BeTrue();
 
         store.Contains(Approval(head: new string('b', 40))).Should().BeFalse();
@@ -82,7 +82,7 @@ public sealed class SqliteApprovalStoreTests : IDisposable
     public void The_database_itself_refuses_a_second_copy_of_a_decision()
     {
         var database = _file.Open();
-        var store = new SqliteApprovalStore(database);
+        var store = new SeededStore(database);
         store.TryAddRange([Approval()]).Should().BeTrue();
 
         using var connection = database.Connect();
@@ -97,7 +97,7 @@ public sealed class SqliteApprovalStoreTests : IDisposable
     [Fact]
     public void A_batch_is_added_whole_or_not_at_all()
     {
-        var store = new SqliteApprovalStore(_file.Open());
+        var store = new SeededStore(_file.Open());
         store.TryAddRange([Approval(pullRequest: 1)]).Should().BeTrue();
 
         var added = store.TryAddRange([Approval(pullRequest: 2), Approval(pullRequest: 1), Approval(pullRequest: 3)]);
@@ -109,7 +109,7 @@ public sealed class SqliteApprovalStoreTests : IDisposable
     [Fact]
     public void A_batch_that_repeats_a_decision_is_refused_and_nothing_stays()
     {
-        var store = new SqliteApprovalStore(_file.Open());
+        var store = new SeededStore(_file.Open());
 
         store.TryAddRange([Approval(pullRequest: 4), Approval(pullRequest: 4)]).Should().BeFalse();
 
@@ -119,7 +119,7 @@ public sealed class SqliteApprovalStoreTests : IDisposable
     [Fact]
     public void A_full_store_refuses_and_never_forgets_one_to_make_room()
     {
-        var store = new SqliteApprovalStore(_file.Open(), capacity: 2);
+        var store = new SeededStore(_file.Open(), capacity: 2);
         store.TryAddRange([Approval(pullRequest: 1)]).Should().BeTrue();
         store.Free.Should().Be(1);
 
@@ -136,7 +136,7 @@ public sealed class SqliteApprovalStoreTests : IDisposable
     {
         var database = _file.Open();
 
-        var build = () => new SqliteApprovalStore(database, capacity: 0);
+        var build = () => new SeededStore(database, capacity: 0);
 
         build.Should().Throw<ArgumentOutOfRangeException>();
     }
@@ -145,16 +145,16 @@ public sealed class SqliteApprovalStoreTests : IDisposable
     public async Task Two_at_once_for_the_same_decision_make_one()
     {
         var database = _file.Open();
-        var results = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => Task.Run(() => new SqliteApprovalStore(database).TryAddRange([Approval()]), TestContext.Current.CancellationToken)));
+        var results = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => Task.Run(() => new SeededStore(database).TryAddRange([Approval()]), TestContext.Current.CancellationToken)));
 
         results.Count(added => added).Should().Be(1);
-        new SqliteApprovalStore(database).List().Should().ContainSingle();
+        new SeededStore(database).List().Should().ContainSingle();
     }
 
     [Fact]
     public void A_database_that_cannot_be_read_is_an_error_and_not_an_empty_store()
     {
-        var store = new SqliteApprovalStore(_file.Open());
+        var store = new SeededStore(_file.Open());
         _file.Damage();
 
         var read = () => store.List();
@@ -166,7 +166,7 @@ public sealed class SqliteApprovalStoreTests : IDisposable
     public void A_row_that_does_not_read_back_is_an_unusable_storage_and_not_an_empty_list_or_a_raw_error()
     {
         var database = _file.Open();
-        var store = new SqliteApprovalStore(database);
+        var store = new SeededStore(database);
         store.TryAddRange([Approval()]).Should().BeTrue();
         using (var connection = database.Connect())
         {

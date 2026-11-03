@@ -3,7 +3,7 @@ using Orchestrarr.Core.Launch;
 namespace Orchestrarr.Core.Approvals;
 
 /// <summary>The ledger of the sandbox: the trace first, then the queue, whose room was counted before. Two stores in memory cannot fail apart.</summary>
-public sealed class InMemoryApprovalLedger(InMemoryApprovalStore store, IAuditSink audit, IKillSwitchControl? killSwitch = null) : IApprovalLedger
+public sealed class InMemoryApprovalLedger(InMemoryApprovalStore store, IAuditSink audit, IKillSwitchControl killSwitch) : IApprovalLedger
 {
     public async ValueTask<LedgerResult> TryRecordAsync(IReadOnlyList<Approval> approvals, IReadOnlyList<AuditEntry> entries, CancellationToken cancellationToken)
     {
@@ -12,7 +12,7 @@ public sealed class InMemoryApprovalLedger(InMemoryApprovalStore store, IAuditSi
         try
         {
             // The stop is read again at the moment of writing: an approval is never recorded after the stop
-            if (killSwitch?.Engaged == true)
+            if (killSwitch.Engaged)
             {
                 return LedgerResult.Stopped;
             }

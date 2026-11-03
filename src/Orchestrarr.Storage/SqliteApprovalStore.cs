@@ -34,22 +34,6 @@ public sealed class SqliteApprovalStore(SqliteDatabase database, int capacity = 
         });
     }
 
-    /// <summary>Adds all of them or none, without a trace: the way the tests seed a store. The product records through the ledger.</summary>
-    internal bool TryAddRange(IReadOnlyList<Approval> approvals)
-    {
-        ArgumentNullException.ThrowIfNull(approvals);
-        if (approvals.Select(Key).Distinct().Count() != approvals.Count)
-        {
-            return false;
-        }
-
-        return SqliteDatabase.Guard(() => database.InWriteTransaction(connection =>
-        {
-            var added = HasRoom(connection, _capacity, approvals.Count) && InsertAll(connection, approvals);
-            return (added, added);
-        }));
-    }
-
     /// <summary>Whether this many more fit in a queue of this capacity.</summary>
     internal static bool HasRoom(SqliteConnection connection, int capacity, int adding) => adding <= capacity - Count(connection);
 

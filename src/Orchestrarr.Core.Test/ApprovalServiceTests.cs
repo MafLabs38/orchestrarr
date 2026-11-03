@@ -48,7 +48,7 @@ public sealed class ApprovalServiceTests
         _forge.Items = pullRequests.Length == 0 ? [PullRequest(1, HeadA), PullRequest(2, HeadB)] : pullRequests;
         var chosenStore = store ?? _store;
         var chosenAudit = audit ?? _audit;
-        return new ApprovalService(await CatalogOf(_forge), chosenStore, _killSwitch, chosenAudit, _time, new InMemoryApprovalLedger(_store, chosenAudit));
+        return new ApprovalService(await CatalogOf(_forge), chosenStore, _killSwitch, chosenAudit, _time, new InMemoryApprovalLedger(_store, chosenAudit, _killSwitch));
     }
 
     private Task<ApprovalService> Service(params PullRequestInfo[] pullRequests) => Service(null, null, pullRequests);
@@ -332,7 +332,7 @@ public sealed class ApprovalServiceTests
     [Fact]
     public async Task Without_a_forge_nothing_can_be_approved()
     {
-        var service = new ApprovalService(await CatalogOf(new NoPullRequestSource()), _store, _killSwitch, _audit, _time, new InMemoryApprovalLedger(_store, _audit));
+        var service = new ApprovalService(await CatalogOf(new NoPullRequestSource()), _store, _killSwitch, _audit, _time, new InMemoryApprovalLedger(_store, _audit, _killSwitch));
 
         var result = await Approve(service, seen: [new SeenPullRequest(1, HeadA)]);
 
@@ -615,7 +615,7 @@ public sealed class ApprovalServiceTests
     {
         var sink = Substitute.For<IAuditSink>();
         sink.TryRecordRangeAsync(Arg.Any<IReadOnlyList<AuditEntry>>(), Arg.Any<CancellationToken>()).Returns<ValueTask<bool>>(_ => throw new StorageUnavailableException());
-        var ledger = new InMemoryApprovalLedger(_store, sink);
+        var ledger = new InMemoryApprovalLedger(_store, sink, _killSwitch);
 
         var approval = new Approval(Guid.NewGuid(), ItemId, "example/app", 1, HeadA, [StepKind.Validate], "alice", Now);
         var result = await ledger.TryRecordAsync([approval], [new AuditEntry(Now, AuditEvents.ApprovalRecorded, "alice-1", null, null)], TestContext.Current.CancellationToken);
