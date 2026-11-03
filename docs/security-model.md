@@ -13,6 +13,15 @@ Two systems cooperate, and neither trusts the other's word:
 
 The agent is not authenticated by the identity provider. It is **given a badge** for one run, and the machines check the badge. In this document, the **workshop** is the isolated place where the agent runs (SPEC D-25).
 
+## At a glance
+
+- **No agent lives on your machines.** A target machine only keeps two things: trust in the signing authority of Vault (one public key in its SSH configuration) and a few small accounts. Nothing resident, nothing running there between two runs.
+- **An agent borrows access, it does not own any.** For one run it receives a certificate for one environment, valid for a short time, that opens one of those small accounts. When the run ends, the access is gone.
+- **The strength of the agent is the strength of the account** the certificate opens, set on the machine by you. The prompt cannot widen it.
+- **Every order is signed, checked twice, and traced** from the person who approved it to the command that ran.
+
+Contents: [the chain](#1-the-whole-chain) · [a run step by step](#2-one-run-step-by-step) · [a wild agent](#3-what-stops-a-wild-agent) · [how strong the badge is](#4-how-strong-the-badge-is) · [the deadline](#5-at-the-deadline-or-when-the-global-stop-engages) · [open questions](#6-open-questions) · [limits](#7-what-this-does-not-solve) · [what exists today](#8-what-exists-today)
+
 ## Legend
 
 | Mark | Meaning |
@@ -32,7 +41,7 @@ flowchart TB
   vault["Vault<br/>non-exportable signing key,<br/>credentials, SSH authority"]:::decided
   store[("Order store")]:::decided
   launcher["Launcher<br/>verifies the order (library code),<br/>no inbound port"]:::decided
-  evidence["Evidence of the order shown to Vault<br/>mechanism still open, see section 5"]:::proposed
+  evidence["Evidence of the order shown to Vault<br/>mechanism still open, see section 6"]:::proposed
   shop["Workshop: the agent<br/>isolated, no standing access,<br/>a deadline"]:::decided
   target["Target machines<br/>trust only the Vault authority,<br/>a least-privilege account"]:::decided
 
@@ -104,7 +113,43 @@ An agent is never recognised by what it says. It is recognised by **what it hold
 | An agent keeps running too long | The launcher kills the workshop, drops its network and revokes its leases | The launcher and Vault | 🔵 |
 | Things go wrong everywhere | The global stop engages, which also revokes the leases (ADR 0006, D-43) | The control plane and Vault | 🟢 the stop, 🔵 the revocation |
 
-## 4. At the deadline, or when the global stop engages
+## 4. How strong the badge is
+
+The access of an agent is set in two places, both on the target, never by the agent:
+
+1. **Which door, and for how long.** The certificate says: this environment, this run, valid until this time.
+2. **How much it can do once inside.** The certificate carries a *principal* (a name for what the run may be). The machine maps each principal to a local account of its own (OpenSSH does this with `AuthorizedPrincipalsFile`). Choosing the principal in the certificate is therefore choosing the strength of the agent.
+
+```mermaid
+flowchart LR
+  cert["SSH certificate<br/>one environment, one run,<br/>valid a short time"]
+  p1["principal: read-only"]
+  p2["principal: deploy"]
+  p3["principal: maintenance"]
+  a1["Local account<br/>reads logs and state"]
+  a2["Local account<br/>only the commands of one project<br/>(a sudo allow-list)"]
+  a3["Local account<br/>rare: the plan is validated first"]
+
+  cert --> p1 --> a1
+  cert --> p2 --> a2
+  cert --> p3 --> a3
+
+  classDef decided fill:#dbe8fb,stroke:#3b6ab0,color:#10233f
+  class cert,p1,p2,p3,a1,a2,a3 decided
+```
+
+The accounts are created once on each machine, by you. The agent cannot widen them, and a prompt cannot either.
+
+The same idea applies to every channel the agent may use:
+
+| Channel | Credential | What limits it |
+|---|---|---|
+| SSH to a machine | A certificate signed by the Vault SSH authority, valid minutes | The principal maps to a local account; a `sudo` allow-list, never full `sudo` |
+| Kubernetes | A short-lived token | A role limited to one namespace |
+| GitHub | An installation token, one repository, about an hour | The permissions of the app, and the branch rules of the repository |
+| The model | A credential issued for the run (SPEC D-42) | A budget in attempts and minutes (SPEC D-27) |
+
+## 5. At the deadline, or when the global stop engages
 
 ```mermaid
 flowchart LR
@@ -121,18 +166,18 @@ An SSH certificate is checked **when a connection opens**, not afterwards: it is
 
 Time limits are meant to be **generous and configurable** (SPEC D-27 sets budgets; how they are extended, and by whom, is open, SPEC Q-09). Running out of time should be a state of its own ("budget exhausted"), not a failure of the work. The limit bounds the window of risk; it does not prove that what was done is correct.
 
-## 5. Open questions
+## 6. Open questions
 
 - **How does Vault know a launch is real?** The principle: Vault issues credentials only to the launcher's own identity (a workload identity, such as a Kubernetes service account or an AppRole bound to its pod) and only against evidence of a valid order. The mechanism is not chosen. Vault's open-source edition cannot check the signature of an order by itself. Options: a small gate that verifies the order and asks Vault with its own identity; or one Vault role per environment, so that the launcher can only obtain credentials for the environments it serves. A single-use secret minted by the control plane when it signs would bind credentials to one order, but it would make the control plane issue a credential, which SPEC D-45 forbids: whoever signs must not be able to execute. 🟣
 - **Validating the plan.** For production, should the person validate the plan (the diff) before it is applied, in addition to the launch? It changes who approves production (SPEC Q-21, open). 🟣
 
-## 6. What this does not solve
+## 7. What this does not solve
 
 - An agent that is misled can do **everything its badge opens**. The answer is small badges, short lifetimes and, for production, validation of the plan.
 - A process inside the workshop shares the credentials of its run. The credentials of a run must therefore be as narrow as the order.
 - A person's session is a snapshot of their groups: someone removed from the operator group keeps their rights until the session ends. It gives no power today, since nothing runs, and it must be closed before a launcher exists (by the check in step 4 of section 1, or by a session store that can revoke).
 
-## 7. What exists today
+## 8. What exists today
 
 | Piece | State |
 |---|---|
