@@ -299,7 +299,19 @@ public sealed class StorageApiTests : IDisposable
 
         var start = () => second.CreateClient();
 
-        start.Should().Throw<InvalidOperationException>().Which.ToString().Should().Contain("only one host may write it");
+        start.Should().Throw<WriterLockException>();
+    }
+
+    [Fact]
+    public void A_host_that_is_refused_by_the_lock_has_not_created_the_database()
+    {
+        using var held = SqliteWriterLock.Acquire(DatabasePath);
+        using var factory = Sqlite();
+
+        var start = () => factory.CreateClient();
+
+        start.Should().Throw<WriterLockException>();
+        File.Exists(DatabasePath).Should().BeFalse("the lock comes before the database is created, migrated or written");
     }
 
     private Dictionary<string, string?> SqliteSettings() => new() { ["Storage:Provider"] = "Sqlite", ["Storage:Path"] = DatabasePath };

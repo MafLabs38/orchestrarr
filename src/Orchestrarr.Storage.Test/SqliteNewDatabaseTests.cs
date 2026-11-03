@@ -81,6 +81,7 @@ public sealed class SqliteNewDatabaseTests : IDisposable
     {
         var released = new SqliteKillSwitch(_file.Open(), StoreLimits.FileAudit);
         released.Release();
+        released.Engaged.Should().BeFalse("the stop was released before the file was made a version-zero file again");
         using (var connection = _file.Open().Connect())
         {
             SqliteDatabase.Run(connection, "PRAGMA user_version = 0;");

@@ -33,9 +33,12 @@ public sealed class SqliteWriterLock : IDisposable
         }
         catch (IOException failure)
         {
-            throw new InvalidOperationException($"Another process holds the database ({LockPathOf(databasePath)}): only one host may write it. Run a single replica, and stop the old one before the new one starts (a Recreate strategy).", failure);
+            throw new WriterLockException($"Cannot take the lock {LockPathOf(databasePath)}: another process most likely holds the database, and only one host may write it. Run a single replica, and stop the old one before the new one starts (a Recreate strategy).", failure);
         }
     }
 
     public void Dispose() => _lock.Dispose();
 }
+
+/// <summary>The lock of the one writer could not be taken: another host holds the database, or the lock file cannot be used.</summary>
+public sealed class WriterLockException(string message, Exception? inner = null) : InvalidOperationException(message, inner);
