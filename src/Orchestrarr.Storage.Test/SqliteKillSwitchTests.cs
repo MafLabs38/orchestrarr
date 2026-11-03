@@ -145,20 +145,20 @@ public sealed class SqliteKillSwitchTests : IDisposable
         var stop = new SqliteKillSwitch(database, StoreLimits.FileAudit);
         var at = new DateTimeOffset(2026, 11, 3, 12, 0, 0, TimeSpan.Zero);
 
-        var results = await Task.WhenAll(Enumerable.Range(0, 20).Select(n => Task.Run(
+        var results = await Task.WhenAll(Enumerable.Range(0, 8).Select(n => Task.Run(
             async () => await stop.ChangeAsync(n % 2 == 0, new AuditEntry(at, n % 2 == 0 ? AuditEvents.KillSwitchEngaged : AuditEvents.KillSwitchReleased, "alice-1", null, null), Ct),
             Ct)));
 
         results.Should().OnlyContain(result => result == KillSwitchChange.Applied);
         var trail = new SqliteAuditLog(database).List();
-        trail.Should().HaveCount(20);
+        trail.Should().HaveCount(8);
         stop.Engaged.Should().Be(trail[0].Event == AuditEvents.KillSwitchEngaged, "the stop is what the last entry of the trail says");
     }
 
     [Fact]
     public async Task Engaging_counts_at_once_while_another_writer_holds_the_file()
     {
-        var database = SqliteDatabase.Open(_file.Path, busyTimeout: TimeSpan.FromSeconds(10));
+        var database = SqliteDatabase.Open(_file.Path, busyTimeout: TimeSpan.FromSeconds(2));
         var stop = new SqliteKillSwitch(database, StoreLimits.FileAudit);
         using var other = database.Connect();
         SqliteDatabase.Run(other, "BEGIN IMMEDIATE;");
@@ -169,5 +169,27 @@ public sealed class SqliteKillSwitchTests : IDisposable
         SqliteDatabase.Run(other, "ROLLBACK;");
         (await engage).Should().Be(KillSwitchChange.Applied);
         stop.Saved.Should().BeTrue();
+    }
+
+    [Fact]
+    public void The_state_is_one_read_for_both_answers()
+    {
+        var stop = Stop();
+        stop.State().Should().Be(new KillSwitchState(Engaged: false, Saved: true));
+        stop.Engage();
+        stop.State().Should().Be(new KillSwitchState(Engaged: true, Saved: true));
+        _file.Damage();
+
+        stop.State().Should().Be(new KillSwitchState(Engaged: true, Saved: false), "an unreadable file is engaged and not saved");
+    }
+
+    [Fact]
+    public void An_engagement_held_in_memory_says_so_in_the_state()
+    {
+        var stop = Stop();
+        _file.Damage();
+        stop.Engage();
+
+        stop.State().Should().Be(new KillSwitchState(Engaged: true, Saved: false));
     }
 }

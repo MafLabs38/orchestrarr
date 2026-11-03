@@ -16,6 +16,12 @@ public sealed class StorageOptions
     /// <summary>Unset: Memory in Development, or when nobody can approve; otherwise the host refuses to start, so that a restart never releases the stop by omission. The image sets Sqlite.</summary>
     public StorageProvider? Provider { get; set; }
 
+    /// <summary>
+    /// Whether an in-memory stop starts engaged. Unset: engaged outside Development when approving is on, because a restart that forgets everything is
+    /// a new store, and a new store starts engaged (as a new database does). Development and the tests say it does not.
+    /// </summary>
+    public bool? MemoryStartsEngaged { get; set; }
+
     /// <summary>The SQLite file. A relative path is read from the content root of the host; the image gives an absolute one, in its volume.</summary>
     public string Path { get; set; } = "data/orchestrarr.db";
 
@@ -36,7 +42,7 @@ public sealed class StorageOptions
         }
         if (Provider is null or StorageProvider.Memory)
         {
-            return new MemoryStorage();
+            return new MemoryStorage(StartEngaged: MemoryStartsEngaged ?? (!development && approving));
         }
         if (string.IsNullOrWhiteSpace(Path) || Path.Contains('\0', StringComparison.Ordinal))
         {
@@ -57,7 +63,7 @@ public interface IStorageSettings
 }
 
 /// <summary>Everything in memory, the sandbox's choice.</summary>
-public sealed record MemoryStorage : IStorageSettings
+public sealed record MemoryStorage(bool StartEngaged = false) : IStorageSettings
 {
     public bool Persistent => false;
 

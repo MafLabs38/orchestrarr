@@ -78,8 +78,21 @@ public sealed class StorageOptionsTests
     }
 
     [Fact]
-    public void Memory_asked_for_outside_development_is_allowed_because_it_was_asked_for()
+    public void Memory_asked_for_outside_development_is_allowed_because_it_was_asked_for_and_starts_with_the_stop_engaged()
     {
-        new StorageOptions { Provider = StorageProvider.Memory }.Validate(Root, development: false, approving: true).Should().BeOfType<MemoryStorage>();
+        new StorageOptions { Provider = StorageProvider.Memory }.Validate(Root, development: false, approving: true)
+            .Should().BeOfType<MemoryStorage>().Which.StartEngaged.Should().BeTrue("a store that forgets everything is a new store at every restart, and a new store starts engaged");
+    }
+
+    [Theory]
+    [InlineData(true, true, null, false)]
+    [InlineData(false, false, null, false)]
+    [InlineData(false, true, false, false)]
+    [InlineData(true, true, true, true)]
+    public void The_in_memory_stop_starts_engaged_only_outside_development_with_approving_on_unless_it_is_told_otherwise(bool development, bool approving, bool? told, bool startsEngaged)
+    {
+        var settings = new StorageOptions { Provider = StorageProvider.Memory, MemoryStartsEngaged = told }.Validate(Root, development, approving);
+
+        settings.Should().BeOfType<MemoryStorage>().Which.StartEngaged.Should().Be(startsEngaged);
     }
 }

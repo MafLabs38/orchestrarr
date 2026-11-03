@@ -18,10 +18,16 @@ public enum KillSwitchChange
     NotTraced,
 }
 
+/// <summary>The stop as it is read at one moment: whether it is engaged, and whether that is kept (false: held only in memory, or unknown because the file cannot be read).</summary>
+public readonly record struct KillSwitchState(bool Engaged, bool Saved);
+
 /// <summary>The global stop, with the way to change it (SPEC D-43). Engaged, nothing is approved and nothing launches.</summary>
 public interface IKillSwitchControl : IKillSwitch
 {
     bool Engaged { get; }
+
+    /// <summary>Both answers from one read: what the status and the responses of the stop say, so that the pair never comes from two moments.</summary>
+    KillSwitchState State();
 
     /// <summary>False while an engagement is held only in memory because it could not be saved: it would not survive a restart.</summary>
     bool Saved { get; }

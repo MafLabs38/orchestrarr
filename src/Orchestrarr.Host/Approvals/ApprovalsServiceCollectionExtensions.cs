@@ -13,7 +13,7 @@ internal static class ApprovalsServiceCollectionExtensions
     internal const string ApprovingPolicy = "approving";
 
     // Whose turn it is: the person who signed in, else where the request comes from
-    private static string PartitionOf(HttpContext context) =>
+    internal static string PartitionOf(HttpContext context) =>
         context.RequestServices.GetRequiredService<IApproverAccessor>().Current(context)?.Subject ?? context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 
     /// <summary>
@@ -72,7 +72,13 @@ internal static class ApprovalsServiceCollectionExtensions
         {
             var store = new InMemoryApprovalStore(options.QueueCapacity ?? StoreLimits.MemoryQueue);
             var auditLog = new InMemoryAuditLog(options.AuditCapacity ?? StoreLimits.MemoryAudit);
-            var killSwitch = new InMemoryKillSwitch(auditLog);
+            var startEngaged = storage is MemoryStorage { StartEngaged: true };
+            var killSwitch = new InMemoryKillSwitch(auditLog, startEngaged);
+            if (startEngaged)
+            {
+                // A new store, as far as anyone can tell: the stop starts engaged, and the trail says why
+                auditLog.TryRecordAsync(new AuditEntry(TimeProvider.System.GetUtcNow(), AuditEvents.InstanceCreated, AuditEvents.System, null, "the store was created in memory: the global stop starts engaged"), CancellationToken.None).AsTask().GetAwaiter().GetResult();
+            }
             services
                 .AddSingleton<IApprovalStore>(store)
                 .AddSingleton<IApprovalLedger>(provider => new InMemoryApprovalLedger(store, provider.GetRequiredService<IAuditSink>(), provider.GetRequiredService<IKillSwitchControl>()))

@@ -11,7 +11,7 @@ function whyNoButton(approvals: ApprovalStatus): string {
   return translate(approvals.enabled ? 'KillSwitchOperatorsOnly' : 'KillSwitchNoOperator');
 }
 
-const refusals = {
+const releaseFailureKeys = {
   killSwitchUnavailable: 'KillSwitchCannotBeReleased',
   auditUnavailable: 'KillSwitchCannotBeTraced',
 } as const;
@@ -20,7 +20,9 @@ const refusals = {
 function failureText(error: unknown): string {
   const code = error instanceof ApiRefusal ? error.code : null;
   return translate(
-    code !== null && Object.hasOwn(refusals, code) ? refusals[code as keyof typeof refusals] : 'KillSwitchFailed',
+    code !== null && Object.hasOwn(releaseFailureKeys, code)
+      ? releaseFailureKeys[code as keyof typeof releaseFailureKeys]
+      : 'KillSwitchFailed',
   );
 }
 

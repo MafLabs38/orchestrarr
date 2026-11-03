@@ -26,14 +26,25 @@ public sealed class SqliteKillSwitch(SqliteDatabase database, int auditCapacity,
     // Whether the last read failed, so that a broken file is logged once and not on every poll of the status
     private volatile bool _unreadable;
 
-    public bool Engaged => _engaging > 0 || _held || ReadEngaged();
+    public bool Engaged => Volatile.Read(ref _engaging) > 0 || _held || ReadEngaged();
 
     // An unreadable file is not saved either: the stop counts as engaged, and the state is unknown
+    public KillSwitchState State()
+    {
+        // One read of the file for both answers
+        if (Volatile.Read(ref _engaging) > 0 || _held)
+        {
+            return new KillSwitchState(Engaged: true, Saved: false);
+        }
+        var engaged = ReadEngaged();
+        return new KillSwitchState(engaged, Saved: !_unreadable);
+    }
+
     public bool Saved
     {
         get
         {
-            if (_engaging > 0 || _held)
+            if (Volatile.Read(ref _engaging) > 0 || _held)
             {
                 return false;
             }
@@ -104,8 +115,9 @@ public sealed class SqliteKillSwitch(SqliteDatabase database, int auditCapacity,
             }
             return change;
         }
-        catch (Exception failure) when (SqliteDatabase.IsUnavailable(failure))
+        catch (Exception failure) when (SqliteDatabase.IsUnavailable(failure) || engaged)
         {
+            // Engaging takes effect whatever went wrong: any failure of the write holds it in memory
             _logger.LogError(failure, "The state of the global stop cannot be saved");
             if (!engaged)
             {

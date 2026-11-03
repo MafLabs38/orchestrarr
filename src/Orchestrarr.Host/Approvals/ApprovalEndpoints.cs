@@ -47,7 +47,7 @@ internal static class ApprovalEndpoints
         api.MapGet("/activity", (IAuditLog audit, int? limit) => WhenReadable(() =>
             Results.Ok(audit.Page(PageSize(limit)).Select(row => new ActivityDto(row.Id, row.Entry.At, row.Entry.Event, row.Entry.Subject, row.Entry.OrderId, row.Entry.Detail)).ToList())));
 
-        api.MapGet("/safety", (IKillSwitchControl killSwitch) => Results.Ok(new SafetyDto(killSwitch.Engaged, killSwitch.Saved)));
+        api.MapGet("/safety", (IKillSwitchControl killSwitch) => Results.Ok(SafetyOf(killSwitch)));
 
         // Engaging must work even when the trail cannot be written; a release needs to be saved and traced (the stop does both in one write).
         api.MapPut("/safety/kill-switch", async (KillSwitchRequest request, HttpContext context, IApproverAccessor accessor, IKillSwitchControl killSwitch, TimeProvider time, CancellationToken ct) =>
@@ -68,7 +68,7 @@ internal static class ApprovalEndpoints
                 // The release could not be saved, or traced: the stop stays engaged, and nothing says it was released
                 KillSwitchChange.NotSaved => Error(ApiErrors.KillSwitchUnavailable, StatusCodes.Status503ServiceUnavailable),
                 KillSwitchChange.NotTraced => Error(ApiErrors.AuditUnavailable, StatusCodes.Status503ServiceUnavailable),
-                _ => Results.Ok(new SafetyDto(killSwitch.Engaged, killSwitch.Saved)),
+                _ => Results.Ok(SafetyOf(killSwitch)),
             };
         });
     }
@@ -89,10 +89,18 @@ internal static class ApprovalEndpoints
     // The newest ones: a trail in a file can hold hundreds of thousands, and the screens poll
     private static int PageSize(int? limit) => Math.Clamp(limit ?? DefaultPageSize, 1, MaxPageSize);
 
+    // One read of the stop for both answers
+    private static SafetyDto SafetyOf(IKillSwitchControl killSwitch)
+    {
+        var state = killSwitch.State();
+        return new SafetyDto(state.Engaged, state.Saved);
+    }
+
     public static ApprovalStatus StatusOf(IApproverAccessor accessor, HttpContext context, IKillSwitchControl killSwitch)
     {
         var approver = accessor.Current(context);
-        return new(accessor.Mode.ToString().ToLowerInvariant(), accessor.Mode != ApprovalsMode.Disabled, approver?.Subject, accessor.DisplayName(context), approver is { IsPerson: true, IsOperator: true }, killSwitch.Engaged, killSwitch.Saved);
+        var state = killSwitch.State();
+        return new(accessor.Mode.ToString().ToLowerInvariant(), accessor.Mode != ApprovalsMode.Disabled, approver?.Subject, accessor.DisplayName(context), approver is { IsPerson: true, IsOperator: true }, state.Engaged, state.Saved);
     }
 
     // Who may call the two routes that record something: approving turned on, a local request (the sandbox operator only), somebody signed in.

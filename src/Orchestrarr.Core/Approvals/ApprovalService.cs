@@ -22,6 +22,7 @@ public sealed class ApprovalService(
     private static readonly StepKind[] Supported = [StepKind.Validate, StepKind.MergePullRequests];
 
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly RefusalTraceThrottle _refusals = new(time);
 
     public async Task<ApprovalResult> ApproveAsync(
         Approver approver,
@@ -178,56 +179,19 @@ public sealed class ApprovalService(
 
     public void Dispose() => _gate.Dispose();
 
-    // The same person refused for the same reason is traced once in a while, not at every try: a loop of refusals must not use up the share of the
-    // trail that is kept for them, and what matters (who, what for, that it went on) is in the first entry.
-    private static readonly TimeSpan RefusalTraceWindow = TimeSpan.FromMinutes(10);
-    private const int RefusalTraceMemory = 1024;
-    private readonly Lock _refusalLock = new();
-    private readonly Dictionary<(string Subject, ApprovalRefusal Refusal), DateTimeOffset> _lastRefusalTrace = [];
-
-    private bool WasTracedRecently(string subject, ApprovalRefusal refusal)
-    {
-        var now = time.GetUtcNow();
-        lock (_refusalLock)
-        {
-            return _lastRefusalTrace.TryGetValue((subject, refusal), out var last) && now - last < RefusalTraceWindow;
-        }
-    }
-
-    // Remembered only once the trace is written: a refusal that could not be traced is traced the next time it comes
-    private void RememberTraced(string subject, ApprovalRefusal refusal)
-    {
-        var now = time.GetUtcNow();
-        lock (_refusalLock)
-        {
-            if (_lastRefusalTrace.Count >= RefusalTraceMemory)
-            {
-                // Bounded: what is old enough to be traced again is forgotten. When nothing is, this one is simply not remembered, and traced again.
-                foreach (var key in _lastRefusalTrace.Where(entry => now - entry.Value >= RefusalTraceWindow).Select(entry => entry.Key).ToList())
-                {
-                    _lastRefusalTrace.Remove(key);
-                }
-            }
-            if (_lastRefusalTrace.Count < RefusalTraceMemory)
-            {
-                _lastRefusalTrace[(subject, refusal)] = now;
-            }
-        }
-    }
-
     private async Task RecordRefusalAsync(Approver approver, string workItemId, ApprovalRefusal refusal, CancellationToken cancellationToken)
     {
         // A refusal is worth a trace, but it does not depend on one: it already fails closed. The work item id comes from the client, so
         // it is recorded only if it has the shape of one.
         var subject = OrderValidation.IsValidSubject(approver.Subject) ? approver.Subject : AuditEvents.Unverified;
-        if (WasTracedRecently(subject, refusal))
+        if (!_refusals.TryClaim(subject, refusal))
         {
             return;
         }
         var detail = OrderValidation.IsValidWorkItem(workItemId) ? $"{refusal} {workItemId}" : refusal.ToString();
-        if (await audit.TryRecordAsync(new AuditEntry(time.GetUtcNow(), AuditEvents.ApprovalRefused, subject, null, detail), cancellationToken))
+        if (!await audit.TryRecordAsync(new AuditEntry(time.GetUtcNow(), AuditEvents.ApprovalRefused, subject, null, detail), cancellationToken))
         {
-            RememberTraced(subject, refusal);
+            _refusals.Release(subject, refusal);
         }
     }
 }

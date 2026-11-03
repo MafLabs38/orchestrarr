@@ -105,6 +105,7 @@ public sealed class ForgeApiFactory : WebApplicationFactory<Program>
         builder.UseSetting(FleetSourceFactory.SampleFileKey, Path.Combine(AppContext.BaseDirectory, "portarr-maintenance.sample.json"));
         // Nobody keeps what a test approves: the sandbox's memory, unless a test asks for a file
         builder.UseSetting("Storage:Provider", "Memory");
+        builder.UseSetting("Storage:MemoryStartsEngaged", "false");
         foreach (var (key, value) in Settings)
         {
             builder.UseSetting(key, value);

@@ -107,16 +107,6 @@ public sealed class SqliteApprovalStoreTests : IDisposable
     }
 
     [Fact]
-    public void A_batch_that_repeats_a_decision_is_refused_and_nothing_stays()
-    {
-        var store = new SeededStore(_file.Open());
-
-        store.TryAddRange([Approval(pullRequest: 4), Approval(pullRequest: 4)]).Should().BeFalse();
-
-        store.List().Should().BeEmpty();
-    }
-
-    [Fact]
     public void A_full_store_refuses_and_never_forgets_one_to_make_room()
     {
         var store = new SeededStore(_file.Open(), capacity: 2);

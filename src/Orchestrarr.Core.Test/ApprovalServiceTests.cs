@@ -641,9 +641,11 @@ public sealed class ApprovalServiceTests
     [Fact]
     public void The_approval_store_only_reads_so_that_nothing_is_approved_without_its_trace()
     {
-        var read = typeof(IApprovalStore).GetMethods().Select(method => method.Name).Order(StringComparer.Ordinal);
+        var writes = typeof(IApprovalStore).GetMethods()
+            .Where(method => method.Name != nameof(IApprovalStore.Contains) && method.GetParameters().Any(parameter => parameter.ParameterType.IsAssignableTo(typeof(IEnumerable<Approval>)) || parameter.ParameterType == typeof(Approval)))
+            .Select(method => method.Name);
 
-        read.Should().Equal("Contains", "List", "get_Free");
+        writes.Should().BeEmpty("approvals are written through IApprovalLedger only, with their trace: a method of the store that takes approvals is a write door");
     }
 
     [Fact]

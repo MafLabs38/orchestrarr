@@ -253,6 +253,16 @@ public sealed class StorageApiTests : IDisposable
         (await Json(await client.GetAsync("/api/v1/activity", Ct))).EnumerateArray().Should().HaveCount(3, "the third attempt left nothing in the trail: two entries for the first two, one for the stop");
     }
 
+    [Fact]
+    public async Task An_in_memory_store_outside_development_starts_with_the_stop_engaged_and_says_why()
+    {
+        using var factory = new ForgeApiFactory { EnvironmentName = "Testing", Settings = new Dictionary<string, string?> { ["Storage:MemoryStartsEngaged"] = "true" } };
+        var client = factory.CreateClient();
+
+        (await Json(await client.GetAsync("/api/v1/safety", Ct))).GetProperty("killSwitchEngaged").GetBoolean().Should().BeTrue();
+        (await Json(await client.GetAsync("/api/v1/activity", Ct))).EnumerateArray().Select(entry => entry.GetProperty("event").GetString()).Should().ContainSingle().Which.Should().Be("instance.created");
+    }
+
     private Dictionary<string, string?> SqliteSettings() => new() { ["Storage:Provider"] = "Sqlite", ["Storage:Path"] = DatabasePath };
 
     private sealed class HeldInMemory : IKillSwitchControl
@@ -262,6 +272,8 @@ public sealed class StorageApiTests : IDisposable
         public bool Engaged => _engaged;
 
         public bool Saved => !_engaged;
+
+        public KillSwitchState State() => new(_engaged, Saved);
 
         public ValueTask<bool> IsEngagedAsync(CancellationToken cancellationToken) => ValueTask.FromResult(_engaged);
 

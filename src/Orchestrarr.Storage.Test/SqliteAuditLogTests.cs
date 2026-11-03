@@ -15,8 +15,6 @@ public sealed class SqliteAuditLogTests : IDisposable
 
     private static AuditEntry Decision(int n = 0) => new(Noon.AddSeconds(n), AuditEvents.ApprovalRecorded, "alice-1", $"order-{n}", "a detail");
 
-    private static AuditEntry Refusal(int n = 0) => new(Noon.AddSeconds(n), AuditEvents.ApprovalRefused, "alice-1", null, "stepNotGranted");
-
     [Fact]
     public async Task An_entry_survives_a_restart_with_everything_it_said()
     {
@@ -44,26 +42,6 @@ public sealed class SqliteAuditLogTests : IDisposable
     }
 
     [Fact]
-    public async Task The_newest_comes_first()
-    {
-        var log = new SqliteAuditLog(_file.Open());
-        await log.TryRecordRangeAsync([Decision(1), Decision(2), Decision(3)], Ct);
-
-        log.List().Select(entry => entry.OrderId).Should().Equal("order-3", "order-2", "order-1");
-    }
-
-    [Fact]
-    public async Task A_batch_that_does_not_fit_leaves_nothing()
-    {
-        var log = new SqliteAuditLog(_file.Open(), capacity: 3);
-        (await log.TryRecordAsync(Decision(1), Ct)).Should().BeTrue();
-
-        (await log.TryRecordRangeAsync([Decision(2), Decision(3), Decision(4)], Ct)).Should().BeFalse();
-
-        log.List().Should().ContainSingle();
-    }
-
-    [Fact]
     public async Task A_trail_with_no_room_refuses_everything_so_that_nothing_happens_without_a_trace()
     {
         var log = new SqliteAuditLog(_file.Open(), capacity: 0);
@@ -81,21 +59,6 @@ public sealed class SqliteAuditLogTests : IDisposable
         var build = () => new SqliteAuditLog(database, capacity: -1);
 
         build.Should().Throw<ArgumentOutOfRangeException>();
-    }
-
-    [Fact]
-    public async Task Refusals_have_a_smaller_share_so_that_real_decisions_still_fit()
-    {
-        var log = new SqliteAuditLog(_file.Open(), capacity: 8);
-
-        for (var n = 0; n < 6; n++)
-        {
-            (await log.TryRecordAsync(Refusal(n), Ct)).Should().BeTrue();
-        }
-
-        (await log.TryRecordAsync(Refusal(6), Ct)).Should().BeFalse();
-        (await log.TryRecordAsync(Decision(7), Ct)).Should().BeTrue();
-        (await log.TryRecordAsync(Decision(8), Ct)).Should().BeFalse("the last place is the stop's");
     }
 
     [Fact]

@@ -1,6 +1,6 @@
 namespace Orchestrarr.Core.Approvals;
 
-/// <summary>A bounded, in-memory store, the sandbox's (ADR 0010): a restart forgets it. the one in the file is the persistent one (ADR 0013).</summary>
+/// <summary>A bounded, in-memory store, the sandbox's (ADR 0010): a restart forgets it. The one in the file is the persistent one (ADR 0013).</summary>
 public sealed class InMemoryApprovalStore(int capacity = InMemoryApprovalStore.DefaultCapacity) : IApprovalStore
 {
     public const int DefaultCapacity = StoreLimits.MemoryQueue;
