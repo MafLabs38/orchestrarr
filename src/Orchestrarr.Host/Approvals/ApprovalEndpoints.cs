@@ -63,7 +63,7 @@ internal static class ApprovalEndpoints
 
             killSwitch.Set(request.Engaged);
             await audit.TryRecordAsync(
-                new AuditEntry(time.GetUtcNow(), request.Engaged ? ApprovalAuditEvents.KillSwitchEngaged : ApprovalAuditEvents.KillSwitchReleased, approver.Subject, null, null), ct);
+                new AuditEntry(time.GetUtcNow(), request.Engaged ? AuditEvents.KillSwitchEngaged : AuditEvents.KillSwitchReleased, approver.Subject, null, null), ct);
             return Results.Ok(new SafetyDto(killSwitch.Engaged));
         });
     }

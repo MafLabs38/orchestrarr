@@ -5,7 +5,7 @@ public sealed class InMemoryApprovalStore(int capacity = InMemoryApprovalStore.D
 {
     public const int DefaultCapacity = 500;
 
-    private readonly int _capacity = int.IsPositive(capacity) ? capacity : throw new ArgumentOutOfRangeException(nameof(capacity), "The capacity must be greater than zero.");
+    private readonly int _capacity = capacity > 0 ? capacity : throw new ArgumentOutOfRangeException(nameof(capacity), "The capacity must be greater than zero.");
     private readonly object _lock = new();
     private readonly List<Approval> _approvals = [];
 

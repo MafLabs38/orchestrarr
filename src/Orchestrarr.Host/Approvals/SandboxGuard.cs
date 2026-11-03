@@ -61,7 +61,13 @@ internal static class SandboxGuard
         if (authority.StartsWith('['))
         {
             var close = authority.IndexOf(']', StringComparison.Ordinal);
-            return close < 0 || !IsPort(authority[(close + 1)..]) ? null : authority[1..close];
+            if (close < 0 || !IsPort(authority[(close + 1)..]))
+            {
+                return null;
+            }
+            // Brackets are for an IPv6 address only: Kestrel keeps them around a name or an IPv4 address, and then binds every interface
+            var inner = authority[1..close];
+            return IPAddress.TryParse(inner, out var ip) && ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 ? inner : null;
         }
         var colons = authority.Count(character => character == ':');
         return colons switch

@@ -152,7 +152,7 @@ public sealed class ApprovalService(
             }
 
             // The trace first, all of it or none: no trace, no approval. The room of the queue was checked, so what is traced is what is stored.
-            var entries = fresh.Select(approval => new AuditEntry(approval.ApprovedAt, ApprovalAuditEvents.Recorded, approval.ApproverSubject, approval.Id.ToString("D"),
+            var entries = fresh.Select(approval => new AuditEntry(approval.ApprovedAt, AuditEvents.ApprovalRecorded, approval.ApproverSubject, approval.Id.ToString("D"),
                 $"{approval.Repository}#{approval.PullRequest}@{approval.HeadSha} steps={string.Join(',', approval.Steps)}")).ToList();
             if (!await audit.TryRecordRangeAsync(entries, cancellationToken))
             {
@@ -174,6 +174,6 @@ public sealed class ApprovalService(
         // it is recorded only if it has the shape of one.
         var subject = OrderValidation.IsValidSubject(approver.Subject) ? approver.Subject : AuditEvents.Unverified;
         var detail = OrderValidation.IsValidWorkItem(workItemId) ? $"{refusal} {workItemId}" : refusal.ToString();
-        await audit.TryRecordAsync(new AuditEntry(time.GetUtcNow(), ApprovalAuditEvents.Refused, subject, null, detail), cancellationToken);
+        await audit.TryRecordAsync(new AuditEntry(time.GetUtcNow(), AuditEvents.ApprovalRefused, subject, null, detail), cancellationToken);
     }
 }

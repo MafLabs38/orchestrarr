@@ -70,7 +70,10 @@ public static class AuditEvents
     public const string IssueRefused = "order.refused";
     public const string LaunchAccepted = "launch.accepted";
     public const string LaunchRefused = "launch.refused";
+    public const string ApprovalRecorded = "approval.recorded";
     public const string ApprovalRefused = "approval.refused";
+    public const string KillSwitchEngaged = "killswitch.engaged";
+    public const string KillSwitchReleased = "killswitch.released";
 
     /// <summary>Who the trail names when the order or the approver could not be verified: what an unverified party claims is never written.</summary>
     public const string Unverified = "unverified";

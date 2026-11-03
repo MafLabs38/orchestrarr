@@ -21,7 +21,7 @@ public sealed class PowersOptions
         {
             var repository = grant.Repository?.Trim() ?? string.Empty;
             var wildcard = repository == PowerGrant.Wildcard;
-            if (!wildcard && !PowerGrant.IsRepositoryName(repository))
+            if (!wildcard && !Orchestrarr.Core.Launch.OrderValidation.IsRepositoryName(repository))
             {
                 throw new InvalidOperationException($"Powers:Grants: '{repository}' is neither owner/name nor {PowerGrant.Wildcard}.");
             }

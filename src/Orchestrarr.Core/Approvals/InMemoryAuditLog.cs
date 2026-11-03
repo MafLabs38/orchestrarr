@@ -11,11 +11,11 @@ public sealed class InMemoryAuditLog(int capacity = InMemoryAuditLog.DefaultCapa
 {
     public const int DefaultCapacity = 2000;
 
-    private readonly int _capacity = int.IsNegative(capacity) ? throw new ArgumentOutOfRangeException(nameof(capacity), "The capacity cannot be negative.") : capacity;
     /// <summary>The share of the trail that refusals may use, in quarters.</summary>
     private const int RefusalQuarters = 3;
 
-    private readonly int _refusalLimit = capacity * RefusalQuarters / 4;
+    private readonly int _capacity = int.IsNegative(capacity) ? throw new ArgumentOutOfRangeException(nameof(capacity), "The capacity cannot be negative.") : capacity;
+    private readonly int _refusalLimit = (int)(capacity * (long)RefusalQuarters / 4);
     private readonly object _lock = new();
     private readonly List<AuditEntry> _entries = [];
 

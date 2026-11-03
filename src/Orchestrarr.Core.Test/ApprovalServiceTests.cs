@@ -142,7 +142,7 @@ public sealed class ApprovalServiceTests
         results.Count(r => r.Recorded).Should().Be(1);
         results.Where(r => !r.Recorded).Should().OnlyContain(r => r.Refusal == ApprovalRefusal.AlreadyApproved);
         _store.List().Should().HaveCount(2);
-        _audit.List().Count(e => e.Event == ApprovalAuditEvents.Recorded).Should().Be(2);
+        _audit.List().Count(e => e.Event == AuditEvents.ApprovalRecorded).Should().Be(2);
     }
 
     // --- what the operator saw
@@ -176,7 +176,7 @@ public sealed class ApprovalServiceTests
         var result = await Approve(service, seen: [new SeenPullRequest(1, HeadA), new SeenPullRequest(1, HeadA)]);
 
         result.Refusal.Should().Be(ApprovalRefusal.PlanChanged);
-        _audit.List().Should().NotContain(e => e.Event == ApprovalAuditEvents.Recorded);
+        _audit.List().Should().NotContain(e => e.Event == AuditEvents.ApprovalRecorded);
     }
 
     [Fact]
@@ -240,7 +240,7 @@ public sealed class ApprovalServiceTests
 
         result.Refusal.Should().Be(ApprovalRefusal.KillSwitchEngaged);
         _store.List().Should().BeEmpty();
-        _audit.List().Should().NotContain(e => e.Event == ApprovalAuditEvents.Recorded);
+        _audit.List().Should().NotContain(e => e.Event == AuditEvents.ApprovalRecorded);
     }
 
     [Fact]
@@ -352,10 +352,10 @@ public sealed class ApprovalServiceTests
         await Approve(service, steps: []);
 
         var entries = _audit.List().Reverse().ToList();
-        entries[0].Event.Should().Be(ApprovalAuditEvents.Recorded);
+        entries[0].Event.Should().Be(AuditEvents.ApprovalRecorded);
         entries[0].Subject.Should().Be("alice");
         entries[0].Detail.Should().Contain("example/app#1").And.Contain(HeadA).And.Contain("Validate");
-        entries[1].Event.Should().Be(ApprovalAuditEvents.Refused);
+        entries[1].Event.Should().Be(AuditEvents.ApprovalRefused);
         entries[1].Detail.Should().StartWith(nameof(ApprovalRefusal.NothingTicked));
     }
 
@@ -388,6 +388,26 @@ public sealed class ApprovalServiceTests
         _store.List().Should().BeEmpty();
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void A_queue_and_a_trail_cannot_be_built_with_no_room_or_less(int capacity)
+    {
+        var queue = () => new InMemoryApprovalStore(capacity);
+        var trail = () => new InMemoryAuditLog(-1);
+
+        queue.Should().Throw<ArgumentOutOfRangeException>();
+        trail.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public async Task A_huge_capacity_does_not_overflow_the_share_of_the_refusals()
+    {
+        var log = new InMemoryAuditLog(int.MaxValue);
+
+        (await log.TryRecordAsync(new AuditEntry(Now, AuditEvents.ApprovalRefused, "x", null, null), TestContext.Current.CancellationToken)).Should().BeTrue();
+    }
+
     [Fact]
     public async Task The_trail_takes_a_batch_whole_or_not_at_all_and_knows_the_refusals_by_name()
     {
@@ -398,10 +418,10 @@ public sealed class ApprovalServiceTests
         (await log.TryRecordRangeAsync([Entry("a"), Entry("b"), Entry("c")], token)).Should().BeTrue();
         (await log.TryRecordRangeAsync([Entry("d"), Entry("e")], token)).Should().BeFalse();
         log.List().Should().HaveCount(3);
-        AuditEvents.IsRefusal(ApprovalAuditEvents.Refused).Should().BeTrue();
+        AuditEvents.IsRefusal(AuditEvents.ApprovalRefused).Should().BeTrue();
         AuditEvents.IsRefusal(AuditEvents.IssueRefused).Should().BeTrue();
         AuditEvents.IsRefusal(AuditEvents.LaunchRefused).Should().BeTrue();
-        AuditEvents.IsRefusal(ApprovalAuditEvents.Recorded).Should().BeFalse();
+        AuditEvents.IsRefusal(AuditEvents.ApprovalRecorded).Should().BeFalse();
     }
 
     [Fact]
@@ -414,7 +434,7 @@ public sealed class ApprovalServiceTests
 
         result.Refusal.Should().Be(ApprovalRefusal.StoreFull);
         small.List().Should().BeEmpty();
-        _audit.List().Should().NotContain(e => e.Event == ApprovalAuditEvents.Recorded);
+        _audit.List().Should().NotContain(e => e.Event == AuditEvents.ApprovalRecorded);
     }
 
     [Fact]
@@ -450,12 +470,12 @@ public sealed class ApprovalServiceTests
         var token = TestContext.Current.CancellationToken;
         for (var i = 0; i < 20; i++)
         {
-            await log.TryRecordAsync(new AuditEntry(Now, ApprovalAuditEvents.Refused, "x", null, null), token);
+            await log.TryRecordAsync(new AuditEntry(Now, AuditEvents.ApprovalRefused, "x", null, null), token);
         }
 
         log.List().Should().HaveCount(6);
-        (await log.TryRecordAsync(new AuditEntry(Now, ApprovalAuditEvents.Recorded, "alice", null, null), token)).Should().BeTrue();
-        (await log.TryRecordAsync(new AuditEntry(Now, ApprovalAuditEvents.KillSwitchEngaged, "alice", null, null), token)).Should().BeTrue();
+        (await log.TryRecordAsync(new AuditEntry(Now, AuditEvents.ApprovalRecorded, "alice", null, null), token)).Should().BeTrue();
+        (await log.TryRecordAsync(new AuditEntry(Now, AuditEvents.KillSwitchEngaged, "alice", null, null), token)).Should().BeTrue();
     }
 
     // --- the powers

@@ -4,5 +4,6 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Orchestrarr.Core.Test" />
+    <InternalsVisibleTo Include="Orchestrarr" />
   </ItemGroup>
 </Project>

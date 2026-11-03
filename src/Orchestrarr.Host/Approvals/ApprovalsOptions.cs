@@ -22,7 +22,7 @@ public sealed class ApprovalsOptions
         {
             throw new InvalidOperationException("Approvals:QueueCapacity and Approvals:AuditCapacity must be greater than zero.");
         }
-        if (Mode == ApprovalsMode.Development && !Orchestrarr.Core.Launch.Approver.IsValidSubject(DevelopmentUser))
+        if (Mode == ApprovalsMode.Development && !Orchestrarr.Core.Launch.OrderValidation.IsValidSubject(DevelopmentUser))
         {
             throw new InvalidOperationException("Approvals:DevelopmentUser is not a valid name (letters, digits and . _ - @ : +).");
         }

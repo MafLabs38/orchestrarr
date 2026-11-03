@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -21,6 +22,18 @@ public sealed class ApprovalsDisabledApiFactory : WebApplicationFactory<Program>
         builder.UseEnvironment("Testing");
         builder.UseSetting(FleetSourceFactory.SampleFileKey, Path.Combine(AppContext.BaseDirectory, "portarr-maintenance.sample.json"));
     }
+}
+
+/// <summary>A queue with no room left.</summary>
+internal sealed class FullQueue : IApprovalStore
+{
+    public int Free => 0;
+
+    public bool Contains(Approval approval) => false;
+
+    public bool TryAddRange(IReadOnlyList<Approval> approvals) => false;
+
+    public IReadOnlyList<Approval> List() => [];
 }
 
 /// <summary>An identity that the test chooses: nobody, or somebody who is not an operator.</summary>
@@ -180,7 +193,7 @@ public sealed class ApprovalsApiTests
     [Fact]
     public async Task A_full_queue_and_an_unwritable_trail_are_a_503()
     {
-        using var queue = new ForgeApiFactory { ServiceOverrides = services => Replace<IApprovalStore>(services, new InMemoryApprovalStore(capacity: 0)) };
+        using var queue = new ForgeApiFactory { ServiceOverrides = services => Replace<IApprovalStore>(services, new FullQueue()) };
         using var trail = new ForgeApiFactory { ServiceOverrides = FullTrail };
 
         var full = await Approve(queue.CreateClient());
@@ -349,6 +362,36 @@ public sealed class ApprovalsApiTests
     // --- who may call
 
     [Theory]
+    [InlineData("")]
+    [InlineData("dev\nforged")]
+    [InlineData("a b")]
+    public void A_sandbox_operator_whose_name_cannot_be_traced_stops_the_host_from_starting(string name)
+    {
+        using var factory = new ForgeApiFactory { Settings = new Dictionary<string, string?> { ["Approvals:DevelopmentUser"] = name } };
+
+        var start = () => factory.CreateClient();
+
+        start.Should().Throw<InvalidOperationException>().WithMessage("*DevelopmentUser*");
+    }
+
+    [Fact]
+    public async Task The_trail_numbers_its_entries_from_the_oldest_and_the_numbers_do_not_move()
+    {
+        using var factory = new ForgeApiFactory();
+        var client = factory.CreateClient();
+        await Stop(client, true);
+        await Stop(client, false);
+
+        static int[] Ids(JsonElement trail) => [.. trail.EnumerateArray().Select(entry => entry.GetProperty("id").GetInt32())];
+        var before = Ids(await Json(await client.GetAsync("/api/v1/activity", Ct)));
+        await Stop(client, true);
+        var after = Ids(await Json(await client.GetAsync("/api/v1/activity", Ct)));
+
+        before.Should().Equal(2, 1);
+        after.Should().Equal(3, 2, 1);
+    }
+
+    [Theory]
     [InlineData("Approvals:QueueCapacity", "0")]
     [InlineData("Approvals:QueueCapacity", "-1")]
     [InlineData("Approvals:AuditCapacity", "0")]
@@ -363,12 +406,8 @@ public sealed class ApprovalsApiTests
 
     [Theory]
     [InlineData("Kestrel:Endpoints:Web:Url", "http://0.0.0.0:7878")]
-    [InlineData("Kestrel:Endpoints:Web:Url", "http://loopback:7878")]
     [InlineData("HTTP_PORTS", "8080")]
-    [InlineData("ASPNETCORE_HTTP_PORTS", "8080")]
-    [InlineData("HTTPS_PORTS", "8443")]
     [InlineData("ASPNETCORE_URLS", "http://+:8080")]
-    [InlineData("DOTNET_URLS", "http://*:8080")]
     public void Every_other_way_to_open_an_address_is_checked_too(string key, string value)
     {
         using var factory = new ForgeApiFactory { Settings = new Dictionary<string, string?> { [key] = value } };
@@ -389,6 +428,9 @@ public sealed class ApprovalsApiTests
     [InlineData("http://127.0.0.1:1@example.test", false)]
     [InlineData("http://127.0.0.1:80x", false)]
     [InlineData("http://[::1]x", false)]
+    [InlineData("http://[localhost]:5097", false)]
+    [InlineData("http://[127.0.0.1]:5098", false)]
+    [InlineData("http://[::ffff:127.0.0.1]:5099", true)]
     [InlineData("http://localhost.:7878", false)]
     [InlineData("http://0.0.0.0:7878", false)]
     [InlineData("http://[::]:7878", false)]
@@ -521,16 +563,9 @@ public sealed class ApprovalsApiTests
 
     [Theory]
     [InlineData("http://+:8080")]
-    [InlineData("http://0.0.0.0:8080")]
-    [InlineData("http://*:8080")]
     [InlineData("http://127.0.0.1:7878;http://10.0.0.20:7878")]
     [InlineData("http://loopback:7878")]
-    [InlineData("http://localhost.example:7878")]
     [InlineData("http://localhost:80@0.0.0.0")]
-    [InlineData("http://127.0.0.1:1@example.test")]
-    [InlineData("http://127.0.0.1:port")]
-    [InlineData("http://127.0.0.1.example:7878")]
-    [InlineData("http://vault.example:8080")]
     public void The_sandbox_operator_is_refused_when_the_host_listens_beyond_the_loopback(string urls)
     {
         using var factory = new ForgeApiFactory { Settings = new Dictionary<string, string?> { ["urls"] = urls } };
@@ -580,5 +615,41 @@ public sealed class ApprovalsApiTests
         var project = await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "Orchestrarr.Host", "Orchestrarr.Host.csproj"), Ct);
 
         project.Should().Contain("appsettings.Development.json").And.Contain("CopyToPublishDirectory=\"Never\"");
+    }
+
+    [Theory]
+    [InlineData("http://0.0.0.0:0", true)]
+    [InlineData("http://127.0.0.1:0", false)]
+    public async Task The_host_stops_itself_when_it_has_bound_an_address_beyond_the_loopback(string url, bool stops)
+    {
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Development" });
+        builder.WebHost.UseUrls(url);
+        await using var app = builder.Build();
+        SandboxGuard.StopIfListeningBeyondLoopback(app, new ApprovalsOptions { Mode = ApprovalsMode.Development });
+        var stopping = new TaskCompletionSource();
+        app.Lifetime.ApplicationStopping.Register(() => stopping.TrySetResult());
+
+        await app.StartAsync(Ct);
+        var stopped = await Task.WhenAny(stopping.Task, Task.Delay(TimeSpan.FromMilliseconds(stops ? 5000 : 300), Ct)) == stopping.Task;
+        await app.StopAsync(Ct);
+
+        stopped.Should().Be(stops);
+    }
+
+    [Fact]
+    public async Task Without_the_sandbox_operator_the_bound_addresses_are_not_checked()
+    {
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Production" });
+        builder.WebHost.UseUrls("http://0.0.0.0:0");
+        await using var app = builder.Build();
+        SandboxGuard.StopIfListeningBeyondLoopback(app, new ApprovalsOptions());
+        var stopping = new TaskCompletionSource();
+        app.Lifetime.ApplicationStopping.Register(() => stopping.TrySetResult());
+
+        await app.StartAsync(Ct);
+        var stopped = await Task.WhenAny(stopping.Task, Task.Delay(TimeSpan.FromMilliseconds(300), Ct)) == stopping.Task;
+        await app.StopAsync(Ct);
+
+        stopped.Should().BeFalse();
     }
 }

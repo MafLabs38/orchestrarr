@@ -5,9 +5,6 @@ public sealed record PowerGrant(string Repository, IReadOnlyList<StepKind> Steps
 {
     /// <summary>The repository of a grant that covers every repository.</summary>
     public const string Wildcard = "*";
-
-    /// <summary>Whether this is a repository name, <c>owner/name</c>, in the shape that an order accepts.</summary>
-    public static bool IsRepositoryName(string value) => Launch.OrderValidation.IsRepositoryName(value);
 }
 
 /// <summary>
