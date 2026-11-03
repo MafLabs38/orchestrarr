@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using Orchestrarr.Core.Fleet;
+using Orchestrarr.Core.Forge;
 using Orchestrarr.Core.WorkItems;
 using static Orchestrarr.Core.Test.FleetBuilders;
 
@@ -19,7 +20,7 @@ public sealed class WorkItemCatalogTests
     {
         _source.Kind.Returns("test");
         _source.ReadAsync(Arg.Any<CancellationToken>()).Returns(_ => Task.FromResult(Snapshot([Repository(pullRequests: 1)])));
-        _catalog = new WorkItemCatalog(_source, new NoPowers(), _time, Options, NullLogger<WorkItemCatalog>.Instance);
+        _catalog = new WorkItemCatalog(_source, new NoPullRequestSource(), new NoPowers(), _time, Options, NullLogger<WorkItemCatalog>.Instance);
     }
 
     private static Task<FleetSnapshot> Fail(Exception exception) => Task.FromException<FleetSnapshot>(exception);
@@ -161,6 +162,13 @@ public sealed class WorkItemCatalogTests
     public void An_http_failure_is_classified_by_its_status(HttpStatusCode? status, SourceError expected)
     {
         SourceErrors.From(new HttpRequestException("x", null, status)).Should().Be(expected);
+    }
+
+    [Fact]
+    public void A_rate_limit_is_not_a_refusal_of_the_credentials()
+    {
+        SourceErrors.From(new ForgeRateLimitedException(HttpStatusCode.Forbidden, null)).Should().Be(SourceError.RateLimited);
+        SourceErrors.From(new HttpRequestException("x", null, HttpStatusCode.TooManyRequests)).Should().Be(SourceError.RateLimited);
     }
 
     [Fact]

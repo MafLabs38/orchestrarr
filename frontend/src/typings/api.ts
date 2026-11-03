@@ -57,6 +57,35 @@ export interface Placement {
   workloadName: string;
 }
 
+export type ChecksState = 'unknown' | 'pending' | 'passing' | 'failing';
+
+export type MergeState = 'unknown' | 'clean' | 'unstable' | 'behind' | 'blocked' | 'conflicting' | 'draft';
+
+export type UpdateKind = 'unknown' | 'patch' | 'minor' | 'major';
+
+export interface DependencyChange {
+  package: string;
+  from: string | null;
+  to: string | null;
+  kind: UpdateKind;
+}
+
+export interface PullRequest {
+  number: number;
+  title: string;
+  url: string;
+  author: string;
+  headBranch: string;
+  draft: boolean;
+  checks: ChecksState;
+  merge: MergeState;
+  labels: string[];
+  changes: DependencyChange[];
+  createdAt: string;
+  headSha: string;
+  readyToMerge: boolean;
+}
+
 export interface WorkItem {
   id: string;
   title: string;
@@ -66,9 +95,21 @@ export interface WorkItem {
   findings: Finding[];
   plan: PlanStep[];
   placements: Placement[];
+  pullRequests: PullRequestsRead;
 }
 
-export type SourceError = 'failed' | 'unreachable' | 'unauthorized' | 'timeout' | 'invalidResponse';
+export type PullRequestsStatus = 'notNeeded' | 'notConnected' | 'pending' | 'read' | 'failed';
+
+// The pull requests of a work item and the state of their reading. On a failure the items are the last good read, and stale says so.
+export interface PullRequestsRead {
+  status: PullRequestsStatus;
+  items: PullRequest[];
+  truncated: boolean;
+  error: SourceError | null;
+  stale: boolean;
+}
+
+export type SourceError = 'failed' | 'unreachable' | 'unauthorized' | 'timeout' | 'invalidResponse' | 'rateLimited';
 
 export interface WorkItemReport {
   readAt: string | null;
@@ -82,4 +123,5 @@ export interface SystemStatus {
   name: string;
   version: string;
   source: { kind: string; configured: boolean; readAt: string | null; error: SourceError | null; stale: boolean };
+  forge: { kind: string; configured: boolean };
 }

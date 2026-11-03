@@ -1,0 +1,50 @@
+.row {
+  background: var(--paperCard);
+  border: var(--borderWidth) solid var(--hairline);
+  border-radius: var(--radiusMedium);
+}
+
+.heading {
+  margin: 0;
+  font: inherit;
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  width: 100%;
+  padding: 10px 14px;
+  background: none;
+  border: 0;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.toggle:hover {
+  background: var(--paperWarm);
+}
+
+.title {
+  font: 700 var(--fontSizeBody) var(--monoSpaceFontFamily);
+  word-break: break-all;
+}
+
+.summary {
+  flex: 1;
+  min-width: 12em;
+  color: var(--inkSoft);
+}
+
+.plan {
+  color: var(--inkMuted);
+  font-size: var(--fontSizeMeta);
+  white-space: nowrap;
+}
+
+.body {
+  padding: 0 14px 14px;
+}

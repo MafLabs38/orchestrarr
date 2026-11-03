@@ -25,8 +25,9 @@ public sealed class SourceStatusApiTests
         using var factory = new FailingApiFactory();
         var client = factory.CreateClient();
 
-        var statusText = await client.GetStringAsync("/api/v1/system/status", TestContext.Current.CancellationToken);
+        // The status says what the last read found: it needs one
         var reportText = await client.GetStringAsync("/api/v1/work-items", TestContext.Current.CancellationToken);
+        var statusText = await client.GetStringAsync("/api/v1/system/status", TestContext.Current.CancellationToken);
 
         using var status = JsonDocument.Parse(statusText);
         status.RootElement.GetProperty("source").GetProperty("error").GetString().Should().Be("unreachable");

@@ -1,6 +1,6 @@
 # Orchestrarr — Functional and Technical Specification
 
-> **Status**: draft v0.6. The first vertical (read-only) is built; no power that acts exists yet.
+> **Status**: draft v0.7. The first vertical (read-only) is built; no power that acts exists yet.
 > **Related documents**: [VISION.md](VISION.md) (pitch, safety principles, first interview questions) · [environment-file.md](environment-file.md) (standalone description format) · [adr/](adr/) (architecture decisions)
 > **Last updated**: 2026-11-03
 > **Audience**: the project owner and contributors.
@@ -80,6 +80,9 @@ In practice the operator rarely reads code: they check that the AI did not drift
 | 🟡 D-33 | **On an environment, the agent acts as Claude Code would**: it reads the repository (its documentation, its instructions, its pipeline), understands how that project is operated (infrastructure as code with its own tool, a container, an application on bare metal) and does what the project itself says. No rule per type of project is written into Orchestrarr. **No initiative**: when it doubts, or when the project documents no way to do it, it stops and reports. |
 | 🟡 D-34 | **No container where the agent must act on the infrastructure** (ADR 0004, revision). The safety is: a dedicated operator account per environment with only the rights its projects need; a plan written before acting and recorded; an **explicit approval** for what cannot be undone (destroying, deleting, removing a volume, forcing, applying a plan that destroys); budgets and the kill switch. The disposable workspace stays for repairing code (D-25). |
 | 🟡 D-35 | **A journal per environment**: a work folder in each environment where the agent writes what it planned, ran and found, readable on the spot, and **mirrored as it goes** to Orchestrarr's own audit store, which is the reference (an agent with rights on a machine could alter a local file). |
+| 🟡 D-36 | **Portarr names the repositories with waiting dependency pull requests; Orchestrarr reads their live state from the forge it will act on**, through a provider (GitHub first) with a read-only credential. A forge failure is said on the work item it concerns, never as an empty list. [ADR 0005](adr/0005-pull-requests-are-read-from-the-forge.md). |
+| 🟡 D-37 | **An approval binds to (repository, number, head commit).** The contract carries the head commit, so that a bot that rewrites its branch after the tick is not merged unseen. |
+| 🟡 D-38 | **"Ready to merge" is decided once, in Core** (not a draft, every check passes, the forge says clean) and sent as data. |
 | 🟡 D-39 | **The security of the agent's power is in who can cause a launch, not in limiting what the launched agent can do.** On its environment the agent is omnipotent, on production virtual machines, never on the maintainer's own machine. [ADR 0006](adr/0006-a-launch-is-a-signed-order-and-credentials-are-short-lived.md). |
 | 🟡 D-40 | **Who orders is authenticated by Keycloak** (OpenID Connect): approving needs the operator role; approving a work item that touches production needs a **step-up** (a fresh second factor). |
 | 🟡 D-41 | **A launch is a signed, single-use, time-limited order built by the server** from the plan the operator ticked, checked and executed by a **launcher** that is the only thing able to start an agent. No endpoint accepts a free command or a free prompt; the agent cannot start a run. |
@@ -89,6 +92,7 @@ In practice the operator rarely reads code: they check that the AI did not drift
 | 🟡 D-45 | **One identity per component, with the right to sign split from the right to obey**: the control plane can only sign an order (non-exportable key), the launcher can only verify it and request the credentials it names, the agent run authenticates to nothing. No single compromised component can both sign and execute. |
 | 🟡 D-46 | **The control plane is small and only launches.** The API decides and signs; the **launcher** has no inbound port and **pulls** signed orders from the store; the agent run acts. An attacker cannot call the launcher, and only a signed, unexpired, unused order within the granted powers makes it do anything. |
 | 🟡 D-47 | **Whoever gives an order is authorized twice and is always a person**: the API checks the identity provider's token (operator role, step-up on production) before signing, the launcher checks the signature and the powers again. A service client cannot hold the operator role. |
+| 🟡 D-48 | **The dedicated Vault runs on the production cluster, like every production element**, deployed by the cluster's GitOps repository and configured by its own infrastructure repository. It starts sealed and is unsealed deliberately; the credential issued to a run for the cluster excludes the Vault's namespace. [ADR 0007](adr/0007-a-dedicated-vault-and-a-small-control-plane.md). |
 
 ---
 
@@ -151,6 +155,7 @@ Screens in *arr style: **Queue** (running and waiting), **Decisions** (cards awa
 |---|---|
 | F-INT-01 | Read findings and the environment of each application from Portarr |
 | F-INT-02 | Group findings into work items, rank by severity |
+| F-INT-04 | Read the open dependency pull requests of each repository from the forge (GitHub first): what each updates and how far, whether its checks pass and whether it can be merged. Read-only. A forge that is not connected or fails is said, never shown as an empty list |
 | F-INT-03 | Environment-description provider reading a YAML structure file (standalone mode, D-18) |
 | F-CRD-01 | Decision card with ticked steps and a verdict |
 | F-CRD-02 | Signed, expiring, single-use link to a card (D-12) |
@@ -186,7 +191,7 @@ The principles of [VISION.md §5](VISION.md) apply, as amended by [ADR 0001](adr
 | # | Vertical | Status |
 |---|---|---|
 | 1 | **Intake from Portarr and read-only decision cards** (F-INT-01, F-INT-02, F-CRD-01), before any write power exists | built, reviewed in the sandbox by the four review agents. The *verdict* half of F-CRD-01 and the eligibility of *deploy* (a known check and rollback, D-10) come with later verticals, so deploy is shown as a preview. Reading Portarr every 30 seconds is the interim answer to VISION question 8 (poll or webhook) |
-| 2 | Read the dependency pull requests and the CI of each repository from the forge (Portarr only gives their number) | next, read-only |
+| 2 | **Read the dependency pull requests and their checks from the forge** (F-INT-04); Portarr only gives their number | built, reviewed. Read-only, GitHub; the next vertical validates and merges them |
 | 3 | Validate and merge: needs the agent runtime (Q-07) | blocked on Q-07 |
 | 4 | Deploy, smoke test and roll back (F-RUN-03), with the regression report (F-RUN-04) | after 3 |
 | 5 | Backups and actions on machines: find the backups that fail (F-BKP-01), diagnose and act through a configured connection (F-ENV-01 to F-ENV-03) | **not started**: the maintainer wants the repair vertical to be correct first. Needs Q-16 and Q-17 |
@@ -218,10 +223,12 @@ User interface, deferred: the light theme (its accent text color is ready, nothi
 | 🟡 Q-15 | **Structure file format** for standalone mode. Proposed: a subset of Portarr's catalog plus a `deployment` key ([environment-file.md](environment-file.md), D-20). To confirm when the first vertical reads it. |
 | ❓ Q-16 | **How does Orchestrarr act on a machine?** A connection per machine (SSH, like Ansible), configured, never in a worker. Open: where the key lives, whether commands are free or only declared actions (playbooks run by Orchestrarr's own code), and whether an agent in a container may run commands through that connection (Claude Code in a container with its own narrow credential), or only propose them. Recommendation: diagnosis free but read-only, changes through the declared state (D-32), a free command only per machine and per approval. The maintainer's direction of 2026-11-03: the agent acts as Claude Code would, without a container, with no initiative (D-33 to D-35). |
 | ❓ Q-17 | **What does a backup finding look like?** Which backup tools and which signals (last success too old, never ran, failed run). Portarr already reads the backups of a Backrest instance and reports unprotected data; the question is how much of that is enough to name a cause, and what a repair of each looks like (a configuration, a permission, a full disk, a credential). |
+| ❓ Q-18 | **What is a "dependency pull request"?** Portarr counts Dependabot's; Orchestrarr reads the bots of its configuration (Dependabot and Renovate). Should Portarr count every bot, or expose the list (D-18)? Until then the two numbers can differ and the screens say so (ADR 0005). |
 | ❓ Q-19 | **Where does the agent process run when it acts on an environment?** On the environment itself (the model credential would have to be there, on every machine), or on the workshop, which opens a session on the environment (the long-lived subscription token stays on one machine and is handed to the run only). Recommendation: the second, with the journal on the environment. |
 | ✅ Q-20 | **Vault or a lighter authority?** Resolved: a new Vault dedicated to this purpose, tied to the identity provider, provisioned by its own repository (D-44, ADR 0007). Its issued SSH certificates replace any SSH authority of its own. |
 | ❓ Q-21 | **Who approves production?** One operator with a step-up, or two people for what cannot be undone. |
-| ❓ Q-22 | **Where does the dedicated Vault run, and how is it unsealed?** Recommendation: a small virtual machine of its own, outside the cluster it will help administer, integrated storage, Shamir key shares held by the maintainer (a restart needs a deliberate unseal, which is also the deepest kill switch), snapshots backed up off the host. The alternative, automatic unseal against another Vault, ties the two together. |
+| ✅ Q-22 | **Where does the dedicated Vault run, and how is it unsealed?** Resolved: on the production cluster (D-48), integrated storage, one node, unsealed by hand with key shares the maintainer holds; the unseal never becomes automatic.
+| ❓ Q-23 | **How do clients reach the Vault, and over what?** Today: a plain HTTP listener inside the cluster, reachable only by namespaces that opt in, and a port-forward for people. Open: TLS (a certificate authority in the cluster, or the ingress), and a way in for the launcher when it runs outside the cluster.
 
 ---
 
@@ -241,6 +248,8 @@ User interface, deferred: the light theme (its accent text color is ready, nothi
 | Date | Change |
 |---|---|
 | 2026-11-01 | v0.1: first interview. Decisions D-01 to D-09 and D-14 frozen; D-10 to D-13 proposed. |
+| 2026-11-03 | v0.7: the second vertical: the pull requests read from the forge (D-36 to D-38, ADR 0005), the screens as a list of applications, Q-18 (what a dependency pull request is). |
+| 2026-11-03 | v0.6 (amended): the dedicated Vault runs on the production cluster (D-48, Q-22 resolved, Q-23 opened; ADR 0007). |
 | 2026-11-03 | v0.6 (amended): a new Vault dedicated to this purpose and tied to the identity provider, the small control plane that only launches, the authorization of whoever gives an order (D-44 to D-47, Q-20 resolved, Q-22; ADR 0007). |
 | 2026-11-03 | v0.6 (amended): the structure of security the maintainer asked for: who orders is authenticated (Keycloak), a launch is a signed order checked by a launcher, credentials are short-lived (D-39 to D-43, Q-20, Q-21; ADR 0006). |
 | 2026-11-03 | v0.6 (amended): the maintainer's direction on acting on environments: the agent acts as Claude Code would, no container there, no initiative, a journal per environment (D-33 to D-35, Q-19; ADR 0004 revision). |

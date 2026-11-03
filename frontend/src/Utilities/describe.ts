@@ -1,7 +1,18 @@
-import type { AlertCounts, Finding, PlanStep, SourceError, StepReason } from 'typings/api';
+import type {
+  AlertCounts,
+  ChecksState,
+  Finding,
+  MergeState,
+  PlanStep,
+  PullRequest,
+  SourceError,
+  StepReason,
+  UpdateKind,
+} from 'typings/api';
 
 import translate from './translate';
 
+// The words of the interface for what the server sends as data and codes (SPEC D-22).
 const severities: (keyof AlertCounts)[] = ['critical', 'high', 'medium', 'low'];
 
 const alertWords = {
@@ -87,8 +98,61 @@ const errors = {
   unauthorized: 'ErrorUnauthorized',
   timeout: 'ErrorTimeout',
   invalidResponse: 'ErrorInvalidResponse',
+  rateLimited: 'ErrorRateLimited',
 } as const satisfies Record<SourceError, string>;
 
 export function describeError(error: SourceError): string {
   return translate(errors[error]);
+}
+
+const checks = {
+  passing: 'ChecksPassing',
+  failing: 'ChecksFailing',
+  pending: 'ChecksPending',
+  unknown: 'ChecksUnknown',
+} as const satisfies Record<ChecksState, string>;
+
+export function describeChecks(state: ChecksState): string {
+  return translate(checks[state]);
+}
+
+const merges = {
+  clean: 'MergeClean',
+  unstable: 'MergeUnstable',
+  behind: 'MergeBehind',
+  blocked: 'MergeBlocked',
+  conflicting: 'MergeConflicting',
+  draft: 'MergeDraft',
+  unknown: 'MergeUnknown',
+} as const satisfies Record<MergeState, string>;
+
+export function describeMerge(state: MergeState): string {
+  return translate(merges[state]);
+}
+
+// The word of a kind of change: "major"
+export function describeChangeWord(kind: Exclude<UpdateKind, 'unknown'>): string {
+  return translate(changeWords[kind]);
+}
+
+// "major update", or nothing when the kind is not known
+export function describeUpdateKind(kind: UpdateKind): string | null {
+  return kind === 'unknown' ? null : translate('UpdateKind', { kind: translate(changeWords[kind]) });
+}
+
+// What a dependency pull request updates, from the parsed title: "lodash 4.17.4 → 4.17.21", or the packages, or the title itself.
+export function describeChanges(pullRequest: PullRequest): string {
+  const [first] = pullRequest.changes;
+  if (pullRequest.changes.length === 1 && first.from && first.to) {
+    return `${first.package} ${translate('ImageMove', { current: first.from, latest: first.to })}`;
+  }
+  return pullRequest.changes.length > 0
+    ? pullRequest.changes.map((change) => change.package).join(', ')
+    : pullRequest.title;
+}
+
+// The most significant kind of a pull request's changes, which says how risky it is
+export function updateKindOf(pullRequest: PullRequest): UpdateKind {
+  const order: UpdateKind[] = ['major', 'minor', 'patch'];
+  return order.find((kind) => pullRequest.changes.some((change) => change.kind === kind)) ?? 'unknown';
 }

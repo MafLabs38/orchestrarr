@@ -56,3 +56,6 @@ frontend/node_modules/
 # Mutation testing and coverage output
 **/StrykerOutput/
 frontend/reports/
+
+# SonarLint binding: holds the address of the SonarQube server, never committed
+.sonarlint/

@@ -3,7 +3,15 @@ import { render } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 
-import type { Finding, PlanStep, SystemStatus, WorkItem, WorkItemReport } from 'typings/api';
+import type {
+  Finding,
+  PlanStep,
+  PullRequest,
+  PullRequestsRead,
+  SystemStatus,
+  WorkItem,
+  WorkItemReport,
+} from 'typings/api';
 
 export function renderWithProviders(ui: ReactElement) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -65,6 +73,7 @@ export const workItem: WorkItem = {
   findings: [finding],
   plan: [step()],
   placements: [],
+  pullRequests: { status: 'notNeeded', items: [], truncated: false, error: null, stale: false },
 };
 
 export function report(overrides: Partial<WorkItemReport> = {}): WorkItemReport {
@@ -90,5 +99,29 @@ export function status(overrides: Partial<SystemStatus['source']> = {}): SystemS
       stale: false,
       ...overrides,
     },
+    forge: { kind: 'github', configured: true },
   };
+}
+
+export function pullRequest(number: number, overrides: Partial<PullRequest> = {}): PullRequest {
+  return {
+    number,
+    title: `Bump a from 1.0.0 to 1.0.${number}`,
+    url: `https://forge.example/o/r/pull/${number}`,
+    author: 'dependabot[bot]',
+    headBranch: 'bot/a',
+    draft: false,
+    checks: 'passing',
+    merge: 'clean',
+    labels: [],
+    changes: [{ package: 'a', from: '1.0.0', to: `1.0.${number}`, kind: 'patch' }],
+    createdAt: '2026-11-01T09:38:16Z',
+    headSha: 'abcdef0123456789abcdef0123456789abcdef01',
+    readyToMerge: true,
+    ...overrides,
+  };
+}
+
+export function pullRequestsRead(overrides: Partial<PullRequestsRead> = {}): PullRequestsRead {
+  return { status: 'read', items: [pullRequest(1)], truncated: false, error: null, stale: false, ...overrides };
 }

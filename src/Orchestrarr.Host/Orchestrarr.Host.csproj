@@ -4,6 +4,7 @@
     <RootNamespace>Orchestrarr.Host</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="..\Orchestrarr.Providers.GitHub\Orchestrarr.Providers.GitHub.csproj" />
     <ProjectReference Include="..\Orchestrarr.Providers.Portarr\Orchestrarr.Providers.Portarr.csproj" />
   </ItemGroup>
   <ItemGroup>

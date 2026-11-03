@@ -6,7 +6,7 @@ import styles from './Page.module.css';
 import PageHeader from './PageHeader';
 import PageSidebar from './PageSidebar';
 
-export default function Page({ children }: { children: ReactNode }) {
+export default function Page({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <div className={styles.page}>
       <a href="#main" className={styles.skip}>

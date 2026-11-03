@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json;
+using Orchestrarr.Core.Forge;
 
 namespace Orchestrarr.Core.WorkItems;
 
@@ -20,6 +21,9 @@ public enum SourceError
 
     /// <summary>The source answered with something that is not the expected report.</summary>
     InvalidResponse,
+
+    /// <summary>The source asks to be read less often: not a problem of credentials.</summary>
+    RateLimited,
 }
 
 public static class SourceErrors
@@ -30,6 +34,7 @@ public static class SourceErrors
 
         return exception switch
         {
+            ForgeRateLimitedException or HttpRequestException { StatusCode: HttpStatusCode.TooManyRequests } => SourceError.RateLimited,
             HttpRequestException { StatusCode: HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden } => SourceError.Unauthorized,
             // Not following redirects, a 3xx is a sign-in page in front of the source
             HttpRequestException { StatusCode: >= HttpStatusCode.Moved and < HttpStatusCode.BadRequest } => SourceError.Unauthorized,

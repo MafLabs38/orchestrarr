@@ -1,7 +1,15 @@
-import { finding, step } from 'testUtils';
+import { finding, pullRequest, step } from 'testUtils';
 import type { Finding, SourceError } from 'typings/api';
 
-import { describeError, describeFinding, describeReason, describeStep } from './describe';
+import {
+  describeChanges,
+  describeError,
+  describeFinding,
+  describeReason,
+  describeStep,
+  describeUpdateKind,
+  updateKindOf,
+} from './describe';
 
 const f = (overrides: Partial<Finding>): Finding => ({ ...finding, ...overrides });
 
@@ -63,4 +71,38 @@ describe('describeReason and describeError', () => {
       expect(describeError(error)).toMatch(/^The source /);
     },
   );
+});
+
+const pr = pullRequest.bind(null, 1);
+
+describe('pull request words', () => {
+  it('words what one update changes, or the packages, or the title', () => {
+    expect(describeChanges(pr({ changes: [{ package: 'a', from: '1.0.0', to: '2.0.0', kind: 'major' }] }))).toBe(
+      'a 1.0.0 → 2.0.0',
+    );
+    expect(
+      describeChanges(
+        pr({
+          changes: [
+            { package: 'a', from: null, to: null, kind: 'unknown' },
+            { package: 'b', from: null, to: null, kind: 'unknown' },
+          ],
+        }),
+      ),
+    ).toBe('a, b');
+    expect(describeChanges(pr({ title: 'Anything', changes: [] }))).toBe('Anything');
+  });
+
+  it('words an update by its kind and has no word for an unknown one', () => {
+    expect(describeUpdateKind('major')).toBe('major update');
+    expect(describeUpdateKind('unknown')).toBeNull();
+  });
+
+  it('keeps the biggest jump, whatever the order', () => {
+    const change = (kind: 'patch' | 'minor' | 'major' | 'unknown') => ({ package: 'x', from: null, to: null, kind });
+    expect(updateKindOf(pr({ changes: [change('patch'), change('minor')] }))).toBe('minor');
+    expect(updateKindOf(pr({ changes: [change('major'), change('patch')] }))).toBe('major');
+    expect(updateKindOf(pr({ changes: [change('unknown')] }))).toBe('unknown');
+    expect(updateKindOf(pr({ changes: [] }))).toBe('unknown');
+  });
 });

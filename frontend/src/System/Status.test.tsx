@@ -21,6 +21,30 @@ describe('Status', () => {
     expect(screen.getByText('0.0.0-dev')).toBeInTheDocument();
   });
 
+  it('says whether the forge is connected', async () => {
+    stubApi({ '/api/v1/system/status': status() });
+
+    renderWithProviders(<Status />);
+
+    expect(await screen.findByText('GitHub · Connected')).toBeInTheDocument();
+  });
+
+  it('says a sample forge is sample data', async () => {
+    stubApi({ '/api/v1/system/status': { ...status(), forge: { kind: 'sample', configured: true } } });
+
+    renderWithProviders(<Status />);
+
+    expect(await screen.findByText('Sample data · Connected')).toBeInTheDocument();
+  });
+
+  it('says when no forge is connected and what that means', async () => {
+    stubApi({ '/api/v1/system/status': { ...status(), forge: { kind: 'none', configured: false } } });
+
+    renderWithProviders(<Status />);
+
+    expect(await screen.findByText('Not connected: pull requests are not read')).toBeInTheDocument();
+  });
+
   it('says never when nothing was read yet', async () => {
     stubApi({ '/api/v1/system/status': status({ readAt: null }) });
 

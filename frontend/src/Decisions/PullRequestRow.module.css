@@ -1,0 +1,32 @@
+.row {
+  padding: 6px 0;
+  border-top: 1px solid var(--hairline);
+}
+
+.main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.changes {
+  font-family: var(--monoSpaceFontFamily);
+  word-break: break-all;
+}
+
+.state {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+  color: var(--inkMuted);
+  font-size: var(--fontSizeMeta);
+}
+
+.commit {
+  color: var(--inkMuted);
+  font-family: var(--monoSpaceFontFamily);
+  font-size: var(--fontSizeMeta);
+}

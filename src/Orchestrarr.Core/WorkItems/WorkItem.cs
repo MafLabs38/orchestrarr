@@ -1,4 +1,5 @@
 using Orchestrarr.Core.Fleet;
+using Orchestrarr.Core.Forge;
 
 namespace Orchestrarr.Core.WorkItems;
 
@@ -62,7 +63,8 @@ public sealed record PlanStep(
 
 /// <summary>
 /// A unit of maintenance work on one repository or one third-party image: its findings and the plan the operator would approve. An empty
-/// plan means nothing can be done automatically (for example an exposed secret, which only a person can revoke).
+/// plan means nothing can be done automatically (for example an exposed secret, which only a person can revoke). <c>PullRequests</c>: the
+/// open dependency pull requests read from the forge, and the state of that reading.
 /// </summary>
 public sealed record WorkItem(
     string Id,
@@ -72,7 +74,44 @@ public sealed record WorkItem(
     Severity Severity,
     IReadOnlyList<Finding> Findings,
     IReadOnlyList<PlanStep> Plan,
-    IReadOnlyList<Placement> Placements);
+    IReadOnlyList<Placement> Placements,
+    PullRequestsRead PullRequests);
+
+public enum PullRequestsStatus
+{
+    /// <summary>Nothing to read: no pull request is waiting.</summary>
+    NotNeeded,
+
+    /// <summary>No forge is connected: they cannot be read.</summary>
+    NotConnected,
+
+    /// <summary>Being read, and not known yet.</summary>
+    Pending,
+    Read,
+
+    /// <summary>Reading failed. <c>Items</c> then holds the last good read, if any, and <c>Stale</c> says so.</summary>
+    Failed,
+}
+
+/// <summary>The pull requests of a work item and the state of their reading: one value, so that impossible combinations cannot exist.</summary>
+public sealed record PullRequestsRead(
+    PullRequestsStatus Status,
+    IReadOnlyList<PullRequestInfo> Items,
+    bool Truncated = false,
+    SourceError? Error = null,
+    bool Stale = false)
+{
+    public static PullRequestsRead NotNeeded { get; } = new(PullRequestsStatus.NotNeeded, []);
+
+    public static PullRequestsRead NotConnected { get; } = new(PullRequestsStatus.NotConnected, []);
+
+    public static PullRequestsRead Pending { get; } = new(PullRequestsStatus.Pending, []);
+
+    public static PullRequestsRead Of(PullRequestList list) => new(PullRequestsStatus.Read, list.Items, list.Truncated);
+
+    public static PullRequestsRead Failure(SourceError error, PullRequestsRead? previous = null) =>
+        new(PullRequestsStatus.Failed, previous?.Items ?? [], previous?.Truncated ?? false, error, Stale: previous is { Items.Count: > 0 });
+}
 
 /// <summary>What Orchestrarr may do (SPEC D-10, D-11). Powers are off until the operator enables them.</summary>
 public interface IPowerPolicy

@@ -25,7 +25,7 @@ Rules: a test protects a behavior someone relies on, runs in milliseconds, and f
 | Secrets | gitleaks | PR |
 | Vulnerabilities | Trivy (dependencies and configuration), Dependabot | PR and weekly |
 | Mutation testing | Stryker.NET (Core, providers), StrykerJS (frontend): do the tests catch injected bugs? | weekly, never blocking |
-| AI review | The four agents of `.claude/agents/` (tests, quality, security, architecture) | before a vertical PR, locally with the `review-vertical` skill |
+| AI review (advisory) | The four agents of `.claude/agents/` (tests and quality on Sonnet, security and architecture on Opus), one comment each on the pull request, on the maintainer's subscription token | when a PR is opened or marked ready, and again with the `ai-review` label; not with `skip-quality`; locally before a vertical PR with the `review-vertical` skill |
 
 ## 3. The two lanes, and skipping
 
@@ -62,3 +62,18 @@ On a machine with limited CPU, run heavy builds through the resource-limited sli
 ## 6. Before a vertical's pull request
 
 Run the **`review-vertical`** skill: the four review agents run in parallel on the branch, and their findings are triaged (fixed, or declined with the reason) in the PR's *Review* section. An architecture verdict of "no" blocks the PR.
+
+## 7. Seeing the code smells in the editor
+
+The SonarQube rules can run in the editor (SonarLint) and be read by assistants, bound to the project of the SonarQube server.
+
+- The binding is **local and never committed** (it holds the address of the server): `.sonarlint/connectedMode.json`, git-ignored.
+
+  ```json
+  { "sonarQubeUri": "https://sonarqube.homelab.example", "projectKey": "<owner>_<repository>" }
+  ```
+
+- Bind by the **address**, not by a connection id in `.vscode/settings.json`: an id that is not defined as a connection of the machine gives "The specified connection id doesn't exist", and the binding is invalid.
+- The project is created on the server through its API (name, key `<owner>_<repository>`, main branch `develop`, the default Quality Gate), not by hand.
+- **An assistant reads what the editor underlines** with the editor's diagnostics (the Problems panel, including SonarLint), before committing. SonarLint only analyses files that are open in the editor: editing a file opens it; wait about ten seconds, then read the diagnostics of the files changed, and fix them. This needs no SonarQube server for assistants.
+- An assistant's SonarQube server that runs in a container reaches the editor's SonarLint on `localhost` only with the host network (`--network=host`); without it the editor is never found and the server falls back on a weaker analysis. One editor window per port: the port tells which window is analysed.

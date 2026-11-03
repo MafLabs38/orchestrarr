@@ -46,7 +46,8 @@ public static class WorkItemBuilder
                 Severity: findings.Max(f => f.Severity),
                 Findings: findings,
                 Plan: RepositoryPlan(repository, findings, placements, powers),
-                Placements: placements));
+                Placements: placements,
+                PullRequests: PullRequestsRead.NotNeeded));
         }
 
         // Images that are not built from a repository of the fleet (third-party): only an update is possible. It is deployed and
@@ -67,7 +68,8 @@ public static class WorkItemBuilder
                 Severity: finding.Severity,
                 Findings: [finding],
                 Plan: [.. DeploySteps(placements, null, powers)],
-                Placements: placements));
+                Placements: placements,
+                PullRequests: PullRequestsRead.NotNeeded));
         }
 
         return [.. items.OrderByDescending(i => i.Severity).ThenBy(i => i.Title, StringComparer.OrdinalIgnoreCase)];

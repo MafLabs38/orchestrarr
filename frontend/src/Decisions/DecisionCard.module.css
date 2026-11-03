@@ -1,16 +1,3 @@
-.header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.title {
-  margin: 0;
-  font: 700 var(--fontSizeCardTitle) var(--monoSpaceFontFamily);
-  word-break: break-all;
-}
-
 .apps {
   margin: 4px 0 0;
   color: var(--inkMuted);
