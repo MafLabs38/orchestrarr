@@ -201,7 +201,8 @@ public sealed class SqliteApprovalLedgerTests : IDisposable
         var result = await new SqliteApprovalLedger(database, probe).TryRecordAsync([approval], [Entry(approval)], Ct);
 
         result.Should().Be(LedgerResult.Recorded);
-        probe.WriteLockWasHeldWhenRead.Should().BeTrue("an engagement cannot slip in between the read of the stop and the write");
+        probe.Reads.Should().NotBeEmpty();
+        probe.Reads.Should().OnlyContain(lockHeld => lockHeld, "every read of the stop is under the write lock: an engagement cannot slip in between the read and the write");
     }
 
     [Fact]
@@ -221,13 +222,14 @@ public sealed class SqliteApprovalLedgerTests : IDisposable
     // A stop that says whether another writer could have written at the moment it was read
     private sealed class LockProbe(SqliteDatabase database) : IKillSwitchControl
     {
-        public bool WriteLockWasHeldWhenRead { get; private set; }
+        public List<bool> Reads { get; } = [];
 
         public bool Engaged
         {
             get
             {
                 using var other = database.Connect();
+                var lockHeld = false;
                 try
                 {
                     SqliteDatabase.Run(other, "BEGIN IMMEDIATE;");
@@ -235,8 +237,9 @@ public sealed class SqliteApprovalLedgerTests : IDisposable
                 }
                 catch (SqliteException)
                 {
-                    WriteLockWasHeldWhenRead = true;
+                    lockHeld = true;
                 }
+                Reads.Add(lockHeld);
                 return false;
             }
         }

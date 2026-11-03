@@ -197,7 +197,13 @@ public sealed class SqliteDatabase
               detail TEXT NULL,
               refusal INTEGER NOT NULL
             );
-            CREATE INDEX IF NOT EXISTS audit_refusal ON audit (refusal);
+            CREATE TABLE IF NOT EXISTS audit_counters (
+              id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
+              refusals INTEGER NOT NULL
+            );
+            INSERT OR IGNORE INTO audit_counters (id, refusals) VALUES (1, 0);
+            CREATE TRIGGER IF NOT EXISTS audit_counts_refusals AFTER INSERT ON audit WHEN NEW.refusal = 1
+              BEGIN UPDATE audit_counters SET refusals = refusals + 1 WHERE id = 1; END;
             CREATE TRIGGER IF NOT EXISTS audit_is_append_only_update BEFORE UPDATE ON audit
               BEGIN SELECT RAISE(ABORT, 'the audit trail is append-only'); END;
             CREATE TRIGGER IF NOT EXISTS audit_is_append_only_delete BEFORE DELETE ON audit

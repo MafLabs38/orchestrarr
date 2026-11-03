@@ -71,9 +71,11 @@ public sealed class SqliteAuditLog(SqliteDatabase database, int capacity = Store
         return rows;
     });
 
-    internal static int Count(SqliteConnection connection) => Scalar(connection, "SELECT COUNT(*) FROM audit;");
+    // Rows are never deleted (the triggers forbid it), so the number of entries is the last number given: no scan under the write lock
+    internal static int Count(SqliteConnection connection) => Scalar(connection, "SELECT COALESCE(MAX(id), 0) FROM audit;");
 
-    internal static int RefusalCount(SqliteConnection connection) => Scalar(connection, "SELECT COUNT(*) FROM audit WHERE refusal = 1;");
+    // Kept by a trigger in the same transaction as each refusal: one row to read
+    internal static int RefusalCount(SqliteConnection connection) => Scalar(connection, "SELECT COALESCE((SELECT refusals FROM audit_counters WHERE id = 1), 0);");
 
     internal static void Insert(SqliteConnection connection, AuditEntry entry)
     {

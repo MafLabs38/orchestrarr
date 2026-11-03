@@ -25,41 +25,21 @@ public sealed class SqliteKillSwitchTests : IDisposable
         var stop = Stop();
         _file.Damage();
 
+        stop.State().Saved.Should().BeFalse("the state is unknown, so nothing says a restart keeps it, and it is asked for alone, before anything else");
         stop.Engaged.Should().BeTrue();
-        stop.State().Saved.Should().BeFalse("the state is unknown, so nothing says a restart keeps it");
         (await stop.IsEngagedAsync(Ct)).Should().BeTrue();
     }
 
-    [Fact]
-    public void Saved_read_alone_says_the_file_cannot_be_read_without_anyone_asking_for_the_stop_first()
-    {
-        var stop = Stop();
-        _file.Damage();
-
-        stop.State().Saved.Should().BeFalse();
-    }
-
-    [Fact]
-    public void A_missing_row_is_unknown_and_unknown_is_engaged()
+    [Theory]
+    [InlineData("DELETE FROM kill_switch;")]
+    [InlineData("DROP TABLE kill_switch;")]
+    public void A_missing_row_or_table_is_unknown_and_unknown_is_engaged(string damage)
     {
         var database = _file.Open();
         var stop = new SqliteKillSwitch(database, StoreLimits.FileAudit);
         using (var connection = database.Connect())
         {
-            SqliteDatabase.Run(connection, "DELETE FROM kill_switch;");
-        }
-
-        stop.Engaged.Should().BeTrue();
-    }
-
-    [Fact]
-    public void A_missing_table_is_unknown_and_unknown_is_engaged()
-    {
-        var database = _file.Open();
-        var stop = new SqliteKillSwitch(database, StoreLimits.FileAudit);
-        using (var connection = database.Connect())
-        {
-            SqliteDatabase.Run(connection, "DROP TABLE kill_switch;");
+            SqliteDatabase.Run(connection, damage);
         }
 
         stop.Engaged.Should().BeTrue();

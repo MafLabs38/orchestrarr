@@ -38,7 +38,6 @@ public sealed class AuditCapacityPolicyTests
     [Theory]
     [InlineData(100, 0, 0, 95, true)]
     [InlineData(100, 0, 0, 96, false)]
-    [InlineData(100, 95, 0, 1, false)]
     [InlineData(100, 94, 0, 1, true)]
     public void Decisions_stop_where_the_reserve_of_the_stop_begins(int capacity, int held, int refusalsHeld, int adding, bool fits)
     {

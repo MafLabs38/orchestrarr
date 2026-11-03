@@ -31,7 +31,7 @@ internal sealed class FullQueue : IApprovalStore
 
     public bool Contains(Approval approval) => false;
 
-    public IReadOnlyList<Approval> List(int limit = int.MaxValue) => [];
+    public IReadOnlyList<Approval> List(int limit = int.MaxValue) => [.. Array.Empty<Approval>().Take(limit)];
 }
 
 /// <summary>An identity chosen by the caller of the test, through a header: several people at once.</summary>

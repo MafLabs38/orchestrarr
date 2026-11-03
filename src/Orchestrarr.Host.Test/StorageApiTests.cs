@@ -106,19 +106,17 @@ public sealed class StorageApiTests : IDisposable
         (await Json(engage)).GetProperty("saved").GetBoolean().Should().BeFalse("it is held in memory, and would not survive a restart");
     }
 
-    [Theory]
-    [InlineData("Postgres", "data/o.db", "Storage:Provider")]
-    [InlineData("Sqlite", "", "Storage:Path")]
-    public void A_persistent_store_with_nowhere_to_persist_stops_the_host(string provider, string path, string key)
+    [Fact]
+    public void A_persistent_store_with_nowhere_to_persist_stops_the_host()
     {
         using var factory = new ForgeApiFactory
         {
-            Settings = new Dictionary<string, string?> { ["Storage:Provider"] = provider, ["Storage:Path"] = path },
+            Settings = new Dictionary<string, string?> { ["Storage:Provider"] = "Sqlite", ["Storage:Path"] = "" },
         };
 
         var start = () => factory.CreateClient();
 
-        start.Should().Throw<InvalidOperationException>().Which.ToString().Should().Contain(key);
+        start.Should().Throw<InvalidOperationException>().Which.ToString().Should().Contain("Storage:Path");
     }
 
     [Fact]

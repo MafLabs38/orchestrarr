@@ -22,26 +22,22 @@ internal sealed class TempDatabase : IDisposable
     public void Damage()
     {
         SqliteConnection.ClearAllPools();
-        foreach (var file in Directory.GetFiles(_folder))
-        {
-            File.Delete(file);
-        }
+        DeleteFiles();
         File.WriteAllText(Path, "this is not a database");
     }
 
     /// <summary>Deletes the files as an operator or a swapped volume would, without telling the host: no connection is closed or cleared first.</summary>
-    public void Vanish()
-    {
-        foreach (var file in Directory.GetFiles(_folder))
-        {
-            File.Delete(file);
-        }
-    }
+    public void Vanish() => DeleteFiles();
 
     /// <summary>Removes the damaged file, so that a new database can be made in its place.</summary>
     public void Repair()
     {
         SqliteConnection.ClearAllPools();
+        DeleteFiles();
+    }
+
+    private void DeleteFiles()
+    {
         foreach (var file in Directory.GetFiles(_folder))
         {
             File.Delete(file);
