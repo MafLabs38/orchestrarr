@@ -130,7 +130,7 @@ public sealed class WorkItemCatalog : IDisposable
             await Task.WhenAny(enrichment, Task.Delay(_options.ForgeFirstWait, _time, cancellationToken));
         }
 
-        return _last!;
+        return _last;
     }
 
     public async Task<WorkItem?> FindAsync(string id, CancellationToken cancellationToken)
@@ -176,7 +176,7 @@ public sealed class WorkItemCatalog : IDisposable
         }
 
         var repositories = items.Where(WaitsForPullRequests).Select(i => i.RepositoryFullName!).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        return repositories.Count == 0 ? Task.CompletedTask : Task.Run(() => EnrichAsync(generation, repositories, refresh));
+        return repositories.Count == 0 ? Task.CompletedTask : Task.Run(() => EnrichAsync(generation, repositories, refresh), _shutdown.Token);
     }
 
     private async Task EnrichAsync(int generation, IReadOnlyList<string> repositories, bool refresh)
@@ -191,10 +191,10 @@ public sealed class WorkItemCatalog : IDisposable
                 Apply(generation, repository, await ReadAsync(repository, refresh, token));
             });
         }
-        catch (OperationCanceledException) when (!_shutdown.IsCancellationRequested)
+        catch (OperationCanceledException exception) when (!_shutdown.IsCancellationRequested)
         {
             // The time budget is spent: what is still pending did not answer in time
-            _logger.LogWarning("Reading the pull requests of the fleet from the {Kind} forge exceeded its time budget", _forge.Kind);
+            _logger.LogWarning(exception, "Reading the pull requests of the fleet from the {Kind} forge exceeded its time budget", _forge.Kind);
             ApplyTimeout(generation);
         }
         catch (OperationCanceledException)

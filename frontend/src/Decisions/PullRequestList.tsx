@@ -31,7 +31,7 @@ function notice(item: Pick<WorkItem, 'pullRequests'>, expected: number): string 
   }
 }
 
-// The pull requests behind a "pull requests waiting" finding. Read-only: the approval and the merge come with a later vertical.
+// The pull requests behind a "pull requests waiting" finding. Read-only display: approving them is done by the decision card; the merge comes with the launcher.
 export default function PullRequestList({ item }: Readonly<{ item: Pick<WorkItem, 'findings' | 'pullRequests'> }>) {
   const finding = item.findings.find((f) => f.kind === 'openDependencyPullRequests');
   if (!finding || item.pullRequests.status === 'notNeeded') {

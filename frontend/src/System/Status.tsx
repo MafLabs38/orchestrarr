@@ -8,6 +8,7 @@ import { describeError } from 'Utilities/describe';
 import formatTime from 'Utilities/formatTime';
 import translate from 'Utilities/translate';
 
+import KillSwitch from './KillSwitch';
 import styles from './Status.module.css';
 import useSystemStatus from './useSystemStatus';
 
@@ -42,6 +43,16 @@ export default function Status() {
               {data.forge.configured
                 ? `${forgeName(data.forge.kind)} · ${translate('ForgeConnected')}`
                 : translate('ForgeNotConnected')}
+            </dd>
+            <dt>{translate('Approvals')}</dt>
+            <dd>
+              {data.approvals.enabled
+                ? translate('ApprovalsSandbox', { operator: data.approvals.operator ?? '' })
+                : translate('ApprovalsOff')}
+            </dd>
+            <dt>{translate('KillSwitch')}</dt>
+            <dd>
+              <KillSwitch approvals={data.approvals} />
             </dd>
             <dt>{translate('Version')}</dt>
             <dd className={styles.mono}>{data.version}</dd>

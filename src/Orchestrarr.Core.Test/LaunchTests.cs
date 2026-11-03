@@ -18,7 +18,7 @@ public sealed class LaunchTests
     private readonly FakePowers _powers = new();
     private readonly FakeEnvironments _environments = new();
 
-    private Approver Operator => new("alice", IsPerson: true, IsOperator: true, StepUpAt: null);
+    private static Approver Operator => new("alice", IsPerson: true, IsOperator: true, StepUpAt: null);
 
     private Approver WithStepUp(TimeSpan age) => Operator with { StepUpAt = _time.GetUtcNow() - age };
 
@@ -35,6 +35,12 @@ public sealed class LaunchTests
     {
         var result = await Issuer().IssueAsync(approver ?? Operator, request ?? Request(), TestContext.Current.CancellationToken);
         return result.Order ?? throw new InvalidOperationException($"not issued: {result.Refusal}");
+    }
+
+    private async Task<SignedOrder> Signed(OrderOptions options)
+    {
+        var issued = await Issuer(options: options).IssueAsync(Operator, Request(), TestContext.Current.CancellationToken);
+        return issued.Order!;
     }
 
     // An order that did not come from the issuer: what a compromised store or a buggy issuer could hand the launcher, validly signed.
@@ -299,12 +305,6 @@ public sealed class LaunchTests
 
         (await Check(atTheBound)).Accepted.Should().BeTrue();
         (await Check(over)).Refusal.Should().Be(LaunchRefusal.LifetimeTooLong);
-    }
-
-    private async Task<SignedOrder> Signed(OrderOptions options)
-    {
-        var issued = await Issuer(options: options).IssueAsync(Operator, Request(), TestContext.Current.CancellationToken);
-        return issued.Order!;
     }
 
     [Fact]
@@ -584,11 +584,13 @@ public sealed class LaunchTests
 
         public List<AuditEntry> Entries { get; } = [];
 
-        public ValueTask<bool> TryRecordAsync(AuditEntry entry, CancellationToken cancellationToken)
+        public ValueTask<bool> TryRecordAsync(AuditEntry entry, CancellationToken cancellationToken) => TryRecordRangeAsync([entry], cancellationToken);
+
+        public ValueTask<bool> TryRecordRangeAsync(IReadOnlyList<AuditEntry> entries, CancellationToken cancellationToken)
         {
             if (Available)
             {
-                Entries.Add(entry);
+                Entries.AddRange(entries);
             }
             return ValueTask.FromResult(Available);
         }

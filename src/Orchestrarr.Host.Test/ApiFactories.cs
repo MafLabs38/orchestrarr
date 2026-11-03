@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -61,17 +62,57 @@ public sealed class FailingApiFactory : WebApplicationFactory<Program>
 }
 
 /// <summary>The sample host with a forge that answers for every repository, or fails with a given exception.</summary>
+/// <summary>
+/// The test server has no network: this gives each request the address of its client. By default the loopback (the maintainer's own
+/// machine); a test that wants a client from the network says so with the <c>X-Test-Remote</c> header.
+/// </summary>
+internal sealed class RemoteAddressFilter : IStartupFilter
+{
+    public const string Header = "X-Test-Remote";
+
+    public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
+    {
+        app.Use((context, pipeline) =>
+        {
+            context.Connection.RemoteIpAddress = context.Request.Headers.TryGetValue(Header, out var remote) && System.Net.IPAddress.TryParse(remote, out var address)
+                ? address
+                : System.Net.IPAddress.Loopback;
+            return pipeline(context);
+        });
+        next(app);
+    };
+}
+
 public sealed class ForgeApiFactory : WebApplicationFactory<Program>
 {
     public Func<Exception>? Failure { get; init; }
 
+    /// <summary>Other settings of the host (the grants, the capacities, the listening addresses…).</summary>
+    public IReadOnlyDictionary<string, string?> Settings { get; init; } = new Dictionary<string, string?>();
+
+    /// <summary>The environment of the host; Development, the sandbox's, when not set.</summary>
+    public string? EnvironmentName { get; init; }
+
+    /// <summary>Services that replace the host's own.</summary>
+    public Action<IServiceCollection>? ServiceOverrides { get; init; }
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
+        if (EnvironmentName is not null)
+        {
+            builder.UseEnvironment(EnvironmentName);
+        }
         builder.UseSetting(FleetSourceFactory.SampleFileKey, Path.Combine(AppContext.BaseDirectory, "portarr-maintenance.sample.json"));
+        foreach (var (key, value) in Settings)
+        {
+            builder.UseSetting(key, value);
+        }
         builder.ConfigureTestServices(services =>
         {
             services.RemoveAll<IPullRequestSource>();
             services.AddSingleton<IPullRequestSource>(new FakeForge(Failure));
+            ServiceOverrides?.Invoke(services);
+            services.AddSingleton<IStartupFilter, RemoteAddressFilter>();
         });
     }
 

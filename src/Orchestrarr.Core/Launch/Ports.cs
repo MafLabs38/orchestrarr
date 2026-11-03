@@ -40,6 +40,9 @@ public interface IAuditSink
 {
     /// <summary>False when the entry could not be recorded.</summary>
     ValueTask<bool> TryRecordAsync(AuditEntry entry, CancellationToken cancellationToken);
+
+    /// <summary>All the entries or none: false, and nothing written, when they cannot all be recorded.</summary>
+    ValueTask<bool> TryRecordRangeAsync(IReadOnlyList<AuditEntry> entries, CancellationToken cancellationToken);
 }
 
 public sealed record AuditEntry(DateTimeOffset At, string Event, string Subject, string? OrderId, string? Detail);
@@ -67,4 +70,14 @@ public static class AuditEvents
     public const string IssueRefused = "order.refused";
     public const string LaunchAccepted = "launch.accepted";
     public const string LaunchRefused = "launch.refused";
+    public const string ApprovalRecorded = "approval.recorded";
+    public const string ApprovalRefused = "approval.refused";
+    public const string KillSwitchEngaged = "killswitch.engaged";
+    public const string KillSwitchReleased = "killswitch.released";
+
+    /// <summary>Who the trail names when the order or the approver could not be verified: what an unverified party claims is never written.</summary>
+    public const string Unverified = "unverified";
+
+    /// <summary>A refusal, as opposed to a decision or a stop: refusals can be provoked by anyone, so they have the smaller share of a bounded trail.</summary>
+    public static bool IsRefusal(string name) => name is IssueRefused or LaunchRefused or ApprovalRefused;
 }

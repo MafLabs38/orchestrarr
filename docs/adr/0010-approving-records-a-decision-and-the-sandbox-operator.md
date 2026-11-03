@@ -1,0 +1,39 @@
+# 0010 — Approving records a decision; the order comes at run start; the sandbox operator never leaves the sandbox
+
+- **Status**: proposed
+- **Date**: 2026-11-03
+
+## Context
+
+The decision card has shown a disabled button since the first vertical. [ADR 0006](0006-a-launch-is-a-signed-order-and-credentials-are-short-lived.md) and [ADR 0007](0007-a-dedicated-vault-and-a-small-control-plane.md) say that a launch is a signed, short-lived order, and that no route may sign before the authentication question (SPEC Q-12) is settled. Making the button work is the first route that changes anything, so it has to be built without crossing either line, and without granting any power: there is no launcher yet, so nothing can run.
+
+## Decision (proposed)
+
+1. **Approving records a decision, not an order.** An approval is durable data: this repository, this pull request, **this commit** (SPEC D-37), these steps, this approver, this time, and when the approver last passed a second factor. The signed order is issued later, when a run is about to start, because an order lives minutes and a run can wait for the workshop longer (ADR 0007). A bot that rewrites its branch after the tick changes the commit, and the old approval no longer covers it.
+2. **The operator approves what they saw.** The client sends the work item, the steps it ticked and **the pull requests and commits the card displayed**; the server rebuilds everything else, ignores any other field, and refuses (`planChanged`, 409) unless what was displayed is exactly what is there now. A push, a new pull request or a closed one between the display and the click makes the operator look again. A **draft pull request is never approved**. The approval is also refused unless the pull requests were read (not pending, not an old read), the kill switch is off, the approver is a person with the operator role, every ticked step is offered, **granted** and recorded by this vertical (building and testing a pull request, and merging those that pass), and a merge is never approved without its validation.
+3. **Powers are granted in the configuration** (`Powers:Grants`: a repository or `*`, and steps), off until listed (SPEC D-10, D-11), and checked when the host starts: a repository is `owner/name` or `*`, a step is a known one, and **outside the Development environment a grant on every repository may only cover validating**; a merge is granted repository by repository. A grant covers steps of a repository; a step on an environment (a deployment) is granted per environment, which the vertical that deploys will do, so it is never granted here. The decision card and the launcher read **the same grants** (`IPowerPolicy`, adapted for the launcher's second check), so what a card offers and what the launcher accepts cannot drift.
+4. **Fail closed, and traced first.** An approval whose trace cannot be written is refused, and nothing is traced that is not stored (the room is checked before, and the batch is all or nothing). The trail records who approved what (commit and steps included) and every refusal with its code, and never a field that has not the shape of an order's. The global stop works even when its own trace cannot be written. Refusals have a smaller budget in the trail than decisions and stops, so a client that is refused again and again cannot make the real decisions untraceable.
+5. **The operator is a sandbox operator until the sign-in exists.** `Approvals:Mode` is `Disabled` by default: nobody can approve and the interface says so. `Development` gives a single fixed operator with no sign-in, and **the host refuses to start with it** outside the Development environment or unless it listens only on the loopback: every way an address can be given is read (the URLs, Kestrel's endpoints, the port variables), a host name other than `localhost` counts as every interface (Kestrel does), and the addresses really bound are checked once the host started, which stops it if one is not the loopback. The two routes that record something answer only to a **local request**: a `Host` of `localhost` or a loopback address, from a client that is itself on the loopback. A page reached by a name (a DNS rebinding) is refused, and so is a client that came over the network, whatever `Host` it claims, even through a development proxy that listens beyond the loopback. The sandbox is reached from the machine it runs on, or through a tunnel that ends there (an SSH tunnel, the port forwarding of the editor); the development server of the interface listens on the loopback by configuration. The sign-in through the identity provider (SPEC D-40) replaces all this and is the next thing before anything acts in production.
+6. **The stores are in memory and bounded**, and say so: a full queue or a full trail refuses instead of forgetting. The persistent trail comes with the workshop (SPEC D-43, F-SAF-02). Their capacities are configuration.
+
+## The order, issued from an approval (proposed, for the vertical that starts runs)
+
+The control plane issues the order **from a recorded approval**, when the run is about to start; the launcher still never signs. The issuer's authority is the recorded approval: it carries the approver's subject and when they last passed a second factor, and the issuer checks again with the identity provider that this person still holds the operator role. For a step on production, the order carries that second factor and the launcher checks it again (SPEC D-47), against the time of the approval. The order gains the pull request number (a new canonical form), since an approval is per pull request.
+
+## Conditions before a launcher exists
+
+- The global stop is **persistent and starts engaged** when its state cannot be read, and any authenticated operator can engage it whatever the approvals mode (today it lives in memory and answers 403 in `Disabled`).
+- The approvals and the trail are **persistent**, with a lifecycle (waiting, taken, done, expired, and *superseded* when the pull request moved on), and the store enforces the uniqueness of a decision itself.
+- The sign-in (SPEC Q-12) exists, and the reads of the queue and of the trail are behind it.
+- Whether the card tells which steps an approval can record (today the interface repeats the server's list).
+
+## Consequences
+
+- The interface can show the whole round trip (tick, approve, queue, trail, stop) while nothing runs; the Queue says no launcher exists yet.
+- Restarting the sandbox forgets the queue, the trail and the stop, which is accepted for a sandbox and refused for production by the mode.
+- An approval records what was seen, so a plan that moved refuses rather than approving something else.
+
+## Not decided here
+
+- The sign-in (SPEC Q-12) and who counts as an operator in the identity provider.
+- A second approver for what cannot be undone (SPEC Q-21).

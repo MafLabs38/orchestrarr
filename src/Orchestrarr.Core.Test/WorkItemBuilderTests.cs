@@ -88,7 +88,7 @@ public sealed class WorkItemBuilderTests
     [Fact]
     public void The_plan_validates_merges_and_deploys_to_each_environment_where_the_image_runs_all_ticked()
     {
-        var image = Image(repository: "example/app", placements: [Place("b", "Server B"), Place("a", "Server A"), Place("a", "Server A")]);
+        var image = Image("ghcr.io/example/app:1.0.0", ImageStatus.Behind, ImageChange.Minor, "example/app", Place("b", "Server B"), Place("a", "Server A"), Place("a", "Server A"));
 
         var item = Build(Snapshot([Repository(pullRequests: 1)], [image])).Should().ContainSingle().Which;
 
@@ -134,7 +134,7 @@ public sealed class WorkItemBuilderTests
         var policy = Substitute.For<IPowerPolicy>();
         policy.IsGranted(StepKind.Validate, "example/app", null).Returns(true);
         policy.IsGranted(StepKind.Deploy, "example/app", "a").Returns(true);
-        var image = Image(repository: "example/app", placements: [Place("a"), Place("b")]);
+        var image = Image("ghcr.io/example/app:1.0.0", ImageStatus.Behind, ImageChange.Minor, "example/app", Place("a"), Place("b"));
 
         var item = WorkItemBuilder.Build(Snapshot([Repository(pullRequests: 1)], [image]), policy).Should().ContainSingle().Which;
 

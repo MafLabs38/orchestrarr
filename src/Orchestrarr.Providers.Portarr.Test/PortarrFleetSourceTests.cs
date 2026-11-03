@@ -170,15 +170,15 @@ public sealed class PortarrFleetSourceTests
                         }
 
                         var bytes = Encoding.UTF8.GetBytes(body ?? string.Empty);
-                        await context.Response.OutputStream.WriteAsync(bytes);
+                        await context.Response.OutputStream.WriteAsync(bytes, _stop.Token);
                         context.Response.Close();
                     }
-                    catch (Exception ex) when (ex is HttpListenerException or ObjectDisposedException or InvalidOperationException)
+                    catch (Exception ex) when (ex is HttpListenerException or ObjectDisposedException or InvalidOperationException or OperationCanceledException)
                     {
                         return;
                     }
                 }
-            });
+            }, _stop.Token);
         }
 
         public Uri Address { get; }

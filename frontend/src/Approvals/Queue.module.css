@@ -1,0 +1,39 @@
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  padding: 10px 0;
+  border-top: 1px solid var(--hairline);
+}
+
+.main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.repository {
+  font-weight: 800;
+}
+
+.pullRequest,
+.commit {
+  font-family: var(--monoSpaceFontFamily);
+}
+
+.commit,
+.meta {
+  color: var(--inkMuted);
+  font-size: var(--fontSizeMeta);
+}
+
+.meta {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}

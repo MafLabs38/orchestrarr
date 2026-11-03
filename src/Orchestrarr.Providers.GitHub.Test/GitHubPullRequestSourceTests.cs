@@ -19,7 +19,7 @@ public sealed class GitHubPullRequestSourceTests
         return GitHubPullRequestSource.Create(options, _time, _handler);
     }
 
-    private Task<PullRequestList> ListAsync(GitHubPullRequestSource source, string repository = "example/app", bool refresh = false) =>
+    private static Task<PullRequestList> ListAsync(GitHubPullRequestSource source, string repository = "example/app", bool refresh = false) =>
         source.ListDependencyPullRequestsAsync(repository, refresh, TestContext.Current.CancellationToken);
 
     private static string Pull(int number, string title = "Bump a from 1.0.0 to 1.0.1", string? login = "dependabot[bot]", bool draft = false, string labels = "", string? sha = null)
@@ -186,6 +186,19 @@ public sealed class GitHubPullRequestSourceTests
 
         list.Items.Select(p => p.Number).Should().Equal(1, 2);
         list.Truncated.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_pull_request_that_the_pagination_gives_twice_is_kept_once()
+    {
+        _handler.On("/repos/example/app/pulls", $"[{Pull(1)}]", link: "<https://api.github.com/repos/example/app/pulls?state=open&per_page=100&page=2>; rel=\"next\"");
+        _handler.On("/repos/example/app/pulls?state=open&per_page=100&page=2", $"[{Pull(1)},{Pull(2)}]");
+        Serve(1);
+        Serve(2);
+
+        var list = await ListAsync(Source());
+
+        list.Items.Select(p => p.Number).Should().Equal(1, 2);
     }
 
     [Fact]
@@ -512,13 +525,22 @@ public sealed class GitHubPullRequestSourceTests
 
         public int Calls(string path) => _requests.Count(r => r.RequestUri!.AbsolutePath == path || r.RequestUri.PathAndQuery == path);
 
+        // The route of the exact path and query, else of the path alone, else a 404.
+        private (string Body, HttpStatusCode Status, string? Link, TimeSpan? RetryAfter, string? Remaining) Route(Uri uri)
+        {
+            if (_routes.TryGetValue(uri.PathAndQuery, out var exact))
+            {
+                return exact;
+            }
+
+            return _routes.TryGetValue(uri.AbsolutePath, out var byPath) ? byPath : ("{}", HttpStatusCode.NotFound, null, null, null);
+        }
+
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             _requests.Add(request);
             var uri = request.RequestUri!;
-            var route = _routes.TryGetValue(uri.PathAndQuery, out var exact) ? exact
-                : _routes.TryGetValue(uri.AbsolutePath, out var byPath) ? byPath
-                : ("{}", HttpStatusCode.NotFound, null, null, null);
+            var route = Route(uri);
             var response = new HttpResponseMessage(route.Item2) { Content = new StringContent(route.Item1, Encoding.UTF8, "application/json") };
             if (route.Item3 is not null)
             {
@@ -569,15 +591,15 @@ public sealed class GitHubPullRequestSourceTests
                             context.Response.RedirectLocation = redirectTo.ToString();
                         }
 
-                        await context.Response.OutputStream.WriteAsync(Encoding.UTF8.GetBytes("[]"));
+                        await context.Response.OutputStream.WriteAsync(Encoding.UTF8.GetBytes("[]"), _stop.Token);
                         context.Response.Close();
                     }
-                    catch (Exception ex) when (ex is HttpListenerException or ObjectDisposedException or InvalidOperationException)
+                    catch (Exception ex) when (ex is HttpListenerException or ObjectDisposedException or InvalidOperationException or OperationCanceledException)
                     {
                         return;
                     }
                 }
-            });
+            }, _stop.Token);
         }
 
         public Uri Address { get; }

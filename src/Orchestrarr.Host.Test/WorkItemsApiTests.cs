@@ -45,9 +45,10 @@ public sealed class WorkItemsApiTests : IClassFixture<SampleApiFactory>
     }
 
     [Fact]
-    public async Task A_decision_card_has_its_plan_ticked_and_available_but_no_step_granted()
+    public async Task A_decision_card_has_its_plan_ticked_and_available_but_no_step_granted_unless_the_operator_granted_one()
     {
-        var item = await GetAsync("/api/v1/work-items/repository:example/shop");
+        using var factory = new ApprovalsDisabledApiFactory();
+        var item = await factory.CreateClient().GetFromJsonAsync<JsonElement>("/api/v1/work-items/repository:example/shop", TestContext.Current.CancellationToken);
 
         var plan = item.GetProperty("plan").EnumerateArray().ToList();
         plan.Select(s => s.GetProperty("kind").GetString()).Should().Equal("validate", "mergePullRequests", "deploy");
@@ -77,7 +78,7 @@ public sealed class WorkItemsApiTests : IClassFixture<SampleApiFactory>
     }
 
     [Fact]
-    public void Every_route_of_the_api_only_reads_apart_from_the_fallback_that_answers_404_to_everything_else()
+    public void Every_route_of_the_api_only_reads_apart_from_the_two_the_operator_uses_and_the_fallback_that_answers_404_to_everything_else()
     {
         var routes = _factory.Services.GetServices<EndpointDataSource>().SelectMany(source => source.Endpoints).OfType<RouteEndpoint>()
             .Where(e => e.RoutePattern.RawText?.StartsWith("/api", StringComparison.Ordinal) == true)
@@ -85,7 +86,10 @@ public sealed class WorkItemsApiTests : IClassFixture<SampleApiFactory>
 
         routes.Should().NotBeEmpty();
         var withMethods = routes.Where(e => e.Metadata.GetMetadata<HttpMethodMetadata>() is not null).ToList();
-        withMethods.Should().NotBeEmpty().And.OnlyContain(e => e.Metadata.GetMetadata<HttpMethodMetadata>()!.HttpMethods.All(m => m == HttpMethods.Get));
+        // The only routes that change something: record an approval, and set the global stop. Neither runs anything.
+        var writes = withMethods.Where(e => e.Metadata.GetMetadata<HttpMethodMetadata>()!.HttpMethods.Any(m => m != HttpMethods.Get))
+            .Select(e => $"{string.Join(',', e.Metadata.GetMetadata<HttpMethodMetadata>()!.HttpMethods)} {e.RoutePattern.RawText}");
+        writes.Order().Should().Equal("POST /api/v1/approvals", "PUT /api/v1/safety/kill-switch");
         routes.Except(withMethods).Should().ContainSingle().Which.RoutePattern.RawText.Should().Contain("{*path");
     }
 

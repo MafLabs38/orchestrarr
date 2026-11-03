@@ -1,9 +1,10 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render } from '@testing-library/react';
-import type { ReactElement } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 
 import type {
+  ApprovalStatus,
   Finding,
   PlanStep,
   PullRequest,
@@ -13,13 +14,15 @@ import type {
   WorkItemReport,
 } from 'typings/api';
 
+// The providers are a wrapper, so that a rerender keeps them.
 export function renderWithProviders(ui: ReactElement) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  const Providers = ({ children }: Readonly<{ children: ReactNode }>) => (
     <QueryClientProvider client={client}>
-      <MemoryRouter>{ui}</MemoryRouter>
-    </QueryClientProvider>,
+      <MemoryRouter>{children}</MemoryRouter>
+    </QueryClientProvider>
   );
+  return render(ui, { wrapper: Providers });
 }
 
 // Answers each API path from a table; an unknown path is a 404.
@@ -87,7 +90,14 @@ export function report(overrides: Partial<WorkItemReport> = {}): WorkItemReport 
   };
 }
 
-export function status(overrides: Partial<SystemStatus['source']> = {}): SystemStatus {
+export function approvalStatus(overrides: Partial<ApprovalStatus> = {}): ApprovalStatus {
+  return { mode: 'development', enabled: true, operator: 'dev-operator', killSwitchEngaged: false, ...overrides };
+}
+
+export function status(
+  overrides: Partial<SystemStatus['source']> = {},
+  approvals: Partial<ApprovalStatus> = {},
+): SystemStatus {
   return {
     name: 'Orchestrarr',
     version: '0.0.0-dev',
@@ -100,6 +110,7 @@ export function status(overrides: Partial<SystemStatus['source']> = {}): SystemS
       ...overrides,
     },
     forge: { kind: 'github', configured: true },
+    approvals: approvalStatus(approvals),
   };
 }
 

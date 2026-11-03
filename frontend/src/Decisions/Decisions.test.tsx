@@ -1,7 +1,16 @@
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-import { finding, pullRequest, pullRequestsRead, renderWithProviders, report, stubApi, workItem } from 'testUtils';
+import {
+  finding,
+  pullRequest,
+  pullRequestsRead,
+  renderWithProviders,
+  report,
+  status,
+  stubApi,
+  workItem,
+} from 'testUtils';
 
 import Decisions from './Decisions';
 import { intervalFor } from './useWorkItems';
@@ -75,7 +84,7 @@ describe('Decisions', () => {
     expect(fetchMock).toHaveBeenCalledWith(`${path}?refresh=true`, expect.anything());
   });
 
-  it('never sends anything but a read, whatever the operator does, with pull requests on screen', async () => {
+  it('sends nothing but reads while approving is turned off, whatever the operator does', async () => {
     const waiting = { ...finding, kind: 'openDependencyPullRequests' as const, count: 2, alerts: null };
     const withPullRequests = {
       ...workItem,
@@ -85,12 +94,13 @@ describe('Decisions', () => {
     const fetchMock = stubApi({
       [path]: report({ items: [withPullRequests] }),
       [`${path}?refresh=true`]: report({ items: [withPullRequests] }),
+      '/api/v1/system/status': status({}, { enabled: false, mode: 'disabled', operator: null }),
     });
 
     renderWithProviders(<Decisions />);
     await screen.findByRole('link', { name: 'Pull request #1' });
     await userEvent.click(screen.getByRole('checkbox', { name: 'Build and test the change' }));
-    await userEvent.click(screen.getByRole('button', { name: 'Approve and run' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Approve' }));
     await userEvent.click(screen.getByRole('button', { name: 'Refresh' }));
 
     expect(fetchMock.mock.calls.length).toBeGreaterThan(1);

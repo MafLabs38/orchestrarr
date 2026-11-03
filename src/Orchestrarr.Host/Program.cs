@@ -2,10 +2,13 @@ using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Http.Json;
+using Orchestrarr.Core.Approvals;
 using Orchestrarr.Core.Fleet;
 using Orchestrarr.Core.Forge;
+using Orchestrarr.Core.Launch;
 using Orchestrarr.Core.WorkItems;
 using Orchestrarr.Host;
+using Orchestrarr.Host.Approvals;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -17,28 +20,36 @@ builder.Services.Configure<JsonOptions>(options =>
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton(provider => FleetSourceFactory.Create(builder.Configuration, builder.Environment.ContentRootPath, provider.GetRequiredService<TimeProvider>()));
 builder.Services.AddSingleton(provider => PullRequestSourceFactory.Create(builder.Configuration, builder.Environment.ContentRootPath, provider.GetRequiredService<TimeProvider>()));
-// No power is granted yet (SPEC D-10, D-11): the policy that will read the operator's grants replaces this one
-builder.Services.AddSingleton<IPowerPolicy, NoPowers>();
+// Approving: recording the operator's decision, with its trail and the global stop. Nothing here runs anything yet.
+var approvals = builder.Configuration.GetSection(ApprovalsOptions.SectionName).Get<ApprovalsOptions>() ?? new ApprovalsOptions();
+approvals.Validate();
+SandboxGuard.Check(approvals, builder.Environment, builder.Configuration);
+// The powers the operator listed in the configuration (SPEC D-10, D-11): none unless a grant is written. Checked now, not at a request.
+var grants = (builder.Configuration.GetSection(PowersOptions.SectionName).Get<PowersOptions>() ?? new PowersOptions()).ToGrants(builder.Environment.IsDevelopment());
+builder.Services.AddApprovals(approvals, grants);
 builder.Services.AddSingleton(builder.Configuration.GetSection(WorkItemCatalogOptions.SectionName).Get<WorkItemCatalogOptions>() ?? new WorkItemCatalogOptions());
 builder.Services.AddSingleton<WorkItemCatalog>();
 
 var app = builder.Build();
+SandboxGuard.StopIfListeningBeyondLoopback(app, approvals);
 
 var api = app.MapGroup("/api/v1");
 
-// The decision cards waiting for the operator. Read-only in this vertical: every route is a GET, and nothing can be approved yet.
+// The decision cards waiting for the operator, and the approvals recorded for the launcher. Approving records a decision; nothing runs.
 api.MapGet("/work-items", async (WorkItemCatalog catalog, bool? refresh, CancellationToken ct) =>
     Results.Ok(await catalog.GetAsync(refresh ?? false, ct)));
 
 api.MapGet("/work-items/{**id}", async (WorkItemCatalog catalog, string id, CancellationToken ct) =>
     await catalog.FindAsync(id, ct) is { } item ? Results.Ok(item) : Results.NotFound());
 
-api.MapGet("/system/status", (WorkItemCatalog catalog) =>
+api.MapApprovalEndpoints();
+
+api.MapGet("/system/status", (WorkItemCatalog catalog, IApproverAccessor accessor, IKillSwitchControl killSwitch, HttpContext context) =>
 {
     // The status never reads the fleet: it says what the last read found, and nothing before the first one
     var report = catalog.Peek();
     var version = typeof(Program).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0.0.0-dev";
-    return Results.Ok(new SystemStatus("Orchestrarr", version, new SourceStatus(catalog.SourceKind, catalog.SourceConfigured, report?.ReadAt, report?.Error, report?.Stale ?? false), new ForgeStatus(catalog.ForgeKind, catalog.ForgeConfigured)));
+    return Results.Ok(new SystemStatus("Orchestrarr", version, new SourceStatus(catalog.SourceKind, catalog.SourceConfigured, report?.ReadAt, report?.Error, report?.Stale ?? false), new ForgeStatus(catalog.ForgeKind, catalog.ForgeConfigured), ApprovalEndpoints.StatusOf(accessor, context, killSwitch)));
 });
 
 // An unknown route of the API is a 404, never the page of the interface
@@ -55,12 +66,13 @@ if (app.Environment.WebRootFileProvider.GetDirectoryContents("/").Exists)
 await app.RunAsync();
 
 /// <summary>Entry point, public for the integration tests.</summary>
+[System.Diagnostics.CodeAnalysis.SuppressMessage("Major Code Smell", "S1118:Utility classes should not have public constructors", Justification = "The generated entry point must stay instantiable: WebApplicationFactory<Program> in the integration tests.")]
 public partial class Program;
 
 namespace Orchestrarr.Host
 {
     /// <summary>What <c>GET /api/v1/system/status</c> answers.</summary>
-    public sealed record SystemStatus(string Name, string Version, SourceStatus Source, ForgeStatus Forge);
+    public sealed record SystemStatus(string Name, string Version, SourceStatus Source, ForgeStatus Forge, ApprovalStatus Approvals);
 
     /// <summary>The forge where pull requests are read: its kind, and whether one is connected.</summary>
     public sealed record ForgeStatus(string Kind, bool Configured);

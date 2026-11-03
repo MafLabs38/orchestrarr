@@ -1,7 +1,7 @@
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-import { finding, step, workItem } from 'testUtils';
+import { finding, renderWithProviders, step, stubApi, workItem } from 'testUtils';
 import type { WorkItem } from 'typings/api';
 
 import DecisionRow from './DecisionRow';
@@ -12,8 +12,16 @@ const item: WorkItem = {
   plan: [step(), step({ kind: 'mergePullRequests' })],
 };
 
+beforeEach(() => {
+  stubApi({});
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
 const renderRow = (expanded: boolean, onToggle = vi.fn()) =>
-  render(
+  renderWithProviders(
     <ul>
       <DecisionRow item={item} expanded={expanded} onToggle={onToggle} />
     </ul>,
@@ -62,7 +70,7 @@ describe('DecisionRow', () => {
     ['warning', 'Attention'],
     ['info', 'Routine'],
   ] as const)('says a %s application in words', (severity, text) => {
-    render(
+    renderWithProviders(
       <ul>
         <DecisionRow item={{ ...item, severity }} expanded={false} onToggle={vi.fn()} />
       </ul>,

@@ -124,4 +124,55 @@ export interface SystemStatus {
   version: string;
   source: { kind: string; configured: boolean; readAt: string | null; error: SourceError | null; stale: boolean };
   forge: { kind: string; configured: boolean };
+  approvals: ApprovalStatus;
 }
+
+// Who may approve (the mode is "disabled" or "development"), who the operator is, and whether the global stop is engaged.
+export interface ApprovalStatus {
+  mode: string;
+  enabled: boolean;
+  operator: string | null;
+  killSwitchEngaged: boolean;
+}
+
+// A decision of the operator, recorded: these steps on this pull request at this commit. It waits for a launcher; nothing runs yet.
+export interface Approval {
+  id: string;
+  workItemId: string;
+  repository: string;
+  pullRequest: number;
+  headSha: string;
+  steps: StepKind[];
+  approver: string;
+  approvedAt: string;
+}
+
+export interface ActivityEntry {
+  id: number;
+  at: string;
+  event: string;
+  subject: string;
+  reference: string | null;
+  detail: string | null;
+}
+
+// Why an approval was refused: a code, which the interface words (Utilities/describe.ts).
+export type ApprovalError =
+  | 'approvalsDisabled'
+  | 'notSignedIn'
+  | 'notAnOperator'
+  | 'notAPerson'
+  | 'killSwitchEngaged'
+  | 'unknownWorkItem'
+  | 'pullRequestsNotRead'
+  | 'nothingTicked'
+  | 'planChanged'
+  | 'hostNotAllowed'
+  | 'stepNotOffered'
+  | 'stepNotGranted'
+  | 'stepNotSupported'
+  | 'mergeNeedsValidation'
+  | 'noPullRequests'
+  | 'alreadyApproved'
+  | 'storeFull'
+  | 'auditUnavailable';
