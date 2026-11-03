@@ -29,6 +29,14 @@ describe('Status', () => {
     expect(await screen.findByText('GitHub · Connected')).toBeInTheDocument();
   });
 
+  it('says a sample forge is sample data', async () => {
+    stubApi({ '/api/v1/system/status': { ...status(), forge: { kind: 'sample', configured: true } } });
+
+    renderWithProviders(<Status />);
+
+    expect(await screen.findByText('Sample data · Connected')).toBeInTheDocument();
+  });
+
   it('says when no forge is connected and what that means', async () => {
     stubApi({ '/api/v1/system/status': { ...status(), forge: { kind: 'none', configured: false } } });
 

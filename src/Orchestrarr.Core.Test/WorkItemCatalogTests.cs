@@ -165,6 +165,13 @@ public sealed class WorkItemCatalogTests
     }
 
     [Fact]
+    public void A_rate_limit_is_not_a_refusal_of_the_credentials()
+    {
+        SourceErrors.From(new ForgeRateLimitedException(HttpStatusCode.Forbidden, null)).Should().Be(SourceError.RateLimited);
+        SourceErrors.From(new HttpRequestException("x", null, HttpStatusCode.TooManyRequests)).Should().Be(SourceError.RateLimited);
+    }
+
+    [Fact]
     public void A_timeout_a_malformed_report_and_anything_else_have_their_own_code()
     {
         SourceErrors.From(new TaskCanceledException()).Should().Be(SourceError.Timeout);

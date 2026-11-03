@@ -1,8 +1,8 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-import { finding, step, workItem } from 'testUtils';
-import type { Severity, WorkItem } from 'typings/api';
+import { finding, pullRequest, pullRequestsRead, step, workItem } from 'testUtils';
+import type { WorkItem } from 'typings/api';
 
 import DecisionCard from './DecisionCard';
 
@@ -27,24 +27,18 @@ const noPlacement: WorkItem = {
 const deployBox = () => screen.getByRole('checkbox', { name: /Deploy/ });
 
 describe('DecisionCard', () => {
-  it('shows the title, the severity in words and the findings in words', () => {
+  it('says the findings in words, and the applications it serves', () => {
     render(<DecisionCard item={item} />);
 
-    expect(screen.getByRole('heading', { name: 'example/shop' })).toBeInTheDocument();
-    expect(screen.getByText('Urgent')).toBeInTheDocument();
     expect(screen.getByText('4 dependency alerts (1 critical, 2 high, 1 medium)')).toBeInTheDocument();
     expect(screen.getByText('5 open dependency pull requests waiting')).toBeInTheDocument();
     expect(screen.getByText('Apps: shop')).toBeInTheDocument();
   });
 
-  it.each<[Severity, string]>([
-    ['danger', 'Urgent'],
-    ['warning', 'Attention'],
-    ['info', 'Routine'],
-  ])('says a %s work item in words', (severity, text) => {
-    render(<DecisionCard item={{ ...item, severity }} />);
+  it('is a region named after the application', () => {
+    render(<DecisionCard item={item} />);
 
-    expect(screen.getByText(text)).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'example/shop' })).toBeInTheDocument();
   });
 
   it('ticks every available step by default', () => {
@@ -128,21 +122,14 @@ describe('DecisionCard', () => {
   });
 
   it('shows the pull requests the work item waits for, inside the card', () => {
-    const pullRequest = {
-      number: 12,
-      title: 'Bump a from 1.0.0 to 2.0.0',
-      url: 'https://forge.example/o/r/pull/12',
-      author: 'bot',
-      headBranch: 'bot/a',
-      draft: false,
-      checks: 'failing' as const,
-      merge: 'unstable' as const,
-      labels: [],
-      changes: [{ package: 'a', from: '1.0.0', to: '2.0.0', kind: 'major' as const }],
-      createdAt: '2026-11-01T09:38:16Z',
-    };
+    const failing = pullRequest(12, {
+      checks: 'failing',
+      merge: 'unstable',
+      readyToMerge: false,
+      changes: [{ package: 'a', from: '1.0.0', to: '2.0.0', kind: 'major' }],
+    });
 
-    render(<DecisionCard item={{ ...item, pullRequests: [pullRequest] }} />);
+    render(<DecisionCard item={{ ...item, pullRequests: pullRequestsRead({ items: [failing] }) }} />);
 
     expect(screen.getByText('a 1.0.0 → 2.0.0')).toBeInTheDocument();
     expect(screen.getByText('Checks fail')).toBeInTheDocument();

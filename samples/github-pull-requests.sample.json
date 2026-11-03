@@ -20,7 +20,8 @@
           "kind": "patch"
         }
       ],
-      "createdAt": "2026-11-01T09:38:16Z"
+      "createdAt": "2026-11-01T09:38:16Z",
+      "headSha": "cf93e424e4282bc6fa72d0991e542bfbf34cf9e1"
     },
     {
       "number": 2,
@@ -42,7 +43,8 @@
           "kind": "minor"
         }
       ],
-      "createdAt": "2026-11-01T09:38:16Z"
+      "createdAt": "2026-11-01T09:38:16Z",
+      "headSha": "7dd50db983bfe2746476f381eed915487c7eaf31"
     },
     {
       "number": 3,
@@ -64,7 +66,8 @@
           "kind": "major"
         }
       ],
-      "createdAt": "2026-11-01T09:38:16Z"
+      "createdAt": "2026-11-01T09:38:16Z",
+      "headSha": "6c6599e90be5b3fecd618d4feca084d6cff94446"
     },
     {
       "number": 4,
@@ -86,7 +89,8 @@
           "kind": "major"
         }
       ],
-      "createdAt": "2026-11-01T09:38:16Z"
+      "createdAt": "2026-11-01T09:38:16Z",
+      "headSha": "f0666238953441b28f37d6ae2de982371840eaba"
     },
     {
       "number": 5,
@@ -108,7 +112,8 @@
           "kind": "major"
         }
       ],
-      "createdAt": "2026-11-01T09:38:16Z"
+      "createdAt": "2026-11-01T09:38:16Z",
+      "headSha": "2cb8f6b89ed7c6949ad355bb6755dabd43705dea"
     }
   ],
   "example/recipes": [
@@ -132,7 +137,8 @@
           "kind": "patch"
         }
       ],
-      "createdAt": "2026-11-01T09:38:16Z"
+      "createdAt": "2026-11-01T09:38:16Z",
+      "headSha": "b750202fde86177b197f2a9eac01629de63f219d"
     },
     {
       "number": 2,
@@ -154,7 +160,8 @@
           "kind": "minor"
         }
       ],
-      "createdAt": "2026-11-01T09:38:16Z"
+      "createdAt": "2026-11-01T09:38:16Z",
+      "headSha": "bbff017e9c681c058d1e38fd97895c897a045632"
     }
   ],
   "example/notes-desktop": [
@@ -178,7 +185,8 @@
           "kind": "patch"
         }
       ],
-      "createdAt": "2026-11-01T09:38:16Z"
+      "createdAt": "2026-11-01T09:38:16Z",
+      "headSha": "80e57730393149ef33fdd005bf651f816128ae7a"
     }
   ],
   "example/billing-api": [
@@ -202,7 +210,8 @@
           "kind": "patch"
         }
       ],
-      "createdAt": "2026-11-01T09:38:16Z"
+      "createdAt": "2026-11-01T09:38:16Z",
+      "headSha": "227ebc8fd2fc8e06af41fdf356134504dd757000"
     },
     {
       "number": 2,
@@ -224,7 +233,8 @@
           "kind": "minor"
         }
       ],
-      "createdAt": "2026-11-01T09:38:16Z"
+      "createdAt": "2026-11-01T09:38:16Z",
+      "headSha": "f4dc71968de16d447bceafcb16cb07e3db10804e"
     },
     {
       "number": 3,
@@ -246,7 +256,8 @@
           "kind": "major"
         }
       ],
-      "createdAt": "2026-11-01T09:38:16Z"
+      "createdAt": "2026-11-01T09:38:16Z",
+      "headSha": "d89648f9cd21cda4363c41331139f19b62c556a3"
     },
     {
       "number": 4,
@@ -268,7 +279,8 @@
           "kind": "major"
         }
       ],
-      "createdAt": "2026-11-01T09:38:16Z"
+      "createdAt": "2026-11-01T09:38:16Z",
+      "headSha": "f1868d0b5d5d8077a1dbd0c0021df4b3b3ad1bc2"
     },
     {
       "number": 5,
@@ -290,7 +302,8 @@
           "kind": "major"
         }
       ],
-      "createdAt": "2026-11-01T09:38:16Z"
+      "createdAt": "2026-11-01T09:38:16Z",
+      "headSha": "4bde6ac6e73232fc73f99bad1477d1fd904a13e4"
     },
     {
       "number": 6,
@@ -318,7 +331,8 @@
           "kind": "unknown"
         }
       ],
-      "createdAt": "2026-11-01T09:38:16Z"
+      "createdAt": "2026-11-01T09:38:16Z",
+      "headSha": "363c560db8e9ada5215ed60ac3e66265929d02b6"
     },
     {
       "number": 7,
@@ -340,7 +354,8 @@
           "kind": "minor"
         }
       ],
-      "createdAt": "2026-11-01T09:38:16Z"
+      "createdAt": "2026-11-01T09:38:16Z",
+      "headSha": "381d7950de17d1fd3b62e1a59ae642bffdcc8395"
     }
   ],
   "example/web-portal": [
@@ -364,7 +379,8 @@
           "kind": "patch"
         }
       ],
-      "createdAt": "2026-11-01T09:38:16Z"
+      "createdAt": "2026-11-01T09:38:16Z",
+      "headSha": "e7dad9b9a30d6791ab07a4888e6311f5bdd7a82d"
     },
     {
       "number": 2,
@@ -386,7 +402,8 @@
           "kind": "minor"
         }
       ],
-      "createdAt": "2026-11-01T09:38:16Z"
+      "createdAt": "2026-11-01T09:38:16Z",
+      "headSha": "b66ed81bb1c6176c93056edd1296657d73001e69"
     },
     {
       "number": 3,
@@ -408,7 +425,8 @@
           "kind": "major"
         }
       ],
-      "createdAt": "2026-11-01T09:38:16Z"
+      "createdAt": "2026-11-01T09:38:16Z",
+      "headSha": "f120eded10b9c4c4300134d8417095e1f210686b"
     },
     {
       "number": 4,
@@ -430,7 +448,8 @@
           "kind": "major"
         }
       ],
-      "createdAt": "2026-11-01T09:38:16Z"
+      "createdAt": "2026-11-01T09:38:16Z",
+      "headSha": "62fbbebb3814dea1e57d4d4a94e7d64c3db238ab"
     }
   ],
   "example/auth-service": [
@@ -454,7 +473,8 @@
           "kind": "patch"
         }
       ],
-      "createdAt": "2026-11-01T09:38:16Z"
+      "createdAt": "2026-11-01T09:38:16Z",
+      "headSha": "a297cab0556b89704abcdc474520eac8baf64b7d"
     },
     {
       "number": 2,
@@ -476,7 +496,8 @@
           "kind": "minor"
         }
       ],
-      "createdAt": "2026-11-01T09:38:16Z"
+      "createdAt": "2026-11-01T09:38:16Z",
+      "headSha": "fd3c5b40b6e1d46880925fb947e9cdc5bb8273e4"
     },
     {
       "number": 3,
@@ -498,7 +519,8 @@
           "kind": "major"
         }
       ],
-      "createdAt": "2026-11-01T09:38:16Z"
+      "createdAt": "2026-11-01T09:38:16Z",
+      "headSha": "0f6fbb417fad68c5c0e540946f62e7dd3de79ddf"
     }
   ],
   "example/reporting": [
@@ -522,7 +544,8 @@
           "kind": "patch"
         }
       ],
-      "createdAt": "2026-11-01T09:38:16Z"
+      "createdAt": "2026-11-01T09:38:16Z",
+      "headSha": "2416da59db5bdf0d792cbb4f131c49ab200dd4aa"
     },
     {
       "number": 2,
@@ -544,7 +567,8 @@
           "kind": "minor"
         }
       ],
-      "createdAt": "2026-11-01T09:38:16Z"
+      "createdAt": "2026-11-01T09:38:16Z",
+      "headSha": "27b4748d860ed0f3cf2accbc4c7919765249e4d9"
     },
     {
       "number": 3,
@@ -566,7 +590,8 @@
           "kind": "major"
         }
       ],
-      "createdAt": "2026-11-01T09:38:16Z"
+      "createdAt": "2026-11-01T09:38:16Z",
+      "headSha": "49d4387c39281738061edc1c7640b5b72959ce72"
     },
     {
       "number": 4,
@@ -588,7 +613,8 @@
           "kind": "major"
         }
       ],
-      "createdAt": "2026-11-01T09:38:16Z"
+      "createdAt": "2026-11-01T09:38:16Z",
+      "headSha": "0c8c4c0c750f727a11809977409b71c9ed8335e6"
     },
     {
       "number": 5,
@@ -610,7 +636,8 @@
           "kind": "major"
         }
       ],
-      "createdAt": "2026-11-01T09:38:16Z"
+      "createdAt": "2026-11-01T09:38:16Z",
+      "headSha": "0f00782ab9e693e6714afa2df20470aa98e6a558"
     },
     {
       "number": 6,
@@ -638,7 +665,8 @@
           "kind": "unknown"
         }
       ],
-      "createdAt": "2026-11-01T09:38:16Z"
+      "createdAt": "2026-11-01T09:38:16Z",
+      "headSha": "a187a20eaee37a960f0c12ec27a5da2b03439e90"
     }
   ],
   "example/search-indexer": [
@@ -662,7 +690,8 @@
           "kind": "patch"
         }
       ],
-      "createdAt": "2026-11-01T09:38:16Z"
+      "createdAt": "2026-11-01T09:38:16Z",
+      "headSha": "edc3e055390978c8b4a7ed08fb930186c7a5ffd7"
     }
   ],
   "example/notifier": [
@@ -686,7 +715,8 @@
           "kind": "patch"
         }
       ],
-      "createdAt": "2026-11-01T09:38:16Z"
+      "createdAt": "2026-11-01T09:38:16Z",
+      "headSha": "42d0f1d0a62907484c9c649a42e1475c82a437ba"
     },
     {
       "number": 2,
@@ -708,7 +738,8 @@
           "kind": "minor"
         }
       ],
-      "createdAt": "2026-11-01T09:38:16Z"
+      "createdAt": "2026-11-01T09:38:16Z",
+      "headSha": "1772cc8c0b1dd29606afc2155744babf6ca60a90"
     }
   ],
   "example/data-pipeline": [
@@ -732,7 +763,8 @@
           "kind": "patch"
         }
       ],
-      "createdAt": "2026-11-01T09:38:16Z"
+      "createdAt": "2026-11-01T09:38:16Z",
+      "headSha": "73ec4f8beba74d02232d29241cc4749dc7f95b94"
     },
     {
       "number": 2,
@@ -754,7 +786,8 @@
           "kind": "minor"
         }
       ],
-      "createdAt": "2026-11-01T09:38:16Z"
+      "createdAt": "2026-11-01T09:38:16Z",
+      "headSha": "d432a5029d778a8a841e4709c31fb3a82fc11780"
     },
     {
       "number": 3,
@@ -776,7 +809,8 @@
           "kind": "major"
         }
       ],
-      "createdAt": "2026-11-01T09:38:16Z"
+      "createdAt": "2026-11-01T09:38:16Z",
+      "headSha": "1f553a51c4ea7043d9ebf391589376259cc97c61"
     }
   ],
   "example/mobile-app": [
@@ -800,7 +834,8 @@
           "kind": "patch"
         }
       ],
-      "createdAt": "2026-11-01T09:38:16Z"
+      "createdAt": "2026-11-01T09:38:16Z",
+      "headSha": "5862f6ce5fa4622579323834d7fbbba8e0fab8f4"
     },
     {
       "number": 2,
@@ -822,7 +857,8 @@
           "kind": "minor"
         }
       ],
-      "createdAt": "2026-11-01T09:38:16Z"
+      "createdAt": "2026-11-01T09:38:16Z",
+      "headSha": "13831d000992adb1635dfa276bf41ed1cffc7bd3"
     }
   ],
   "example/docs-site": [
@@ -846,7 +882,8 @@
           "kind": "patch"
         }
       ],
-      "createdAt": "2026-11-01T09:38:16Z"
+      "createdAt": "2026-11-01T09:38:16Z",
+      "headSha": "14ba62c51b32de44ab8bbde3c59dc310842a3c9c"
     }
   ]
 }

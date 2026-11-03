@@ -1,0 +1,17 @@
+.section {
+  margin: 18px 0 6px;
+  padding: 0;
+  color: var(--inkMuted);
+  font: 800 var(--fontSizeMeta) var(--defaultFontFamily);
+  text-transform: uppercase;
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.notice {
+  margin: 8px 0;
+}

@@ -23,11 +23,12 @@ export async function getJson<T>(path: string): Promise<T> {
 // The only place that talks to the API: components never call fetch.
 export default function useApiQuery<T>(
   path: string,
-  options: { refetchInterval?: number } = {},
+  options: { refetchInterval?: number | ((data: T | undefined) => number) } = {},
 ): UseQueryResult<T, ApiError> {
+  const interval = options.refetchInterval;
   return useQuery<T, ApiError>({
     queryKey: [path],
     queryFn: () => getJson<T>(path),
-    refetchInterval: options.refetchInterval,
+    refetchInterval: typeof interval === 'function' ? (query) => interval(query.state.data) : interval,
   });
 }

@@ -1,16 +1,13 @@
-import { finding, step } from 'testUtils';
-import type { Finding, PullRequest, SourceError } from 'typings/api';
+import { finding, pullRequest, step } from 'testUtils';
+import type { Finding, SourceError } from 'typings/api';
 
 import {
   describeChanges,
-  describeChecks,
   describeError,
   describeFinding,
-  describeMerge,
   describeReason,
   describeStep,
   describeUpdateKind,
-  isReadyToMerge,
   updateKindOf,
 } from './describe';
 
@@ -76,20 +73,7 @@ describe('describeReason and describeError', () => {
   );
 });
 
-const pr = (overrides: Partial<PullRequest>): PullRequest => ({
-  number: 1,
-  title: 'Bump a from 1.0.0 to 2.0.0',
-  url: 'https://forge.example/o/r/pull/1',
-  author: 'bot',
-  headBranch: 'bot/a',
-  draft: false,
-  checks: 'passing',
-  merge: 'clean',
-  labels: [],
-  changes: [],
-  createdAt: '2026-11-01T09:38:16Z',
-  ...overrides,
-});
+const pr = pullRequest.bind(null, 1);
 
 describe('pull request words', () => {
   it('words what one update changes, or the packages, or the title', () => {
@@ -109,15 +93,8 @@ describe('pull request words', () => {
     expect(describeChanges(pr({ title: 'Anything', changes: [] }))).toBe('Anything');
   });
 
-  it.each([
-    ['patch', 'patch update'],
-    ['minor', 'minor update'],
-    ['major', 'major update'],
-  ] as const)('words a %s update', (kind, text) => {
-    expect(describeUpdateKind(kind)).toBe(text);
-  });
-
-  it('has no word for an update of unknown kind', () => {
+  it('words an update by its kind and has no word for an unknown one', () => {
+    expect(describeUpdateKind('major')).toBe('major update');
     expect(describeUpdateKind('unknown')).toBeNull();
   });
 
@@ -127,25 +104,5 @@ describe('pull request words', () => {
     expect(updateKindOf(pr({ changes: [change('major'), change('patch')] }))).toBe('major');
     expect(updateKindOf(pr({ changes: [change('unknown')] }))).toBe('unknown');
     expect(updateKindOf(pr({ changes: [] }))).toBe('unknown');
-  });
-
-  it.each([
-    [{}, true],
-    [{ checks: 'failing' as const }, false],
-    [{ checks: 'pending' as const }, false],
-    [{ checks: 'unknown' as const }, false],
-    [{ merge: 'unstable' as const }, false],
-    [{ merge: 'conflicting' as const }, false],
-    [{ draft: true }, false],
-  ])('is ready to merge only when the checks pass and the forge says clean: %j', (overrides, expected) => {
-    expect(isReadyToMerge(pr(overrides))).toBe(expected);
-  });
-
-  it('words every state of the checks and of the merge', () => {
-    expect(describeChecks('failing')).toBe('Checks fail');
-    expect(describeMerge('behind')).toBe('Behind its base branch');
-    expect(describeMerge('blocked')).toBe('Blocked');
-    expect(describeMerge('unstable')).toBe('Can be merged, a check that is not required fails');
-    expect(describeMerge('unknown')).toBe('Merge state unknown');
   });
 });

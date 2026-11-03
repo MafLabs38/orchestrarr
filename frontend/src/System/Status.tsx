@@ -13,6 +13,7 @@ import useSystemStatus from './useSystemStatus';
 
 const forgeNames: Record<string, () => string> = {
   github: () => translate('ForgeGithub'),
+  sample: () => translate('SourceSample'),
   none: () => translate('ForgeNone'),
 };
 

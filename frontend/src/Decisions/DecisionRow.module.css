@@ -48,13 +48,3 @@
 .body {
   padding: 0 14px 14px;
 }
-
-/* the state is said by the chevron and aria-expanded; the words are for a screen reader */
-.hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}

@@ -67,8 +67,6 @@
   "ErrorInvalidResponse": "The source answered with something unexpected",
   "PullRequests": "Pull requests",
   "PullRequestsReady": "{ready} of {total} ready to merge",
-  "PullRequestsNotRead": "Pull requests were not read: no forge is connected.",
-  "PullRequestsFailed": "Pull requests could not be read: {error}",
   "ChecksPassing": "Checks pass",
   "ChecksFailing": "Checks fail",
   "ChecksPending": "Checks running",
@@ -89,7 +87,6 @@
   "ForgeNotConnected": "Not connected: pull requests are not read",
   "SummaryAlertsOne": "1 alert",
   "SummaryAlertsOther": "{count} alerts",
-  "SummaryAlertsWorst": "{worst}",
   "SummaryCodeAlertsOne": "1 code alert",
   "SummaryCodeAlertsOther": "{count} code alerts",
   "SummarySecretsOne": "1 exposed secret",
@@ -111,5 +108,14 @@
   "FilterAll": "All",
   "ShowingCount": "{shown} of {total} applications",
   "NothingMatches": "No application matches this filter.",
-  "GroupCount": "{label} \u00b7 {count}"
+  "GroupCount": "{label} \u00b7 {count}",
+  "ErrorRateLimited": "The source asks to be read less often: its limit is reached",
+  "PullRequestsNotConnected": "Pull requests were not read: no forge is connected.",
+  "PullRequestsPending": "Reading the pull requests\u2026",
+  "PullRequestsFailed": "Pull requests could not be read: {error}",
+  "PullRequestsStale": "Showing the last list that was read.",
+  "PullRequestsNoneFound": "The forge returned none of the {count} pull requests that Portarr counts. They may come from a bot that is not known here.",
+  "PullRequestsTruncated": "Showing {shown} of the pull requests: there are more than the limit that is read.",
+  "PullRequestsCountMismatch": "Portarr counts {count} pull requests, the forge returned {found}.",
+  "ShortCommit": "commit {sha}"
 }

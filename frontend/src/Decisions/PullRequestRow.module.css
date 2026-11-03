@@ -24,3 +24,9 @@
   color: var(--inkMuted);
   font-size: var(--fontSizeMeta);
 }
+
+.commit {
+  color: var(--inkMuted);
+  font-family: var(--monoSpaceFontFamily);
+  font-size: var(--fontSizeMeta);
+}

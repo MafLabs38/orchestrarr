@@ -5,7 +5,6 @@ import * as icons from 'Helpers/Props/icons';
 import { iconSizes } from 'Helpers/Props/sizes';
 import type { WorkItem } from 'typings/api';
 import { summarize, summarizePlan } from 'Utilities/summarize';
-import translate from 'Utilities/translate';
 
 import DecisionCard from './DecisionCard';
 import styles from './DecisionRow.module.css';
@@ -28,7 +27,7 @@ export default function DecisionRow({ item, expanded, onToggle }: Readonly<Decis
           type="button"
           className={styles.toggle}
           aria-expanded={expanded}
-          aria-controls={bodyId}
+          aria-controls={expanded ? bodyId : undefined}
           onClick={onToggle}
         >
           <Chevron size={iconSizes.LARGE} aria-hidden="true" />
@@ -36,12 +35,11 @@ export default function DecisionRow({ item, expanded, onToggle }: Readonly<Decis
           <StatusLabel severity={item.severity} />
           <span className={styles.summary}>{summarize(item).join(' · ')}</span>
           <span className={styles.plan}>{summarizePlan(item)}</span>
-          <span className={styles.hidden}>{expanded ? translate('Collapse') : translate('Expand')}</span>
         </button>
       </h3>
       {expanded ? (
         <div id={bodyId} className={styles.body}>
-          <DecisionCard item={item} showHeader={false} />
+          <DecisionCard item={item} />
         </div>
       ) : null}
     </li>

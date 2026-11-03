@@ -98,6 +98,7 @@ const errors = {
   unauthorized: 'ErrorUnauthorized',
   timeout: 'ErrorTimeout',
   invalidResponse: 'ErrorInvalidResponse',
+  rateLimited: 'ErrorRateLimited',
 } as const satisfies Record<SourceError, string>;
 
 export function describeError(error: SourceError): string {
@@ -129,6 +130,11 @@ export function describeMerge(state: MergeState): string {
   return translate(merges[state]);
 }
 
+// The word of a kind of change: "major"
+export function describeChangeWord(kind: Exclude<UpdateKind, 'unknown'>): string {
+  return translate(changeWords[kind]);
+}
+
 // "major update", or nothing when the kind is not known
 export function describeUpdateKind(kind: UpdateKind): string | null {
   return kind === 'unknown' ? null : translate('UpdateKind', { kind: translate(changeWords[kind]) });
@@ -149,9 +155,4 @@ export function describeChanges(pullRequest: PullRequest): string {
 export function updateKindOf(pullRequest: PullRequest): UpdateKind {
   const order: UpdateKind[] = ['major', 'minor', 'patch'];
   return order.find((kind) => pullRequest.changes.some((change) => change.kind === kind)) ?? 'unknown';
-}
-
-// Ready to merge as it stands: its checks pass and the forge says it is clean
-export function isReadyToMerge(pullRequest: PullRequest): boolean {
-  return !pullRequest.draft && pullRequest.checks === 'passing' && pullRequest.merge === 'clean';
 }

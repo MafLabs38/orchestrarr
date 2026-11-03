@@ -1,23 +1,16 @@
-import { finding, step, workItem } from 'testUtils';
-import type { Finding, PullRequest, WorkItem } from 'typings/api';
+import { finding, pullRequest, pullRequestsRead, step, workItem } from 'testUtils';
+import type { Finding, WorkItem } from 'typings/api';
 
 import { summarize, summarizePlan } from './summarize';
 
 const f = (overrides: Partial<Finding>): Finding => ({ ...finding, ...overrides });
 const item = (overrides: Partial<WorkItem>): WorkItem => ({ ...workItem, ...overrides });
-const pr = (number: number, ready: boolean): PullRequest => ({
-  number,
-  title: 't',
-  url: 'https://forge.example/o/r/pull/1',
-  author: 'bot',
-  headBranch: 'b',
-  draft: false,
-  checks: ready ? 'passing' : 'failing',
-  merge: ready ? 'clean' : 'unstable',
-  labels: [],
-  changes: [],
-  createdAt: '2026-11-01T09:38:16Z',
-});
+const pr = (number: number, ready: boolean) =>
+  pullRequest(number, {
+    checks: ready ? 'passing' : 'failing',
+    merge: ready ? 'clean' : 'unstable',
+    readyToMerge: ready,
+  });
 
 describe('summarize', () => {
   it('says the alerts with the worst ones, in a few words', () => {
@@ -56,13 +49,37 @@ describe('summarize', () => {
   it('says how many pull requests wait, and how many are ready once they are read', () => {
     const waiting = f({ kind: 'openDependencyPullRequests', count: 3, alerts: null });
 
-    expect(summarize(item({ findings: [waiting], pullRequests: null }))).toEqual(['3 PRs']);
-    expect(summarize(item({ findings: [waiting], pullRequests: [pr(1, true), pr(2, true), pr(3, false)] }))).toEqual([
-      '3 PRs (2 ready)',
-    ]);
-    expect(summarize(item({ findings: [{ ...waiting, count: 1 }], pullRequests: [pr(1, true)] }))).toEqual([
-      '1 PR (1 ready)',
-    ]);
+    expect(
+      summarize(item({ findings: [waiting], pullRequests: pullRequestsRead({ status: 'notConnected', items: [] }) })),
+    ).toEqual(['3 PRs']);
+    expect(
+      summarize(item({ findings: [waiting], pullRequests: pullRequestsRead({ status: 'pending', items: [] }) })),
+    ).toEqual(['3 PRs']);
+    expect(
+      summarize(
+        item({
+          findings: [waiting],
+          pullRequests: pullRequestsRead({ items: [pr(1, true), pr(2, true), pr(3, false)] }),
+        }),
+      ),
+    ).toEqual(['3 PRs (2 ready)']);
+    expect(
+      summarize(
+        item({ findings: [{ ...waiting, count: 1 }], pullRequests: pullRequestsRead({ items: [pr(1, true)] }) }),
+      ),
+    ).toEqual(['1 PR (1 ready)']);
+  });
+
+  it('keeps saying how many are ready from the last good read when a read fails', () => {
+    const waiting = f({ kind: 'openDependencyPullRequests', count: 2, alerts: null });
+    const failed = pullRequestsRead({
+      status: 'failed',
+      error: 'timeout',
+      stale: true,
+      items: [pr(1, true), pr(2, false)],
+    });
+
+    expect(summarize(item({ findings: [waiting], pullRequests: failed }))).toEqual(['2 PRs (1 ready)']);
   });
 
   it('says how far an image moved, when it is known', () => {

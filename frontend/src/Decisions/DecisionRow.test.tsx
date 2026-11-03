@@ -43,7 +43,7 @@ describe('DecisionRow', () => {
     expect(screen.getByRole('button', { name: /example\/shop/ })).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getAllByRole('checkbox')).toHaveLength(2);
     expect(screen.getByText('Findings')).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { level: 2, name: 'example/shop' })).not.toBeInTheDocument();
+    expect(screen.getAllByText('example/shop')).toHaveLength(1);
   });
 
   it('asks to be toggled when the line is clicked, from the keyboard too', async () => {
@@ -55,6 +55,26 @@ describe('DecisionRow', () => {
     await userEvent.keyboard('{Enter}');
 
     expect(onToggle).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ['danger', 'Urgent'],
+    ['warning', 'Attention'],
+    ['info', 'Routine'],
+  ] as const)('says a %s application in words', (severity, text) => {
+    render(
+      <ul>
+        <DecisionRow item={{ ...item, severity }} expanded={false} onToggle={vi.fn()} />
+      </ul>,
+    );
+
+    expect(screen.getByRole('button', { name: /example\/shop/ })).toHaveTextContent(text);
+  });
+
+  it('has nothing to control while it is closed', () => {
+    renderRow(false);
+
+    expect(screen.getByRole('button', { name: /example\/shop/ })).not.toHaveAttribute('aria-controls');
   });
 
   it('controls the region it opens', () => {

@@ -82,6 +82,8 @@ export interface PullRequest {
   labels: string[];
   changes: DependencyChange[];
   createdAt: string;
+  headSha: string;
+  readyToMerge: boolean;
 }
 
 export interface WorkItem {
@@ -93,12 +95,21 @@ export interface WorkItem {
   findings: Finding[];
   plan: PlanStep[];
   placements: Placement[];
-  // null: not read (no forge connected, or none to read); pullRequestsError says whether reading them failed
-  pullRequests: PullRequest[] | null;
-  pullRequestsError: SourceError | null;
+  pullRequests: PullRequestsRead;
 }
 
-export type SourceError = 'failed' | 'unreachable' | 'unauthorized' | 'timeout' | 'invalidResponse';
+export type PullRequestsStatus = 'notNeeded' | 'notConnected' | 'pending' | 'read' | 'failed';
+
+// The pull requests of a work item and the state of their reading. On a failure the items are the last good read, and stale says so.
+export interface PullRequestsRead {
+  status: PullRequestsStatus;
+  items: PullRequest[];
+  truncated: boolean;
+  error: SourceError | null;
+  stale: boolean;
+}
+
+export type SourceError = 'failed' | 'unreachable' | 'unauthorized' | 'timeout' | 'invalidResponse' | 'rateLimited';
 
 export interface WorkItemReport {
   readAt: string | null;

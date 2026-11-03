@@ -60,10 +60,10 @@ public sealed class FailingApiFactory : WebApplicationFactory<Program>
     }
 }
 
-/// <summary>The sample host with a forge that answers for every repository, or fails.</summary>
+/// <summary>The sample host with a forge that answers for every repository, or fails with a given exception.</summary>
 public sealed class ForgeApiFactory : WebApplicationFactory<Program>
 {
-    public bool Fails { get; init; }
+    public Func<Exception>? Failure { get; init; }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -71,31 +71,61 @@ public sealed class ForgeApiFactory : WebApplicationFactory<Program>
         builder.ConfigureTestServices(services =>
         {
             services.RemoveAll<IPullRequestSource>();
-            services.AddSingleton<IPullRequestSource>(new FakeForge(Fails));
+            services.AddSingleton<IPullRequestSource>(new FakeForge(Failure));
         });
     }
 
-    private sealed class FakeForge(bool fails) : IPullRequestSource
+    private sealed class FakeForge(Func<Exception>? failure) : IPullRequestSource
     {
         public string Kind => "github";
 
         public bool Configured => true;
 
-        public Task<IReadOnlyList<PullRequestInfo>> ListDependencyPullRequestsAsync(string repositoryFullName, CancellationToken cancellationToken)
+        public Task<PullRequestList> ListDependencyPullRequestsAsync(string repositoryFullName, bool refresh, CancellationToken cancellationToken)
         {
-            if (fails)
+            if (failure is not null)
             {
-                return Task.FromException<IReadOnlyList<PullRequestInfo>>(new HttpRequestException("rate limited", null, System.Net.HttpStatusCode.Forbidden));
+                return Task.FromException<PullRequestList>(failure());
             }
 
-            IReadOnlyList<PullRequestInfo> result =
-            [
-                new PullRequestInfo(
-                    7, "chore(deps): Bump lodash from 4.17.4 to 5.0.0", new Uri($"https://forge.example/{repositoryFullName}/pull/7"), "dependabot[bot]", "bot/lodash", false,
-                    ChecksState.Passing, MergeState.Clean, ["dependencies"], [new DependencyChange("lodash", "4.17.4", "5.0.0", UpdateKind.Major)],
-                    new DateTimeOffset(2026, 11, 1, 9, 0, 0, TimeSpan.Zero)),
-            ];
-            return Task.FromResult(result);
+            var pullRequest = new PullRequestInfo(
+                7, "chore(deps): Bump lodash from 4.17.4 to 5.0.0", new Uri($"https://forge.example/{repositoryFullName}/pull/7"), "dependabot[bot]", "bot/lodash", false,
+                ChecksState.Passing, MergeState.Clean, ["dependencies"], [new DependencyChange("lodash", "4.17.4", "5.0.0", UpdateKind.Major)],
+                new DateTimeOffset(2026, 11, 1, 9, 0, 0, TimeSpan.Zero), new string('c', 40));
+            return Task.FromResult(new PullRequestList([pullRequest], Truncated: false));
+        }
+    }
+}
+
+/// <summary>The sample host whose source of findings counts how often it is read.</summary>
+public sealed class CountingApiFactory : WebApplicationFactory<Program>
+{
+    public CountingSource Source { get; } = new();
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        builder.UseEnvironment("Testing");
+        builder.ConfigureTestServices(services =>
+        {
+            services.RemoveAll<IFleetSource>();
+            services.AddSingleton<IFleetSource>(Source);
+        });
+    }
+
+    public sealed class CountingSource : IFleetSource
+    {
+        private int _reads;
+
+        public int Reads => Volatile.Read(ref _reads);
+
+        public string Kind => FleetSourceKinds.Portarr;
+
+        public bool Configured => true;
+
+        public Task<FleetSnapshot> ReadAsync(CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref _reads);
+            return Task.FromResult(new FleetSnapshot(DateTimeOffset.UtcNow, [], []));
         }
     }
 }

@@ -27,12 +27,45 @@ public sealed class DependencyTitleTests
         changes.Should().OnlyContain(c => c.From == null && c.To == null && c.Kind == UpdateKind.Unknown);
     }
 
-    [Fact]
-    public void A_grouped_update_is_one_change_named_after_its_group()
+    [Theory]
+    [InlineData("chore(deps): Bump the npm_and_yarn group with 3 updates")]
+    [InlineData("Bump the nuget group across 1 directory with 2 updates")]
+    public void A_grouped_update_is_one_change_named_after_its_group(string title)
     {
-        var changes = DependencyTitle.Parse("chore(deps): Bump the npm_and_yarn group with 3 updates");
+        var changes = DependencyTitle.Parse(title);
 
-        changes.Should().ContainSingle().Which.Package.Should().StartWith("the npm_and_yarn group");
+        changes.Should().ContainSingle().Which.Package.Should().EndWith(" group").And.NotContain("updates");
+        changes[0].From.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("Update dependency lodash to v4.17.21", "lodash", "v4.17.21")]
+    [InlineData("chore(deps): update dependency lodash to v4.17.21", "lodash", "v4.17.21")]
+    [InlineData("Update actions/checkout action to v4", "actions/checkout", "v4")]
+    [InlineData("Update node docker tag to v22", "node", "v22")]
+    [InlineData("chore(deps): update lodash to v5", "lodash", "v5")]
+    public void A_renovate_pull_request_names_the_package_and_where_it_goes_but_not_how_far(string title, string package, string to)
+    {
+        DependencyTitle.Parse(title).Should().ContainSingle().Which.Should().Be(new DependencyChange(package, null, to, UpdateKind.Unknown));
+    }
+
+    [Fact]
+    public void A_renovate_pull_request_with_no_target_names_the_package_only()
+    {
+        DependencyTitle.Parse("Update dependency lodash").Should().ContainSingle().Which.Should().Be(new DependencyChange("lodash", null, null, UpdateKind.Unknown));
+    }
+
+    [Fact]
+    public void A_very_long_hostile_title_is_read_in_bounded_time_and_gives_something_or_nothing()
+    {
+        var title = "Bump " + new string('a', 200_000) + " and " + new string('b', 200_000);
+
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var changes = DependencyTitle.Parse(title);
+        watch.Stop();
+
+        watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(5));
+        changes.Should().NotBeNull();
     }
 
     [Theory]
@@ -54,13 +87,5 @@ public sealed class DependencyTitleTests
     public void The_kind_of_an_update_comes_from_the_first_numbers_that_differ(string from, string to, UpdateKind expected)
     {
         DependencyTitle.Kind(from, to).Should().Be(expected);
-    }
-
-    [Fact]
-    public void A_null_title_is_refused()
-    {
-        var parse = () => DependencyTitle.Parse(null!);
-
-        parse.Should().Throw<ArgumentNullException>();
     }
 }

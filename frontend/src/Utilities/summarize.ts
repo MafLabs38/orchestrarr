@@ -1,7 +1,7 @@
-import type { Finding, WorkItem } from 'typings/api';
-import translate from 'Utilities/translate';
+import type { Finding, PullRequestsRead, WorkItem } from 'typings/api';
 
-import { describeUpdateKind, isReadyToMerge } from './describe';
+import { describeChangeWord } from './describe';
+import translate from './translate';
 
 const order: Record<Finding['severity'], number> = { danger: 0, warning: 1, info: 2 };
 
@@ -23,14 +23,26 @@ function alerts(
   return worst ? `${text} (${worst})` : text;
 }
 
+// How many are ready is only said when they were read (or the last good read is shown)
+function hasPullRequests(read: PullRequestsRead): boolean {
+  return read.status === 'read' || (read.status === 'failed' && read.items.length > 0);
+}
+
 function pullRequests(item: WorkItem, finding: Finding): string {
   const text = translate(finding.count === 1 ? 'SummaryPullRequestsOne' : 'SummaryPullRequestsOther', {
     count: finding.count,
   });
-  if (item.pullRequests === null) {
+  if (!hasPullRequests(item.pullRequests)) {
     return text;
   }
-  return `${text} (${translate('SummaryPullRequestsReady', { ready: item.pullRequests.filter(isReadyToMerge).length })})`;
+  return `${text} (${translate('SummaryPullRequestsReady', { ready: item.pullRequests.items.filter((pr) => pr.readyToMerge).length })})`;
+}
+
+function image(finding: Finding): string {
+  const kind = finding.image?.change;
+  return kind && kind !== 'none' && kind !== 'build'
+    ? translate('SummaryImageChange', { change: describeChangeWord(kind) })
+    : translate('SummaryImageUpdate');
 }
 
 function summarizeFinding(item: WorkItem, finding: Finding): string {
@@ -45,22 +57,11 @@ function summarizeFinding(item: WorkItem, finding: Finding): string {
       return pullRequests(item, finding);
     case 'failingCi':
       return translate('SummaryCiFailing');
-    case 'outdatedImage': {
-      const change = finding.image ? describeChange(finding) : null;
-      return change ? translate('SummaryImageChange', { change }) : translate('SummaryImageUpdate');
-    }
+    case 'outdatedImage':
+      return image(finding);
     case 'dependencyScanUnavailable':
       return translate('SummaryScanUnavailable');
   }
-}
-
-// "major" for an image that moved by a major version, or nothing when the move is not typed
-function describeChange(finding: Finding): string | null {
-  const kind = finding.image?.change;
-  if (!kind || kind === 'none' || kind === 'build') {
-    return null;
-  }
-  return describeUpdateKind(kind)?.replace(/ update$/, '') ?? null;
 }
 
 // What is wrong with an application, in a few words, most serious first: the line of the list.

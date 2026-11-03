@@ -23,11 +23,11 @@ public sealed class SamplePullRequestSource : IPullRequestSource
 
     public bool Configured => true;
 
-    public async Task<IReadOnlyList<PullRequestInfo>> ListDependencyPullRequestsAsync(string repositoryFullName, CancellationToken cancellationToken)
+    public async Task<PullRequestList> ListDependencyPullRequestsAsync(string repositoryFullName, bool refresh, CancellationToken cancellationToken)
     {
         await using var stream = File.OpenRead(_path);
         var all = await JsonSerializer.DeserializeAsync<Dictionary<string, List<PullRequestInfo>>>(stream, Json, cancellationToken)
             ?? throw new InvalidOperationException($"The sample file {_path} is empty.");
-        return all.TryGetValue(repositoryFullName, out var pullRequests) ? pullRequests : [];
+        return new PullRequestList(all.TryGetValue(repositoryFullName, out var pullRequests) ? pullRequests : [], Truncated: false);
     }
 }

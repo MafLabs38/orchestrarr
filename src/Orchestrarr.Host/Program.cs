@@ -33,11 +33,12 @@ api.MapGet("/work-items", async (WorkItemCatalog catalog, bool? refresh, Cancell
 api.MapGet("/work-items/{**id}", async (WorkItemCatalog catalog, string id, CancellationToken ct) =>
     await catalog.FindAsync(id, ct) is { } item ? Results.Ok(item) : Results.NotFound());
 
-api.MapGet("/system/status", async (WorkItemCatalog catalog, CancellationToken ct) =>
+api.MapGet("/system/status", (WorkItemCatalog catalog) =>
 {
-    var report = await catalog.GetAsync(refresh: false, ct);
+    // The status never reads the fleet: it says what the last read found, and nothing before the first one
+    var report = catalog.Peek();
     var version = typeof(Program).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0.0.0-dev";
-    return Results.Ok(new SystemStatus("Orchestrarr", version, new SourceStatus(catalog.SourceKind, catalog.SourceConfigured, report.ReadAt, report.Error, report.Stale), new ForgeStatus(catalog.ForgeKind, catalog.ForgeConfigured)));
+    return Results.Ok(new SystemStatus("Orchestrarr", version, new SourceStatus(catalog.SourceKind, catalog.SourceConfigured, report?.ReadAt, report?.Error, report?.Stale ?? false), new ForgeStatus(catalog.ForgeKind, catalog.ForgeConfigured)));
 });
 
 // An unknown route of the API is a 404, never the page of the interface

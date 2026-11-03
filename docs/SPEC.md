@@ -1,6 +1,6 @@
 # Orchestrarr — Functional and Technical Specification
 
-> **Status**: draft v0.4. The first vertical (read-only) is built; no power that acts exists yet.
+> **Status**: draft v0.7. The first vertical (read-only) is built; no power that acts exists yet.
 > **Related documents**: [VISION.md](VISION.md) (pitch, safety principles, first interview questions) · [environment-file.md](environment-file.md) (standalone description format) · [adr/](adr/) (architecture decisions)
 > **Last updated**: 2026-11-03
 > **Audience**: the project owner and contributors.
@@ -68,6 +68,9 @@ In practice the operator rarely reads code: they check that the AI did not drift
 | 🟡 D-21 | **The unit of work is the repository, or the image for a third-party image; not the application.** Work item ids are `repository:<owner>/<name>` and `image:<reference>`, frozen before anything persists against them. A fix, a merge and a build happen at a repository; an application can span several repositories and a repository several applications, so Portarr's `appIds` stay an attribute. Forks and archived repositories are not work items (Q-10 will make this an allow-list). [ADR 0003](adr/0003-work-items-are-per-repository.md). |
 | 🟡 D-22 | **The server sends data and codes; the interface words them.** Findings, plan steps, reasons and source errors are codes and numbers: no sentence travels in the API, because the contract outlives one client. No exception text reaches a client: a failed read gives a code (`unreachable`, `unauthorized`, `timeout`, `invalidResponse`, `failed`) and the details stay in the log. |
 | 🟡 D-23 | **"Available" and "granted" are two things.** `available`: possible, from what the source says. `granted`: allowed by the powers granted to Orchestrarr (D-10, D-11). No power exists yet, so no step is granted and a card is a preview. A scan that is off or unreadable is a finding, not a clean repository. |
+| 🟡 D-36 | **Portarr names the repositories with waiting dependency pull requests; Orchestrarr reads their live state from the forge it will act on**, through a provider (GitHub first) with a read-only credential. A forge failure is said on the work item it concerns, never as an empty list. [ADR 0005](adr/0005-pull-requests-are-read-from-the-forge.md). |
+| 🟡 D-37 | **An approval binds to (repository, number, head commit).** The contract carries the head commit, so that a bot that rewrites its branch after the tick is not merged unseen. |
+| 🟡 D-38 | **"Ready to merge" is decided once, in Core** (not a draft, every check passes, the forge says clean) and sent as data. |
 
 ---
 
@@ -158,7 +161,7 @@ The principles of [VISION.md §5](VISION.md) apply, as amended by [ADR 0001](adr
 | # | Vertical | Status |
 |---|---|---|
 | 1 | **Intake from Portarr and read-only decision cards** (F-INT-01, F-INT-02, F-CRD-01), before any write power exists | built, reviewed in the sandbox by the four review agents. The *verdict* half of F-CRD-01 and the eligibility of *deploy* (a known check and rollback, D-10) come with later verticals, so deploy is shown as a preview. Reading Portarr every 30 seconds is the interim answer to VISION question 8 (poll or webhook) |
-| 2 | **Read the dependency pull requests and their checks from the forge** (F-INT-04); Portarr only gives their number | built, in the sandbox (read-only, GitHub). The next vertical validates and merges them |
+| 2 | **Read the dependency pull requests and their checks from the forge** (F-INT-04); Portarr only gives their number | built, reviewed. Read-only, GitHub; the next vertical validates and merges them |
 | 3 | Validate and merge: needs the agent runtime (Q-07) | blocked on Q-07 |
 | 4 | Deploy, smoke test and roll back (F-RUN-03) | after 3 |
 
@@ -187,6 +190,7 @@ User interface, deferred: the light theme (its accent text color is ready, nothi
 | ❓ Q-13 | **Standalone mode**: manual work items when no Portarr is connected (VISION.md §3). |
 | ✅ Q-14 | **Merging under required-review rulesets.** Resolved: Orchestrarr's identity may approve its own pull requests; accounts, tokens and rulesets are set up accordingly (D-19). |
 | 🟡 Q-15 | **Structure file format** for standalone mode. Proposed: a subset of Portarr's catalog plus a `deployment` key ([environment-file.md](environment-file.md), D-20). To confirm when the first vertical reads it. |
+| ❓ Q-18 | **What is a "dependency pull request"?** Portarr counts Dependabot's; Orchestrarr reads the bots of its configuration (Dependabot and Renovate). Should Portarr count every bot, or expose the list (D-18)? Until then the two numbers can differ and the screens say so (ADR 0005). |
 
 ---
 
@@ -206,6 +210,7 @@ User interface, deferred: the light theme (its accent text color is ready, nothi
 | Date | Change |
 |---|---|
 | 2026-11-01 | v0.1: first interview. Decisions D-01 to D-09 and D-14 frozen; D-10 to D-13 proposed. |
+| 2026-11-03 | v0.7: the second vertical: the pull requests read from the forge (D-36 to D-38, ADR 0005), the screens as a list of applications, Q-18 (what a dependency pull request is). |
 | 2026-11-03 | v0.4: the first vertical is built; its review made three decisions explicit (D-21 the unit of work, D-22 data and codes not sentences, D-23 available versus granted); Q-12 says the API has no authentication yet; roadmap and interface notes. |
 | 2026-11-01 | v0.3: Orchestrarr may approve its own pull requests (D-19, Q-14 resolved); environment file format proposed ([environment-file.md](environment-file.md), D-20, Q-15); Q-03 narrowed to the missing deployment source. |
 | 2026-11-01 | v0.2: merge and deploy on tick (D-15, ADR 0001), everything ticked by default (D-16), deployment observed not declared, Portarr as environment provider with a standalone structure file (D-17, D-18, ADR 0002). Q-01, Q-02 resolved; Q-03 reformulated; Q-14, Q-15 added. |

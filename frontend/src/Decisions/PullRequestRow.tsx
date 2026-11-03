@@ -34,9 +34,10 @@ function safeHref(url: string): string | null {
 
 // One pull request: what it updates, how far, whether its checks pass and whether it can be merged. It only shows, nothing here acts.
 export default function PullRequestRow({ pullRequest }: Readonly<{ pullRequest: PullRequest }>) {
-  const { Icon, kind } = checkPresentation[pullRequest.checks];
+  const { Icon, kind: checksKind } = checkPresentation[pullRequest.checks];
   const href = safeHref(pullRequest.url);
-  const update = describeUpdateKind(updateKindOf(pullRequest));
+  const updateKind = updateKindOf(pullRequest);
+  const update = describeUpdateKind(updateKind);
   const number = `#${pullRequest.number}`;
 
   return (
@@ -55,10 +56,11 @@ export default function PullRequestRow({ pullRequest }: Readonly<{ pullRequest: 
           <span>{number}</span>
         )}
         <span className={styles.changes}>{describeChanges(pullRequest)}</span>
-        {update ? <Label kind={updateKinds[updateKindOf(pullRequest)]}>{update}</Label> : null}
+        {pullRequest.headSha ? <span className={styles.commit}>{pullRequest.headSha.slice(0, 7)}</span> : null}
+        {update ? <Label kind={updateKinds[updateKind]}>{update}</Label> : null}
       </div>
       <div className={styles.state}>
-        <Label kind={kind}>
+        <Label kind={checksKind}>
           <Icon size={iconSizes.SMALL} aria-hidden="true" />
           {describeChecks(pullRequest.checks)}
         </Label>
