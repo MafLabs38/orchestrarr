@@ -65,3 +65,5 @@ An order is built when the run is about to start, from the approval that was rec
 - A new repository and a new virtual machine to maintain, in exchange for a root of trust that does not depend on any other system's health.
 - Orchestrarr needs a store of orders the launcher can poll, a signing client and a verifying client for Vault: provider interfaces first, an in-memory fake for tests, so nothing here needs a real Vault until the vertical that acts.
 - The first vertical that acts (validate and merge) needs the order, the approver's identity and the audit trail, but not yet the SSH authority.
+
+See also [How an order is secured, from the person to the machine](../security-model.md): the mechanism of this decision as diagrams.

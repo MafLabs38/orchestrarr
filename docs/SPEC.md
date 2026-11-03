@@ -1,7 +1,7 @@
 # Orchestrarr — Functional and Technical Specification
 
 > **Status**: draft v0.8. Built: intake and decision cards, the dependency pull requests from the forge, the control-plane skeleton in Core, the approval of a card (queue, audit trail and global stop, in memory), and the sign-in through the identity provider. **Nothing runs**: no launcher takes the approvals.
-> **Related documents**: [VISION.md](VISION.md) (pitch, safety principles, first interview questions) · [environment-file.md](environment-file.md) (standalone description format) · [adr/](adr/) (architecture decisions)
+> **Related documents**: [security-model.md](security-model.md) (how an order is secured, with diagrams) · [VISION.md](VISION.md) (pitch, safety principles, first interview questions) · [environment-file.md](environment-file.md) (standalone description format) · [adr/](adr/) (architecture decisions)
 > **Last updated**: 2026-11-03
 > **Audience**: the project owner and contributors.
 >
