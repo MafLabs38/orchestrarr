@@ -1,4 +1,5 @@
-import { screen } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 import { renderWithProviders, status, stubApi } from 'testUtils';
 
@@ -61,5 +62,70 @@ describe('Status', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Cannot read the fleet: The source refused the credentials, or asks to sign in',
     );
+  });
+
+  it('says who approves, and that the global stop is off', async () => {
+    stubApi({ '/api/v1/system/status': status() });
+
+    renderWithProviders(<Status />);
+
+    expect(await screen.findByText('Sandbox operator: dev-operator')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Engage the global stop' })).toBeEnabled();
+  });
+
+  it('says approving is turned off, and offers no global stop to nobody', async () => {
+    stubApi({ '/api/v1/system/status': status({}, { enabled: false, mode: 'disabled', operator: null }) });
+
+    renderWithProviders(<Status />);
+
+    expect(await screen.findByText('Turned off')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /global stop/ })).not.toBeInTheDocument();
+    expect(screen.getByText('Only a signed-in operator can use the global stop.')).toBeInTheDocument();
+  });
+
+  it('engages the global stop with a PUT', async () => {
+    const fetchMock = vi.fn((_input: string, init?: RequestInit) =>
+      Promise.resolve(
+        new Response(JSON.stringify(init?.method === 'PUT' ? { killSwitchEngaged: true } : status()), { status: 200 }),
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(<Status />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Engage the global stop' }));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/v1/safety/kill-switch',
+        expect.objectContaining({ method: 'PUT', body: '{"engaged":true}' }),
+      ),
+    );
+  });
+
+  it('shows an engaged global stop as an alert and offers to release it', async () => {
+    stubApi({ '/api/v1/system/status': status({}, { killSwitchEngaged: true }) });
+
+    renderWithProviders(<Status />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('The global stop is engaged');
+    expect(screen.getByRole('button', { name: 'Release the global stop' })).toBeInTheDocument();
+  });
+
+  it('says when the global stop could not be changed', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_input: string, init?: RequestInit) =>
+        Promise.resolve(
+          init?.method === 'PUT'
+            ? new Response('{}', { status: 500 })
+            : new Response(JSON.stringify(status()), { status: 200 }),
+        ),
+      ),
+    );
+    renderWithProviders(<Status />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Engage the global stop' }));
+
+    expect(await screen.findByText('The global stop could not be changed.')).toBeInTheDocument();
   });
 });

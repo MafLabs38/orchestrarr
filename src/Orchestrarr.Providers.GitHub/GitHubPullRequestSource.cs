@@ -9,6 +9,8 @@ namespace Orchestrarr.Providers.GitHub;
 /// <summary>Reads the dependency pull requests of a repository from GitHub's REST API. Read-only: it never writes to GitHub.</summary>
 public sealed partial class GitHubPullRequestSource : IPullRequestSource
 {
+    private const char UrlSeparator = '/';
+
     private const int RegexTimeoutMilliseconds = 250;
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
@@ -111,7 +113,8 @@ public sealed partial class GitHubPullRequestSource : IPullRequestSource
             throw new InvalidOperationException($"{key} must be an https address.");
         }
 
-        return new Uri(url.AbsoluteUri.TrimEnd('/') + "/");
+        // A base address always ends with one separator, so that a relative path is added to it, not in place of its last segment
+        return new Uri(url.AbsoluteUri.TrimEnd(UrlSeparator) + UrlSeparator);
     }
 
     private static void Positive(long value, string key)
@@ -137,8 +140,10 @@ public sealed partial class GitHubPullRequestSource : IPullRequestSource
         var listed = new List<GitHubPullRequest>();
         var next = $"repos/{repository}/pulls?state=open&per_page=100";
         var morePages = false;
-        for (var page = 1; next is not null; page++)
+        var page = 0;
+        while (next is not null)
         {
+            page++;
             var (body, link) = await GetAsync<List<GitHubPullRequest>>(next, cancellationToken);
             listed.AddRange(body ?? []);
             next = link;

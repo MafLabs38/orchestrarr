@@ -13,4 +13,8 @@
     <Authors>Orchestrarr contributors</Authors>
     <Product>Orchestrarr</Product>
   </PropertyGroup>
+  <!-- The same rules as SonarLint in the editor and the SonarQube server: a finding that the editor would underline fails the build here. -->
+  <ItemGroup>
+    <PackageReference Include="SonarAnalyzer.CSharp" PrivateAssets="all" />
+  </ItemGroup>
 </Project>

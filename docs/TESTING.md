@@ -18,7 +18,7 @@ Rules: a test protects a behavior someone relies on, runs in milliseconds, and f
 
 | Check | Tool | When |
 |---|---|---|
-| Backend lint | .NET analyzers (warnings are errors), `dotnet format --verify-no-changes` | PR |
+| Backend lint | .NET analyzers and the Sonar C# analyzer (the SonarLint and SonarQube rules; warnings are errors), `dotnet format --verify-no-changes` | PR |
 | Frontend lint | ESLint (strict, SonarJS, a11y, import order), Stylelint, Prettier, `tsc --noEmit` | PR |
 | Quality and coverage | SonarQube Quality Gate | full lane |
 | Static security analysis | CodeQL (C#, TypeScript, workflows), `security-and-quality` queries | PR (skippable) and weekly |

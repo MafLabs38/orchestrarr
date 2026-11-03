@@ -2,11 +2,14 @@ import { finding, pullRequest, step } from 'testUtils';
 import type { Finding, SourceError } from 'typings/api';
 
 import {
+  describeApprovalError,
   describeChanges,
   describeError,
+  describeEvent,
   describeFinding,
   describeReason,
   describeStep,
+  describeStepKind,
   describeUpdateKind,
   updateKindOf,
 } from './describe';
@@ -104,5 +107,17 @@ describe('pull request words', () => {
     expect(updateKindOf(pr({ changes: [change('major'), change('patch')] }))).toBe('major');
     expect(updateKindOf(pr({ changes: [change('unknown')] }))).toBe('unknown');
     expect(updateKindOf(pr({ changes: [] }))).toBe('unknown');
+  });
+
+  it('words a kind of step, an event of the trail and a refusal of an approval', () => {
+    expect(describeStepKind('mergePullRequests')).toBe('Merge the pull requests that pass');
+    expect(describeEvent('killswitch.engaged')).toBe('Global stop engaged');
+    expect(describeEvent('something.new')).toBe('something.new');
+    expect(describeApprovalError('stepNotGranted')).toBe('A ticked step is not granted to Orchestrarr.');
+  });
+
+  it('gives a sentence even for a refusal it does not know, or none', () => {
+    expect(describeApprovalError('brandNew')).toBe('The approval was refused.');
+    expect(describeApprovalError(null)).toBe('The approval was refused.');
   });
 });

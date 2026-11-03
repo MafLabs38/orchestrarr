@@ -1,0 +1,24 @@
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table th {
+  padding: 6px 10px 6px 0;
+  color: var(--inkMuted);
+  font: 800 var(--fontSizeMeta) var(--defaultFontFamily);
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.table td {
+  padding: 6px 10px 6px 0;
+  border-top: 1px solid var(--hairline);
+  vertical-align: top;
+}
+
+.mono {
+  font-family: var(--monoSpaceFontFamily);
+  font-size: var(--fontSizeMeta);
+  word-break: break-all;
+}

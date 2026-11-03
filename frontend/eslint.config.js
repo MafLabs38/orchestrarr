@@ -42,7 +42,7 @@ export default tseslint.config(
           groups: [
             [String.raw`^\u0000`],
             [String.raw`^@?\w`],
-            ['^(App|Components|Decisions|Helpers|Styles|System|Utilities|testUtils|typings)(/|$)'],
+            ['^(Activity|App|Approvals|Components|Decisions|Helpers|Styles|System|Utilities|testUtils|typings)(/|$)'],
             [String.raw`^\.`],
           ],
         },

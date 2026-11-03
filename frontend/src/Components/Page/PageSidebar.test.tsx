@@ -30,4 +30,17 @@ describe('PageSidebar', () => {
     expect(screen.getByRole('link', { name: 'Decisions' })).toBeInTheDocument();
     expect(screen.queryByText('0')).not.toBeInTheDocument();
   });
+
+  it('counts the approvals in the queue and links to the activity', async () => {
+    stubApi({
+      '/api/v1/work-items': report({ items: [] }),
+      '/api/v1/approvals': [{ id: 'a' }, { id: 'b' }, { id: 'c' }],
+    });
+
+    renderWithProviders(<PageSidebar />);
+
+    expect(await screen.findByText('3')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Queue/ })).toHaveAttribute('href', '/queue');
+    expect(screen.getByRole('link', { name: 'Activity' })).toHaveAttribute('href', '/system/activity');
+  });
 });

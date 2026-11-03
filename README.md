@@ -49,13 +49,17 @@ To read the dependency pull requests, give a GitHub token that can **only read**
 
 ### API
 
-Read-only, under `/api/v1` (anything else there is a 404):
+Under `/api/v1` (anything else there is a 404). Two routes record something, and nothing here runs anything:
 
 | Route | Gives |
 |---|---|
 | `GET /api/v1/work-items[?refresh=true]` | The work items, with their findings, plan and pull requests |
 | `GET /api/v1/work-items/{id}` | One work item (404 if unknown) |
-| `GET /api/v1/system/status` | Name, version, and the state of the sources (`source`, `forge`) |
+| `GET /api/v1/system/status` | Name, version, the state of the sources (`source`, `forge`) and of approving (`approvals`: mode, operator, global stop) |
+| `POST /api/v1/approvals` | Approves a card: `{ "workItemId", "steps" }`. The server decides the commits, the repository and the powers; refusals are `{ "error": code }` |
+| `GET /api/v1/approvals` | The approvals waiting for a launcher, newest first |
+| `GET /api/v1/activity` | The audit trail (in memory), newest first |
+| `PUT /api/v1/safety/kill-switch` | The global stop: `{ "engaged": true }`. Engaged, nothing is approved |
 
 ### Configuration
 
@@ -70,6 +74,8 @@ Read-only, under `/api/v1` (anything else there is a 404):
 | `GitHub:CacheSeconds`, `GitHub:TimeoutSeconds`, `GitHub:MaxResponseBytes` | 300, 20, 5 MiB | Cache and bounds |
 | `WorkItems:CacheDuration`, `MinRefreshInterval` | 30 s, 5 s | How long the list is kept, and the shortest gap between refreshes |
 | `WorkItems:ForgeFirstWait`, `ForgeTimeBudget`, `ForgeParallelism` | 3 s, 60 s, 4 | How the forge is read in the background |
+| `Powers:Grants` | none | What the operator grants: a list of `{ "Repository": "owner/name" or "*", "Steps": ["validate", "mergePullRequests"] }`. Off until listed |
+| `Approvals:Mode`, `Approvals:DevelopmentUser` | `Disabled`, `dev-operator` | `Disabled`: nobody can approve. `Development`: a fixed sandbox operator with no sign-in, **refused outside the Development environment** (the host will not start) |
 | `Fleet:SampleFile`, `Forge:SamplePullRequestsFile` | Development only | Sample data of `samples/`; a configured Portarr or token wins over them |
 
 The image listens on port 8080 as a non-root user: `docker run -p 8080:8080 -e Portarr__BaseUrl=... -e Portarr__ApiKey=... -e GitHub__Token=...`.

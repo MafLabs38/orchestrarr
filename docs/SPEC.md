@@ -96,6 +96,8 @@ In practice the operator rarely reads code: they check that the AI did not drift
 | 🟡 D-49 | **A fifth review agent, the `spec-reviewer`, keeps the documentation true**: it compares the README (the entry point), the docs, the spec and the ADRs with the implemented state, in both directions, gives the exact text to write, and runs with the other four on every pull request. [ADR 0008](adr/0008-a-fifth-agent-keeps-the-documentation-true.md). |
 | 🟡 D-50 | **Releases are decided by semantic-release on `main`, which takes merge commits only**: the version comes from the Conventional Commits, the image is tagged with it, and the cluster's GitOps deploys the newest version tag. A squash of the release pull request would hide the commits, so the repository forbids it. [ADR 0009](adr/0009-releases-are-decided-by-semantic-release-from-main.md). |
 | 🟡 D-51 | **The parameters of an order, as the skeleton enforces them** (all configuration): an order lives 5 minutes, the launcher refuses more than 10 whatever the order says, a clock tolerance of 30 seconds applies to the issue time only, a second factor is fresh for 5 minutes. The server decides what production is from the environment description (an unknown environment is production) and signs the second factor's time into the order, so the launcher checks it again. An order is for one launcher (its audience). The signed form is length-prefixed (ADR 0006, canonical form v2). Missing, unreachable or unknown always means refused. |
+| 🟡 D-52 | **Approving records a decision, not an order**: this pull request at this commit, these steps, this approver. The server decides everything except the ticks; a step is approved only if it is offered, granted, recorded by the vertical and, for a merge, validated first; the order is issued at run start. [ADR 0010](adr/0010-approving-records-a-decision-and-the-sandbox-operator.md). |
+| 🟡 D-53 | **Powers are granted in the configuration** (`Powers:Grants`), off until listed; **until the sign-in exists the only approver is a sandbox operator** that the host refuses outside the Development environment. In memory, bounded stores: a full queue or trail refuses, it never forgets. |
 
 ---
 
@@ -161,7 +163,7 @@ Screens in *arr style: **Queue** (running and waiting), **Decisions** (cards awa
 | F-INT-02 | Group findings into work items, rank by severity |
 | F-INT-04 | Read the open dependency pull requests of each repository from the forge (GitHub first): what each updates and how far, whether its checks pass and whether it can be merged. Read-only. A forge that is not connected or fails is said, never shown as an empty list |
 | F-INT-03 | Environment-description provider reading a YAML structure file (standalone mode, D-18) |
-| F-CRD-01 | Decision card with ticked steps and a verdict |
+| F-CRD-01 | Decision card with ticked steps and a verdict. Built: the ticked steps are approved (recorded per pull request and commit); the verdict half comes later |
 | F-CRD-02 | Signed, expiring, single-use link to a card (D-12) |
 | F-RUN-01 | Run an agent in an isolated clone with a narrow credential and a budget |
 | F-RUN-02 | Validate a dependency pull request: build, tests, regression check |
@@ -171,8 +173,8 @@ Screens in *arr style: **Queue** (running and waiting), **Decisions** (cards awa
 | F-ENV-02 | **Diagnose on a machine**: read-only commands, to find why something fails (a backup, a service) |
 | F-ENV-03 | **Act on a machine**: a declared action, approved as a step of the card, with the output kept in the audit trail and a check that it worked (D-32) |
 | F-BKP-01 | **Backups that fail or are missing are findings** (read from Portarr, which already follows the backups) and become work items like any other (UC-07) |
-| F-SAF-01 | Global stop, dry-run mode, budgets (cost, time, concurrency) |
-| F-SAF-02 | Full audit trail of prompts, tool calls, decisions and approvals |
+| F-SAF-01 | Global stop, dry-run mode, budgets (cost, time, concurrency). Built: the global stop; the rest comes with the launcher |
+| F-SAF-02 | Full audit trail of prompts, tool calls, decisions and approvals. Built: approvals, refusals and the global stop, in memory (Activity screen); the rest and a persistent store come with the workshop |
 | F-APP-01 | Powers per application and environment, off until enabled (D-10) |
 | F-MEM-01 | Read runbooks from Mnemarr before acting, write outcomes back |
 
@@ -198,6 +200,7 @@ The principles of [VISION.md §5](VISION.md) apply, as amended by [ADR 0001](adr
 | 1 | **Intake from Portarr and read-only decision cards** (F-INT-01, F-INT-02, F-CRD-01), before any write power exists | built, reviewed in the sandbox by the four review agents. The *verdict* half of F-CRD-01 and the eligibility of *deploy* (a known check and rollback, D-10) come with later verticals, so deploy is shown as a preview. Reading Portarr every 30 seconds is the interim answer to VISION question 8 (poll or webhook) |
 | 2 | **Read the dependency pull requests and their checks from the forge** (F-INT-04); Portarr only gives their number | built, reviewed. Read-only, GitHub; the next vertical validates and merges them |
 | 2b | **Control-plane skeleton**: signed launch orders, the issuer that authorizes whoever orders, the launcher checks, refusal codes (D-41, D-45 to D-47, D-51; ADR 0006, 0007) | built in Core, reviewed by the five agents, **not wired into the host**: no store the launcher pulls from, no Vault adapter, no lease, concurrency or budget check, no endpoint. It starts nothing and grants no power |
+| 2c | **Approve a decision card**: the tick becomes a recorded approval per pull request and commit (F-CRD-01), with the queue, the audit trail (F-SAF-02) and the global stop (F-SAF-01), in memory (D-52, D-53; ADR 0010) | built, reviewed by the five agents. No launcher takes the approvals yet: nothing runs. Before production: the sign-in (Q-12) |
 | 3 | Validate and merge: needs the agent runtime (Q-07); uses 2b | blocked on Q-07 |
 | 4 | Deploy, smoke test and roll back (F-RUN-03), with the regression report (F-RUN-04) | after 3 |
 | 5 | Backups and actions on machines: find the backups that fail (F-BKP-01), diagnose and act through a configured connection (F-ENV-01 to F-ENV-03) | **not started**: the maintainer wants the repair vertical to be correct first. Needs Q-16 and Q-17 |
@@ -223,7 +226,7 @@ User interface, deferred: the light theme (its accent text color is ready, nothi
 | 🟡 Q-09 | **Budgets.** Proposed: in attempts, turns and minutes, not in money, because the model credential is the maintainer's subscription (D-27). The exact ceilings per day and per month are open. |
 | ❓ Q-10 | **Allow-list of repositories**, and whether infrastructure-as-code and container definitions are in scope. |
 | ❓ Q-11 | **The existing backlog of dependency pull requests.** Order, conflicts between pull requests of one application, grouping. |
-| ❓ Q-12 | **Authentication** for the UI and for the card links (single-sign-on in front, API keys for machines). Until it is decided the API has none and the image must sit behind an authenticating front; it must be settled before any route acts. |
+| ❓ Q-12 | **Authentication** for the UI and for the card links (single-sign-on in front, API keys for machines). Until it is decided the API has none and the image must sit behind an authenticating front; it must be settled before any route acts. The two routes that record something (approve, global stop) answer only to a sandbox operator that the host refuses outside Development (D-53): the sign-in is what stands between this vertical and production. |
 | ❓ Q-13 | **Standalone mode**: manual work items when no Portarr is connected (VISION.md §3). |
 | ✅ Q-14 | **Merging under required-review rulesets.** Resolved: Orchestrarr's identity may approve its own pull requests; accounts, tokens and rulesets are set up accordingly (D-19). |
 | 🟡 Q-15 | **Structure file format** for standalone mode. Proposed: a subset of Portarr's catalog plus a `deployment` key ([environment-file.md](environment-file.md), D-20). To confirm when the first vertical reads it. |
@@ -254,6 +257,7 @@ User interface, deferred: the light theme (its accent text color is ready, nothi
 | Date | Change |
 |---|---|
 | 2026-11-01 | v0.1: first interview. Decisions D-01 to D-09 and D-14 frozen; D-10 to D-13 proposed. |
+| 2026-11-03 | v0.7 (amended): approving a decision card records an approval per pull request and commit, with the queue, the trail and the global stop; powers granted in the configuration (D-52, D-53; ADR 0010; roadmap row 2c). |
 | 2026-11-03 | v0.7 (amended): the control-plane skeleton in Core, reviewed by the five agents: order, issuer, launcher, fail-closed rules, canonical form v2 (D-51; roadmap row 2b). |
 | 2026-11-03 | v0.7 (amended): releases by semantic-release from `main`, merge commits only, deployed by GitOps (D-50, ADR 0009). |
 | 2026-11-03 | v0.7: the second vertical: the pull requests read from the forge (D-36 to D-38, ADR 0005), the screens as a list of applications, Q-18 (what a dependency pull request is). |

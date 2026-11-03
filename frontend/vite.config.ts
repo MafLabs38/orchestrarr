@@ -11,6 +11,8 @@ export default defineConfig({
     alias: {
       App: src('App'),
       Components: src('Components'),
+      Activity: src('Activity'),
+      Approvals: src('Approvals'),
       Decisions: src('Decisions'),
       Helpers: src('Helpers'),
       System: src('System'),

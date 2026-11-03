@@ -1,11 +1,13 @@
 import type {
   AlertCounts,
+  ApprovalError,
   ChecksState,
   Finding,
   MergeState,
   PlanStep,
   PullRequest,
   SourceError,
+  StepKind,
   StepReason,
   UpdateKind,
 } from 'typings/api';
@@ -84,6 +86,56 @@ export function describeStep(step: PlanStep): string {
         ? translate('StepDeploy', { environment: step.environmentName })
         : translate('StepDeployAnywhere');
   }
+}
+
+const stepKinds = {
+  validate: 'StepValidate',
+  mergePullRequests: 'StepMergePullRequests',
+  mergeFix: 'StepMergeFix',
+  deploy: 'StepDeployAnywhere',
+} as const satisfies Record<StepKind, string>;
+
+// The label of a kind of step, where no environment is shown (the queue).
+export function describeStepKind(kind: StepKind): string {
+  return translate(stepKinds[kind]);
+}
+
+const events = {
+  'approval.recorded': 'EventApprovalRecorded',
+  'approval.refused': 'EventApprovalRefused',
+  'killswitch.engaged': 'EventKillSwitchEngaged',
+  'killswitch.released': 'EventKillSwitchReleased',
+} as const;
+
+// The words of an event of the audit trail; one the interface does not know is shown as the server names it.
+export function describeEvent(event: string): string {
+  return event in events ? translate(events[event as keyof typeof events]) : event;
+}
+
+const approvalErrors = {
+  approvalsDisabled: 'ApprovalErrorApprovalsDisabled',
+  notSignedIn: 'ApprovalErrorNotSignedIn',
+  notAnOperator: 'ApprovalErrorNotAnOperator',
+  notAPerson: 'ApprovalErrorNotAPerson',
+  killSwitchEngaged: 'ApprovalErrorKillSwitchEngaged',
+  unknownWorkItem: 'ApprovalErrorUnknownWorkItem',
+  pullRequestsNotRead: 'ApprovalErrorPullRequestsNotRead',
+  nothingTicked: 'ApprovalErrorNothingTicked',
+  stepNotOffered: 'ApprovalErrorStepNotOffered',
+  stepNotGranted: 'ApprovalErrorStepNotGranted',
+  stepNotSupported: 'ApprovalErrorStepNotSupported',
+  mergeNeedsValidation: 'ApprovalErrorMergeNeedsValidation',
+  noPullRequests: 'ApprovalErrorNoPullRequests',
+  alreadyApproved: 'ApprovalErrorAlreadyApproved',
+  storeFull: 'ApprovalErrorStoreFull',
+  auditUnavailable: 'ApprovalErrorAuditUnavailable',
+} as const satisfies Record<ApprovalError, string>;
+
+// Why an approval was refused, from the code of the server; a code the interface does not know still gets a sentence.
+export function describeApprovalError(code: string | null): string {
+  return code !== null && code in approvalErrors
+    ? translate(approvalErrors[code as ApprovalError])
+    : translate('ApprovalErrorUnknown');
 }
 
 const reasons = { noPlacement: 'ReasonNoPlacement' } as const satisfies Record<StepReason, string>;
