@@ -37,54 +37,15 @@ internal static class ApprovalsServiceCollectionExtensions
                 : new NoApprover());
         }
 
-        services.AddRateLimiter(limits =>
-        {
-            limits.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-            limits.OnRejected = (rejected, token) => new ValueTask(rejected.HttpContext.Response.WriteAsJsonAsync(new ErrorResponse("tooManyRequests"), token));
-            limits.AddPolicy(ApprovingPolicy, context => RateLimitPartition.GetFixedWindowLimiter(
-                PartitionOf(context),
-                _ => new FixedWindowRateLimiterOptions { PermitLimit = options.ApprovalsLimit, Window = TimeSpan.FromMinutes(options.ApprovalsWindowMinutes), QueueLimit = 0 }));
-        });
         services
+            .AddApprovingRateLimit(options)
             .AddSingleton(options)
             .AddSingleton(storage)
             .AddSingleton<IPowerPolicy>(new ConfiguredPowerPolicy(grants))
             .AddSingleton<IGrantedPowers, PolicyGrantedPowers>();
 
         // What must survive a restart is in one file, or, in the sandbox, in memory. The capacities default to what suits where it is kept.
-        if (storage is SqliteStorage file)
-        {
-            var queueCapacity = options.QueueCapacity ?? StoreLimits.FileQueue;
-            var auditCapacity = options.AuditCapacity ?? StoreLimits.FileAudit;
-            services
-                // Opened when the host starts (Program asks for it), so that a file that cannot be used stops it there and not at the first approval
-                .AddSingleton(provider => SqliteDatabase.Open(file.Path, file.StartEngagedWhenNew, provider.GetRequiredService<TimeProvider>()))
-                .AddSingleton<IApprovalStore>(provider => new SqliteApprovalStore(provider.GetRequiredService<SqliteDatabase>(), queueCapacity))
-                .AddSingleton<IApprovalLedger>(provider => new SqliteApprovalLedger(provider.GetRequiredService<SqliteDatabase>(), provider.GetRequiredService<IKillSwitchControl>(), queueCapacity, auditCapacity, provider.GetService<ILogger<SqliteApprovalLedger>>()))
-                .AddSingleton(provider => new SqliteKillSwitch(provider.GetRequiredService<SqliteDatabase>(), auditCapacity, provider.GetService<ILogger<SqliteKillSwitch>>()))
-                .AddSingleton<IKillSwitchControl>(provider => provider.GetRequiredService<SqliteKillSwitch>())
-                .AddSingleton<IKillSwitch>(provider => provider.GetRequiredService<SqliteKillSwitch>())
-                .AddSingleton(provider => new SqliteAuditLog(provider.GetRequiredService<SqliteDatabase>(), auditCapacity, provider.GetService<ILogger<SqliteAuditLog>>()))
-                .AddSingleton<IAuditLog>(provider => provider.GetRequiredService<SqliteAuditLog>())
-                .AddSingleton<IAuditSink>(provider => provider.GetRequiredService<SqliteAuditLog>());
-        }
-        else
-        {
-            var startEngaged = storage is MemoryStorage { StartEngaged: true };
-            var store = new InMemoryApprovalStore(options.QueueCapacity ?? StoreLimits.MemoryQueue);
-            services
-                .AddSingleton<IApprovalStore>(store)
-                .AddSingleton<IApprovalLedger>(provider => new InMemoryApprovalLedger(store, provider.GetRequiredService<IAuditSink>(), provider.GetRequiredService<IKillSwitchControl>()))
-                // A store that starts engaged is a new store, as far as anyone can tell: the trail says so, with the time of the host
-                .AddSingleton(provider => new InMemoryAuditLog(
-                    options.AuditCapacity ?? StoreLimits.MemoryAudit,
-                    startEngaged ? [AuditEvents.InstanceCreatedEntry(provider.GetRequiredService<TimeProvider>().GetUtcNow(), "store")] : []))
-                .AddSingleton<IAuditLog>(provider => provider.GetRequiredService<InMemoryAuditLog>())
-                .AddSingleton<IAuditSink>(provider => provider.GetRequiredService<InMemoryAuditLog>())
-                .AddSingleton(provider => new InMemoryKillSwitch(provider.GetRequiredService<InMemoryAuditLog>(), startEngaged))
-                .AddSingleton<IKillSwitchControl>(provider => provider.GetRequiredService<InMemoryKillSwitch>())
-                .AddSingleton<IKillSwitch>(provider => provider.GetRequiredService<InMemoryKillSwitch>());
-        }
+        _ = storage is SqliteStorage file ? services.AddSqliteStorage(file, options) : services.AddMemoryStorage(storage is MemoryStorage { StartEngaged: true }, options);
 
         return services.AddSingleton(provider => new ApprovalService(
             provider.GetRequiredService<WorkItemCatalog>(),
@@ -93,5 +54,50 @@ internal static class ApprovalsServiceCollectionExtensions
             provider.GetRequiredService<IAuditSink>(),
             provider.GetRequiredService<TimeProvider>(),
             provider.GetRequiredService<IApprovalLedger>()));
+    }
+
+    private static IServiceCollection AddApprovingRateLimit(this IServiceCollection services, ApprovalsOptions options) =>
+        services.AddRateLimiter(limits =>
+        {
+            limits.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+            limits.OnRejected = (rejected, token) => new ValueTask(rejected.HttpContext.Response.WriteAsJsonAsync(new ErrorResponse("tooManyRequests"), token));
+            limits.AddPolicy(ApprovingPolicy, context => RateLimitPartition.GetFixedWindowLimiter(
+                PartitionOf(context),
+                _ => new FixedWindowRateLimiterOptions { PermitLimit = options.ApprovalsLimit, Window = TimeSpan.FromMinutes(options.ApprovalsWindowMinutes), QueueLimit = 0 }));
+        });
+
+    // The stop, the trail and the queue each answer to every interface they implement: one instance, so that the routes and the service see one of each
+    private static IServiceCollection AddSqliteStorage(this IServiceCollection services, SqliteStorage file, ApprovalsOptions options)
+    {
+        var queueCapacity = options.QueueCapacity ?? StoreLimits.FileQueue;
+        var auditCapacity = options.AuditCapacity ?? StoreLimits.FileAudit;
+        return services
+            // Opened when the host starts (Program asks for it), so that a file that cannot be used stops it there and not at the first approval
+            .AddSingleton(provider => SqliteDatabase.Open(file.Path, file.StartEngagedWhenNew, provider.GetRequiredService<TimeProvider>()))
+            .AddSingleton<IApprovalStore>(provider => new SqliteApprovalStore(provider.GetRequiredService<SqliteDatabase>(), queueCapacity))
+            .AddSingleton<IApprovalLedger>(provider => new SqliteApprovalLedger(provider.GetRequiredService<SqliteDatabase>(), provider.GetRequiredService<IKillSwitchControl>(), queueCapacity, auditCapacity, provider.GetService<ILogger<SqliteApprovalLedger>>()))
+            .AddSingleton(provider => new SqliteKillSwitch(provider.GetRequiredService<SqliteDatabase>(), auditCapacity, provider.GetService<ILogger<SqliteKillSwitch>>()))
+            .AddSingleton<IKillSwitchControl>(provider => provider.GetRequiredService<SqliteKillSwitch>())
+            .AddSingleton<IKillSwitch>(provider => provider.GetRequiredService<SqliteKillSwitch>())
+            .AddSingleton(provider => new SqliteAuditLog(provider.GetRequiredService<SqliteDatabase>(), auditCapacity, provider.GetService<ILogger<SqliteAuditLog>>()))
+            .AddSingleton<IAuditLog>(provider => provider.GetRequiredService<SqliteAuditLog>())
+            .AddSingleton<IAuditSink>(provider => provider.GetRequiredService<SqliteAuditLog>());
+    }
+
+    private static IServiceCollection AddMemoryStorage(this IServiceCollection services, bool startEngaged, ApprovalsOptions options)
+    {
+        var store = new InMemoryApprovalStore(options.QueueCapacity ?? StoreLimits.MemoryQueue);
+        return services
+            .AddSingleton<IApprovalStore>(store)
+            .AddSingleton<IApprovalLedger>(provider => new InMemoryApprovalLedger(store, provider.GetRequiredService<IAuditSink>(), provider.GetRequiredService<IKillSwitchControl>()))
+            // A store that starts engaged is a new store, as far as anyone can tell: the trail says so, with the time of the host
+            .AddSingleton(provider => new InMemoryAuditLog(
+                options.AuditCapacity ?? StoreLimits.MemoryAudit,
+                startEngaged ? [AuditEvents.InstanceCreatedEntry(provider.GetRequiredService<TimeProvider>().GetUtcNow(), "store")] : []))
+            .AddSingleton<IAuditLog>(provider => provider.GetRequiredService<InMemoryAuditLog>())
+            .AddSingleton<IAuditSink>(provider => provider.GetRequiredService<InMemoryAuditLog>())
+            .AddSingleton(provider => new InMemoryKillSwitch(provider.GetRequiredService<InMemoryAuditLog>(), startEngaged))
+            .AddSingleton<IKillSwitchControl>(provider => provider.GetRequiredService<InMemoryKillSwitch>())
+            .AddSingleton<IKillSwitch>(provider => provider.GetRequiredService<InMemoryKillSwitch>());
     }
 }

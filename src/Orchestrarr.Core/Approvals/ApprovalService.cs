@@ -42,7 +42,7 @@ public sealed class ApprovalService(
             : ApprovalResult.Refused(refusal.Value);
         if (!result.Recorded)
         {
-            await RecordRefusalAsync(approver, workItemId, result.Refusal!.Value, cancellationToken);
+            await RecordRefusalAsync(approver, workItemId, result.Refusal!.Value);
         }
         return result;
     }
@@ -179,7 +179,7 @@ public sealed class ApprovalService(
 
     public void Dispose() => _gate.Dispose();
 
-    private async Task RecordRefusalAsync(Approver approver, string workItemId, ApprovalRefusal refusal, CancellationToken cancellationToken)
+    private async Task RecordRefusalAsync(Approver approver, string workItemId, ApprovalRefusal refusal)
     {
         // A refusal is worth a trace, but it does not depend on one: it already fails closed. The work item id comes from the client, so
         // it is recorded only if it has the shape of one.
@@ -189,9 +189,19 @@ public sealed class ApprovalService(
             return;
         }
         var detail = OrderValidation.IsValidWorkItem(workItemId) ? $"{refusal} {workItemId}" : refusal.ToString();
-        if (!await audit.TryRecordAsync(new AuditEntry(time.GetUtcNow(), AuditEvents.ApprovalRefused, subject, null, detail), cancellationToken))
+        // A refusal is short and bounded, and does not depend on the client staying connected: an abandoned request must not leave its slot claimed
+        // without a trace. Whatever the outcome, a slot whose trace was not written is given back.
+        var traced = false;
+        try
         {
-            _refusals.Release(subject, refusal);
+            traced = await audit.TryRecordAsync(new AuditEntry(time.GetUtcNow(), AuditEvents.ApprovalRefused, subject, null, detail), CancellationToken.None);
+        }
+        finally
+        {
+            if (!traced)
+            {
+                _refusals.Release(subject, refusal);
+            }
         }
     }
 }

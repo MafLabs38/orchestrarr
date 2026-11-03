@@ -42,6 +42,7 @@ public sealed class SqliteApprovalLedger(SqliteDatabase database, IKillSwitchCon
     {
         // The stop is read inside the write: an engagement either commits before this transaction, and is seen here, or waits for it
         // (or is counted as in flight), so that an approval is never recorded after the stop
+        // A separate connection by design: in WAL mode a reader never blocks the writer that holds the lock here
         if (killSwitch.Engaged)
         {
             return (false, LedgerResult.Stopped);

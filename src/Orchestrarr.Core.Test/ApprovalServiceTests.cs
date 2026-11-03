@@ -723,4 +723,37 @@ public sealed class ApprovalServiceTests
 
         _audit.List().Count(entry => entry.Event == AuditEvents.ApprovalRefused).Should().Be(1);
     }
+
+    [Fact]
+    public async Task A_refusal_whose_trace_throws_gives_its_slot_back_and_is_traced_the_next_time()
+    {
+        var sink = Substitute.For<IAuditSink>();
+        sink.TryRecordAsync(Arg.Any<AuditEntry>(), Arg.Any<CancellationToken>()).Returns(
+            _ => ValueTask.FromException<bool>(new StorageUnavailableException()),
+            _ => ValueTask.FromResult(true));
+        var service = await Service(null, sink);
+        var reader = new Approver("reader-1", IsPerson: true, IsOperator: false, StepUpAt: null);
+
+        var first = async () => await Approve(service, approver: reader);
+        await first.Should().ThrowAsync<StorageUnavailableException>();
+        (await Approve(service, approver: reader)).Refusal.Should().Be(ApprovalRefusal.NotAnOperator);
+
+        await sink.Received(2).TryRecordAsync(Arg.Any<AuditEntry>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task A_refusal_is_traced_even_when_the_client_has_gone()
+    {
+        var sink = Substitute.For<IAuditSink>();
+        sink.TryRecordAsync(Arg.Any<AuditEntry>(), Arg.Any<CancellationToken>()).Returns(true);
+        var service = await Service(null, sink);
+        using var gone = new CancellationTokenSource();
+        await gone.CancelAsync();
+        var reader = new Approver("reader-1", IsPerson: true, IsOperator: false, StepUpAt: null);
+
+        var result = await service.ApproveAsync(reader, ItemId, Both, Displayed(), gone.Token);
+
+        result.Refusal.Should().Be(ApprovalRefusal.NotAnOperator);
+        await sink.Received(1).TryRecordAsync(Arg.Any<AuditEntry>(), CancellationToken.None);
+    }
 }

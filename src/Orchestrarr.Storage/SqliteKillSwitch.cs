@@ -26,7 +26,7 @@ public sealed class SqliteKillSwitch(SqliteDatabase database, int auditCapacity,
     // Whether the last read failed, so that a broken file is logged once and not on every poll of the status
     private volatile bool _unreadable;
 
-    public bool Engaged => Volatile.Read(ref _engaging) > 0 || _held || ReadEngaged();
+    public bool Engaged => State().Engaged;
 
     // One read of the file for both answers. An unreadable file is engaged, and not saved: the state is unknown.
     public KillSwitchState State()
@@ -86,7 +86,7 @@ public sealed class SqliteKillSwitch(SqliteDatabase database, int auditCapacity,
             return change;
         }
         // Engaging takes effect whatever went wrong, except what nothing can recover from
-        catch (Exception failure) when (SqliteDatabase.IsUnavailable(failure) || (engaged && failure is not OutOfMemoryException))
+        catch (Exception failure) when (SqliteDatabase.IsUnavailable(failure) || (engaged && IsRecoverableForEngage(failure)))
         {
             return OnWriteFailed(failure, engaged);
         }
@@ -106,6 +106,10 @@ public sealed class SqliteKillSwitch(SqliteDatabase database, int auditCapacity,
         }
         return (true, traced ? KillSwitchChange.Applied : KillSwitchChange.AppliedUntraced);
     }
+
+    // What an engagement survives: everything, so that the stop works when nothing else does, except running out of memory, from which nothing is
+    // known to be in a state to be trusted. (A stack overflow or an abort cannot be caught at all.)
+    private static bool IsRecoverableForEngage(Exception failure) => failure is not OutOfMemoryException;
 
     private KillSwitchChange OnWriteFailed(Exception failure, bool engaged)
     {
