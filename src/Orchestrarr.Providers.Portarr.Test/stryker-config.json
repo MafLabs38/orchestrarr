@@ -1,0 +1,9 @@
+{
+  "stryker-config": {
+    "project": "Orchestrarr.Providers.Portarr.csproj",
+    "test-runner": "mtp",
+    "concurrency": 2,
+    "reporters": ["html", "markdown", "progress"],
+    "thresholds": { "high": 80, "low": 60, "break": 0 }
+  }
+}

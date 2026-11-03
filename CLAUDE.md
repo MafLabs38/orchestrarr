@@ -2,7 +2,7 @@
 
 > Self-hosted orchestrator agent that coordinates worker agents to keep a fleet of applications healthy, in the spirit of the *arr suite.
 
-**Project stage: need gathering. No code yet.** The next step is a business-analyst interview with the maintainer (see [docs/VISION.md](docs/VISION.md), "Open questions"). Do not scaffold code, pick an agent runtime or grant any real power before the safety model is written into the spec and accepted.
+**Project stage: first verticals, read-only.** The safety model is accepted ([ADR 0001](docs/adr/0001-merge-and-deploy-on-operator-approval.md)) and the first vertical reads findings and shows decision cards. Orchestrarr holds **no write power yet**: do not pick an agent runtime (SPEC Q-07) or grant a power that merges, deploys or writes to a repository before the maintainer has decided it.
 
 This file is read automatically by Claude Code. It applies to every task in this repository.
 
@@ -11,16 +11,18 @@ This file is read automatically by Claude Code. It applies to every task in this
 | Document | When |
 |---|---|
 | [docs/VISION.md](docs/VISION.md) | Always: why this exists, what it must do, safety model, open questions |
-| [docs/SPEC.md](docs/SPEC.md) | Always: frozen decisions `D-xx`, features `F-xx`, open questions `Q-xx` (same format as Portarr's). Draft v0.1 from the first interview |
+| [docs/TESTING.md](docs/TESTING.md) | Before writing or changing tests, or the pipeline: the strategy, the lanes, the thresholds |
+| [docs/SPEC.md](docs/SPEC.md) | Always: frozen decisions `D-xx`, features `F-xx`, open questions `Q-xx` (same format as Portarr's). Draft, from the first interviews |
 
-## Planned tech stack (not yet scaffolded)
+## Tech stack
 
 Same as Portarr, so the three products share conventions:
 
 - **Backend**: .NET 10 (LTS), C# 14, ASP.NET Core, SignalR, FluentValidation
 - **Frontend**: React, TypeScript (strict), Vite, TanStack Query, CSS Modules
-- **Tests**: xUnit v3 + NSubstitute + AwesomeAssertions, Vitest + Testing Library, Playwright
-- **CI/CD**: GitHub Actions, single multi-arch container image on GHCR
+- **Tests**: xUnit v3 + NSubstitute + AwesomeAssertions, Vitest + Testing Library, Playwright (see [docs/TESTING.md](docs/TESTING.md))
+- **Quality**: analyzers as errors and `dotnet format`, ESLint (SonarJS), Stylelint, Prettier, SonarQube, CodeQL, gitleaks, Trivy, Stryker, the four review agents. Same as Portarr
+- **CI/CD**: GitHub Actions, a single container image on GHCR (amd64 now, multi-arch when a target needs it)
 - Agent runtime (Claude Code headless, Agent SDK, Managed Agents…) and where workers run: **undecided**, see the open questions.
 
 ## Non-negotiable rules
@@ -38,7 +40,7 @@ Same as Portarr, so the three products share conventions:
    - **Budgets and kill switch**: bounded cost, time and concurrency per run, and a global stop.
    - **Full audit trail** of every decision and action.
 6. **Sandbox first, PR after acceptance.** Develop each vertical in a local hot-reload sandbox (no commit, push, PR, CI or image). Give the maintainer the URL and what to try, iterate live, and open the PR only once the vertical is accepted. Then complete tests, lint, clean commits.
-7. **One vertical = one PR**, with its tests and documentation.
+7. **One vertical = one PR**, with its tests and documentation. Before opening it, run the `review-vertical` skill (the four review agents of `.claude/agents/`: tests, quality, security, architecture) and triage their findings in the PR's Review section.
 8. **Ask, but build.** When gathering needs, ask open questions (never multiple-choice forms). Once the need is clear, code the vertical and ask only when it truly requires an answer.
 9. **Never** commit secrets. Use `dotnet user-secrets` locally and GitHub Secrets in CI.
 10. **Decisions** get an ADR in `docs/adr/NNNN-title.md` and a `D-xx` row in the spec.
@@ -68,4 +70,4 @@ Branches `main` (stable releases) and `develop` (integration) are protected by G
 
 Prefixes: `feature/`, `fix/`, `chore/`, `docs/`. Conventional Commits: `feat(worker): ...`, `fix(queue): ...`, `docs(spec): ...`, `chore(ci): ...`.
 
-The remote does not exist until the `repo/add-mnemarr-orchestratarr` pull request of `github-template` is merged and applied; see the README "Bootstrap" section.
+The repository settings live in `repos/orchestrarr.yaml` of `github-template`; see the README "Repository settings" section.

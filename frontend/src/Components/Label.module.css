@@ -1,0 +1,45 @@
+.label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  border: var(--borderWidth) solid currentcolor;
+  border-radius: var(--radiusSmall);
+  font-size: var(--fontSizeMeta);
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.default {
+  color: var(--inkSoft);
+}
+
+.primary {
+  color: var(--accentText);
+}
+
+.success {
+  color: var(--successColor);
+}
+
+.warning {
+  color: var(--warningColor);
+}
+
+.danger {
+  color: var(--dangerColor);
+}
+
+.info {
+  color: var(--infoColor);
+}
+
+.inverse {
+  color: var(--paper);
+  background: var(--ink);
+  border-color: var(--ink);
+}
+
+.disabled {
+  color: var(--disabledColor);
+}

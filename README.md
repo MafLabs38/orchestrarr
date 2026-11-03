@@ -13,22 +13,31 @@ Orchestrarr reads the findings of [Portarr](https://github.com/MafLabs38/portarr
 | [docs/VISION.md](docs/VISION.md) | Why, what it must do, relation to Portarr, safety model, open questions |
 | [CLAUDE.md](CLAUDE.md) | Rules for AI assistants working in this repository |
 
-## Bootstrap
+## Repository settings
 
-The GitHub repository is created by Terraform from `repos/orchestratarr.yaml` in `MafLabs38/github-template` (pull request `repo/add-mnemarr-orchestratarr`). Once that pull request is merged and the apply has run, publish this local repository through a scaffolding pull request:
+The GitHub repository, its branches, rulesets and labels are declared as code in `repos/orchestrarr.yaml` of `MafLabs38/github-template`: change a setting with a pull request there, never in the GitHub settings. `ci.yml`, `codeql.yml` and `mutation.yml` are the pipeline (see [docs/TESTING.md](docs/TESTING.md)). CodeQL runs but does not gate merges: the ruleset waits for CodeQL results, so a skipped CodeQL would block every merge.
+
+Before a push, check that no real infrastructure value slipped in (`gitleaks dir .`).
+
+## Run in the sandbox
+
+Needs the .NET 10 SDK and Node 22.
 
 ```bash
-cd path/to/orchestrarr
-git remote add origin https://github.com/MafLabs38/orchestrarr.git
-env -u GH_TOKEN git fetch -q origin develop
-git checkout -q -B chore/initial-scaffolding
-git reset -q origin/develop            # keeps the local files, rebases on the remote history
-git add -A && git commit -m "chore: initial project scaffolding"
-env -u GH_TOKEN git push -u origin chore/initial-scaffolding
-env -u GH_TOKEN gh pr create -R MafLabs38/orchestrarr --base develop --title "chore: initial scaffolding" --body "Vision, project rules, common templates."
+# API, with the sample data of samples/ (http://127.0.0.1:7878)
+dotnet run --project src/Orchestrarr.Host
+
+# Interface with hot reload (http://127.0.0.1:5178), proxying /api to the API
+cd frontend && yarn install && yarn dev
+
+# Tests and lint (see docs/TESTING.md)
+dotnet test --solution Orchestrarr.slnx && dotnet format Orchestrarr.slnx --verify-no-changes
+cd frontend && yarn test && yarn lint && yarn stylelint && yarn format:check && yarn typecheck
 ```
 
-Before the first push, check that no real infrastructure value slipped in (`gitleaks dir .`). CI workflows (`ci.yml`, `codeql.yml`, `mutation.yml`) are added with the first vertical, when there is code for them to build; the options are declared in `repos/orchestratarr.yaml` (`codeql` and `mutation` on, `sonarqube` and `ai_review` off until their tokens exist).
+To read a real Portarr instead of the sample, set `Portarr:BaseUrl` and give the key as `Portarr:ApiKey` through the environment (`Portarr__ApiKey`) or `dotnet user-secrets`: the key never goes in a file that is committed. Redirects are not followed, so the key only goes to that address; use https or a private network.
+
+> **Security.** The API has **no authentication yet** (SPEC Q-12) and the image listens on all interfaces. It reads and shows the state of your fleet: put it behind an authenticating front (single sign-on, a private network) and do not publish its port.
 
 ## License
 

@@ -1,0 +1,20 @@
+.list {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 8px 24px;
+  margin: 0;
+}
+
+.list dt {
+  color: var(--inkMuted);
+  font-weight: 800;
+}
+
+.list dd {
+  margin: 0;
+}
+
+.mono {
+  font-family: var(--monoSpaceFontFamily);
+  word-break: break-all;
+}

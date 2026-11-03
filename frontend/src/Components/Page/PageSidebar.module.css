@@ -1,0 +1,25 @@
+.sidebar {
+  flex: 0 0 var(--sidebarWidth);
+  padding: 16px 12px;
+  background: var(--paperWarm);
+  border-right: var(--borderWidth) solid var(--hairline);
+}
+
+.group {
+  margin: 20px 12px 6px;
+  color: var(--inkMuted);
+  font-size: var(--fontSizeMeta);
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+@media (width <= 768px) {
+  .sidebar {
+    flex-basis: 64px;
+    padding: 12px 6px;
+  }
+
+  .group {
+    display: none;
+  }
+}

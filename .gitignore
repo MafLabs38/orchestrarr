@@ -48,3 +48,11 @@ TestResults/
 .env
 .env.*
 !.env.example
+
+# Built frontend (served by the host)
+src/Orchestrarr.Host/wwwroot/
+frontend/node_modules/
+
+# Mutation testing and coverage output
+**/StrykerOutput/
+frontend/reports/
