@@ -15,19 +15,17 @@ public sealed record LauncherOptions
     public string Audience { get; init; } = "launcher";
 }
 
-/// <summary>What the launcher asks to know about an order beyond its signature: whether the powers are granted, and what an environment is.</summary>
-public sealed record LaunchChecks(IGrantedPowers Powers, IEnvironmentClassifier Environments);
-
 /// <summary>
 /// The only component that can start an agent run, and it only does so from a valid order (SPEC D-41, D-46). It verifies, it cannot
 /// sign (it has no signer). It answers with the verified, normalized order: that is what is to be run, not the object it was handed.
 /// This class decides whether to start; starting the run itself, the pull from the store, the concurrency and the budget come with the
-/// vertical that acts.
+/// vertical that acts. Every dependency is a parameter of its own, not grouped: a test reads this list to prove that the launcher has no way to sign.
 /// </summary>
 public sealed class Launcher(
     IOrderVerifier verifier,
     INonceLedger nonces,
-    LaunchChecks checks,
+    IGrantedPowers powers,
+    IEnvironmentClassifier environments,
     IKillSwitch killSwitch,
     IAuditSink audit,
     TimeProvider time,
@@ -107,12 +105,12 @@ public sealed class Launcher(
         }
         // The launcher works out production itself and checks the second factor the order carries: the approval is authorized twice.
         if (order.Environment is not null
-            && await checks.Environments.IsProductionAsync(order.Environment, cancellationToken)
+            && await environments.IsProductionAsync(order.Environment, cancellationToken)
             && !(order.StepUpAt is { } at && at <= order.IssuedAt && order.IssuedAt - at <= options.StepUpMaxAge))
         {
             return LaunchRefusal.StepUpRequired;
         }
-        if (!await checks.Powers.AllowsAsync(order, cancellationToken))
+        if (!await powers.AllowsAsync(order, cancellationToken))
         {
             return LaunchRefusal.OutsideGrantedPowers;
         }

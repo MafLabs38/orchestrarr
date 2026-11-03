@@ -29,7 +29,7 @@ public sealed class LaunchTests
         new(signer ?? _authority, _killSwitch, _audit, _environments, _time, options ?? new OrderOptions());
 
     private Launcher Launcher(IOrderVerifier? verifier = null, LauncherOptions? options = null) =>
-        new(verifier ?? _authority.Verifier, _nonces, new LaunchChecks(_powers, _environments), _killSwitch, _audit, _time, options ?? new LauncherOptions());
+        new(verifier ?? _authority.Verifier, _nonces, _powers, _environments, _killSwitch, _audit, _time, options ?? new LauncherOptions());
 
     private async Task<SignedOrder> Signed(OrderRequest? request = null, Approver? approver = null)
     {
