@@ -16,7 +16,7 @@ public sealed record LauncherOptions
 }
 
 /// <summary>What the launcher asks to know about an order beyond its signature: whether the powers are granted, and what an environment is.</summary>
-public sealed record LaunchPolicy(IGrantedPowers Powers, IEnvironmentClassifier Environments);
+public sealed record LaunchChecks(IGrantedPowers Powers, IEnvironmentClassifier Environments);
 
 /// <summary>
 /// The only component that can start an agent run, and it only does so from a valid order (SPEC D-41, D-46). It verifies, it cannot
@@ -27,7 +27,7 @@ public sealed record LaunchPolicy(IGrantedPowers Powers, IEnvironmentClassifier 
 public sealed class Launcher(
     IOrderVerifier verifier,
     INonceLedger nonces,
-    LaunchPolicy policy,
+    LaunchChecks checks,
     IKillSwitch killSwitch,
     IAuditSink audit,
     TimeProvider time,
@@ -107,12 +107,12 @@ public sealed class Launcher(
         }
         // The launcher works out production itself and checks the second factor the order carries: the approval is authorized twice.
         if (order.Environment is not null
-            && await policy.Environments.IsProductionAsync(order.Environment, cancellationToken)
+            && await checks.Environments.IsProductionAsync(order.Environment, cancellationToken)
             && !(order.StepUpAt is { } at && at <= order.IssuedAt && order.IssuedAt - at <= options.StepUpMaxAge))
         {
             return LaunchRefusal.StepUpRequired;
         }
-        if (!await policy.Powers.AllowsAsync(order, cancellationToken))
+        if (!await checks.Powers.AllowsAsync(order, cancellationToken))
         {
             return LaunchRefusal.OutsideGrantedPowers;
         }
