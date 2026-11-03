@@ -14,10 +14,14 @@ public sealed class SqliteWriterLock : IDisposable
     /// <summary>The name of the file that carries the lock.</summary>
     public static string LockPathOf(string databasePath) => databasePath + ".lock";
 
-    /// <summary>Takes the lock, or says that another process holds it. The folder of the database must exist.</summary>
+    /// <summary>
+    /// Takes the lock, or says that another process holds it. It comes first, before the database is created, migrated or written to: a host that
+    /// is refused has touched nothing. It creates the folder of the database when it is not there.
+    /// </summary>
     public static SqliteWriterLock Acquire(string databasePath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(databasePath);
+        SqliteDatabase.EnsureFolder(Path.GetFullPath(databasePath));
         var options = new FileStreamOptions { Mode = FileMode.OpenOrCreate, Access = FileAccess.ReadWrite, Share = FileShare.None };
         if (!OperatingSystem.IsWindows())
         {

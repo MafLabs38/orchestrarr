@@ -52,4 +52,15 @@ public sealed class SqliteWriterLockTests : IDisposable
 
         File.GetUnixFileMode(SqliteWriterLock.LockPathOf(_file.Path)).Should().Be(UnixFileMode.UserRead | UnixFileMode.UserWrite);
     }
+
+    [Fact]
+    public void The_lock_comes_first_it_makes_the_folder_and_leaves_the_database_alone()
+    {
+        var path = Path.Combine(Path.GetDirectoryName(_file.Path)!, "not-yet", "orchestrarr.db");
+
+        using var held = SqliteWriterLock.Acquire(path);
+
+        Directory.Exists(Path.GetDirectoryName(path)).Should().BeTrue();
+        File.Exists(path).Should().BeFalse("a host that is refused, or that has not started yet, has written nothing");
+    }
 }

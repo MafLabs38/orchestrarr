@@ -50,8 +50,8 @@ if (!storage.Persistent && approvals.Mode == ApprovalsMode.OpenIdConnect && !app
 // The file is opened now: one that cannot be used stops the host at its start and not at the first approval
 if (storage.Persistent)
 {
-    app.Services.GetRequiredService<SqliteDatabase>();
     app.Services.GetRequiredService<SqliteWriterLock>();
+    app.Services.GetRequiredService<SqliteDatabase>();
 }
 SandboxGuard.StopIfListeningBeyondLoopback(app, approvals);
 

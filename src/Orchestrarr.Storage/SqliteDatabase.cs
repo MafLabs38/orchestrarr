@@ -56,22 +56,28 @@ public sealed class SqliteDatabase
         }
 
         var full = System.IO.Path.GetFullPath(path);
-        if (System.IO.Path.GetDirectoryName(full) is { Length: > 0 } folder)
-        {
-            if (OperatingSystem.IsWindows())
-            {
-                Directory.CreateDirectory(folder);
-            }
-            else
-            {
-                Directory.CreateDirectory(folder, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-            }
-        }
-
+        EnsureFolder(full);
         CreateEmptyFile(full);
         var database = new SqliteDatabase(full, busyTimeout ?? DefaultBusyTimeout);
         database.Migrate(startEngagedWhenNew, time ?? TimeProvider.System);
         return database;
+    }
+
+    /// <summary>Creates the folder of the database for its owner only, when it is not there. The lock of the one writer needs it too.</summary>
+    internal static void EnsureFolder(string fullPath)
+    {
+        if (System.IO.Path.GetDirectoryName(fullPath) is not { Length: > 0 } folder)
+        {
+            return;
+        }
+        if (OperatingSystem.IsWindows())
+        {
+            Directory.CreateDirectory(folder);
+        }
+        else
+        {
+            Directory.CreateDirectory(folder, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
     }
 
     // The file is created here and only here, for its owner only: every later operation opens it read-write, so a file that vanishes while the
