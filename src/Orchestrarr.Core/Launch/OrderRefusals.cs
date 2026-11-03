@@ -6,8 +6,9 @@ public enum IssueRefusal
     KillSwitchEngaged,
     NotAPerson,
     NotAnOperator,
+    InvalidRequest,
     StepUpRequired,
-    NoStepsTicked,
+    SignerUnavailable,
     AuditUnavailable,
 }
 
@@ -15,10 +16,14 @@ public enum IssueRefusal
 public enum LaunchRefusal
 {
     KillSwitchEngaged,
+    VerifierUnavailable,
     BadSignature,
+    Malformed,
+    WrongAudience,
     NotYetValid,
     Expired,
     LifetimeTooLong,
+    StepUpRequired,
     OutsideGrantedPowers,
     Replayed,
     AuditUnavailable,
@@ -29,7 +34,8 @@ public sealed record IssueResult(SignedOrder? Order, IssueRefusal? Refusal)
     public bool Issued => Order is not null;
 }
 
-public sealed record LaunchDecision(LaunchRefusal? Refusal)
+/// <summary>The launcher's answer. <c>Order</c> is the verified, normalized order to execute: nothing else is to be run.</summary>
+public sealed record LaunchDecision(LaunchRefusal? Refusal, LaunchOrder? Order)
 {
     public bool Accepted => Refusal is null;
 }
