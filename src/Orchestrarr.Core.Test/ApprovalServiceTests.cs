@@ -645,4 +645,20 @@ public sealed class ApprovalServiceTests
 
         read.Should().Equal("Contains", "List", "get_Free");
     }
+
+    [Fact]
+    public async Task The_in_memory_ledger_refuses_a_decision_already_there_before_it_traces_anything()
+    {
+        var ledger = new InMemoryApprovalLedger(_store, _audit, _killSwitch);
+        var approval = new Approval(Guid.NewGuid(), ItemId, "example/app", 1, HeadA, [StepKind.Validate], "alice", Now);
+        var trace = new AuditEntry(Now, AuditEvents.ApprovalRecorded, "alice", null, null);
+        (await ledger.TryRecordAsync([approval], [trace], TestContext.Current.CancellationToken)).Should().Be(LedgerResult.Recorded);
+
+        var again = new Approval(Guid.NewGuid(), ItemId, "example/app", 1, HeadA, [StepKind.Validate], "bob", Now);
+        var result = await ledger.TryRecordAsync([again], [trace], TestContext.Current.CancellationToken);
+
+        result.Should().Be(LedgerResult.AlreadyThere);
+        _audit.List().Should().ContainSingle("the second attempt left no trace");
+        _store.List().Should().ContainSingle();
+    }
 }

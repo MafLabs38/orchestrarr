@@ -108,7 +108,7 @@ public sealed class SqliteKillSwitchChangeTests : IDisposable
         {
             await stop.ChangeAsync(false, Released(), Ct);
         }
-        _file.Repair();
+        _file.Vanish();
 
         stop.Engaged.Should().BeTrue("a file that is not there cannot say the stop was released");
         stop.Saved.Should().BeFalse("and the state is unknown");

@@ -30,6 +30,8 @@ public sealed class SqliteDatabase
         {
             DataSource = path,
             Mode = SqliteOpenMode.ReadWrite,
+            // No pool: a pooled connection keeps reading and writing a file that was deleted or replaced under the host, and nothing would say so
+            Pooling = false,
             ForeignKeys = true,
             DefaultTimeout = (int)busyTimeout.TotalSeconds < 1 ? 1 : (int)busyTimeout.TotalSeconds,
         }.ToString();
