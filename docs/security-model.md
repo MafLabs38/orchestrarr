@@ -29,7 +29,6 @@ Contents: [the chain](#1-the-whole-chain) · [a run step by step](#2-one-run-ste
 | Mark | Meaning |
 |---|---|
 | 🟢 | In `develop` today |
-| 🟠 | In an open pull request (the sign-in with the identity provider, SPEC D-40 and Q-12) |
 | 🔵 | Described in a proposed ADR (0006, 0007), not built |
 | 🟣 | An idea under discussion, in no ADR yet, or one that **contradicts** a recorded decision: **not a commitment** until an ADR accepts it |
 
@@ -38,7 +37,7 @@ Contents: [the chain](#1-the-whole-chain) · [a run step by step](#2-one-run-ste
 ```mermaid
 flowchart TB
   person["You, the operator"]
-  kc["Identity provider<br/>who you are, your group,<br/>a second factor for production"]:::review
+  kc["Identity provider<br/>who you are, your group,<br/>a second factor for production"]:::built
   cp["Control plane (the API)<br/>records your approval (built),<br/>signs the order when the run starts"]:::decided
   vault["Vault<br/>non-exportable signing key,<br/>credentials, SSH authority"]:::decided
   store[("Order store")]:::decided
@@ -61,14 +60,14 @@ flowchart TB
   shop -->|"12 acts with a certificate"| target
   target -.->|"13 trusts only"| vault
 
-  classDef review fill:#fde9cf,stroke:#b8741a,color:#3a2305
+  classDef built fill:#d9f2e3,stroke:#2d7a4f,color:#10331f
   classDef decided fill:#dbe8fb,stroke:#3b6ab0,color:#10233f
   classDef proposed fill:#eadcf7,stroke:#7a4fb0,color:#2a1040
 ```
 
 The colours show the main state of each box; the sentence below gives the exact state.
 
-What is built (`🟢`): recording an approval, the audit trail and the global stop, and, as library code that no process runs yet, the signed order and the launcher's checks. The sign-in is `🟠` (open pull request). Everything else on the chain is `🔵`, and the evidence shown to Vault is `🟣`.
+What is built (`🟢`): the sign-in with the identity provider ([ADR 0011](adr/0011-people-sign-in-through-the-identity-provider.md)), recording an approval, the audit trail and the global stop, and, as library code that no process runs yet, the signed order and the launcher's checks. Everything else on the chain is `🔵`, and the evidence shown to Vault is `🟣`.
 
 ## 2. One run, step by step
 
@@ -107,8 +106,8 @@ An agent is never recognised by what it says. It is recognised by **what it hold
 
 | Attempt | What stops it | Who enforces it | State |
 |---|---|---|---|
-| Someone calls the API without being signed in | A session is required for every route | The host | 🟠 |
-| A signed-in person who is not an operator approves | The operator group is checked | The host | 🟠 |
+| Someone calls the API without being signed in | A session is required for every route | The host | 🟢 |
+| A signed-in person who is not an operator approves | The operator group is checked | The host | 🟢 |
 | A forged or replayed order | The signature, the expiry and a one-time number are checked | The launcher | 🟢 library code, 🔵 not running |
 | A process asks Vault for credentials | Vault answers only to the launcher's identity, and only with evidence of a real order | Vault | 🔵 the identity, 🟣 the evidence |
 | An agent started outside the workshop | It holds no certificate, so the machines refuse it | The target machines | 🔵 |
@@ -191,7 +190,7 @@ Time limits are meant to be **generous and configurable** (SPEC D-27 sets budget
 |---|---|
 | Approval recorded per pull request and commit, audit trail, global stop (in memory) | 🟢 |
 | Signed order, issuer, launcher checks, one-time number and refusal codes (library code, tested, not run by any process) | 🟢 |
-| Sign-in with the identity provider, operator group, origin check | 🟠 |
+| Sign-in with the identity provider, operator group, origin check ([ADR 0011](adr/0011-people-sign-in-through-the-identity-provider.md)) | 🟢 |
 | Vault dedicated to this purpose | 🔵 manifests in the GitOps repository, not initialised |
 | Launcher that runs, order store, workshop, certificates, revoking leases | 🔵 not built |
 | Evidence of the order shown to Vault, validation of the plan for production, least-privilege accounts per principal | 🟣 under discussion |
