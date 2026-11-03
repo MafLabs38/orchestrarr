@@ -61,7 +61,7 @@ To read the dependency pull requests, give a GitHub token that can **only read**
 
 ### API
 
-Under `/api/v1` (anything else there is a 404, or a 401 without a session when the sign-in is on). The sign-in's own routes are under `/auth` (`me`, `login` and `logout` below, and `callback` and `signed-out`, which only the identity provider's redirects use; any other `/auth/...` is a 404); `GET /health` answers `{ "status": "ok" }` to a probe, with no session. Every answer forbids being framed by another page and being sniffed, carries a policy that keeps the interface's scripts, styles and requests to itself (`Content-Security-Policy`), and, over https, `Strict-Transport-Security`. Two routes record something, and nothing here runs anything:
+Under `/api/v1` (anything else there is a 404, or a 401 without a session when the sign-in is on). The sign-in's own routes are under `/auth` (`me`, `login` and `logout` below, and `callback` and `signed-out`, which only the identity provider's redirects use; any other `/auth/...` is a 404); `GET /health` answers `{ "status": "ok" }` to a probe, with no session. Every answer forbids being framed by another page and being sniffed, carries a policy that keeps the interface's scripts, styles and requests to itself (`Content-Security-Policy`); with the sign-in on and an https `SignIn:PublicUrl`, it also carries `Strict-Transport-Security`. Two routes record something, and nothing here runs anything:
 
 | Route | Gives |
 |---|---|
