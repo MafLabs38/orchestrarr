@@ -26,7 +26,7 @@
 - **The session is a snapshot, and it is not revoked.** The groups are read at sign-in and kept for up to `SignIn:SessionHours` (8 by default): an operator removed from the group, or disabled, still approves and releases the global stop until their session ends; a copied cookie stays valid after the person signs out. Today that gives no power, since nothing runs. Before a launcher exists, the vertical that issues orders must close it, with a server-side session store that can revoke, or a re-check with the identity provider when the order is issued (ADR 0010, conditions). The role is therefore not "checked again with the identity provider" yet, which D-47 and ADR 0010 say the issuer will do.
 - The session is encrypted with the host's data-protection keys. Without `SignIn:KeysDirectory` the host uses the framework's default: a folder of the user's profile when there is one, otherwise memory. The image has one, inside the container: the keys survive a restart of the same container, are lost when it is recreated (a deployment, a new image), and a second replica cannot read the first one's cookies; outside Development the host warns of it. With the setting, the keys sit on that volume **unencrypted**: whoever reads it, or a copy of the container's layer, can forge a session, so the volume is a secret. Encrypting them with the Vault belongs to the control-plane vertical.
 - Signing out ends the session of the application and sends the person to the provider's end-session page. The provider asks for a confirmation because no token is kept to hint who leaves; that is the price of keeping none.
-- The trail and the queue show the subject of the provider (an identifier), not a name. Names come with the persistent store (ADR 0010).
+- The trail and the queue show the subject of the provider (an identifier), not a name. Names come with a later change of the stored schema (ADR 0013).
 - A service account cannot sign in this way, so it cannot be an operator (SPEC D-47). Nothing for machines exists yet: nothing needs it.
 - A failed sign-in, or a provider that cannot be reached, is logged by the host (a warning, never a claim or a token); signing in and signing out are not logged, and none of them is recorded in the audit trail yet.
 - To sign in and read without approving anything, leave `Powers:Grants` empty: nothing is granted, so nothing can be approved (an operator can still engage and release the global stop). With the default `Disabled` mode the API stays open, as the README says.
@@ -41,7 +41,7 @@
 ## Not decided here
 
 - How production approval asks for the step-up, which authentication contexts count (a list: providers use levels or URIs), and how long it stays fresh (SPEC Q-21).
-- Recording the issuer of the identity (`iss`) with the subject, before the persistent store fixes its schema: a subject is only unique within one provider.
+- Recording the issuer of the identity (`iss`) with the subject: a subject is only unique within one provider. The schema is fixed (version 1, ADR 0013), so it is now a migration (`user_version` 2).
 - Sign-ins and sign-outs in the audit trail.
 - Access for machines to the API (keys, or the client-credentials flow), and the link in a mail: it opens the page, which signs in first.
 - A shared session store, if the host ever runs as several replicas.

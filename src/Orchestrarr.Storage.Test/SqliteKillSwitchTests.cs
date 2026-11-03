@@ -1,4 +1,5 @@
 using Orchestrarr.Core.Approvals;
+using Orchestrarr.Core.Launch;
 
 namespace Orchestrarr.Storage.Test;
 
@@ -121,7 +122,7 @@ public sealed class SqliteKillSwitchTests : IDisposable
     [Fact]
     public void A_locked_database_still_engages_cannot_release_and_still_reads()
     {
-        var database = SqliteDatabase.Open(_file.Path, busyTimeout: TimeSpan.FromSeconds(1));
+        var database = SqliteDatabase.Open(_file.Path, busyTimeout: TimeSpan.FromMilliseconds(50));
         var stop = new SqliteKillSwitch(database, StoreLimits.FileAudit);
         stop.Set(true);
         using var other = database.Connect();
@@ -136,12 +137,63 @@ public sealed class SqliteKillSwitchTests : IDisposable
     }
 
     [Fact]
-    public async Task Engaging_and_releasing_at_once_leave_one_answer_that_the_file_and_the_memory_share()
+    public async Task Engaging_and_releasing_at_once_leave_a_stop_that_agrees_with_its_last_trace()
     {
-        var stop = new SqliteKillSwitch(_file.Open(), StoreLimits.FileAudit);
+        var database = _file.Open();
+        var stop = new SqliteKillSwitch(database, StoreLimits.FileAudit);
+        var at = new DateTimeOffset(2026, 11, 3, 12, 0, 0, TimeSpan.Zero);
 
-        await Task.WhenAll(Enumerable.Range(0, 20).Select(n => Task.Run(() => stop.Set(n % 2 == 0), Ct)));
+        var results = await Task.WhenAll(Enumerable.Range(0, 20).Select(n => Task.Run(
+            async () => await stop.ChangeAsync(n % 2 == 0, new AuditEntry(at, n % 2 == 0 ? AuditEvents.KillSwitchEngaged : AuditEvents.KillSwitchReleased, "alice-1", null, null), Ct),
+            Ct)));
 
-        new SqliteKillSwitch(_file.Reopen(), StoreLimits.FileAudit).Engaged.Should().Be(stop.Engaged);
+        results.Should().OnlyContain(result => result == KillSwitchChange.Applied);
+        var trail = new SqliteAuditLog(database).List();
+        trail.Should().HaveCount(20);
+        stop.Engaged.Should().Be(trail[0].Event == AuditEvents.KillSwitchEngaged, "the stop is what the last entry of the trail says");
+    }
+
+    [Fact]
+    public void A_missing_row_is_unknown_and_unknown_is_engaged()
+    {
+        var database = _file.Open();
+        var stop = new SqliteKillSwitch(database, StoreLimits.FileAudit);
+        stop.Set(false);
+        using (var connection = database.Connect())
+        {
+            SqliteDatabase.Run(connection, "DELETE FROM kill_switch;");
+        }
+
+        stop.Engaged.Should().BeTrue();
+    }
+
+    [Fact]
+    public void A_missing_table_is_unknown_and_unknown_is_engaged()
+    {
+        var database = _file.Open();
+        var stop = new SqliteKillSwitch(database, StoreLimits.FileAudit);
+        using (var connection = database.Connect())
+        {
+            SqliteDatabase.Run(connection, "DROP TABLE kill_switch;");
+        }
+
+        stop.Engaged.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Engaging_counts_at_once_while_another_writer_holds_the_file()
+    {
+        var database = SqliteDatabase.Open(_file.Path, busyTimeout: TimeSpan.FromSeconds(10));
+        var stop = new SqliteKillSwitch(database, StoreLimits.FileAudit);
+        stop.Set(false);
+        using var other = database.Connect();
+        SqliteDatabase.Run(other, "BEGIN IMMEDIATE;");
+
+        var engage = Task.Run(async () => await stop.ChangeAsync(true, new AuditEntry(DateTimeOffset.UnixEpoch, AuditEvents.KillSwitchEngaged, "alice-1", null, null), Ct), Ct);
+
+        SpinWait.SpinUntil(() => stop.Engaged, TimeSpan.FromSeconds(2)).Should().BeTrue("the stop does not wait for the lock");
+        SqliteDatabase.Run(other, "ROLLBACK;");
+        (await engage).Should().Be(KillSwitchChange.Applied);
+        stop.Saved.Should().BeTrue();
     }
 }

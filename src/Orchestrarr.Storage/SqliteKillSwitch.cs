@@ -37,7 +37,12 @@ public sealed class SqliteKillSwitch(SqliteDatabase database, int auditCapacity,
         {
             if (engaged)
             {
-                _held = !TrySave(engaged: true);
+                // It counts at once, before the write: while another writer holds the file, the stop does not wait for it
+                _held = true;
+                if (TrySave(engaged: true))
+                {
+                    _held = false;
+                }
                 return;
             }
 
@@ -55,6 +60,11 @@ public sealed class SqliteKillSwitch(SqliteDatabase database, int auditCapacity,
         cancellationToken.ThrowIfCancellationRequested();
         lock (_gate)
         {
+            if (engaged)
+            {
+                // It counts at once, before the write: while another writer holds the file, the stop does not wait for it
+                _held = true;
+            }
             try
             {
                 // The stop and its trace are one write: a failure leaves nothing to undo, and a crash cannot leave a release without its trace
@@ -106,7 +116,8 @@ public sealed class SqliteKillSwitch(SqliteDatabase database, int auditCapacity,
             using var connection = database.Connect();
             using var command = connection.CreateCommand();
             command.CommandText = "SELECT engaged FROM kill_switch WHERE id = 1;";
-            var engaged = command.ExecuteScalar() is long value && value != 0;
+            // A row that is missing is unknown, and unknown is engaged
+            var engaged = command.ExecuteScalar() is not long value || value != 0;
             _unreadable = false;
             return engaged;
         }

@@ -88,6 +88,8 @@ public sealed class SqliteDatabase
     {
         var connection = new SqliteConnection(_connectionString);
         connection.Open();
+        // The wait for the write lock, in milliseconds: the connection string only knows whole seconds
+        Run(connection, string.Create(CultureInfo.InvariantCulture, $"PRAGMA busy_timeout = {BusyTimeoutMilliseconds};"));
         return connection;
     }
 
@@ -200,9 +202,12 @@ public sealed class SqliteDatabase
             );
             """);
         IsNew = version == 0;
+        // The row of the stop is always there: a row that is missing later is unknown, and unknown counts as engaged. An engaged stop that was
+        // already there stays engaged.
+        Run(connection, string.Create(CultureInfo.InvariantCulture,
+            $"INSERT INTO kill_switch (id, engaged) VALUES (1, {(IsNew && startEngagedWhenNew ? 1 : 0)}) ON CONFLICT (id) DO UPDATE SET engaged = MAX(engaged, excluded.engaged);"));
         if (IsNew && startEngagedWhenNew)
         {
-            Run(connection, "INSERT OR IGNORE INTO kill_switch (id, engaged) VALUES (1, 1);");
             SqliteAuditLog.Insert(connection, new AuditEntry(time.GetUtcNow(), AuditEvents.InstanceCreated, AuditEvents.System, null, "the database was created: the global stop starts engaged"));
         }
         Run(connection, string.Create(CultureInfo.InvariantCulture, $"PRAGMA user_version = {SchemaVersion};"));

@@ -73,27 +73,6 @@ public sealed class StorageApiTests : IDisposable
     }
 
     [Fact]
-    public async Task A_stop_that_cannot_be_released_for_certain_says_so_stays_engaged_and_leaves_no_trace_of_a_release()
-    {
-        using var factory = Sqlite(services =>
-        {
-            var stop = new CannotRelease();
-            services.RemoveAll<IKillSwitchControl>();
-            services.RemoveAll<IKillSwitch>();
-            services.AddSingleton<IKillSwitchControl>(stop);
-            services.AddSingleton<IKillSwitch>(stop);
-        });
-        var client = factory.CreateClient();
-
-        var release = await client.PutAsJsonAsync("/api/v1/safety/kill-switch", new { engaged = false }, Ct);
-
-        release.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
-        (await Json(release)).GetProperty("error").GetString().Should().Be("killSwitchUnavailable");
-        (await Json(await client.GetAsync("/api/v1/safety", Ct))).GetProperty("killSwitchEngaged").GetBoolean().Should().BeTrue();
-        (await Json(await client.GetAsync("/api/v1/activity", Ct))).EnumerateArray().Should().BeEmpty();
-    }
-
-    [Fact]
     public async Task When_the_file_becomes_unreadable_nothing_is_approved_and_the_stop_counts_as_engaged()
     {
         using var factory = Sqlite();
@@ -114,6 +93,14 @@ public sealed class StorageApiTests : IDisposable
         (await client.GetAsync("/api/v1/approvals", Ct)).StatusCode.Should().Be(HttpStatusCode.InternalServerError, "an unreadable queue is an error, never an empty list");
         (await client.GetAsync("/api/v1/activity", Ct)).StatusCode.Should().Be(HttpStatusCode.InternalServerError, "an unreadable trail is an error, never an empty list");
         (await client.GetAsync("/api/v1/system/status", Ct)).StatusCode.Should().Be(HttpStatusCode.OK, "the status still answers, and says the stop is engaged");
+
+        var release = await client.PutAsJsonAsync("/api/v1/safety/kill-switch", new { engaged = false }, Ct);
+        var engage = await client.PutAsJsonAsync("/api/v1/safety/kill-switch", new { engaged = true }, Ct);
+
+        release.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        (await Json(release)).GetProperty("error").GetString().Should().Be("killSwitchUnavailable");
+        engage.StatusCode.Should().Be(HttpStatusCode.OK, "engaging always works");
+        (await Json(engage)).GetProperty("saved").GetBoolean().Should().BeFalse("it is held in memory, and would not survive a restart");
     }
 
     [Theory]
@@ -140,7 +127,7 @@ public sealed class StorageApiTests : IDisposable
 
         var start = () => factory.CreateClient();
 
-        start.Should().Throw<Exception>();
+        start.Should().Throw<Exception>().Which.ToString().Should().Contain("not a database");
     }
 
     [Fact]
@@ -257,17 +244,5 @@ public sealed class StorageApiTests : IDisposable
             _engaged = engaged;
             return ValueTask.FromResult(KillSwitchChange.AppliedUntraced);
         }
-    }
-
-    private sealed class CannotRelease : IKillSwitchControl
-    {
-        public bool Engaged => true;
-
-        public bool Saved => true;
-
-        public ValueTask<bool> IsEngagedAsync(CancellationToken cancellationToken) => ValueTask.FromResult(true);
-
-        public ValueTask<KillSwitchChange> ChangeAsync(bool engaged, AuditEntry entry, CancellationToken cancellationToken) =>
-            ValueTask.FromResult(engaged ? KillSwitchChange.Applied : KillSwitchChange.NotSaved);
     }
 }

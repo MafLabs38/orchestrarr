@@ -58,8 +58,8 @@ public sealed class SqliteKillSwitchChangeTests : IDisposable
     {
         var stop = new SqliteKillSwitch(_file.Open(), auditCapacity: 1);
         await stop.ChangeAsync(true, Engaged(), Ct);
-        await stop.ChangeAsync(false, Released(), Ct);
-        _file.Reopen();
+        stop.Set(false);
+        stop.Engaged.Should().BeFalse("the trail is full, and the stop was released without a trace");
 
         (await stop.ChangeAsync(true, Engaged(), Ct)).Should().Be(KillSwitchChange.AppliedUntraced);
 
@@ -106,15 +106,67 @@ public sealed class SqliteKillSwitchChangeTests : IDisposable
     }
 
     [Fact]
-    public void The_file_is_created_for_its_owner_only()
+    public async Task A_trail_filled_by_decisions_still_traces_the_stop_and_its_release()
     {
-        if (OperatingSystem.IsWindows())
+        var database = _file.Open();
+        var trail = new SqliteAuditLog(database, 100);
+        for (var n = 0; n < 95; n++)
         {
-            return;
+            (await trail.TryRecordAsync(new AuditEntry(Noon.AddSeconds(n), AuditEvents.ApprovalRecorded, "alice-1", null, null), Ct)).Should().BeTrue();
         }
+        (await trail.TryRecordAsync(new AuditEntry(Noon, AuditEvents.ApprovalRecorded, "alice-1", null, null), Ct)).Should().BeFalse("the last places are the stop's");
+        var stop = new SqliteKillSwitch(database, 100);
 
+        (await stop.ChangeAsync(true, Engaged(), Ct)).Should().Be(KillSwitchChange.Applied);
+        (await stop.ChangeAsync(false, Released(), Ct)).Should().Be(KillSwitchChange.Applied);
+
+        trail.List().Should().HaveCount(97);
+    }
+
+    [Fact]
+    public async Task A_held_engagement_is_released_once_the_file_is_back()
+    {
+        var stop = new SqliteKillSwitch(_file.Open(), StoreLimits.FileAudit);
+        _file.Damage();
+        await stop.ChangeAsync(true, Engaged(), Ct);
+        _file.Repair();
         _file.Open();
 
-        File.GetUnixFileMode(_file.Path).Should().Be(UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        (await stop.ChangeAsync(false, Released(), Ct)).Should().Be(KillSwitchChange.Applied);
+
+        stop.Engaged.Should().BeFalse();
+        stop.Saved.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_release_that_cannot_be_traced_keeps_a_held_engagement()
+    {
+        var stop = new SqliteKillSwitch(_file.Open(), auditCapacity: 1);
+        _file.Damage();
+        await stop.ChangeAsync(true, Engaged(), Ct);
+        _file.Repair();
+        var database = _file.Open();
+        using (var connection = database.Connect())
+        {
+            SqliteAuditLog.Insert(connection, Engaged());
+        }
+
+        (await stop.ChangeAsync(false, Released(), Ct)).Should().Be(KillSwitchChange.NotTraced);
+
+        stop.Engaged.Should().BeTrue();
+        stop.Saved.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_cancelled_change_changes_nothing()
+    {
+        var stop = new SqliteKillSwitch(_file.Open(), StoreLimits.FileAudit);
+        using var cancelled = new CancellationTokenSource();
+        await cancelled.CancelAsync();
+
+        var change = async () => await stop.ChangeAsync(true, Engaged(), cancelled.Token);
+
+        await change.Should().ThrowAsync<OperationCanceledException>();
+        stop.Engaged.Should().BeFalse();
     }
 }

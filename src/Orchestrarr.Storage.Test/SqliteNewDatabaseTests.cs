@@ -1,3 +1,4 @@
+using System.Runtime.Versioning;
 using Microsoft.Data.Sqlite;
 using Orchestrarr.Core.Approvals;
 using Orchestrarr.Core.Launch;
@@ -62,29 +63,33 @@ public sealed class SqliteNewDatabaseTests : IDisposable
     }
 
     [Fact]
+    [UnsupportedOSPlatform("windows")]
     public void The_folder_is_for_its_owner_only()
     {
-        _file.Open();
+        Assert.SkipWhen(OperatingSystem.IsWindows(), "Unix file modes");
+        var folder = Path.Combine(Path.GetDirectoryName(_file.Path)!, "made", "by-the-host");
 
-        if (OperatingSystem.IsWindows())
-        {
-            return;
-        }
-        File.GetUnixFileMode(Path.GetDirectoryName(_file.Path)!).Should().Be(UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        SqliteDatabase.Open(Path.Combine(folder, "o.db"));
+
+        File.GetUnixFileMode(folder).Should().Be(UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        File.GetUnixFileMode(Path.Combine(folder, "o.db")).Should().Be(UnixFileMode.UserRead | UnixFileMode.UserWrite);
     }
 
     [Fact]
-    public void A_file_of_version_zero_that_already_holds_the_tables_is_brought_to_the_current_version()
+    public void A_file_of_version_zero_that_already_holds_the_tables_starts_engaged_when_asked_to()
     {
-        _file.Open();
+        var released = new SqliteKillSwitch(_file.Open(), StoreLimits.FileAudit);
+        released.Set(false);
         using (var connection = _file.Open().Connect())
         {
             SqliteDatabase.Run(connection, "PRAGMA user_version = 0;");
         }
 
-        var open = () => _file.Reopen();
+        var database = SqliteDatabase.Open(_file.Path, startEngagedWhenNew: true, new FixedClock(Noon));
 
-        open.Should().NotThrow();
+        database.IsNew.Should().BeTrue();
+        new SqliteKillSwitch(database, StoreLimits.FileAudit).Engaged.Should().BeTrue("the trace says the stop starts engaged, so it is");
+        new SqliteAuditLog(database).List().Should().ContainSingle().Which.Event.Should().Be(AuditEvents.InstanceCreated);
     }
 
     private sealed class FixedClock(DateTimeOffset now) : TimeProvider
