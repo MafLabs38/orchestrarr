@@ -38,6 +38,9 @@ api.MapGet("/system/status", async (WorkItemCatalog catalog, CancellationToken c
     return Results.Ok(new SystemStatus("Orchestrarr", version, new SourceStatus(catalog.SourceKind, catalog.SourceConfigured, report.ReadAt, report.Error, report.Stale)));
 });
 
+// An unknown route of the API is a 404, never the page of the interface
+api.MapFallback(() => Results.NotFound());
+
 // The user interface, once built into wwwroot (in development the Vite server serves it)
 if (app.Environment.WebRootFileProvider.GetDirectoryContents("/").Exists)
 {
