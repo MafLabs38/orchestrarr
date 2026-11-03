@@ -62,3 +62,17 @@ On a machine with limited CPU, run heavy builds through the resource-limited sli
 ## 6. Before a vertical's pull request
 
 Run the **`review-vertical`** skill: the four review agents run in parallel on the branch, and their findings are triaged (fixed, or declined with the reason) in the PR's *Review* section. An architecture verdict of "no" blocks the PR.
+
+## 7. Seeing the code smells in the editor
+
+The SonarQube rules can run in the editor (SonarLint) and be read by assistants, bound to the project of the SonarQube server.
+
+- The binding is **local and never committed** (it holds the address of the server): `.sonarlint/connectedMode.json`, git-ignored.
+
+  ```json
+  { "sonarQubeUri": "https://sonarqube.homelab.example", "projectKey": "<owner>_<repository>" }
+  ```
+
+- Bind by the **address**, not by a connection id in `.vscode/settings.json`: an id that is not defined as a connection of the machine gives "The specified connection id doesn't exist", and the binding is invalid.
+- The project is created on the server through its API (name, key `<owner>_<repository>`, main branch `develop`, the default Quality Gate), not by hand.
+- An assistant's SonarQube server that runs in a container reaches the editor's SonarLint on `localhost` only with the host network (`--network=host`); without it the editor is never found and the server falls back on a weaker analysis. One editor window per port: the port tells which window is analysed.
