@@ -25,7 +25,7 @@ Rules: a test protects a behavior someone relies on, runs in milliseconds, and f
 | Secrets | gitleaks | PR |
 | Vulnerabilities | Trivy (dependencies and configuration), Dependabot | PR and weekly |
 | Mutation testing | Stryker.NET (Core, providers), StrykerJS (frontend): do the tests catch injected bugs? | weekly, never blocking |
-| AI review | The four agents of `.claude/agents/` (tests, quality, security, architecture) | before a vertical PR, locally with the `review-vertical` skill |
+| AI review (advisory) | The four agents of `.claude/agents/` (tests and quality on Sonnet, security and architecture on Opus), one comment each on the pull request, on the maintainer's subscription token | when a PR is opened or marked ready, and again with the `ai-review` label; not with `skip-quality`; locally before a vertical PR with the `review-vertical` skill |
 
 ## 3. The two lanes, and skipping
 
