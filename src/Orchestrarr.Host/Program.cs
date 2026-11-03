@@ -36,7 +36,7 @@ if (approvals.Mode == ApprovalsMode.OpenIdConnect)
     builder.Services.AddSignIn(signIn);
 }
 // Where the approvals, the trail and the global stop are kept: checked now, so that a file that cannot be used stops the host
-var storage = (builder.Configuration.GetSection(StorageOptions.SectionName).Get<StorageOptions>() ?? new StorageOptions()).Validate(builder.Environment.ContentRootPath);
+var storage = (builder.Configuration.GetSection(StorageOptions.SectionName).Get<StorageOptions>() ?? new StorageOptions()).Validate(builder.Environment.ContentRootPath, builder.Environment.IsDevelopment());
 builder.Services.AddApprovals(approvals, grants, storage);
 builder.Services.AddSingleton(builder.Configuration.GetSection(WorkItemCatalogOptions.SectionName).Get<WorkItemCatalogOptions>() ?? new WorkItemCatalogOptions());
 builder.Services.AddSingleton<WorkItemCatalog>();

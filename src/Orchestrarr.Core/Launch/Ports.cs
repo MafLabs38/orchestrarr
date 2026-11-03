@@ -75,8 +75,14 @@ public static class AuditEvents
     public const string KillSwitchEngaged = "killswitch.engaged";
     public const string KillSwitchReleased = "killswitch.released";
 
+    /// <summary>A database that did not exist was created: whatever history there was is gone, so the stop starts engaged until someone releases it.</summary>
+    public const string InstanceCreated = "instance.created";
+
     /// <summary>Who the trail names when the order or the approver could not be verified: what an unverified party claims is never written.</summary>
     public const string Unverified = "unverified";
+
+    /// <summary>Who the trail names for what the product itself does, with nobody behind it.</summary>
+    public const string System = "system";
 
     /// <summary>A refusal, as opposed to a decision or a stop: refusals can be provoked by anyone, so they have the smaller share of a bounded trail.</summary>
     public static bool IsRefusal(string name) => name is IssueRefused or LaunchRefused or ApprovalRefused;

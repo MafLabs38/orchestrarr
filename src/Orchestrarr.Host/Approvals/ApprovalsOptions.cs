@@ -9,11 +9,11 @@ public sealed class ApprovalsOptions
     /// <summary>The name the sandbox operator signs with.</summary>
     public string DevelopmentUser { get; set; } = "dev-operator";
 
-    /// <summary>How many approvals the queue holds before it refuses (it never forgets one to make room).</summary>
-    public int QueueCapacity { get; set; } = Orchestrarr.Core.Approvals.InMemoryApprovalStore.DefaultCapacity;
+    /// <summary>How many approvals the queue holds before it refuses (it never forgets one to make room). Unset: the default of where things are kept (<see cref="Orchestrarr.Core.Approvals.StoreLimits"/>).</summary>
+    public int? QueueCapacity { get; set; }
 
-    /// <summary>How many entries the in-memory audit trail holds before it refuses.</summary>
-    public int AuditCapacity { get; set; } = Orchestrarr.Core.Approvals.InMemoryAuditLog.DefaultCapacity;
+    /// <summary>How many entries the audit trail holds (in memory or in the file) before it refuses. Unset: the default of where things are kept.</summary>
+    public int? AuditCapacity { get; set; }
 
     /// <summary>Checked when the host starts: a capacity of zero or less would refuse every approval, or every entry of the trail.</summary>
     public void Validate()

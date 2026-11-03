@@ -11,11 +11,17 @@ function whyNoButton(approvals: ApprovalStatus): string {
   return translate(approvals.enabled ? 'KillSwitchOperatorsOnly' : 'KillSwitchUnavailable');
 }
 
-// Why the change failed: a stop that cannot be released for certain stays engaged, and says so; anything else is a plain failure
+const refusals = {
+  killSwitchUnavailable: 'KillSwitchCannotBeReleased',
+  auditUnavailable: 'KillSwitchCannotBeTraced',
+} as const;
+
+// Why the change failed: a stop whose release cannot be saved or traced stays engaged, and says so; anything else is a plain failure
 function failureText(error: unknown): string {
-  return error instanceof ApiRefusal && error.code === 'killSwitchUnavailable'
-    ? translate('KillSwitchCannotBeReleased')
-    : translate('KillSwitchFailed');
+  const code = error instanceof ApiRefusal ? error.code : null;
+  return translate(
+    code !== null && Object.hasOwn(refusals, code) ? refusals[code as keyof typeof refusals] : 'KillSwitchFailed',
+  );
 }
 
 // The global stop (SPEC D-43): engaged, nothing is approved and nothing launches. Only an operator can engage or release it.
@@ -25,6 +31,9 @@ export default function KillSwitch({ approvals }: Readonly<{ approvals: Approval
   return (
     <section aria-label={translate('KillSwitch')}>
       {approvals.killSwitchEngaged ? <Alert kind={kinds.DANGER}>{translate('KillSwitchEngaged')}</Alert> : null}
+      {approvals.killSwitchEngaged && !approvals.killSwitchSaved ? (
+        <Alert kind={kinds.WARNING}>{translate('KillSwitchNotSaved')}</Alert>
+      ) : null}
       {approvals.enabled && approvals.isOperator ? (
         <Button
           kind={approvals.killSwitchEngaged ? kinds.DEFAULT : kinds.DANGER}

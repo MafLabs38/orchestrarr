@@ -20,10 +20,10 @@ WORKDIR /app
 COPY --from=build /app ./
 ENV ASPNETCORE_URLS=http://+:8080 \
     Storage__Provider=Sqlite \
-    Storage__Path=/data/orchestrarr.db
+    Storage__Path=/config/orchestrarr.db
 # What must survive a restart (the approvals, the audit trail, the global stop) is in this volume
-RUN mkdir /data && chown $APP_UID /data
-VOLUME ["/data"]
+RUN mkdir /config && chown $APP_UID /config && chmod 700 /config
+VOLUME ["/config"]
 EXPOSE 8080
 # The aspnet image ships a non-root user: the process never runs as root.
 USER $APP_UID

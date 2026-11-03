@@ -129,8 +129,10 @@ export interface SystemStatus {
 }
 
 // Where the approvals, the trail and the global stop are kept: "sqlite" survives a restart, "memory" does not.
+export type StorageKind = 'sqlite' | 'memory';
+
 export interface StorageStatus {
-  kind: string;
+  kind: StorageKind;
 }
 
 export type ApprovalMode = 'disabled' | 'development' | 'openidconnect';
@@ -145,6 +147,8 @@ export interface ApprovalStatus {
   // Only an operator is offered approving and the global stop
   isOperator: boolean;
   killSwitchEngaged: boolean;
+  // False when the stop is engaged but the file could not take it: it holds until a restart, which would release it
+  killSwitchSaved: boolean;
 }
 
 // Who the session is, whatever it may do (GET /auth/me, only when people sign in): canRead false is an account the API refuses.

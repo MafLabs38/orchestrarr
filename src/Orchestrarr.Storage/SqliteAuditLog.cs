@@ -9,16 +9,12 @@ namespace Orchestrarr.Storage;
 
 /// <summary>
 /// The audit trail in the SQLite file: append-only (the database itself refuses an update or a delete) and bounded. Past its capacity it
-/// refuses, so that nothing happens without a trace (SPEC D-43, F-SAF-02); refusals have a smaller share than the rest, as in memory, so that a
-/// client that is refused again and again cannot use the trail up. An entry that cannot be written is reported as not recorded, never lost silently.
+/// refuses, so that nothing happens without a trace (SPEC D-43, F-SAF-02); refusals have only a share of it (<see cref="AuditCapacityPolicy"/>,
+/// the same rule as in memory). An entry that cannot be written is reported as not recorded, never lost silently.
 /// </summary>
-public sealed class SqliteAuditLog(SqliteDatabase database, int capacity = InMemoryAuditLog.DefaultCapacity, ILogger<SqliteAuditLog>? logger = null) : IAuditLog
+public sealed class SqliteAuditLog(SqliteDatabase database, int capacity = StoreLimits.FileAudit, ILogger<SqliteAuditLog>? logger = null) : IAuditLog
 {
-    /// <summary>The share of the trail that refusals may use, in quarters.</summary>
-    private const int RefusalQuarters = 3;
-
     private readonly int _capacity = int.IsNegative(capacity) ? throw new ArgumentOutOfRangeException(nameof(capacity), "The capacity cannot be negative.") : capacity;
-    private readonly int _refusalLimit = (int)(capacity * (long)RefusalQuarters / 4);
     private readonly ILogger _logger = logger ?? NullLogger<SqliteAuditLog>.Instance;
 
     public ValueTask<bool> TryRecordAsync(AuditEntry entry, CancellationToken cancellationToken)
@@ -30,9 +26,22 @@ public sealed class SqliteAuditLog(SqliteDatabase database, int capacity = InMem
     public ValueTask<bool> TryRecordRangeAsync(IReadOnlyList<AuditEntry> entries, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(entries);
+        cancellationToken.ThrowIfCancellationRequested();
         try
         {
-            return ValueTask.FromResult(Write(entries));
+            return ValueTask.FromResult(database.InWriteTransaction(connection =>
+            {
+                var refusals = entries.Count(entry => AuditEvents.IsRefusal(entry.Event));
+                if (!AuditCapacityPolicy.Fits(_capacity, Count(connection), RefusalCount(connection), entries.Count, refusals))
+                {
+                    return (false, false);
+                }
+                foreach (var entry in entries)
+                {
+                    Insert(connection, entry);
+                }
+                return (true, true);
+            }));
         }
         catch (Exception failure) when (failure is SqliteException or IOException or InvalidOperationException)
         {
@@ -41,7 +50,7 @@ public sealed class SqliteAuditLog(SqliteDatabase database, int capacity = InMem
         }
     }
 
-    public IReadOnlyList<AuditEntry> List()
+    public IReadOnlyList<AuditEntry> List() => SqliteDatabase.Guard<IReadOnlyList<AuditEntry>>(() =>
     {
         using var connection = database.Connect();
         using var command = connection.CreateCommand();
@@ -58,45 +67,13 @@ public sealed class SqliteAuditLog(SqliteDatabase database, int capacity = InMem
                 reader.IsDBNull(4) ? null : reader.GetString(4)));
         }
         return entries;
-    }
+    });
 
-    private bool Write(IReadOnlyList<AuditEntry> entries)
-    {
-        using var connection = database.Connect();
-        SqliteDatabase.Run(connection, "BEGIN IMMEDIATE;");
-        try
-        {
-            var total = Count(connection, "SELECT COUNT(*) FROM audit;");
-            var refusalsHere = entries.Count(entry => AuditEvents.IsRefusal(entry.Event));
-            var fits = total + entries.Count <= _capacity
-                && (refusalsHere == 0 || Count(connection, "SELECT COUNT(*) FROM audit WHERE refusal = 1;") + refusalsHere <= _refusalLimit);
-            if (!fits)
-            {
-                SqliteDatabase.Run(connection, "ROLLBACK;");
-                return false;
-            }
-            foreach (var entry in entries)
-            {
-                Insert(connection, entry);
-            }
-            SqliteDatabase.Run(connection, "COMMIT;");
-            return true;
-        }
-        catch
-        {
-            SqliteDatabase.Run(connection, "ROLLBACK;");
-            throw;
-        }
-    }
+    internal static int Count(SqliteConnection connection) => Scalar(connection, "SELECT COUNT(*) FROM audit;");
 
-    private static int Count(SqliteConnection connection, string sql)
-    {
-        using var command = connection.CreateCommand();
-        command.CommandText = sql;
-        return Convert.ToInt32(command.ExecuteScalar(), CultureInfo.InvariantCulture);
-    }
+    internal static int RefusalCount(SqliteConnection connection) => Scalar(connection, "SELECT COUNT(*) FROM audit WHERE refusal = 1;");
 
-    private static void Insert(SqliteConnection connection, AuditEntry entry)
+    internal static void Insert(SqliteConnection connection, AuditEntry entry)
     {
         using var command = connection.CreateCommand();
         command.CommandText = "INSERT INTO audit (at, event, subject, order_id, detail, refusal) VALUES ($at, $event, $subject, $order, $detail, $refusal);";
@@ -107,5 +84,12 @@ public sealed class SqliteAuditLog(SqliteDatabase database, int capacity = InMem
         command.Parameters.AddWithValue("$detail", entry.Detail is { } detail ? detail : DBNull.Value);
         command.Parameters.AddWithValue("$refusal", AuditEvents.IsRefusal(entry.Event) ? 1 : 0);
         command.ExecuteNonQuery();
+    }
+
+    private static int Scalar(SqliteConnection connection, string sql)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        return Convert.ToInt32(command.ExecuteScalar(), CultureInfo.InvariantCulture);
     }
 }

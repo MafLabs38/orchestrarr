@@ -86,4 +86,62 @@ public sealed class SqliteKillSwitchTests : IDisposable
         stop.Set(false);
         stop.Engaged.Should().BeFalse();
     }
+
+    [Fact]
+    public void An_engagement_that_could_not_be_saved_says_it_is_not_saved_until_it_is()
+    {
+        var stop = new SqliteKillSwitch(_file.Open());
+        stop.Saved.Should().BeTrue();
+        _file.Damage();
+
+        stop.Set(true);
+
+        stop.Saved.Should().BeFalse();
+        stop.Engaged.Should().BeTrue();
+        _file.Repair();
+        _file.Open();
+        stop.Set(true);
+        stop.Saved.Should().BeTrue();
+    }
+
+    [Fact]
+    public void A_release_that_fails_while_an_engagement_is_held_keeps_it_held()
+    {
+        var stop = new SqliteKillSwitch(_file.Open());
+        _file.Damage();
+        stop.Set(true);
+
+        var release = () => stop.Set(false);
+
+        release.Should().Throw<KillSwitchUnavailableException>();
+        stop.Engaged.Should().BeTrue();
+        stop.Saved.Should().BeFalse();
+    }
+
+    [Fact]
+    public void A_locked_database_still_engages_cannot_release_and_still_reads()
+    {
+        var database = SqliteDatabase.Open(_file.Path, busyTimeout: TimeSpan.FromSeconds(1));
+        var stop = new SqliteKillSwitch(database);
+        stop.Set(true);
+        using var other = database.Connect();
+        SqliteDatabase.Run(other, "BEGIN IMMEDIATE;");
+
+        var engage = () => stop.Set(true);
+        var release = () => stop.Set(false);
+
+        engage.Should().NotThrow();
+        release.Should().Throw<KillSwitchUnavailableException>();
+        stop.Engaged.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Engaging_and_releasing_at_once_leave_one_answer_that_the_file_and_the_memory_share()
+    {
+        var stop = new SqliteKillSwitch(_file.Open());
+
+        await Task.WhenAll(Enumerable.Range(0, 20).Select(n => Task.Run(() => stop.Set(n % 2 == 0), Ct)));
+
+        new SqliteKillSwitch(_file.Reopen()).Engaged.Should().Be(stop.Engaged);
+    }
 }

@@ -9,4 +9,5 @@ internal static class ApiErrors
     public const string HostNotAllowed = "hostNotAllowed";
     public const string OriginNotAllowed = "originNotAllowed";
     public const string KillSwitchUnavailable = "killSwitchUnavailable";
+    public const string AuditUnavailable = "auditUnavailable";
 }

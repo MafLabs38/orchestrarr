@@ -18,8 +18,11 @@ public sealed class StorageOptions
     /// <summary>The SQLite file. A relative path is read from the content root of the host; the image gives an absolute one, in its volume.</summary>
     public string Path { get; set; } = "data/orchestrarr.db";
 
-    /// <summary>Checked when the host starts: a persistent store with nowhere to persist is an error, never a quiet fallback to memory.</summary>
-    public StorageSettings Validate(string contentRoot)
+    /// <summary>
+    /// Checked when the host starts: a persistent store with nowhere to persist is an error, never a quiet fallback to memory. Outside
+    /// Development a database that does not exist yet starts with the global stop engaged: it may be a volume that was lost.
+    /// </summary>
+    public IStorageSettings Validate(string contentRoot, bool development)
     {
         if (!Enum.IsDefined(Provider))
         {
@@ -27,19 +30,31 @@ public sealed class StorageOptions
         }
         if (Provider == StorageProvider.Memory)
         {
-            return new StorageSettings(StorageProvider.Memory, null);
+            return new MemoryStorage();
         }
         if (string.IsNullOrWhiteSpace(Path) || Path.Contains('\0', StringComparison.Ordinal))
         {
             throw new InvalidOperationException("Storage:Path is required when Storage:Provider is Sqlite, and must be a path.");
         }
 
-        return new StorageSettings(StorageProvider.Sqlite, System.IO.Path.GetFullPath(Path, contentRoot));
+        return new SqliteStorage(System.IO.Path.GetFullPath(Path, contentRoot), StartEngagedWhenNew: !development);
     }
 }
 
-/// <summary>What the host uses once the storage options are checked.</summary>
-public sealed record StorageSettings(StorageProvider Provider, string? Path)
+/// <summary>What the host uses once the storage options are checked: nothing can be invalid, a file has a path.</summary>
+public interface IStorageSettings
 {
-    public bool Persistent => Provider == StorageProvider.Sqlite;
+    bool Persistent { get; }
+}
+
+/// <summary>Everything in memory, the sandbox's choice.</summary>
+public sealed record MemoryStorage : IStorageSettings
+{
+    public bool Persistent => false;
+}
+
+/// <summary>A SQLite file, and whether a database created now starts with the global stop engaged.</summary>
+public sealed record SqliteStorage(string Path, bool StartEngagedWhenNew) : IStorageSettings
+{
+    public bool Persistent => true;
 }

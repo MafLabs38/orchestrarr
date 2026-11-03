@@ -4,7 +4,7 @@ import PageContentBody from 'Components/Page/PageContentBody';
 import PageHeading from 'Components/Page/PageHeading';
 import { sourceName } from 'Components/Page/SourceBadge';
 import { kinds } from 'Helpers/Props/kinds';
-import type { ApprovalStatus } from 'typings/api';
+import type { ApprovalStatus, StorageKind } from 'typings/api';
 import { describeError } from 'Utilities/describe';
 import formatTime from 'Utilities/formatTime';
 import translate from 'Utilities/translate';
@@ -23,13 +23,14 @@ function forgeName(kind: string): string {
   return (forgeNames[kind] ?? (() => kind))();
 }
 
-const storageNames: Record<string, () => string> = {
+const storageNames: Record<StorageKind, () => string> = {
   sqlite: () => translate('StorageSqlite'),
   memory: () => translate('StorageMemory'),
 };
 
+// A kind this interface does not know is shown as the server names it
 function storageName(kind: string): string {
-  return (storageNames[kind] ?? (() => kind))();
+  return Object.hasOwn(storageNames, kind) ? storageNames[kind as StorageKind]() : kind;
 }
 
 function approvalsText(approvals: ApprovalStatus): string {

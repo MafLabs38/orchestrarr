@@ -6,32 +6,32 @@ using Orchestrarr.Core.WorkItems;
 namespace Orchestrarr.Storage;
 
 /// <summary>
-/// The approvals that wait for a launcher, kept in the SQLite file (ADR 0010). The store enforces the uniqueness of a decision itself, with a
+/// The approvals that wait for a launcher, kept in the SQLite file (ADR 0013). The store enforces the uniqueness of a decision itself, with a
 /// unique key on repository, pull request, commit and steps, so that two processes cannot both record the same one. Adding is all or nothing.
+/// The names of the steps are what is written: a name of <see cref="StepKind"/> is part of the file format. A file that cannot be used is
+/// <see cref="StorageUnavailableException"/>, never an empty list.
 /// </summary>
-public sealed class SqliteApprovalStore(SqliteDatabase database, int capacity = InMemoryApprovalStore.DefaultCapacity) : IApprovalStore
+public sealed class SqliteApprovalStore(SqliteDatabase database, int capacity = StoreLimits.FileQueue) : IApprovalStore
 {
-    private const int ConstraintViolation = 19;
-
     private readonly int _capacity = capacity > 0 ? capacity : throw new ArgumentOutOfRangeException(nameof(capacity), "The capacity must be greater than zero.");
 
-    public int Free
+    public int Free => SqliteDatabase.Guard(() =>
     {
-        get
-        {
-            using var connection = database.Connect();
-            return _capacity - Count(connection);
-        }
-    }
+        using var connection = database.Connect();
+        return _capacity - Count(connection);
+    });
 
     public bool Contains(Approval approval)
     {
         ArgumentNullException.ThrowIfNull(approval);
-        using var connection = database.Connect();
-        using var command = connection.CreateCommand();
-        command.CommandText = "SELECT 1 FROM approvals WHERE repository = $repository AND pull_request = $pullRequest AND head_sha = $head AND steps = $steps LIMIT 1;";
-        Bind(command, approval);
-        return command.ExecuteScalar() is not null;
+        return SqliteDatabase.Guard(() =>
+        {
+            using var connection = database.Connect();
+            using var command = connection.CreateCommand();
+            command.CommandText = "SELECT 1 FROM approvals WHERE repository = $repository AND pull_request = $pullRequest AND head_sha = $head AND steps = $steps LIMIT 1;";
+            Bind(command, approval);
+            return command.ExecuteScalar() is not null;
+        });
     }
 
     public bool TryAddRange(IReadOnlyList<Approval> approvals)
@@ -42,37 +42,29 @@ public sealed class SqliteApprovalStore(SqliteDatabase database, int capacity = 
             return false;
         }
 
-        using var connection = database.Connect();
-        // The write lock is taken first, so that the room that was counted is still there when the rows go in
-        SqliteDatabase.Run(connection, "BEGIN IMMEDIATE;");
-        try
+        return SqliteDatabase.Guard(() => database.InWriteTransaction(connection =>
         {
             if (approvals.Count > _capacity - Count(connection))
             {
-                SqliteDatabase.Run(connection, "ROLLBACK;");
-                return false;
+                return (false, false);
             }
-            foreach (var approval in approvals)
+            try
             {
-                Insert(connection, approval);
+                foreach (var approval in approvals)
+                {
+                    Insert(connection, approval);
+                }
+                return (true, true);
             }
-            SqliteDatabase.Run(connection, "COMMIT;");
-            return true;
-        }
-        catch (SqliteException failure) when (failure.SqliteErrorCode == ConstraintViolation)
-        {
-            // The same decision is already there: nothing of this batch stays
-            SqliteDatabase.Run(connection, "ROLLBACK;");
-            return false;
-        }
-        catch
-        {
-            SqliteDatabase.Run(connection, "ROLLBACK;");
-            throw;
-        }
+            catch (SqliteException failure) when (SqliteDatabase.IsDuplicate(failure))
+            {
+                // The same decision is already there: nothing of this batch stays
+                return (false, false);
+            }
+        }));
     }
 
-    public IReadOnlyList<Approval> List()
+    public IReadOnlyList<Approval> List() => SqliteDatabase.Guard<IReadOnlyList<Approval>>(() =>
     {
         using var connection = database.Connect();
         using var command = connection.CreateCommand();
@@ -93,16 +85,18 @@ public sealed class SqliteApprovalStore(SqliteDatabase database, int capacity = 
                 reader.IsDBNull(8) ? null : SqliteDatabase.Parse(reader.GetString(8))));
         }
         return approvals;
-    }
+    });
 
-    private static int Count(SqliteConnection connection)
+    internal static int Count(SqliteConnection connection)
     {
         using var command = connection.CreateCommand();
         command.CommandText = "SELECT COUNT(*) FROM approvals;";
         return Convert.ToInt32(command.ExecuteScalar(), CultureInfo.InvariantCulture);
     }
 
-    private static void Insert(SqliteConnection connection, Approval approval)
+    internal static string Key(Approval approval) => $"{approval.Repository}#{approval.PullRequest}@{approval.HeadSha}:{Steps(approval)}";
+
+    internal static void Insert(SqliteConnection connection, Approval approval)
     {
         using var command = connection.CreateCommand();
         command.CommandText = "INSERT INTO approvals (id, work_item_id, repository, pull_request, head_sha, steps, approver, approved_at, step_up_at) VALUES ($id, $workItem, $repository, $pullRequest, $head, $steps, $approver, $approvedAt, $stepUpAt);";
@@ -125,6 +119,4 @@ public sealed class SqliteApprovalStore(SqliteDatabase database, int capacity = 
     }
 
     private static string Steps(Approval approval) => string.Join(',', approval.Steps.Order());
-
-    private static string Key(Approval approval) => $"{approval.Repository}#{approval.PullRequest}@{approval.HeadSha}:{Steps(approval)}";
 }

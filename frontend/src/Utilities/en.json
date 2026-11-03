@@ -179,7 +179,7 @@
   "ApprovalErrorNoPullRequests": "There is no pull request to approve.",
   "ApprovalErrorAlreadyApproved": "These pull requests were already approved at this commit.",
   "ApprovalErrorStoreFull": "The queue is full.",
-  "ApprovalErrorAuditUnavailable": "The audit trail cannot be written, so nothing is approved.",
+  "ApprovalErrorAuditUnavailable": "The audit trail cannot be written or read, so the request is refused.",
   "ApprovalErrorUnknown": "The approval was refused.",
   "ApprovalErrorPlanChanged": "The pull requests changed since you looked at them: read the card again, then approve.",
   "ApprovalErrorHostNotAllowed": "Approving is only possible from the machine the server runs on, or through a tunnel that ends there.",
@@ -187,5 +187,7 @@
   "ApprovalNotOperatorHint": "You are signed in but you are not an operator: you can read, and only an operator can approve.",
   "ApprovalErrorOriginNotAllowed": "This change did not come from this application's own page, so it was refused.",
   "KillSwitchOperatorsOnly": "Only an operator can use the global stop.",
-  "KillSwitchCannotBeReleased": "The global stop could not be released: its state cannot be saved, so it stays engaged."
+  "KillSwitchCannotBeReleased": "The global stop could not be released: its state cannot be saved, so it stays engaged.",
+  "KillSwitchCannotBeTraced": "The global stop could not be released: the release cannot be written to the audit trail, so it stays engaged.",
+  "KillSwitchNotSaved": "The global stop is engaged but could not be saved: a restart would release it."
 }

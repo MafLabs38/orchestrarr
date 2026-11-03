@@ -616,7 +616,7 @@ public sealed class SignInApiTests
     {
         var services = new ServiceCollection();
 
-        var act = () => services.AddApprovals(new ApprovalsOptions { Mode = ApprovalsMode.OpenIdConnect }, [], new StorageSettings(StorageProvider.Memory, null));
+        var act = () => services.AddApprovals(new ApprovalsOptions { Mode = ApprovalsMode.OpenIdConnect }, [], new MemoryStorage());
 
         act.Should().Throw<InvalidOperationException>().WithMessage("*AddSignIn*");
     }

@@ -1,37 +1,52 @@
 using System.Globalization;
 using Microsoft.Data.Sqlite;
+using Orchestrarr.Core.Approvals;
+using Orchestrarr.Core.Launch;
 
 namespace Orchestrarr.Storage;
 
 /// <summary>
-/// The SQLite file that holds what must survive a restart: the approvals, the audit trail and the global stop (ADR 0010). One file, opened
+/// The SQLite file that holds what must survive a restart: the approvals, the audit trail and the global stop (ADR 0013). One file, opened
 /// for each operation; WAL so that a reader never blocks the writer. The schema is created here and versioned with <c>user_version</c>.
 /// </summary>
 public sealed class SqliteDatabase
 {
+    public static readonly TimeSpan DefaultBusyTimeout = TimeSpan.FromSeconds(5);
+
     private const int SchemaVersion = 1;
+
+    // The extended codes of a constraint, so that only a duplicate is read as "this decision is already there"
+    private const int UniqueConstraint = 2067;
+    private const int PrimaryKeyConstraint = 1555;
 
     // A timestamp as text, in UTC with a fixed width, so that sorting the text sorts the time
     internal const string TimeFormat = "yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'";
 
     private readonly string _connectionString;
 
-    private SqliteDatabase(string path)
+    private SqliteDatabase(string path, TimeSpan busyTimeout)
     {
-        Path = path;
         _connectionString = new SqliteConnectionStringBuilder
         {
             DataSource = path,
             Mode = SqliteOpenMode.ReadWriteCreate,
             ForeignKeys = true,
-            DefaultTimeout = 5,
+            DefaultTimeout = (int)busyTimeout.TotalSeconds < 1 ? 1 : (int)busyTimeout.TotalSeconds,
         }.ToString();
+        BusyTimeoutMilliseconds = (int)busyTimeout.TotalMilliseconds;
     }
 
-    public string Path { get; }
+    /// <summary>Whether this call created the database: whatever history there was before is gone.</summary>
+    public bool IsNew { get; private set; }
 
-    /// <summary>Opens the file, creating its folder, the file and the schema when they are not there. Fails loudly when it cannot.</summary>
-    public static SqliteDatabase Open(string path)
+    private int BusyTimeoutMilliseconds { get; }
+
+    /// <summary>
+    /// Opens the file, creating its folder (for its owner only), the file and the schema when they are not there. Fails loudly when it cannot.
+    /// A database that is created while <paramref name="startEngagedWhenNew"/> is set starts with the global stop engaged and a trace of it: an
+    /// empty database may be a lost volume, and a stop that a lost volume releases does not stop.
+    /// </summary>
+    public static SqliteDatabase Open(string path, bool startEngagedWhenNew = false, TimeProvider? time = null, TimeSpan? busyTimeout = null)
     {
         if (string.IsNullOrWhiteSpace(path))
         {
@@ -41,11 +56,18 @@ public sealed class SqliteDatabase
         var full = System.IO.Path.GetFullPath(path);
         if (System.IO.Path.GetDirectoryName(full) is { Length: > 0 } folder)
         {
-            Directory.CreateDirectory(folder);
+            if (OperatingSystem.IsWindows())
+            {
+                Directory.CreateDirectory(folder);
+            }
+            else
+            {
+                Directory.CreateDirectory(folder, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            }
         }
 
-        var database = new SqliteDatabase(full);
-        database.Migrate();
+        var database = new SqliteDatabase(full, busyTimeout ?? DefaultBusyTimeout);
+        database.Migrate(startEngagedWhenNew, time ?? TimeProvider.System);
         return database;
     }
 
@@ -56,12 +78,68 @@ public sealed class SqliteDatabase
         return connection;
     }
 
+    /// <summary>Whether an error of SQLite says that the same decision is already there (a unique key), and not any other constraint.</summary>
+    internal static bool IsDuplicate(SqliteException failure) => failure.SqliteExtendedErrorCode is UniqueConstraint or PrimaryKeyConstraint;
+
+    /// <summary>
+    /// Takes the write lock first (so that what was counted is still there when the rows go in), does the work, and commits or rolls back. A
+    /// rollback that fails because SQLite already did it never hides the failure that came first.
+    /// </summary>
+    internal T InWriteTransaction<T>(Func<SqliteConnection, (bool Commit, T Result)> work)
+    {
+        using var connection = Connect();
+        Run(connection, "BEGIN IMMEDIATE;");
+        try
+        {
+            var (commit, result) = work(connection);
+            Run(connection, commit ? "COMMIT;" : "ROLLBACK;");
+            return result;
+        }
+        catch
+        {
+            TryRollback(connection);
+            throw;
+        }
+    }
+
+    /// <summary>Turns what a file can do wrong into the one failure the product knows: the storage cannot be used.</summary>
+    internal static T Guard<T>(Func<T> action)
+    {
+        try
+        {
+            return action();
+        }
+        catch (Exception failure) when (failure is SqliteException or IOException or InvalidOperationException)
+        {
+            throw new StorageUnavailableException("The storage cannot be used.", failure);
+        }
+    }
+
     internal static string Format(DateTimeOffset moment) => moment.UtcDateTime.ToString(TimeFormat, CultureInfo.InvariantCulture);
 
     internal static DateTimeOffset Parse(string text) =>
         DateTimeOffset.ParseExact(text, TimeFormat, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
 
-    private void Migrate()
+    internal static void Run(SqliteConnection connection, string sql)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        command.ExecuteNonQuery();
+    }
+
+    private static void TryRollback(SqliteConnection connection)
+    {
+        try
+        {
+            Run(connection, "ROLLBACK;");
+        }
+        catch (SqliteException)
+        {
+            // SQLite may have rolled back by itself (a full disk, an I/O error): what matters is the failure that came first
+        }
+    }
+
+    private void Migrate(bool startEngagedWhenNew, TimeProvider time)
     {
         using var connection = Connect();
         Run(connection, "PRAGMA journal_mode = WAL;");
@@ -104,19 +182,17 @@ public sealed class SqliteDatabase
               BEGIN SELECT RAISE(ABORT, 'the audit trail is append-only'); END;
             CREATE TABLE IF NOT EXISTS kill_switch (
               id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
-              engaged INTEGER NOT NULL,
-              changed_at TEXT NOT NULL
+              engaged INTEGER NOT NULL CHECK (engaged IN (0, 1))
             );
             """);
+        IsNew = version == 0;
+        if (IsNew && startEngagedWhenNew)
+        {
+            Run(connection, "INSERT OR IGNORE INTO kill_switch (id, engaged) VALUES (1, 1);");
+            SqliteAuditLog.Insert(connection, new AuditEntry(time.GetUtcNow(), AuditEvents.InstanceCreated, AuditEvents.System, null, "the database was created: the global stop starts engaged"));
+        }
         Run(connection, string.Create(CultureInfo.InvariantCulture, $"PRAGMA user_version = {SchemaVersion};"));
         transaction.Commit();
-    }
-
-    internal static void Run(SqliteConnection connection, string sql)
-    {
-        using var command = connection.CreateCommand();
-        command.CommandText = sql;
-        command.ExecuteNonQuery();
     }
 
     private static object? Scalar(SqliteConnection connection, string sql)

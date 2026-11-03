@@ -159,6 +159,6 @@ public sealed class SqliteApprovalStoreTests : IDisposable
 
         var read = () => store.List();
 
-        read.Should().Throw<SqliteException>();
+        read.Should().Throw<StorageUnavailableException>();
     }
 }

@@ -2,6 +2,7 @@ import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { approvalsOff, renderWithProviders, status, stubApi } from 'testUtils';
+import type { StorageKind } from 'typings/api';
 
 import Status from './Status';
 
@@ -152,6 +153,50 @@ describe('Status', () => {
     renderWithProviders(<Status />);
 
     expect(await screen.findByText('In memory: lost at every restart')).toBeInTheDocument();
+  });
+
+  it('shows a kind of storage it does not know as the server names it', async () => {
+    stubApi({ '/api/v1/system/status': { ...status(), storage: { kind: 'postgres' as StorageKind } } });
+
+    renderWithProviders(<Status />);
+
+    expect(await screen.findByText('postgres')).toBeInTheDocument();
+  });
+
+  it('warns that an engaged stop that could not be saved would not survive a restart', async () => {
+    stubApi({ '/api/v1/system/status': status({}, { killSwitchEngaged: true, killSwitchSaved: false }) });
+
+    renderWithProviders(<Status />);
+
+    expect(await screen.findByText(/could not be saved: a restart would release it/)).toBeInTheDocument();
+  });
+
+  it('does not warn about saving when the stop is saved', async () => {
+    stubApi({ '/api/v1/system/status': status({}, { killSwitchEngaged: true }) });
+
+    renderWithProviders(<Status />);
+
+    await screen.findByRole('button', { name: 'Release the global stop' });
+    expect(screen.queryByText(/a restart would release it/)).not.toBeInTheDocument();
+  });
+
+  it('says a release that cannot be traced is refused and the stop stays engaged', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_input: string, init?: RequestInit) =>
+        Promise.resolve(
+          init?.method === 'PUT'
+            ? new Response('{"error":"auditUnavailable"}', { status: 503 })
+            : new Response(JSON.stringify(status({}, { killSwitchEngaged: true })), { status: 200 }),
+        ),
+      ),
+    );
+    renderWithProviders(<Status />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Release the global stop' }));
+
+    expect(await screen.findByText(/cannot be written to the audit trail/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Release the global stop' })).toBeInTheDocument();
   });
 
   it('says a stop that cannot be released stays engaged', async () => {

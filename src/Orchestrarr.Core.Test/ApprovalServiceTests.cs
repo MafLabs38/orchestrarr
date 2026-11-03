@@ -51,6 +51,12 @@ public sealed class ApprovalServiceTests
 
     private Task<ApprovalService> Service(params PullRequestInfo[] pullRequests) => Service(null, null, pullRequests);
 
+    private async Task<ApprovalService> ServiceWith(IApprovalLedger ledger, IApprovalStore? store = null)
+    {
+        _forge.Items = [PullRequest(1, HeadA), PullRequest(2, HeadB)];
+        return new ApprovalService(await CatalogOf(_forge), store ?? _store, _killSwitch, _audit, _time, ledger);
+    }
+
     // What the card displayed: the pull requests that are there, except the drafts (which are never approved).
     private IReadOnlyList<SeenPullRequest> Displayed() =>
         [.. _forge.Items.Where(pullRequest => !pullRequest.Draft).Select(pullRequest => new SeenPullRequest(pullRequest.Number, pullRequest.HeadSha))];
@@ -554,5 +560,62 @@ public sealed class ApprovalServiceTests
         public bool TryAddRange(IReadOnlyList<Approval> approvals) => inner.TryAddRange(approvals);
 
         public IReadOnlyList<Approval> List() => inner.List();
+    }
+
+    // --- where the approvals and their trace are written together
+
+    [Theory]
+    [InlineData(LedgerResult.AlreadyThere, ApprovalRefusal.AlreadyApproved)]
+    [InlineData(LedgerResult.StoreFull, ApprovalRefusal.StoreFull)]
+    [InlineData(LedgerResult.Unavailable, ApprovalRefusal.AuditUnavailable)]
+    public async Task What_the_ledger_cannot_record_is_a_refusal_of_the_same_kind(LedgerResult answer, ApprovalRefusal expected)
+    {
+        var ledger = Substitute.For<IApprovalLedger>();
+        ledger.TryRecordAsync(Arg.Any<IReadOnlyList<Approval>>(), Arg.Any<IReadOnlyList<AuditEntry>>(), Arg.Any<CancellationToken>()).Returns(answer);
+
+        var result = await Approve(await ServiceWith(ledger));
+
+        result.Recorded.Should().BeFalse();
+        result.Refusal.Should().Be(expected);
+    }
+
+    [Fact]
+    public async Task The_approvals_and_their_trace_go_to_the_ledger_together_and_the_trace_names_each_approval()
+    {
+        var ledger = Substitute.For<IApprovalLedger>();
+        ledger.TryRecordAsync(Arg.Any<IReadOnlyList<Approval>>(), Arg.Any<IReadOnlyList<AuditEntry>>(), Arg.Any<CancellationToken>()).Returns(LedgerResult.Recorded);
+
+        var result = await Approve(await ServiceWith(ledger));
+
+        result.Recorded.Should().BeTrue();
+        await ledger.Received(1).TryRecordAsync(
+            Arg.Is<IReadOnlyList<Approval>>(approvals => approvals.Count == 2),
+            Arg.Is<IReadOnlyList<AuditEntry>>(entries => entries.Count == 2 && entries.All(entry => entry.Event == AuditEvents.ApprovalRecorded)),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task A_store_that_cannot_be_used_is_a_refusal_and_never_a_trace_of_something_that_was_not_kept()
+    {
+        var store = Substitute.For<IApprovalStore>();
+        store.Contains(Arg.Any<Approval>()).Returns(_ => throw new StorageUnavailableException());
+
+        var result = await Approve(await ServiceWith(Substitute.For<IApprovalLedger>(), store));
+
+        result.Refusal.Should().Be(ApprovalRefusal.AuditUnavailable);
+        _audit.List().Should().NotContain(entry => entry.Event == AuditEvents.ApprovalRecorded);
+    }
+
+    [Fact]
+    public async Task A_store_that_stops_working_while_recording_is_a_refusal_for_the_in_memory_ledger_too()
+    {
+        var store = Substitute.For<IApprovalStore>();
+        store.Contains(Arg.Any<Approval>()).Returns(false);
+        store.Free.Returns(10);
+        store.TryAddRange(Arg.Any<IReadOnlyList<Approval>>()).Returns(_ => throw new StorageUnavailableException());
+
+        var result = await Approve(await Service(store));
+
+        result.Refusal.Should().Be(ApprovalRefusal.AuditUnavailable);
     }
 }

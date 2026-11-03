@@ -46,7 +46,7 @@ internal static class ApprovalEndpoints
             return Results.Ok(entries.Select((entry, index) => new ActivityDto(entries.Count - index, entry.At, entry.Event, entry.Subject, entry.OrderId, entry.Detail)));
         });
 
-        api.MapGet("/safety", (IKillSwitchControl killSwitch) => Results.Ok(new SafetyDto(killSwitch.Engaged)));
+        api.MapGet("/safety", (IKillSwitchControl killSwitch) => Results.Ok(new SafetyDto(killSwitch.Engaged, killSwitch.Saved)));
 
         // The stop must work even when the trail cannot be written: the trace is attempted, the stop is applied either way.
         api.MapPut("/safety/kill-switch", async (KillSwitchRequest request, HttpContext context, IApproverAccessor accessor, IKillSwitchControl killSwitch, IAuditLog audit, TimeProvider time, CancellationToken ct) =>
@@ -61,25 +61,39 @@ internal static class ApprovalEndpoints
                 return Error(ApiErrors.NotAnOperator, StatusCodes.Status403Forbidden);
             }
 
+            var entry = new AuditEntry(time.GetUtcNow(), request.Engaged ? AuditEvents.KillSwitchEngaged : AuditEvents.KillSwitchReleased, approver.Subject, null, null);
+            if (request.Engaged)
+            {
+                // Engaging never waits for anything: the stop applies, and the trace is attempted
+                killSwitch.Set(true);
+                await audit.TryRecordAsync(entry, ct);
+                return Results.Ok(new SafetyDto(killSwitch.Engaged, killSwitch.Saved));
+            }
+
+            // Releasing needs its trace: a release that left none would be a stop undone in silence (SPEC D-43, F-SAF-02)
             try
             {
-                killSwitch.Set(request.Engaged);
+                killSwitch.Set(false);
             }
             catch (KillSwitchUnavailableException)
             {
                 // The release could not be saved: the stop stays engaged, and nothing says it was released
                 return Error(ApiErrors.KillSwitchUnavailable, StatusCodes.Status503ServiceUnavailable);
             }
-            await audit.TryRecordAsync(
-                new AuditEntry(time.GetUtcNow(), request.Engaged ? AuditEvents.KillSwitchEngaged : AuditEvents.KillSwitchReleased, approver.Subject, null, null), ct);
-            return Results.Ok(new SafetyDto(killSwitch.Engaged));
+            if (!await audit.TryRecordAsync(entry, ct))
+            {
+                // The release cannot be traced: the stop is put back, and nothing is released
+                killSwitch.Set(true);
+                return Error(ApiErrors.AuditUnavailable, StatusCodes.Status503ServiceUnavailable);
+            }
+            return Results.Ok(new SafetyDto(killSwitch.Engaged, killSwitch.Saved));
         });
     }
 
     public static ApprovalStatus StatusOf(IApproverAccessor accessor, HttpContext context, IKillSwitchControl killSwitch)
     {
         var approver = accessor.Current(context);
-        return new(accessor.Mode.ToString().ToLowerInvariant(), accessor.Mode != ApprovalsMode.Disabled, approver?.Subject, accessor.DisplayName(context), approver is { IsPerson: true, IsOperator: true }, killSwitch.Engaged);
+        return new(accessor.Mode.ToString().ToLowerInvariant(), accessor.Mode != ApprovalsMode.Disabled, approver?.Subject, accessor.DisplayName(context), approver is { IsPerson: true, IsOperator: true }, killSwitch.Engaged, killSwitch.Saved);
     }
 
     // Who may call the two routes that record something: approving turned on, a local request (the sandbox operator only), somebody signed in.

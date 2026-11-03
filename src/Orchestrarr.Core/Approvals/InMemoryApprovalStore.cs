@@ -1,9 +1,9 @@
 namespace Orchestrarr.Core.Approvals;
 
-/// <summary>A bounded, in-memory store (ADR 0010). Restarting forgets it, which a sandbox accepts and production does not.</summary>
+/// <summary>A bounded, in-memory store, the sandbox's (ADR 0010): a restart forgets it. <c>SqliteApprovalStore</c> is the persistent one (ADR 0013).</summary>
 public sealed class InMemoryApprovalStore(int capacity = InMemoryApprovalStore.DefaultCapacity) : IApprovalStore
 {
-    public const int DefaultCapacity = 500;
+    public const int DefaultCapacity = StoreLimits.MemoryQueue;
 
     private readonly int _capacity = capacity > 0 ? capacity : throw new ArgumentOutOfRangeException(nameof(capacity), "The capacity must be greater than zero.");
     private readonly object _lock = new();

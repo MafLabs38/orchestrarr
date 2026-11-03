@@ -29,5 +29,6 @@ public enum ApprovalRefusal
     NoPullRequests,
     AlreadyApproved,
     StoreFull,
+    /// <summary>The approval and its trace cannot be written (a full or unusable store or trail): nothing is approved.</summary>
     AuditUnavailable,
 }

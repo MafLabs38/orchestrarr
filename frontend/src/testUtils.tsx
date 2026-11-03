@@ -98,6 +98,7 @@ export function approvalStatus(overrides: Partial<ApprovalStatus> = {}): Approva
     operatorName: 'dev-operator',
     isOperator: true,
     killSwitchEngaged: false,
+    killSwitchSaved: true,
     ...overrides,
   };
 }

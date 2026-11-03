@@ -12,7 +12,7 @@ internal static class ApprovalsServiceCollectionExtensions
     /// Approving a decision card: the grants, the queue, the trail, the global stop and the service, in a SQLite file or in memory. The same
     /// instance answers to each interface it implements, so that the routes and the service see one trail and one stop.
     /// </summary>
-    public static IServiceCollection AddApprovals(this IServiceCollection services, ApprovalsOptions options, IReadOnlyList<PowerGrant> grants, StorageSettings storage)
+    public static IServiceCollection AddApprovals(this IServiceCollection services, ApprovalsOptions options, IReadOnlyList<PowerGrant> grants, IStorageSettings storage)
     {
         // Signing in through the identity provider brings its own approver (AddSignIn, called before this): the host does not start without one
         if (options.Mode == ApprovalsMode.OpenIdConnect)
@@ -35,26 +35,31 @@ internal static class ApprovalsServiceCollectionExtensions
             .AddSingleton<IPowerPolicy>(new ConfiguredPowerPolicy(grants))
             .AddSingleton<IGrantedPowers, PolicyGrantedPowers>();
 
-        // What must survive a restart is in one file, or, in the sandbox, in memory
-        if (storage.Persistent)
+        // What must survive a restart is in one file, or, in the sandbox, in memory. The capacities default to what suits where it is kept.
+        if (storage is SqliteStorage file)
         {
-            // Opened now, so that a file that cannot be used stops the host at its start and not at the first approval
+            var queueCapacity = options.QueueCapacity ?? StoreLimits.FileQueue;
+            var auditCapacity = options.AuditCapacity ?? StoreLimits.FileAudit;
             services
-                .AddSingleton(SqliteDatabase.Open(storage.Path!))
-                .AddSingleton<IApprovalStore>(provider => new SqliteApprovalStore(provider.GetRequiredService<SqliteDatabase>(), options.QueueCapacity))
+                // Opened now, so that a file that cannot be used stops the host at its start and not at the first approval
+                .AddSingleton(SqliteDatabase.Open(file.Path, file.StartEngagedWhenNew))
+                .AddSingleton<IApprovalStore>(provider => new SqliteApprovalStore(provider.GetRequiredService<SqliteDatabase>(), queueCapacity))
+                .AddSingleton<IApprovalLedger>(provider => new SqliteApprovalLedger(provider.GetRequiredService<SqliteDatabase>(), queueCapacity, auditCapacity, provider.GetService<ILogger<SqliteApprovalLedger>>()))
                 .AddSingleton(provider => new SqliteKillSwitch(provider.GetRequiredService<SqliteDatabase>(), provider.GetService<ILogger<SqliteKillSwitch>>()))
                 .AddSingleton<IKillSwitchControl>(provider => provider.GetRequiredService<SqliteKillSwitch>())
                 .AddSingleton<IKillSwitch>(provider => provider.GetRequiredService<SqliteKillSwitch>())
-                .AddSingleton(provider => new SqliteAuditLog(provider.GetRequiredService<SqliteDatabase>(), options.AuditCapacity, provider.GetService<ILogger<SqliteAuditLog>>()))
+                .AddSingleton(provider => new SqliteAuditLog(provider.GetRequiredService<SqliteDatabase>(), auditCapacity, provider.GetService<ILogger<SqliteAuditLog>>()))
                 .AddSingleton<IAuditLog>(provider => provider.GetRequiredService<SqliteAuditLog>())
                 .AddSingleton<IAuditSink>(provider => provider.GetRequiredService<SqliteAuditLog>());
         }
         else
         {
             var killSwitch = new InMemoryKillSwitch();
-            var auditLog = new InMemoryAuditLog(options.AuditCapacity);
+            var store = new InMemoryApprovalStore(options.QueueCapacity ?? StoreLimits.MemoryQueue);
+            var auditLog = new InMemoryAuditLog(options.AuditCapacity ?? StoreLimits.MemoryAudit);
             services
-                .AddSingleton<IApprovalStore>(new InMemoryApprovalStore(options.QueueCapacity))
+                .AddSingleton<IApprovalStore>(store)
+                .AddSingleton<IApprovalLedger>(provider => new InMemoryApprovalLedger(provider.GetRequiredService<IApprovalStore>(), provider.GetRequiredService<IAuditSink>()))
                 .AddSingleton(killSwitch)
                 .AddSingleton<IKillSwitchControl>(killSwitch)
                 .AddSingleton<IKillSwitch>(killSwitch)
@@ -63,6 +68,12 @@ internal static class ApprovalsServiceCollectionExtensions
                 .AddSingleton<IAuditSink>(auditLog);
         }
 
-        return services.AddSingleton<ApprovalService>();
+        return services.AddSingleton(provider => new ApprovalService(
+            provider.GetRequiredService<WorkItemCatalog>(),
+            provider.GetRequiredService<IApprovalStore>(),
+            provider.GetRequiredService<IKillSwitch>(),
+            provider.GetRequiredService<IAuditSink>(),
+            provider.GetRequiredService<TimeProvider>(),
+            provider.GetRequiredService<IApprovalLedger>()));
     }
 }

@@ -11,6 +11,13 @@ internal sealed class TempDatabase : IDisposable
 
     public SqliteDatabase Open() => SqliteDatabase.Open(Path);
 
+    /// <summary>Opens it as a restart would: no connection of the previous run is still there.</summary>
+    public SqliteDatabase Reopen()
+    {
+        SqliteConnection.ClearAllPools();
+        return Open();
+    }
+
     /// <summary>Replaces the file by something that is not a database.</summary>
     public void Damage()
     {
@@ -35,6 +42,13 @@ internal sealed class TempDatabase : IDisposable
     public void Dispose()
     {
         SqliteConnection.ClearAllPools();
-        Directory.Delete(_folder, recursive: true);
+        try
+        {
+            Directory.Delete(_folder, recursive: true);
+        }
+        catch (IOException)
+        {
+            // A folder of a test left behind must not hide what the test found
+        }
     }
 }

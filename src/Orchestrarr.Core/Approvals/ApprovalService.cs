@@ -15,8 +15,12 @@ public sealed class ApprovalService(
     IApprovalStore store,
     IKillSwitch killSwitch,
     IAuditSink audit,
-    TimeProvider time) : IDisposable
+    TimeProvider time,
+    IApprovalLedger? ledger = null) : IDisposable
 {
+    // Where the approvals and their trace are written together; the sandbox's stores in memory when nothing else is given
+    private readonly IApprovalLedger _ledger = ledger ?? new InMemoryApprovalLedger(store, audit);
+
     // What this vertical records. The other steps are shown and can be granted, but run with later verticals.
     private static readonly StepKind[] Supported = [StepKind.Validate, StepKind.MergePullRequests];
 
@@ -151,14 +155,21 @@ public sealed class ApprovalService(
                 return ApprovalResult.Refused(ApprovalRefusal.KillSwitchEngaged);
             }
 
-            // The trace first, all of it or none: no trace, no approval. The room of the queue was checked, so what is traced is what is stored.
+            // The trace and the approvals are written together, all or nothing: no trace without its approval, no approval without its trace.
             var entries = fresh.Select(approval => new AuditEntry(approval.ApprovedAt, AuditEvents.ApprovalRecorded, approval.ApproverSubject, approval.Id.ToString("D"),
                 $"{approval.Repository}#{approval.PullRequest}@{approval.HeadSha} steps={string.Join(',', approval.Steps)}")).ToList();
-            if (!await audit.TryRecordRangeAsync(entries, cancellationToken))
+            return await _ledger.TryRecordAsync(fresh, entries, cancellationToken) switch
             {
-                return ApprovalResult.Refused(ApprovalRefusal.AuditUnavailable);
-            }
-            return store.TryAddRange(fresh) ? new ApprovalResult(fresh, null) : ApprovalResult.Refused(ApprovalRefusal.StoreFull);
+                LedgerResult.Recorded => new ApprovalResult(fresh, null),
+                LedgerResult.AlreadyThere => ApprovalResult.Refused(ApprovalRefusal.AlreadyApproved),
+                LedgerResult.StoreFull => ApprovalResult.Refused(ApprovalRefusal.StoreFull),
+                _ => ApprovalResult.Refused(ApprovalRefusal.AuditUnavailable),
+            };
+        }
+        catch (StorageUnavailableException)
+        {
+            // A store that cannot be used is a refusal, never an error that leaves a trace behind
+            return ApprovalResult.Refused(ApprovalRefusal.AuditUnavailable);
         }
         finally
         {

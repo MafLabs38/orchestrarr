@@ -189,7 +189,7 @@ Still open:
 
 | Piece | State |
 |---|---|
-| Approval recorded per pull request and commit, audit trail, global stop (in memory) | 🟢 |
+| Approval recorded per pull request and commit, audit trail, global stop (in a SQLite file, [ADR 0013](adr/0013-approvals-the-trail-and-the-stop-are-kept-in-a-sqlite-file.md)) | 🟢 |
 | Signed order, issuer, launcher checks, one-time number and refusal codes (library code, tested, not run by any process) | 🟢 |
 | Sign-in with the identity provider, operator group, origin check ([ADR 0011](adr/0011-people-sign-in-through-the-identity-provider.md)) | 🟢 |
 | Vault dedicated to this purpose | 🔵 manifests in the GitOps repository, not initialised |
