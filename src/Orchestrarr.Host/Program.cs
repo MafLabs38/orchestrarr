@@ -9,6 +9,7 @@ using Orchestrarr.Core.Launch;
 using Orchestrarr.Core.WorkItems;
 using Orchestrarr.Host;
 using Orchestrarr.Host.Approvals;
+using Orchestrarr.Host.SignIn;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -26,6 +27,13 @@ approvals.Validate();
 SandboxGuard.Check(approvals, builder.Environment, builder.Configuration);
 // The powers the operator listed in the configuration (SPEC D-10, D-11): none unless a grant is written. Checked now, not at a request.
 var grants = (builder.Configuration.GetSection(PowersOptions.SectionName).Get<PowersOptions>() ?? new PowersOptions()).ToGrants(builder.Environment.IsDevelopment());
+// Signing in through the identity provider, when that is how operators are known (SPEC D-40, D-54). Checked now: a missing value stops the host.
+SignInSettings? signIn = null;
+if (approvals.Mode == ApprovalsMode.OpenIdConnect)
+{
+    signIn = (builder.Configuration.GetSection(SignInOptions.SectionName).Get<SignInOptions>() ?? new SignInOptions()).Validate(allowCleartextOnPrivateNetwork: builder.Environment.IsDevelopment());
+    builder.Services.AddSignIn(signIn);
+}
 builder.Services.AddApprovals(approvals, grants);
 builder.Services.AddSingleton(builder.Configuration.GetSection(WorkItemCatalogOptions.SectionName).Get<WorkItemCatalogOptions>() ?? new WorkItemCatalogOptions());
 builder.Services.AddSingleton<WorkItemCatalog>();
@@ -33,7 +41,17 @@ builder.Services.AddSingleton<WorkItemCatalog>();
 var app = builder.Build();
 SandboxGuard.StopIfListeningBeyondLoopback(app, approvals);
 
+app.UseSecurityHeaders(overHttps: signIn?.Secure == true);
+
 var api = app.MapGroup("/api/v1");
+if (signIn is not null)
+{
+    // Everything the API says, reads included, is for a person who signed in: who approved what is not for anybody
+    app.ConfigureSignIn(signIn, api);
+}
+
+// For a probe of the deployment: it says the host is up and nothing else
+app.MapGet("/health", () => Results.Ok(new HealthStatus("ok")));
 
 // The decision cards waiting for the operator, and the approvals recorded for the launcher. Approving records a decision; nothing runs.
 api.MapGet("/work-items", async (WorkItemCatalog catalog, bool? refresh, CancellationToken ct) =>
@@ -52,8 +70,9 @@ api.MapGet("/system/status", (WorkItemCatalog catalog, IApproverAccessor accesso
     return Results.Ok(new SystemStatus("Orchestrarr", version, new SourceStatus(catalog.SourceKind, catalog.SourceConfigured, report?.ReadAt, report?.Error, report?.Stale ?? false), new ForgeStatus(catalog.ForgeKind, catalog.ForgeConfigured), ApprovalEndpoints.StatusOf(accessor, context, killSwitch)));
 });
 
-// An unknown route of the API is a 404, never the page of the interface
+// An unknown route of the API, or of the sign-in (which is not there at all unless people sign in), is a 404, never the page of the interface
 api.MapFallback(() => Results.NotFound());
+app.MapFallback("/auth/{**rest}", () => Results.NotFound());
 
 // The user interface, once built into wwwroot (in development the Vite server serves it)
 if (app.Environment.WebRootFileProvider.GetDirectoryContents("/").Exists)
@@ -73,6 +92,9 @@ namespace Orchestrarr.Host
 {
     /// <summary>What <c>GET /api/v1/system/status</c> answers.</summary>
     public sealed record SystemStatus(string Name, string Version, SourceStatus Source, ForgeStatus Forge, ApprovalStatus Approvals);
+
+    /// <summary>What <c>GET /health</c> answers.</summary>
+    public sealed record HealthStatus(string Status);
 
     /// <summary>The forge where pull requests are read: its kind, and whether one is connected.</summary>
     public sealed record ForgeStatus(string Kind, bool Configured);

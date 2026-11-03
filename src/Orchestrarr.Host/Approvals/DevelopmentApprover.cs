@@ -8,4 +8,6 @@ public sealed class DevelopmentApprover(ApprovalsOptions options, TimeProvider t
     public ApprovalsMode Mode => ApprovalsMode.Development;
 
     public Approver? Current(HttpContext context) => new(options.DevelopmentUser, IsPerson: true, IsOperator: true, StepUpAt: time.GetUtcNow());
+
+    public string? DisplayName(HttpContext context) => options.DevelopmentUser;
 }

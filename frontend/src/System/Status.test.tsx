@@ -1,7 +1,7 @@
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-import { renderWithProviders, status, stubApi } from 'testUtils';
+import { approvalsOff, renderWithProviders, status, stubApi } from 'testUtils';
 
 import Status from './Status';
 
@@ -73,14 +73,41 @@ describe('Status', () => {
     expect(screen.getByRole('button', { name: 'Engage the global stop' })).toBeEnabled();
   });
 
+  it('says who is signed in when people sign in through the identity provider', async () => {
+    stubApi({
+      '/api/v1/system/status': status({}, { mode: 'openidconnect', operator: 'a1b2', operatorName: 'alice' }),
+    });
+
+    renderWithProviders(<Status />);
+
+    expect(await screen.findByText('Signed in: alice')).toBeInTheDocument();
+  });
+
   it('says approving is turned off, and offers no global stop to nobody', async () => {
-    stubApi({ '/api/v1/system/status': status({}, { enabled: false, mode: 'disabled', operator: null }) });
+    stubApi({
+      '/api/v1/system/status': status({}, approvalsOff),
+    });
 
     renderWithProviders(<Status />);
 
     expect(await screen.findByText('Turned off')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /global stop/ })).not.toBeInTheDocument();
     expect(screen.getByText('Only a signed-in operator can use the global stop.')).toBeInTheDocument();
+  });
+
+  it('offers no global stop to somebody who is signed in but is not an operator, and says why', async () => {
+    stubApi({
+      '/api/v1/system/status': status(
+        {},
+        { mode: 'openidconnect', operator: 'bob-2', operatorName: 'bob', isOperator: false },
+      ),
+    });
+
+    renderWithProviders(<Status />);
+
+    expect(await screen.findByText('Signed in: bob')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /global stop/ })).not.toBeInTheDocument();
+    expect(screen.getByText('Only an operator can use the global stop.')).toBeInTheDocument();
   });
 
   it('engages the global stop with a PUT', async () => {

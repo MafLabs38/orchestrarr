@@ -3,6 +3,7 @@ import { iconSizes } from 'Helpers/Props/sizes';
 import translate from 'Utilities/translate';
 
 import styles from './PageHeader.module.css';
+import SignedInUser from './SignedInUser';
 import SourceBadge from './SourceBadge';
 
 export default function PageHeader() {
@@ -12,6 +13,7 @@ export default function PageHeader() {
       <span className={styles.name}>{translate('AppName')}</span>
       <span className={styles.spacer} />
       <SourceBadge />
+      <SignedInUser />
     </header>
   );
 }

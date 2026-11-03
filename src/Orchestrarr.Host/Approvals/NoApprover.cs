@@ -8,4 +8,6 @@ public sealed class NoApprover : IApproverAccessor
     public ApprovalsMode Mode => ApprovalsMode.Disabled;
 
     public Approver? Current(HttpContext context) => null;
+
+    public string? DisplayName(HttpContext context) => null;
 }

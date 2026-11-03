@@ -1,3 +1,5 @@
+import { noteSession } from 'Helpers/signIn';
+
 import { ApiError } from './useApiQuery';
 
 // A refusal of the API: its status and the code it gives ({ "error": "stepNotGranted" }), which the interface words.
@@ -26,6 +28,7 @@ export default async function sendJson<T>(method: 'POST' | 'PUT', path: string, 
     headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
+  noteSession(response);
   if (!response.ok) {
     throw new ApiRefusal(response.status, await errorCode(response));
   }

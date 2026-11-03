@@ -91,8 +91,25 @@ export function report(overrides: Partial<WorkItemReport> = {}): WorkItemReport 
 }
 
 export function approvalStatus(overrides: Partial<ApprovalStatus> = {}): ApprovalStatus {
-  return { mode: 'development', enabled: true, operator: 'dev-operator', killSwitchEngaged: false, ...overrides };
+  return {
+    mode: 'development',
+    enabled: true,
+    operator: 'dev-operator',
+    operatorName: 'dev-operator',
+    isOperator: true,
+    killSwitchEngaged: false,
+    ...overrides,
+  };
 }
+
+// Approving is off: nobody is signed in, so nobody is an operator
+export const approvalsOff: Partial<ApprovalStatus> = {
+  enabled: false,
+  mode: 'disabled',
+  operator: null,
+  operatorName: null,
+  isOperator: false,
+};
 
 export function status(
   overrides: Partial<SystemStatus['source']> = {},

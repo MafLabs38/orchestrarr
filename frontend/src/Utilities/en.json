@@ -148,6 +148,13 @@
   "Approvals": "Approvals",
   "ApprovalsOff": "Turned off",
   "ApprovalsSandbox": "Sandbox operator: {operator}",
+  "ApprovalsSignedIn": "Signed in: {operator}",
+  "SignedInAs": "Signed in as {name}",
+  "SignOut": "Sign out",
+  "UnknownAccount": "an unknown account",
+  "SignInFailed": "Signing in failed. Try again; if it keeps failing, ask whoever runs this server.",
+  "SignInAgain": "Sign in again",
+  "AccountRefused": "This account cannot use Orchestrarr: it is not in the group allowed to read here. Sign out and sign in with another account, or ask whoever runs this server.",
   "KillSwitch": "Global stop",
   "KillSwitchEngaged": "The global stop is engaged: nothing is approved and nothing launches.",
   "KillSwitchEngage": "Engage the global stop",
@@ -173,5 +180,8 @@
   "ApprovalErrorUnknown": "The approval was refused.",
   "ApprovalErrorPlanChanged": "The pull requests changed since you looked at them: read the card again, then approve.",
   "ApprovalErrorHostNotAllowed": "Approving is only possible from the machine the server runs on, or through a tunnel that ends there.",
-  "ApprovalPullRequestsNotReadHint": "The pull requests are not read yet, or only an old list is left: nothing can be approved on a list that is not read."
+  "ApprovalPullRequestsNotReadHint": "The pull requests are not read yet, or only an old list is left: nothing can be approved on a list that is not read.",
+  "ApprovalNotOperatorHint": "You are signed in but you are not an operator: you can read, and only an operator can approve.",
+  "ApprovalErrorOriginNotAllowed": "This change did not come from this application's own page, so it was refused.",
+  "KillSwitchOperatorsOnly": "Only an operator can use the global stop."
 }

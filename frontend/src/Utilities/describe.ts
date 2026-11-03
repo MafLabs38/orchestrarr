@@ -123,6 +123,7 @@ const approvalErrors = {
   nothingTicked: 'ApprovalErrorNothingTicked',
   planChanged: 'ApprovalErrorPlanChanged',
   hostNotAllowed: 'ApprovalErrorHostNotAllowed',
+  originNotAllowed: 'ApprovalErrorOriginNotAllowed',
   stepNotOffered: 'ApprovalErrorStepNotOffered',
   stepNotGranted: 'ApprovalErrorStepNotGranted',
   stepNotSupported: 'ApprovalErrorStepNotSupported',
