@@ -111,8 +111,8 @@ An agent is never recognised by what it says. It is recognised by **what it hold
 | An agent started outside the workshop | It holds no certificate, so the machines refuse it | The target machines | 🔵 |
 | A valid agent steps outside its environment | The certificate is valid for one environment and one run (SPEC D-42) | The target machines | 🔵 |
 | A valid agent tries to do too much on its target | The account has the least privilege: no full `sudo`, a namespace-limited role, a one-repository token (narrower than D-34's operator account) | The target machines | 🔵 |
-| An agent keeps running too long | The launcher kills the workshop, drops its network and revokes its leases | The launcher and Vault | 🔵 |
-| Things go wrong everywhere | The global stop engages, which also revokes the leases (ADR 0006, D-43) | The control plane and Vault | 🟢 the stop, 🔵 the revocation |
+| An agent keeps running too long | The launcher kills the workshop, drops its network and revokes the tokens of the run (an SSH certificate cannot be revoked: it is short) | The launcher and Vault | 🔵 |
+| Things go wrong everywhere | The global stop engages, which also cuts the run and revokes what can be revoked (ADR 0012) | The control plane and Vault | 🟢 the stop, 🔵 the rest |
 
 ## 4. How strong the badge is
 
@@ -159,13 +159,13 @@ flowchart LR
   trigger["Deadline reached<br/>or global stop"]
   kill["The launcher kills the workshop"]
   net["Its network is dropped"]
-  lease["Vault revokes the leases of this run"]
+  lease["Vault revokes the tokens of this run"]
   cert["The SSH certificate cannot open a new session"]
 
   trigger --> kill --> net --> lease --> cert
 ```
 
-An SSH certificate is checked **when a connection opens**, not afterwards: it is not a clock by itself. The clock is the launcher's. Cutting a connection does **not** undo a command already started on the target; a deployment that fails its checks is rolled back (SPEC D-08), and an action must be safe to repeat.
+An SSH certificate is checked **when a connection opens**, not afterwards: it is not a clock by itself, and Vault cannot revoke it, so it is kept to a few minutes. The clock is the launcher's. Cutting a connection does **not** undo a command already started on the target; a deployment that fails its checks is rolled back (SPEC D-08), and an action must be safe to repeat.
 
 Time limits are meant to be **generous and configurable** (SPEC D-27 sets budgets and says that a run that hits its quota is paused and retried; ceilings per day and month are SPEC Q-09; extending a budget while a run is going is a new question 🟣). Running out of time should be a state of its own ("budget exhausted"), not a failure of the work. The limit bounds the window of risk; it does not prove that what was done is correct.
 
@@ -193,5 +193,5 @@ Still open:
 | Signed order, issuer, launcher checks, one-time number and refusal codes (library code, tested, not run by any process) | 🟢 |
 | Sign-in with the identity provider, operator group, origin check ([ADR 0011](adr/0011-people-sign-in-through-the-identity-provider.md)) | 🟢 |
 | Vault dedicated to this purpose | 🔵 manifests in the GitOps repository, not initialised |
-| Launcher that runs, order store, workshop, certificates, revoking leases | 🔵 not built |
+| Launcher that runs, order store, workshop, certificates, revoking the tokens of a run | 🔵 not built |
 | One launcher and one Vault role set per environment, tiers of the operator account, validation of the plan for production | 🔵 proposed in ADR 0012 |
