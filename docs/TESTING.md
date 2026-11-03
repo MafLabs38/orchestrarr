@@ -25,7 +25,7 @@ Rules: a test protects a behavior someone relies on, runs in milliseconds, and f
 | Secrets | gitleaks | PR |
 | Vulnerabilities | Trivy (dependencies and configuration), Dependabot | PR and weekly |
 | Mutation testing | Stryker.NET (Core, providers), StrykerJS (frontend): do the tests catch injected bugs? | weekly, never blocking |
-| AI review (advisory) | The four agents of `.claude/agents/` (tests and quality on Sonnet, security and architecture on Opus), one comment each on the pull request, on the maintainer's subscription token | when a PR is opened or marked ready, and again with the `ai-review` label; not with `skip-quality`; locally before a vertical PR with the `review-vertical` skill |
+| AI review (advisory) | The five agents of `.claude/agents/` (tests, quality and spec on Sonnet, security and architecture on Opus), one comment each on the pull request, on the maintainer's subscription token | when a PR is opened or marked ready, and again with the `ai-review` label; not with `skip-quality`; locally before a vertical PR with the `review-vertical` skill |
 
 ## 3. The two lanes, and skipping
 
@@ -61,7 +61,7 @@ On a machine with limited CPU, run heavy builds through the resource-limited sli
 
 ## 6. Before a vertical's pull request
 
-Run the **`review-vertical`** skill: the four review agents run in parallel on the branch, and their findings are triaged (fixed, or declined with the reason) in the PR's *Review* section. An architecture verdict of "no" blocks the PR.
+Run the **`review-vertical`** skill: the five review agents run in parallel on the branch (the `spec-reviewer` checks that the README, the docs and the spec describe what is implemented), and their findings are triaged (fixed, or declined with the reason) in the PR's *Review* section. An architecture verdict of "no" blocks the PR.
 
 ## 7. Seeing the code smells in the editor
 

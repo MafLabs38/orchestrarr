@@ -18,10 +18,10 @@ This file is read automatically by Claude Code. It applies to every task in this
 
 Same as Portarr, so the three products share conventions:
 
-- **Backend**: .NET 10 (LTS), C# 14, ASP.NET Core, SignalR, FluentValidation
+- **Backend**: .NET 10 (LTS), C# 14, ASP.NET Core (SignalR and FluentValidation planned, not used yet)
 - **Frontend**: React, TypeScript (strict), Vite, TanStack Query, CSS Modules
-- **Tests**: xUnit v3 + NSubstitute + AwesomeAssertions, Vitest + Testing Library, Playwright (see [docs/TESTING.md](docs/TESTING.md))
-- **Quality**: analyzers as errors and `dotnet format`, ESLint (SonarJS), Stylelint, Prettier, SonarQube, CodeQL, gitleaks, Trivy, Stryker, the four review agents. Same as Portarr
+- **Tests**: xUnit v3 + NSubstitute + AwesomeAssertions, Vitest + Testing Library, Playwright (planned; see [docs/TESTING.md](docs/TESTING.md))
+- **Quality**: analyzers as errors and `dotnet format`, ESLint (SonarJS), Stylelint, Prettier, SonarQube, CodeQL, gitleaks, Trivy, Stryker, the five review agents. Same as Portarr, plus the fifth agent (`spec-reviewer`, [ADR 0008](docs/adr/0008-a-fifth-agent-keeps-the-documentation-true.md))
 - **CI/CD**: GitHub Actions, a single container image on GHCR (amd64 now, multi-arch when a target needs it)
 - Agent runtime (Claude Code headless, Agent SDK, Managed Agents…) and where workers run: **undecided**, see the open questions.
 
@@ -40,7 +40,7 @@ Same as Portarr, so the three products share conventions:
    - **Budgets and kill switch**: bounded cost, time and concurrency per run, and a global stop.
    - **Full audit trail** of every decision and action.
 6. **Sandbox first, PR after acceptance.** Develop each vertical in a local hot-reload sandbox (no commit, push, PR, CI or image). Give the maintainer the URL and what to try, iterate live, and open the PR only once the vertical is accepted. Then complete tests, lint, clean commits.
-7. **One vertical = one PR**, with its tests and documentation. Before opening it, run the `review-vertical` skill (the four review agents of `.claude/agents/`: tests, quality, security, architecture) and triage their findings in the PR's Review section.
+7. **One vertical = one PR**, with its tests and documentation. Before opening it, run the `review-vertical` skill (the five review agents of `.claude/agents/`: tests, quality, spec, security, architecture) and triage their findings in the PR's Review section.
 8. **Ask, but build.** When gathering needs, ask open questions (never multiple-choice forms). Once the need is clear, code the vertical and ask only when it truly requires an answer.
 9. **Fix what the editor underlines before committing.** SonarLint is bound to the project on the SonarQube server ([docs/TESTING.md](docs/TESTING.md) §7): read the diagnostics of the files you changed (open in the editor, wait for the analysis) and fix the code smells, in addition to the command-line linters.
 10. **Never** commit secrets. Use `dotnet user-secrets` locally and GitHub Secrets in CI.
