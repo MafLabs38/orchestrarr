@@ -46,7 +46,9 @@ public sealed class ApprovalServiceTests
     private async Task<ApprovalService> Service(IApprovalStore? store = null, IAuditSink? audit = null, params PullRequestInfo[] pullRequests)
     {
         _forge.Items = pullRequests.Length == 0 ? [PullRequest(1, HeadA), PullRequest(2, HeadB)] : pullRequests;
-        return new ApprovalService(await CatalogOf(_forge), store ?? _store, _killSwitch, audit ?? _audit, _time);
+        var chosenStore = store ?? _store;
+        var chosenAudit = audit ?? _audit;
+        return new ApprovalService(await CatalogOf(_forge), chosenStore, _killSwitch, chosenAudit, _time, new InMemoryApprovalLedger(chosenStore, chosenAudit));
     }
 
     private Task<ApprovalService> Service(params PullRequestInfo[] pullRequests) => Service(null, null, pullRequests);
@@ -330,7 +332,7 @@ public sealed class ApprovalServiceTests
     [Fact]
     public async Task Without_a_forge_nothing_can_be_approved()
     {
-        var service = new ApprovalService(await CatalogOf(new NoPullRequestSource()), _store, _killSwitch, _audit, _time);
+        var service = new ApprovalService(await CatalogOf(new NoPullRequestSource()), _store, _killSwitch, _audit, _time, new InMemoryApprovalLedger(_store, _audit));
 
         var result = await Approve(service, seen: [new SeenPullRequest(1, HeadA)]);
 
@@ -464,8 +466,8 @@ public sealed class ApprovalServiceTests
     {
         var tiny = new InMemoryAuditLog(capacity: 1);
 
-        (await tiny.TryRecordAsync(new AuditEntry(Now, "a", "x", null, null), TestContext.Current.CancellationToken)).Should().BeTrue();
-        (await tiny.TryRecordAsync(new AuditEntry(Now, "b", "x", null, null), TestContext.Current.CancellationToken)).Should().BeFalse();
+        (await tiny.TryRecordAsync(new AuditEntry(Now, AuditEvents.KillSwitchEngaged, "x", null, null), TestContext.Current.CancellationToken)).Should().BeTrue();
+        (await tiny.TryRecordAsync(new AuditEntry(Now, AuditEvents.KillSwitchReleased, "x", null, null), TestContext.Current.CancellationToken)).Should().BeFalse();
         tiny.List().Should().ContainSingle();
     }
 
@@ -559,7 +561,7 @@ public sealed class ApprovalServiceTests
 
         public bool TryAddRange(IReadOnlyList<Approval> approvals) => inner.TryAddRange(approvals);
 
-        public IReadOnlyList<Approval> List() => inner.List();
+        public IReadOnlyList<Approval> List(int limit = int.MaxValue) => inner.List(limit);
     }
 
     // --- where the approvals and their trace are written together

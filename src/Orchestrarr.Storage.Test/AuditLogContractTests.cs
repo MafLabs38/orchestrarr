@@ -20,6 +20,8 @@ public sealed class AuditLogContractTests : IDisposable
 
     private static AuditEntry Decision(int n = 0) => new(Noon.AddSeconds(n), AuditEvents.ApprovalRecorded, "alice-1", $"order-{n}", null);
 
+    private static AuditEntry Stop(int n = 0) => new(Noon.AddSeconds(n), AuditEvents.KillSwitchEngaged, "alice-1", null, null);
+
     private static AuditEntry Refusal(int n = 0) => new(Noon.AddSeconds(n), AuditEvents.ApprovalRefused, "alice-1", null, "stepNotGranted");
 
     private static async Task<int> Accepted(IAuditLog log, IEnumerable<AuditEntry> entries)
@@ -36,24 +38,37 @@ public sealed class AuditLogContractTests : IDisposable
     [MemberData(nameof(Logs))]
     public async Task Refusals_stop_at_their_share_even_when_decisions_come_first_and_decisions_still_fit(string kind)
     {
-        var log = Make(kind, capacity: 8);
+        var log = Make(kind, capacity: 20);
         await Accepted(log, [Decision(1), Decision(2)]);
 
-        var refusals = await Accepted(log, Enumerable.Range(10, 8).Select(Refusal));
-        var decisions = await Accepted(log, [Decision(30), Decision(31)]);
+        var refusals = await Accepted(log, Enumerable.Range(10, 18).Select(Refusal));
+        var decisions = await Accepted(log, [Decision(30), Decision(31), Decision(32)]);
 
-        refusals.Should().Be(6, "a capacity of 8 gives refusals 6 places, whatever came before");
-        decisions.Should().Be(0, "2 decisions and 6 refusals fill the 8 places");
+        refusals.Should().Be(15, "a capacity of 20 gives refusals 15 places, whatever came before");
+        decisions.Should().Be(2, "2 decisions and 15 refusals leave 2 of the 19 places of the decisions");
     }
 
     [Theory]
     [MemberData(nameof(Logs))]
-    public async Task A_capacity_of_one_has_no_place_for_a_refusal_and_one_for_a_decision(string kind)
+    public async Task A_capacity_of_one_is_kept_for_the_stop(string kind)
     {
         var log = Make(kind, capacity: 1);
 
         (await log.TryRecordAsync(Refusal(), Ct)).Should().BeFalse();
-        (await log.TryRecordAsync(Decision(), Ct)).Should().BeTrue();
+        (await log.TryRecordAsync(Decision(), Ct)).Should().BeFalse();
+        (await log.TryRecordAsync(Stop(), Ct)).Should().BeTrue();
+        (await log.TryRecordAsync(Stop(1), Ct)).Should().BeFalse();
+    }
+
+    [Theory]
+    [MemberData(nameof(Logs))]
+    public async Task Decisions_cannot_take_the_last_places_the_stop_needs(string kind)
+    {
+        var log = Make(kind, capacity: 20);
+
+        (await Accepted(log, Enumerable.Range(0, 25).Select(Decision))).Should().Be(19);
+        (await log.TryRecordAsync(Stop(30), Ct)).Should().BeTrue("the stop and its release are still traced");
+        (await log.TryRecordAsync(Stop(31), Ct)).Should().BeFalse();
     }
 
     [Theory]
@@ -83,7 +98,7 @@ public sealed class AuditLogContractTests : IDisposable
     public async Task An_empty_batch_is_recorded_even_when_the_trail_is_full(string kind)
     {
         var log = Make(kind, capacity: 1);
-        await log.TryRecordAsync(Decision(), Ct);
+        await log.TryRecordAsync(Stop(), Ct);
 
         (await log.TryRecordRangeAsync([], Ct)).Should().BeTrue();
     }
@@ -116,10 +131,10 @@ public sealed class AuditLogContractTests : IDisposable
         var database = _file.Open();
 
         var results = await Task.WhenAll(Enumerable.Range(0, 4).Select(n => Task.Run(
-            async () => await new SqliteAuditLog(database, capacity: 2).TryRecordAsync(Decision(n), Ct),
+            async () => await new SqliteAuditLog(database, capacity: 3).TryRecordAsync(Decision(n), Ct),
             Ct)));
 
         results.Count(accepted => accepted).Should().Be(2);
-        new SqliteAuditLog(database, capacity: 2).List().Should().HaveCount(2);
+        new SqliteAuditLog(database, capacity: 3).List().Should().HaveCount(2);
     }
 }

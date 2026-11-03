@@ -44,8 +44,7 @@ public sealed class SqliteApprovalLedger(SqliteDatabase database, int queueCapac
         {
             return (false, LedgerResult.StoreFull);
         }
-        var refusals = entries.Count(entry => AuditEvents.IsRefusal(entry.Event));
-        if (!AuditCapacityPolicy.Fits(_auditCapacity, SqliteAuditLog.Count(connection), SqliteAuditLog.RefusalCount(connection), entries.Count, refusals))
+        if (!AuditCapacityPolicy.Fits(_auditCapacity, SqliteAuditLog.Count(connection), SqliteAuditLog.RefusalCount(connection), entries))
         {
             return (false, LedgerResult.Unavailable);
         }

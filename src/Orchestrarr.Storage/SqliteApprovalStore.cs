@@ -64,11 +64,12 @@ public sealed class SqliteApprovalStore(SqliteDatabase database, int capacity = 
         }));
     }
 
-    public IReadOnlyList<Approval> List() => SqliteDatabase.Guard<IReadOnlyList<Approval>>(() =>
+    public IReadOnlyList<Approval> List(int limit = int.MaxValue) => SqliteDatabase.Guard<IReadOnlyList<Approval>>(() =>
     {
         using var connection = database.Connect();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT id, work_item_id, repository, pull_request, head_sha, steps, approver, approved_at, step_up_at FROM approvals ORDER BY approved_at DESC, rowid DESC;";
+        command.CommandText = "SELECT id, work_item_id, repository, pull_request, head_sha, steps, approver, approved_at, step_up_at FROM approvals ORDER BY approved_at DESC, rowid DESC LIMIT $limit;";
+        command.Parameters.AddWithValue("$limit", limit);
         using var reader = command.ExecuteReader();
         var approvals = new List<Approval>();
         while (reader.Read())

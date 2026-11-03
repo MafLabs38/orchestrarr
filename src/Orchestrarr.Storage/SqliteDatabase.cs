@@ -29,7 +29,7 @@ public sealed class SqliteDatabase
         _connectionString = new SqliteConnectionStringBuilder
         {
             DataSource = path,
-            Mode = SqliteOpenMode.ReadWriteCreate,
+            Mode = SqliteOpenMode.ReadWrite,
             ForeignKeys = true,
             DefaultTimeout = (int)busyTimeout.TotalSeconds < 1 ? 1 : (int)busyTimeout.TotalSeconds,
         }.ToString();
@@ -66,9 +66,22 @@ public sealed class SqliteDatabase
             }
         }
 
+        CreateEmptyFile(full);
         var database = new SqliteDatabase(full, busyTimeout ?? DefaultBusyTimeout);
         database.Migrate(startEngagedWhenNew, time ?? TimeProvider.System);
         return database;
+    }
+
+    // The file is created here and only here, for its owner only: every later operation opens it read-write, so a file that vanishes while the
+    // host runs is an error and not a new empty database that hides the loss.
+    private static void CreateEmptyFile(string full)
+    {
+        var options = new FileStreamOptions { Mode = FileMode.OpenOrCreate, Access = FileAccess.Write };
+        if (!OperatingSystem.IsWindows())
+        {
+            options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+        }
+        using var created = new FileStream(full, options);
     }
 
     internal SqliteConnection Connect()
@@ -176,6 +189,7 @@ public sealed class SqliteDatabase
               detail TEXT NULL,
               refusal INTEGER NOT NULL
             );
+            CREATE INDEX IF NOT EXISTS audit_refusal ON audit (refusal);
             CREATE TRIGGER IF NOT EXISTS audit_is_append_only_update BEFORE UPDATE ON audit
               BEGIN SELECT RAISE(ABORT, 'the audit trail is append-only'); END;
             CREATE TRIGGER IF NOT EXISTS audit_is_append_only_delete BEFORE DELETE ON audit

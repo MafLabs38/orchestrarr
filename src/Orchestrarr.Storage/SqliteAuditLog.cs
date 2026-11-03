@@ -31,8 +31,7 @@ public sealed class SqliteAuditLog(SqliteDatabase database, int capacity = Store
         {
             return ValueTask.FromResult(database.InWriteTransaction(connection =>
             {
-                var refusals = entries.Count(entry => AuditEvents.IsRefusal(entry.Event));
-                if (!AuditCapacityPolicy.Fits(_capacity, Count(connection), RefusalCount(connection), entries.Count, refusals))
+                if (!AuditCapacityPolicy.Fits(_capacity, Count(connection), RefusalCount(connection), entries))
                 {
                     return (false, false);
                 }
@@ -50,11 +49,12 @@ public sealed class SqliteAuditLog(SqliteDatabase database, int capacity = Store
         }
     }
 
-    public IReadOnlyList<AuditEntry> List() => SqliteDatabase.Guard<IReadOnlyList<AuditEntry>>(() =>
+    public IReadOnlyList<AuditEntry> List(int limit = int.MaxValue) => SqliteDatabase.Guard<IReadOnlyList<AuditEntry>>(() =>
     {
         using var connection = database.Connect();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT at, event, subject, order_id, detail FROM audit ORDER BY id DESC;";
+        command.CommandText = "SELECT at, event, subject, order_id, detail FROM audit ORDER BY id DESC LIMIT $limit;";
+        command.Parameters.AddWithValue("$limit", limit);
         using var reader = command.ExecuteReader();
         var entries = new List<AuditEntry>();
         while (reader.Read())

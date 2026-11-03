@@ -17,5 +17,5 @@ public interface IApprovalStore
     bool TryAddRange(IReadOnlyList<Approval> approvals);
 
     /// <summary>The approvals, newest first.</summary>
-    IReadOnlyList<Approval> List();
+    IReadOnlyList<Approval> List(int limit = int.MaxValue);
 }

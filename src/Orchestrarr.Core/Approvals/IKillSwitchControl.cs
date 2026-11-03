@@ -2,7 +2,23 @@ using Orchestrarr.Core.Launch;
 
 namespace Orchestrarr.Core.Approvals;
 
-/// <summary>The global stop, with the way to set it (SPEC D-43). Engaged, nothing is approved and nothing launches.</summary>
+/// <summary>What became of a change of the global stop.</summary>
+public enum KillSwitchChange
+{
+    /// <summary>The stop is as asked, and the change is in the trail.</summary>
+    Applied,
+
+    /// <summary>The stop is engaged, but its trace could not be written (the trail is full or unwritable): engaging never waits for it.</summary>
+    AppliedUntraced,
+
+    /// <summary>A release could not be saved: the stop stays engaged.</summary>
+    NotSaved,
+
+    /// <summary>A release could not be traced: the stop stays engaged, because a release nobody can see is a stop undone in silence.</summary>
+    NotTraced,
+}
+
+/// <summary>The global stop, with the way to change it (SPEC D-43). Engaged, nothing is approved and nothing launches.</summary>
 public interface IKillSwitchControl : IKillSwitch
 {
     bool Engaged { get; }
@@ -11,8 +27,9 @@ public interface IKillSwitchControl : IKillSwitch
     bool Saved { get; }
 
     /// <summary>
-    /// Engages or releases the stop. Engaging always takes effect. Releasing a stop whose state cannot be saved raises
-    /// <see cref="KillSwitchUnavailableException"/> and leaves it engaged: unknown means engaged.
+    /// Engages or releases the stop, and traces it with <paramref name="entry"/>. Engaging always takes effect, even when it cannot be saved or
+    /// traced, because the stop must work when nothing else does. A release needs to be saved and traced, in one write where the storage allows
+    /// it: otherwise the stop stays engaged (unknown means engaged).
     /// </summary>
-    void Set(bool engaged);
+    ValueTask<KillSwitchChange> ChangeAsync(bool engaged, AuditEntry entry, CancellationToken cancellationToken);
 }

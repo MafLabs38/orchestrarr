@@ -21,9 +21,13 @@ internal static class ApprovalEndpoints
         [ApprovalRefusal.AuditUnavailable] = StatusCodes.Status503ServiceUnavailable,
     };
 
+    // How many of the newest approvals or entries a list answers by default, and at most
+    private const int DefaultPageSize = 200;
+    private const int MaxPageSize = 1000;
+
     public static void MapApprovalEndpoints(this RouteGroupBuilder api)
     {
-        api.MapGet("/approvals", (IApprovalStore store) => Results.Ok(store.List().Select(ToDto)));
+        api.MapGet("/approvals", (IApprovalStore store, int? limit) => Results.Ok(store.List(PageSize(limit)).Select(ToDto)));
 
         // Ids of work items contain a slash, so the work item travels in the body.
         api.MapPost("/approvals", async (ApproveRequest request, HttpContext context, IApproverAccessor accessor, ApprovalService service, CancellationToken ct) =>
@@ -40,16 +44,16 @@ internal static class ApprovalEndpoints
                 : Results.Json(new ApproveResponse([.. result.Approvals.Select(ToDto)]), statusCode: StatusCodes.Status201Created);
         });
 
-        api.MapGet("/activity", (IAuditLog audit) =>
+        api.MapGet("/activity", (IAuditLog audit, int? limit) =>
         {
-            var entries = audit.List();
+            var entries = audit.List(PageSize(limit));
             return Results.Ok(entries.Select((entry, index) => new ActivityDto(entries.Count - index, entry.At, entry.Event, entry.Subject, entry.OrderId, entry.Detail)));
         });
 
         api.MapGet("/safety", (IKillSwitchControl killSwitch) => Results.Ok(new SafetyDto(killSwitch.Engaged, killSwitch.Saved)));
 
-        // The stop must work even when the trail cannot be written: the trace is attempted, the stop is applied either way.
-        api.MapPut("/safety/kill-switch", async (KillSwitchRequest request, HttpContext context, IApproverAccessor accessor, IKillSwitchControl killSwitch, IAuditLog audit, TimeProvider time, CancellationToken ct) =>
+        // Engaging must work even when the trail cannot be written; a release needs to be saved and traced (the stop does both in one write).
+        api.MapPut("/safety/kill-switch", async (KillSwitchRequest request, HttpContext context, IApproverAccessor accessor, IKillSwitchControl killSwitch, TimeProvider time, CancellationToken ct) =>
         {
             var (approver, refusal) = Authorize(accessor, context);
             if (approver is null)
@@ -62,33 +66,18 @@ internal static class ApprovalEndpoints
             }
 
             var entry = new AuditEntry(time.GetUtcNow(), request.Engaged ? AuditEvents.KillSwitchEngaged : AuditEvents.KillSwitchReleased, approver.Subject, null, null);
-            if (request.Engaged)
+            return await killSwitch.ChangeAsync(request.Engaged, entry, ct) switch
             {
-                // Engaging never waits for anything: the stop applies, and the trace is attempted
-                killSwitch.Set(true);
-                await audit.TryRecordAsync(entry, ct);
-                return Results.Ok(new SafetyDto(killSwitch.Engaged, killSwitch.Saved));
-            }
-
-            // Releasing needs its trace: a release that left none would be a stop undone in silence (SPEC D-43, F-SAF-02)
-            try
-            {
-                killSwitch.Set(false);
-            }
-            catch (KillSwitchUnavailableException)
-            {
-                // The release could not be saved: the stop stays engaged, and nothing says it was released
-                return Error(ApiErrors.KillSwitchUnavailable, StatusCodes.Status503ServiceUnavailable);
-            }
-            if (!await audit.TryRecordAsync(entry, ct))
-            {
-                // The release cannot be traced: the stop is put back, and nothing is released
-                killSwitch.Set(true);
-                return Error(ApiErrors.AuditUnavailable, StatusCodes.Status503ServiceUnavailable);
-            }
-            return Results.Ok(new SafetyDto(killSwitch.Engaged, killSwitch.Saved));
+                // The release could not be saved, or traced: the stop stays engaged, and nothing says it was released
+                KillSwitchChange.NotSaved => Error(ApiErrors.KillSwitchUnavailable, StatusCodes.Status503ServiceUnavailable),
+                KillSwitchChange.NotTraced => Error(ApiErrors.AuditUnavailable, StatusCodes.Status503ServiceUnavailable),
+                _ => Results.Ok(new SafetyDto(killSwitch.Engaged, killSwitch.Saved)),
+            };
         });
     }
+
+    // The newest ones: a trail in a file can hold hundreds of thousands, and the screens poll
+    private static int PageSize(int? limit) => Math.Clamp(limit ?? DefaultPageSize, 1, MaxPageSize);
 
     public static ApprovalStatus StatusOf(IApproverAccessor accessor, HttpContext context, IKillSwitchControl killSwitch)
     {

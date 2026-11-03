@@ -3,7 +3,7 @@ using Orchestrarr.Core.Launch;
 namespace Orchestrarr.Core.Approvals;
 
 /// <summary>
-/// The audit trail in memory and bounded: the sandbox's store, not durable; the persistent, append-only trail is <c>SqliteAuditLog</c> (ADR 0013).
+/// The audit trail in memory and bounded: the sandbox's store, not durable; the persistent, append-only trail is the one in the file (ADR 0013).
 /// Past its capacity it refuses, so that nothing happens without a trace, and refusals have only a share of it (<see cref="AuditCapacityPolicy"/>).
 /// </summary>
 public sealed class InMemoryAuditLog(int capacity = InMemoryAuditLog.DefaultCapacity) : IAuditLog
@@ -26,10 +26,10 @@ public sealed class InMemoryAuditLog(int capacity = InMemoryAuditLog.DefaultCapa
         ArgumentNullException.ThrowIfNull(entries);
         lock (_lock)
         {
-            var refusals = entries.Count(entry => AuditEvents.IsRefusal(entry.Event));
-            var fits = AuditCapacityPolicy.Fits(_capacity, _entries.Count, _refusals, entries.Count, refusals);
+            var fits = AuditCapacityPolicy.Fits(_capacity, _entries.Count, _refusals, entries);
             if (fits)
             {
+                var refusals = entries.Count(entry => AuditEvents.IsRefusal(entry.Event));
                 _entries.AddRange(entries);
                 _refusals += refusals;
             }
@@ -37,11 +37,11 @@ public sealed class InMemoryAuditLog(int capacity = InMemoryAuditLog.DefaultCapa
         }
     }
 
-    public IReadOnlyList<AuditEntry> List()
+    public IReadOnlyList<AuditEntry> List(int limit = int.MaxValue)
     {
         lock (_lock)
         {
-            return [.. Enumerable.Reverse(_entries)];
+            return [.. Enumerable.Reverse(_entries).Take(limit)];
         }
     }
 }

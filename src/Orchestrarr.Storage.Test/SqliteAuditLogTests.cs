@@ -94,8 +94,7 @@ public sealed class SqliteAuditLogTests : IDisposable
 
         (await log.TryRecordAsync(Refusal(6), Ct)).Should().BeFalse();
         (await log.TryRecordAsync(Decision(7), Ct)).Should().BeTrue();
-        (await log.TryRecordAsync(Decision(8), Ct)).Should().BeTrue();
-        (await log.TryRecordAsync(Decision(9), Ct)).Should().BeFalse();
+        (await log.TryRecordAsync(Decision(8), Ct)).Should().BeFalse("the last place is the stop's");
     }
 
     [Fact]

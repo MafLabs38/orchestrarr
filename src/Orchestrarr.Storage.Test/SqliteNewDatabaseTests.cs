@@ -20,7 +20,7 @@ public sealed class SqliteNewDatabaseTests : IDisposable
         var database = OpenEngaged();
 
         database.IsNew.Should().BeTrue();
-        new SqliteKillSwitch(database).Engaged.Should().BeTrue();
+        new SqliteKillSwitch(database, StoreLimits.FileAudit).Engaged.Should().BeTrue();
         var entry = new SqliteAuditLog(database).List().Should().ContainSingle().Which;
         entry.Event.Should().Be(AuditEvents.InstanceCreated);
         entry.Subject.Should().Be(AuditEvents.System);
@@ -33,7 +33,7 @@ public sealed class SqliteNewDatabaseTests : IDisposable
         var database = SqliteDatabase.Open(_file.Path);
 
         database.IsNew.Should().BeTrue();
-        new SqliteKillSwitch(database).Engaged.Should().BeFalse();
+        new SqliteKillSwitch(database, StoreLimits.FileAudit).Engaged.Should().BeFalse();
         new SqliteAuditLog(database).List().Should().BeEmpty();
     }
 
@@ -41,12 +41,12 @@ public sealed class SqliteNewDatabaseTests : IDisposable
     public void The_stop_that_was_released_stays_released_when_the_database_is_opened_again()
     {
         var database = OpenEngaged();
-        new SqliteKillSwitch(database).Set(false);
+        new SqliteKillSwitch(database, StoreLimits.FileAudit).Set(false);
 
         var again = SqliteDatabase.Open(_file.Path, startEngagedWhenNew: true, new FixedClock(Noon));
 
         again.IsNew.Should().BeFalse();
-        new SqliteKillSwitch(again).Engaged.Should().BeFalse();
+        new SqliteKillSwitch(again, StoreLimits.FileAudit).Engaged.Should().BeFalse();
         new SqliteAuditLog(again).List().Should().ContainSingle("the creation is traced once");
     }
 

@@ -45,7 +45,7 @@ internal static class ApprovalsServiceCollectionExtensions
                 .AddSingleton(SqliteDatabase.Open(file.Path, file.StartEngagedWhenNew))
                 .AddSingleton<IApprovalStore>(provider => new SqliteApprovalStore(provider.GetRequiredService<SqliteDatabase>(), queueCapacity))
                 .AddSingleton<IApprovalLedger>(provider => new SqliteApprovalLedger(provider.GetRequiredService<SqliteDatabase>(), queueCapacity, auditCapacity, provider.GetService<ILogger<SqliteApprovalLedger>>()))
-                .AddSingleton(provider => new SqliteKillSwitch(provider.GetRequiredService<SqliteDatabase>(), provider.GetService<ILogger<SqliteKillSwitch>>()))
+                .AddSingleton(provider => new SqliteKillSwitch(provider.GetRequiredService<SqliteDatabase>(), auditCapacity, provider.GetService<ILogger<SqliteKillSwitch>>()))
                 .AddSingleton<IKillSwitchControl>(provider => provider.GetRequiredService<SqliteKillSwitch>())
                 .AddSingleton<IKillSwitch>(provider => provider.GetRequiredService<SqliteKillSwitch>())
                 .AddSingleton(provider => new SqliteAuditLog(provider.GetRequiredService<SqliteDatabase>(), auditCapacity, provider.GetService<ILogger<SqliteAuditLog>>()))
@@ -54,9 +54,9 @@ internal static class ApprovalsServiceCollectionExtensions
         }
         else
         {
-            var killSwitch = new InMemoryKillSwitch();
             var store = new InMemoryApprovalStore(options.QueueCapacity ?? StoreLimits.MemoryQueue);
             var auditLog = new InMemoryAuditLog(options.AuditCapacity ?? StoreLimits.MemoryAudit);
+            var killSwitch = new InMemoryKillSwitch(auditLog);
             services
                 .AddSingleton<IApprovalStore>(store)
                 .AddSingleton<IApprovalLedger>(provider => new InMemoryApprovalLedger(provider.GetRequiredService<IApprovalStore>(), provider.GetRequiredService<IAuditSink>()))

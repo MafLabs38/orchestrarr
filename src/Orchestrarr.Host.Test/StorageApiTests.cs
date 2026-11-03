@@ -25,9 +25,9 @@ public sealed class StorageApiTests : IDisposable
         Directory.Delete(_folder, recursive: true);
     }
 
-    private ForgeApiFactory Sqlite(Action<IServiceCollection>? overrides = null) => new()
+    private ForgeApiFactory Sqlite(Action<IServiceCollection>? overrides = null, Dictionary<string, string?>? settings = null) => new()
     {
-        Settings = new Dictionary<string, string?> { ["Storage:Provider"] = "Sqlite", ["Storage:Path"] = DatabasePath },
+        Settings = new Dictionary<string, string?> { ["Storage:Provider"] = "Sqlite", ["Storage:Path"] = DatabasePath }.Concat(settings ?? []).ToDictionary(),
         ServiceOverrides = overrides,
     };
 
@@ -193,16 +193,10 @@ public sealed class StorageApiTests : IDisposable
     }
 
     [Fact]
-    public async Task A_release_that_cannot_be_traced_is_refused_and_the_stop_is_put_back()
+    public async Task A_release_that_cannot_be_traced_is_refused_and_the_stop_stays_engaged_in_the_file()
     {
-        using var factory = Sqlite(services =>
-        {
-            var full = new InMemoryAuditLog(capacity: 0);
-            services.RemoveAll<IAuditLog>();
-            services.RemoveAll<IAuditSink>();
-            services.AddSingleton<IAuditLog>(full);
-            services.AddSingleton<IAuditSink>(full);
-        });
+        // A trail of one place: the engagement takes it, and the release has nowhere to be traced
+        using var factory = Sqlite(settings: new() { ["Approvals:AuditCapacity"] = "1" });
         var client = factory.CreateClient();
         (await client.PutAsJsonAsync("/api/v1/safety/kill-switch", new { engaged = true }, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
 
@@ -211,24 +205,39 @@ public sealed class StorageApiTests : IDisposable
         release.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
         (await Json(release)).GetProperty("error").GetString().Should().Be("auditUnavailable");
         (await Json(await client.GetAsync("/api/v1/safety", Ct))).GetProperty("killSwitchEngaged").GetBoolean().Should().BeTrue();
+        new SqliteKillSwitch(SqliteDatabase.Open(DatabasePath), 1).Engaged.Should().BeTrue("the refused release left nothing in the file");
     }
 
     [Fact]
     public async Task Engaging_does_not_wait_for_its_trace()
     {
-        using var factory = Sqlite(services =>
+        using var factory = Sqlite(settings: new() { ["Approvals:AuditCapacity"] = "1" });
+        var client = factory.CreateClient();
+        await client.PutAsJsonAsync("/api/v1/safety/kill-switch", new { engaged = true }, Ct);
+
+        var again = await client.PutAsJsonAsync("/api/v1/safety/kill-switch", new { engaged = true }, Ct);
+
+        again.StatusCode.Should().Be(HttpStatusCode.OK, "the trail is full, and the stop applies all the same");
+        (await Json(again)).GetProperty("killSwitchEngaged").GetBoolean().Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task The_lists_answer_the_newest_entries_and_a_limit_never_drops_below_one()
+    {
+        using var factory = Sqlite();
+        var client = factory.CreateClient();
+        foreach (var engaged in new[] { true, false, true, false })
         {
-            var full = new InMemoryAuditLog(capacity: 0);
-            services.RemoveAll<IAuditLog>();
-            services.RemoveAll<IAuditSink>();
-            services.AddSingleton<IAuditLog>(full);
-            services.AddSingleton<IAuditSink>(full);
-        });
+            (await client.PutAsJsonAsync("/api/v1/safety/kill-switch", new { engaged }, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+        }
 
-        var engage = await factory.CreateClient().PutAsJsonAsync("/api/v1/safety/kill-switch", new { engaged = true }, Ct);
+        var two = (await Json(await client.GetAsync("/api/v1/activity?limit=2", Ct))).EnumerateArray().ToList();
+        var floor = (await Json(await client.GetAsync("/api/v1/activity?limit=0", Ct))).EnumerateArray().ToList();
+        var all = (await Json(await client.GetAsync("/api/v1/activity", Ct))).EnumerateArray().ToList();
 
-        engage.StatusCode.Should().Be(HttpStatusCode.OK);
-        (await Json(engage)).GetProperty("killSwitchEngaged").GetBoolean().Should().BeTrue();
+        two.Select(entry => entry.GetProperty("event").GetString()).Should().Equal("killswitch.released", "killswitch.engaged");
+        floor.Should().ContainSingle();
+        all.Should().HaveCount(4);
     }
 
     private Dictionary<string, string?> SqliteSettings() => new() { ["Storage:Provider"] = "Sqlite", ["Storage:Path"] = DatabasePath };
@@ -241,9 +250,13 @@ public sealed class StorageApiTests : IDisposable
 
         public bool Saved => !_engaged;
 
-        public void Set(bool engaged) => _engaged = engaged;
-
         public ValueTask<bool> IsEngagedAsync(CancellationToken cancellationToken) => ValueTask.FromResult(_engaged);
+
+        public ValueTask<KillSwitchChange> ChangeAsync(bool engaged, AuditEntry entry, CancellationToken cancellationToken)
+        {
+            _engaged = engaged;
+            return ValueTask.FromResult(KillSwitchChange.AppliedUntraced);
+        }
     }
 
     private sealed class CannotRelease : IKillSwitchControl
@@ -252,14 +265,9 @@ public sealed class StorageApiTests : IDisposable
 
         public bool Saved => true;
 
-        public void Set(bool engaged)
-        {
-            if (!engaged)
-            {
-                throw new KillSwitchUnavailableException();
-            }
-        }
-
         public ValueTask<bool> IsEngagedAsync(CancellationToken cancellationToken) => ValueTask.FromResult(true);
+
+        public ValueTask<KillSwitchChange> ChangeAsync(bool engaged, AuditEntry entry, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(engaged ? KillSwitchChange.Applied : KillSwitchChange.NotSaved);
     }
 }

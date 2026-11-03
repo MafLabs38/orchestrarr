@@ -45,16 +45,23 @@ public sealed class StorageOptions
 public interface IStorageSettings
 {
     bool Persistent { get; }
+
+    /// <summary>What the status says: <c>memory</c> or <c>sqlite</c>.</summary>
+    string Kind { get; }
 }
 
 /// <summary>Everything in memory, the sandbox's choice.</summary>
 public sealed record MemoryStorage : IStorageSettings
 {
     public bool Persistent => false;
+
+    public string Kind => "memory";
 }
 
 /// <summary>A SQLite file, and whether a database created now starts with the global stop engaged.</summary>
 public sealed record SqliteStorage(string Path, bool StartEngagedWhenNew) : IStorageSettings
 {
     public bool Persistent => true;
+
+    public string Kind => "sqlite";
 }

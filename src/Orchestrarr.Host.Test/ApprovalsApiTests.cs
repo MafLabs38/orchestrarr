@@ -33,7 +33,7 @@ internal sealed class FullQueue : IApprovalStore
 
     public bool TryAddRange(IReadOnlyList<Approval> approvals) => false;
 
-    public IReadOnlyList<Approval> List() => [];
+    public IReadOnlyList<Approval> List(int limit = int.MaxValue) => [];
 }
 
 /// <summary>An identity that the test chooses: nobody, or somebody who is not an operator.</summary>

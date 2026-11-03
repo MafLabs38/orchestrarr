@@ -74,7 +74,7 @@ api.MapGet("/system/status", (WorkItemCatalog catalog, IApproverAccessor accesso
     // The status never reads the fleet: it says what the last read found, and nothing before the first one
     var report = catalog.Peek();
     var version = typeof(Program).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0.0.0-dev";
-    return Results.Ok(new SystemStatus("Orchestrarr", version, new SourceStatus(catalog.SourceKind, catalog.SourceConfigured, report?.ReadAt, report?.Error, report?.Stale ?? false), new ForgeStatus(catalog.ForgeKind, catalog.ForgeConfigured), ApprovalEndpoints.StatusOf(accessor, context, killSwitch), new StorageStatus(storage.Persistent ? "sqlite" : "memory")));
+    return Results.Ok(new SystemStatus("Orchestrarr", version, new SourceStatus(catalog.SourceKind, catalog.SourceConfigured, report?.ReadAt, report?.Error, report?.Stale ?? false), new ForgeStatus(catalog.ForgeKind, catalog.ForgeConfigured), ApprovalEndpoints.StatusOf(accessor, context, killSwitch), new StorageStatus(storage.Kind)));
 });
 
 // An unknown route of the API, or of the sign-in (which is not there at all unless people sign in), is a 404, never the page of the interface
