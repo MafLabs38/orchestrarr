@@ -2,6 +2,7 @@ import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import {
+  approvalsOff,
   finding,
   pullRequest,
   pullRequestsRead,
@@ -201,7 +202,7 @@ describe('DecisionCard approval', () => {
   });
 
   it('cannot be approved while approving is turned off, and says so next to the button', async () => {
-    stubApproving({ enabled: false, mode: 'disabled', operator: null, operatorName: null, isOperator: false });
+    stubApproving(approvalsOff);
 
     renderWithProviders(<DecisionCard item={granted} />);
 

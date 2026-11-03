@@ -12,7 +12,7 @@ public sealed class SignInOptions
 {
     public const string SectionName = "SignIn";
 
-    private static readonly List<string> DefaultScopes = ["openid", "profile"];
+    private static readonly string[] DefaultScopes = ["openid", "profile"];
 
     /// <summary>The issuer of the identity provider, for example <c>https://sso.example/realms/example</c>. Its discovery document is read from here.</summary>
     public string? Authority { get; set; }
@@ -45,7 +45,8 @@ public sealed class SignInOptions
 
     /// <summary>
     /// Read the groups (and the username) of the person at the provider's user-information endpoint too, during the sign-in. The access token is used for that
-    /// call only and is not kept; nothing else of what that endpoint says is taken, and never the authentication context.
+    /// call only and is not kept. What the handler maps by default also applies (<c>sub</c>, <c>name</c>, <c>given_name</c>, <c>family_name</c>, <c>profile</c>,
+    /// <c>email</c>, each only when the identity token did not carry it), and the authentication context is never taken from there.
     /// </summary>
     public bool ClaimsFromUserInfo { get; set; }
 
@@ -83,7 +84,7 @@ public sealed class SignInOptions
         {
             throw new InvalidOperationException("SignIn:OperatorGroup, SignIn:ReaderGroup and SignIn:GroupsClaim must be set, and a group has no space in it and is not just a slash.");
         }
-        var scopes = Scopes.Count == 0 ? DefaultScopes : Scopes.Distinct().ToList();
+        var scopes = Scopes.Count == 0 ? DefaultScopes : [.. Scopes.Distinct()];
         if (!scopes.Contains("openid") || scopes.Any(scope => string.IsNullOrWhiteSpace(scope) || scope.Any(char.IsWhiteSpace)))
         {
             throw new InvalidOperationException("SignIn:Scopes must include openid, and a scope has no space in it.");

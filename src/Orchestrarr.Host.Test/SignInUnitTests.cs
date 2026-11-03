@@ -450,25 +450,32 @@ public sealed class SignInUnitTests
         act.Should().Throw<InvalidOperationException>().WithMessage("*SignIn:Scopes*");
     }
 
-    [Fact]
-    public void Scopes_bound_from_the_configuration_replace_the_defaults_and_without_any_the_defaults_are_asked()
+    private static SignInSettings Bind(Dictionary<string, string?> values)
     {
-        var configured = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["SignIn:Scopes:0"] = "openid", ["SignIn:Scopes:1"] = "groups", ["SignIn:Scopes:2"] = "groups" }).Build();
-        var none = new ConfigurationBuilder().Build();
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(values).Build();
+        var options = configuration.GetSection("SignIn").Get<SignInOptions>();
+        options.Should().NotBeNull();
+        options.Authority = "https://sso.example/realms/example";
+        options.ClientId = "x";
+        options.ClientSecret = "y";
+        options.PublicUrl = "https://orchestrarr.example";
+        return options.Validate(allowCleartextOnLoopback: false);
+    }
 
-        var bound = configured.GetSection("SignIn").Get<SignInOptions>()!;
-        bound.Authority = Valid().Authority;
-        bound.ClientId = "x";
-        bound.ClientSecret = "y";
-        bound.PublicUrl = Valid().PublicUrl;
-        var unbound = none.GetSection("SignIn").Get<SignInOptions>() ?? new SignInOptions();
-        unbound.Authority = Valid().Authority;
-        unbound.ClientId = "x";
-        unbound.ClientSecret = "y";
-        unbound.PublicUrl = Valid().PublicUrl;
+    [Fact]
+    public void Scopes_bound_from_the_configuration_replace_the_defaults_and_are_not_repeated()
+    {
+        var settings = Bind(new() { ["SignIn:Scopes:0"] = "openid", ["SignIn:Scopes:1"] = "groups", ["SignIn:Scopes:2"] = "groups" });
 
-        bound.Validate(allowCleartextOnLoopback: false).Scopes.Should().Equal("openid", "groups");
-        unbound.Validate(allowCleartextOnLoopback: false).Scopes.Should().Equal("openid", "profile");
+        settings.Scopes.Should().Equal("openid", "groups");
+    }
+
+    [Fact]
+    public void Without_a_scope_in_the_configuration_the_defaults_are_asked()
+    {
+        var settings = Bind(new() { ["SignIn:OperatorGroup"] = "ops" });
+
+        settings.Scopes.Should().Equal("openid", "profile");
     }
 
     [Fact]

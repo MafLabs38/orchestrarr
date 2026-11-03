@@ -194,7 +194,7 @@ The principles of [VISION.md §5](VISION.md) apply, as amended by [ADR 0001](adr
 - Findings, changelogs and repository content are untrusted data, never instructions.
 - **Orders fail closed** (D-43, D-51). The issuer refuses (`IssueRefusal`): kill switch, not a person, not an operator, invalid request, production without a fresh second factor, signer unavailable, audit unavailable. The launcher refuses (`LaunchRefusal`), in this order: kill switch, verifier unavailable, bad signature, malformed fields, wrong audience, not yet valid, expired, lifetime too long, production without the second factor, outside the granted powers, replayed; the kill switch is read again before accepting. The order's id is recorded last, so an order refused earlier can be retried, and it stays spent when the audit then fails. Nothing is signed before its trace (`order.signing`), and nothing an unverified order claims reaches the trail.
 - **Approvals fail closed** (D-52, D-53): no approval without its trace, none on a list of pull requests that is not read, changed since it was displayed, that repeats one or that only has drafts, none for a step that is not offered, granted or recorded, none for a merge without validation, none while the global stop is engaged; every refusal is traced with its code, the stop is applied even when its own trace cannot be written, and the trail keeps room for decisions and stops when refusals pile up.
-- **The API is for people who signed in** (D-54): with `Approvals:Mode=OpenIdConnect` every route of the API needs a session (401 without one, never a redirect; the files of the interface stay public), only members of the operator group approve or stop, and a change must come from the application's own origin (`originNotAllowed`). The host does not start without an https authority and public address (http only on the loopback in Development). Every answer forbids being framed and carries `nosniff`; `GET /auth/login` drops the oldest of 8 sign-ins in flight and goes on.
+- **The API is for people who signed in** (D-54): with `Approvals:Mode=OpenIdConnect` every route of the API needs a session (401 without one, never a redirect; the files of the interface stay public), only members of the operator group approve or stop, and a change must come from the application's own origin (`originNotAllowed`). The host does not start without an https authority and public address (http only on the loopback in Development). Every answer forbids being framed and carries `nosniff`.
 
 ---
 
@@ -262,8 +262,8 @@ User interface, deferred: the light theme (its accent text color is ready, nothi
 
 | Date | Change |
 |---|---|
-| 2026-11-01 | v0.1: first interview. Decisions D-01 to D-09 and D-14 frozen; D-10 to D-13 proposed. |
 | 2026-11-03 | v0.8: people sign in through the identity provider, in the host (D-54, Q-12 resolved for people; ADR 0011). |
+| 2026-11-01 | v0.1: first interview. Decisions D-01 to D-09 and D-14 frozen; D-10 to D-13 proposed. |
 | 2026-11-03 | v0.7 (amended): approving a decision card records an approval per pull request and commit, with the queue, the trail and the global stop; powers granted in the configuration (D-52, D-53; ADR 0010; roadmap row 2c). |
 | 2026-11-03 | v0.7 (amended): the control-plane skeleton in Core, reviewed by the five agents: order, issuer, launcher, fail-closed rules, canonical form v2 (D-51; roadmap row 2b). |
 | 2026-11-03 | v0.7 (amended): releases by semantic-release from `main`, merge commits only, deployed by GitOps (D-50, ADR 0009). |

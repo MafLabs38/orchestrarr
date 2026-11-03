@@ -102,6 +102,15 @@ export function approvalStatus(overrides: Partial<ApprovalStatus> = {}): Approva
   };
 }
 
+// Approving is off: nobody is signed in, so nobody is an operator
+export const approvalsOff: Partial<ApprovalStatus> = {
+  enabled: false,
+  mode: 'disabled',
+  operator: null,
+  operatorName: null,
+  isOperator: false,
+};
+
 export function status(
   overrides: Partial<SystemStatus['source']> = {},
   approvals: Partial<ApprovalStatus> = {},

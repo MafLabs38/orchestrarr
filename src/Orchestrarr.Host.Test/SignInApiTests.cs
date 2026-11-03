@@ -540,6 +540,31 @@ public sealed class SignInApiTests
         response.Headers.Location.Should().BeNull();
     }
 
+    [Theory]
+    [InlineData("sub=carol-3;preferred_username=carol;name=Carol Example;groups=orchestrarr-operators", "carol")]
+    [InlineData("sub=carol-3;name=Carol Example;groups=orchestrarr-operators", "Carol Example")]
+    [InlineData("sub=carol-3;groups=orchestrarr-operators", "carol-3")]
+    public async Task The_name_of_the_session_is_the_username_else_the_full_name_else_the_subject(string claims, string expected)
+    {
+        using var factory = Factory();
+
+        var me = await Json(await Client(factory, claims).GetAsync("/auth/me", Ct));
+
+        me.GetProperty("name").GetString().Should().Be(expected);
+        me.GetProperty("canRead").GetBoolean().Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_session_with_no_name_and_no_subject_has_no_name_and_cannot_read()
+    {
+        using var factory = Factory();
+
+        var me = await Json(await Client(factory, "groups=orchestrarr-operators").GetAsync("/auth/me", Ct));
+
+        me.GetProperty("name").ValueKind.Should().Be(JsonValueKind.Null);
+        me.GetProperty("canRead").GetBoolean().Should().BeFalse();
+    }
+
     // --- the interface is never framed
 
     [Theory]
@@ -557,37 +582,6 @@ public sealed class SignInApiTests
         response.Headers.GetValues("X-Content-Type-Options").Should().Equal("nosniff");
     }
 
-    // --- a page of another site cannot fill the cookies of the person, nor keep the person from signing in
-
-    [Fact]
-    public async Task Past_a_number_of_sign_ins_in_flight_the_oldest_are_dropped_and_the_new_one_goes_on()
-    {
-        using var factory = Factory();
-        var client = Client(factory);
-        var stale = Enumerable.Range(0, 8).Select(n => $".AspNetCore.Correlation.state{n}").ToList();
-        client.DefaultRequestHeaders.Add("Cookie", string.Join("; ", stale.Select(name => $"{name}=N")));
-
-        var response = await client.GetAsync("/auth/login", Ct);
-
-        response.StatusCode.Should().Be(HttpStatusCode.Redirect);
-        response.Headers.Location!.GetLeftPart(UriPartial.Path).Should().Be("https://sso.example/realms/example/auth");
-        var cookies = response.Headers.GetValues("Set-Cookie").ToList();
-        stale.Should().OnlyContain(name => cookies.Any(cookie => cookie.StartsWith(name + "=;", StringComparison.Ordinal) && cookie.Contains("1970", StringComparison.Ordinal)));
-        cookies.Should().Contain(cookie => cookie.StartsWith(".AspNetCore.Correlation.", StringComparison.Ordinal) && !cookie.Contains("1970", StringComparison.Ordinal));
-    }
-
-    [Fact]
-    public async Task Below_the_number_nothing_is_dropped()
-    {
-        using var factory = Factory();
-        var client = Client(factory);
-        client.DefaultRequestHeaders.Add("Cookie", ".AspNetCore.Correlation.state0=N");
-
-        var response = await client.GetAsync("/auth/login", Ct);
-
-        response.Headers.GetValues("Set-Cookie").Should().NotContain(cookie => cookie.StartsWith(".AspNetCore.Correlation.state0=;", StringComparison.Ordinal));
-    }
-
     // --- the provider cannot be reached
 
     [Fact]
@@ -599,6 +593,7 @@ public sealed class SignInApiTests
 
         response.StatusCode.Should().Be(HttpStatusCode.Redirect);
         response.Headers.Location!.OriginalString.Should().Be("/?signInFailed=1");
+        (await response.Content.ReadAsStringAsync(Ct)).Should().BeEmpty();
     }
 
     // --- the secret of the client stays out of any text
@@ -611,17 +606,41 @@ public sealed class SignInApiTests
         settings.ToString().Should().NotContain("a-very-secret-value").And.Contain("orchestrarr");
     }
 
-    [Fact]
-    public void Reading_the_user_information_takes_the_groups_and_the_username_and_never_the_authentication_context()
+    // What the user-information endpoint says, run through the actions the handler really has
+    private static ClaimsIdentity UserInformation(OpenIdConnectOptions oidc, string json)
     {
-        using var factory = Factory(settings => settings["SignIn:ClaimsFromUserInfo"] = "true");
-        factory.CreateClient();
+        var identity = new ClaimsIdentity("test");
+        using var document = JsonDocument.Parse(json);
+        foreach (var action in oidc.ClaimActions)
+        {
+            action.Run(document.RootElement, identity, "issuer");
+        }
+        return identity;
+    }
 
+    private static string Answer(string groupsClaim) =>
+        "{\"" + groupsClaim + "\":[\"/orchestrarr-operators\",\"staff\"],\"preferred_username\":\"alice\",\"acr\":\"high\",\"amr\":[\"otp\"],\"auth_time\":1793700000}";
+
+    [Theory]
+    [InlineData("groups")]
+    [InlineData("roles")]
+    public void Reading_the_user_information_takes_the_groups_of_the_configured_claim_and_never_the_authentication_context(string groupsClaim)
+    {
+        using var factory = Factory(settings =>
+        {
+            settings["SignIn:ClaimsFromUserInfo"] = "true";
+            settings["SignIn:GroupsClaim"] = groupsClaim;
+        });
+        factory.CreateClient();
         var oidc = factory.Services.GetRequiredService<IOptionsMonitor<OpenIdConnectOptions>>().Get(OpenIdConnectDefaults.AuthenticationScheme);
+
+        var identity = UserInformation(oidc, Answer(groupsClaim));
 
         oidc.GetClaimsFromUserInfoEndpoint.Should().BeTrue();
         oidc.SaveTokens.Should().BeFalse();
-        oidc.ClaimActions.OfType<JsonKeyClaimAction>().Select(action => action.JsonKey).Should().Contain(["groups", "preferred_username"]).And.NotContain(["acr", "auth_time"]);
+        identity.FindAll(groupsClaim).Select(claim => claim.Value).Should().Equal("/orchestrarr-operators", "staff");
+        identity.FindFirst("preferred_username")!.Value.Should().Be("alice");
+        identity.Claims.Select(claim => claim.Type).Should().NotContain(["acr", "amr", "auth_time"]);
     }
 
     [Fact]
@@ -629,11 +648,23 @@ public sealed class SignInApiTests
     {
         using var factory = Factory();
         factory.CreateClient();
+        var oidc = factory.Services.GetRequiredService<IOptionsMonitor<OpenIdConnectOptions>>().Get(OpenIdConnectDefaults.AuthenticationScheme);
+
+        var identity = UserInformation(oidc, Answer("groups"));
+
+        oidc.GetClaimsFromUserInfoEndpoint.Should().BeFalse();
+        identity.Claims.Select(claim => claim.Type).Should().NotContain(["groups", "preferred_username"]);
+    }
+
+    [Fact]
+    public void Without_any_scope_configured_the_provider_is_asked_for_openid_and_profile()
+    {
+        using var factory = Factory();
+        factory.CreateClient();
 
         var oidc = factory.Services.GetRequiredService<IOptionsMonitor<OpenIdConnectOptions>>().Get(OpenIdConnectDefaults.AuthenticationScheme);
 
-        oidc.GetClaimsFromUserInfoEndpoint.Should().BeFalse();
-        oidc.ClaimActions.OfType<JsonKeyClaimAction>().Select(action => action.JsonKey).Should().NotContain("groups");
+        oidc.Scope.Should().Equal("openid", "profile");
     }
 
     [Fact]
@@ -653,26 +684,88 @@ public sealed class SignInApiTests
 
     // --- the interface is served: the sign-in has no route in the page's fallback
 
-    [Fact]
-    public async Task A_route_of_the_sign_in_that_is_not_there_is_a_404_and_never_the_page_of_the_interface()
+    private static async Task<string> WebRootWithAPage()
     {
         var webRoot = Directory.CreateTempSubdirectory("orchestrarr-web-").FullName;
         await File.WriteAllTextAsync(Path.Combine(webRoot, "index.html"), "<html>the interface</html>", Ct);
+        return webRoot;
+    }
+
+    [Theory]
+    [InlineData("/auth")]
+    [InlineData("/auth/")]
+    [InlineData("/auth/me")]
+    [InlineData("/auth/anything/else")]
+    public async Task A_route_of_the_sign_in_that_is_not_there_is_a_404_and_never_the_page_of_the_interface(string path)
+    {
+        var webRoot = await WebRootWithAPage();
         try
         {
             // The sign-in is not on (the sandbox): /auth/me would otherwise be answered with the page, a 200 that is not JSON
-            using var factory = new ForgeApiFactory { Settings = new Dictionary<string, string?> { ["webroot"] = webRoot } };
-            var client = factory.CreateClient();
+            using (var factory = new ForgeApiFactory { Settings = new Dictionary<string, string?> { ["webroot"] = webRoot } })
+            {
+                var client = factory.CreateClient();
 
-            (await client.GetAsync("/auth/me", Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
-            (await client.GetAsync("/auth/anything/else", Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
-            var page = await client.GetAsync("/queue", Ct);
-            page.StatusCode.Should().Be(HttpStatusCode.OK);
-            (await page.Content.ReadAsStringAsync(Ct)).Should().Contain("the interface");
+                (await client.GetAsync(path, Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+                var page = await client.GetAsync("/queue", Ct);
+                page.StatusCode.Should().Be(HttpStatusCode.OK);
+                (await page.Content.ReadAsStringAsync(Ct)).Should().Contain("the interface");
+            }
         }
         finally
         {
             Directory.Delete(webRoot, recursive: true);
         }
     }
+
+    [Fact]
+    public async Task With_the_sign_in_on_and_the_interface_served_the_sign_in_routes_still_win_and_an_unknown_one_is_a_404()
+    {
+        var webRoot = await WebRootWithAPage();
+        try
+        {
+            using (var factory = Factory(settings => settings["webroot"] = webRoot))
+            {
+                var signedIn = Client(factory, Operator);
+
+                (await Client(factory).GetAsync("/auth/login", Ct)).StatusCode.Should().Be(HttpStatusCode.Redirect);
+                (await signedIn.GetAsync("/auth/me", Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+                (await signedIn.GetAsync("/auth/anything/else", Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+                (await signedIn.GetAsync("/auth/logout", Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound); // a link is not a sign out: only the POST is there
+                (await Client(factory).GetAsync("/queue", Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+            }
+        }
+        finally
+        {
+            Directory.Delete(webRoot, recursive: true);
+        }
+    }
+
+    // --- a bug is not an outage
+
+    [Theory]
+    [MemberData(nameof(Faults))]
+    public void Only_what_a_provider_that_does_not_answer_throws_is_told_as_an_outage(Exception failure, bool aborted, bool outage)
+    {
+        using var abort = new CancellationTokenSource();
+        if (aborted)
+        {
+            abort.Cancel();
+        }
+
+        SignInEndpoints.IsProviderUnreachable(failure, abort.Token).Should().Be(outage);
+    }
+
+    public static TheoryData<Exception, bool, bool> Faults => new()
+    {
+        { new HttpRequestException("refused"), false, true },
+        { new IOException("reset"), false, true },
+        { new InvalidOperationException("IDX20803", new HttpRequestException("refused")), false, true },
+        { new InvalidOperationException("IDX20803", new IOException("reset")), false, true },
+        { new TaskCanceledException("timeout"), false, true },
+        { new TaskCanceledException("the client left"), true, false },
+        { new InvalidOperationException("no scheme"), false, false },
+        { new NullReferenceException(), false, false },
+        { new ArgumentException("bad"), false, false },
+    };
 }

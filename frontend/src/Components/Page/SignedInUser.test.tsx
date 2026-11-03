@@ -37,6 +37,12 @@ describe('SignedInUser', () => {
     expect(form).toHaveAttribute('action', '/auth/logout');
   });
 
+  it('says an unknown account when the session has no name at all', async () => {
+    await renderBeside({ name: null, canRead: false, isOperator: false });
+
+    expect(await screen.findByText('Signed in as an unknown account')).toBeInTheDocument();
+  });
+
   it('offers the way out to an account that the API refuses', async () => {
     await renderBeside({ name: 'carol', canRead: false, isOperator: false });
 
