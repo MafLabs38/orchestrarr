@@ -5,7 +5,7 @@ namespace Orchestrarr.Host.Approvals;
 /// <summary>
 /// What keeps the sandbox operator (no sign-in) in the sandbox. It is refused unless the environment is Development <em>and</em> the host
 /// listens only on the loopback, on every way an address can be given, and the addresses that were really bound are checked once the host
-/// started. The two routes that record something also answer only to a direct address (see <see cref="IsDirectHost"/>).
+/// started. The two routes that record something also answer only to a local request (see <see cref="IsLocalRequest"/>).
 /// </summary>
 internal static class SandboxGuard
 {
@@ -78,11 +78,6 @@ internal static class SandboxGuard
         };
     }
 
-    // What follows a host: nothing, or a colon and a number
-    private static bool IsPort(string text) => text.Length == 0 || (text[0] == ':' && text.Length > 1 && text.Skip(1).All(char.IsAsciiDigit));
-
-    private static IEnumerable<string> Split(string? urls) =>
-        (urls ?? string.Empty).Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
     /// <summary>
     /// Stops the host once it has started if it listens beyond the loopback, whatever the configuration said: the guard of the
@@ -106,13 +101,22 @@ internal static class SandboxGuard
     }
 
     /// <summary>
-    /// A request made to an IP address or to <c>localhost</c>. A page that is reached by a name (a DNS rebinding to the loopback) is not
-    /// direct: the name is the attacker's.
+    /// A request that the sandbox operator may serve: made to <c>localhost</c> or a loopback address, and coming from the loopback itself. A
+    /// page reached by a name (a DNS rebinding) is refused, and so is a request that arrived over the network, whatever <c>Host</c> it
+    /// claims: the sandbox is reached from the machine it runs on, or through a tunnel that ends there.
     /// </summary>
-    public static bool IsDirectHost(HttpContext context)
+    public static bool IsLocalRequest(HttpContext context)
     {
         var host = context.Request.Host.Host;
-        return host.Equals("localhost", StringComparison.OrdinalIgnoreCase) || IPAddress.TryParse(host.Trim('[', ']'), out _);
+        var hostIsLoopback = host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+            || (IPAddress.TryParse(host.Trim('[', ']'), out var address) && IPAddress.IsLoopback(address));
+        var remote = context.Connection.RemoteIpAddress;
+        return hostIsLoopback && remote is not null && IPAddress.IsLoopback(remote);
     }
 
+    // What follows a host: nothing, or a colon and a number
+    private static bool IsPort(string text) => text.Length == 0 || (text[0] == ':' && text.Length > 1 && text.Skip(1).All(char.IsAsciiDigit));
+
+    private static IEnumerable<string> Split(string? urls) =>
+        (urls ?? string.Empty).Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 }

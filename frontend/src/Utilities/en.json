@@ -172,6 +172,6 @@
   "ApprovalErrorAuditUnavailable": "The audit trail cannot be written, so nothing is approved.",
   "ApprovalErrorUnknown": "The approval was refused.",
   "ApprovalErrorPlanChanged": "The pull requests changed since you looked at them: read the card again, then approve.",
-  "ApprovalErrorHostNotAllowed": "Approving is only possible from a direct address of the server, not from a name.",
+  "ApprovalErrorHostNotAllowed": "Approving is only possible from the machine the server runs on, or through a tunnel that ends there.",
   "ApprovalPullRequestsNotReadHint": "The pull requests are not read yet, or only an old list is left: nothing can be approved on a list that is not read."
 }

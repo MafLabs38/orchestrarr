@@ -588,11 +588,14 @@ public sealed class ApprovalsApiTests
     [Theory]
     [InlineData("evil.example", HttpStatusCode.Forbidden)]
     [InlineData("rebound.attacker.example:7878", HttpStatusCode.Forbidden)]
+    [InlineData("10.0.0.10:5178", HttpStatusCode.Forbidden)]
+    [InlineData("0.0.0.0:7878", HttpStatusCode.Forbidden)]
     [InlineData("127.0.0.1:7878", HttpStatusCode.Created)]
-    [InlineData("10.0.0.10:5178", HttpStatusCode.Created)]
+    [InlineData("127.0.0.2:7878", HttpStatusCode.Created)]
     [InlineData("localhost:7878", HttpStatusCode.Created)]
+    [InlineData("LOCALHOST:7878", HttpStatusCode.Created)]
     [InlineData("[::1]:7878", HttpStatusCode.Created)]
-    public async Task The_routes_that_record_something_answer_only_to_a_direct_address_not_to_a_name(string host, HttpStatusCode expected)
+    public async Task The_routes_that_record_something_answer_only_to_a_local_name_or_address(string host, HttpStatusCode expected)
     {
         using var factory = new ForgeApiFactory();
         var client = factory.CreateClient();
@@ -607,6 +610,42 @@ public sealed class ApprovalsApiTests
         {
             (await ErrorOf(response)).Should().Be("hostNotAllowed");
         }
+    }
+
+    [Theory]
+    [InlineData("10.0.0.30")]
+    [InlineData("203.0.113.9")]
+    [InlineData("::ffff:10.0.0.30")]
+    public async Task A_client_from_the_network_cannot_approve_or_stop_whatever_host_it_claims(string remote)
+    {
+        using var factory = new ForgeApiFactory { ServiceOverrides = EngagedStop };
+        var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Host = "localhost"; // what a LAN client sends through a proxy that listens on the network
+        client.DefaultRequestHeaders.Add(RemoteAddressFilter.Header, remote);
+
+        var approve = await Approve(client);
+        var release = await Stop(client, false);
+
+        approve.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        release.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await ErrorOf(release)).Should().Be("hostNotAllowed");
+        client.DefaultRequestHeaders.Remove(RemoteAddressFilter.Header);
+        (await StopIsEngaged(client)).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_client_with_no_known_address_is_refused()
+    {
+        using var factory = new ForgeApiFactory();
+        var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add(RemoteAddressFilter.Header, "not-an-address");
+
+        // The filter then gives it the loopback; the point is that an absent address (null) never passes, which the guard checks itself
+        var context = new DefaultHttpContext();
+        context.Request.Host = new HostString("localhost");
+
+        SandboxGuard.IsLocalRequest(context).Should().BeFalse();
+        (await Approve(client)).StatusCode.Should().Be(HttpStatusCode.Created);
     }
 
     [Fact]

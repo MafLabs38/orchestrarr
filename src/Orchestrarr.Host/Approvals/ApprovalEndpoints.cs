@@ -71,14 +71,14 @@ internal static class ApprovalEndpoints
     public static ApprovalStatus StatusOf(IApproverAccessor accessor, HttpContext context, IKillSwitchControl killSwitch) =>
         new(accessor.Mode.ToString().ToLowerInvariant(), accessor.Mode != ApprovalsMode.Disabled, accessor.Current(context)?.Subject, killSwitch.Engaged);
 
-    // Who may call the two routes that record something: approving turned on, a direct address, somebody signed in.
+    // Who may call the two routes that record something: approving turned on, a local request, somebody signed in.
     private static (Approver? Approver, IResult? Refusal) Authorize(IApproverAccessor accessor, HttpContext context)
     {
         if (accessor.Mode == ApprovalsMode.Disabled)
         {
             return (null, Error(ApiErrors.ApprovalsDisabled, StatusCodes.Status403Forbidden));
         }
-        if (accessor.Mode == ApprovalsMode.Development && !SandboxGuard.IsDirectHost(context))
+        if (accessor.Mode == ApprovalsMode.Development && !SandboxGuard.IsLocalRequest(context))
         {
             return (null, Error(ApiErrors.HostNotAllowed, StatusCodes.Status403Forbidden));
         }

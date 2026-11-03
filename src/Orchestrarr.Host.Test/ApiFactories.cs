@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -61,6 +62,27 @@ public sealed class FailingApiFactory : WebApplicationFactory<Program>
 }
 
 /// <summary>The sample host with a forge that answers for every repository, or fails with a given exception.</summary>
+/// <summary>
+/// The test server has no network: this gives each request the address of its client. By default the loopback (the maintainer's own
+/// machine); a test that wants a client from the network says so with the <c>X-Test-Remote</c> header.
+/// </summary>
+internal sealed class RemoteAddressFilter : IStartupFilter
+{
+    public const string Header = "X-Test-Remote";
+
+    public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
+    {
+        app.Use((context, pipeline) =>
+        {
+            context.Connection.RemoteIpAddress = context.Request.Headers.TryGetValue(Header, out var remote) && System.Net.IPAddress.TryParse(remote, out var address)
+                ? address
+                : System.Net.IPAddress.Loopback;
+            return pipeline(context);
+        });
+        next(app);
+    };
+}
+
 public sealed class ForgeApiFactory : WebApplicationFactory<Program>
 {
     public Func<Exception>? Failure { get; init; }
@@ -90,6 +112,7 @@ public sealed class ForgeApiFactory : WebApplicationFactory<Program>
             services.RemoveAll<IPullRequestSource>();
             services.AddSingleton<IPullRequestSource>(new FakeForge(Failure));
             ServiceOverrides?.Invoke(services);
+            services.AddSingleton<IStartupFilter, RemoteAddressFilter>();
         });
     }
 

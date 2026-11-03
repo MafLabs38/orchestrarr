@@ -35,13 +35,15 @@ Needs the .NET 10 SDK and Node 22.
 # API, with the sample data of samples/ (http://127.0.0.1:7878)
 dotnet run --project src/Orchestrarr.Host
 
-# Interface with hot reload (http://127.0.0.1:5178), proxying /api to the API
+# Interface with hot reload (http://127.0.0.1:5178, on the loopback only), proxying /api to the API
 cd frontend && yarn install && yarn dev
 
 # Tests and lint (see docs/TESTING.md)
 dotnet test --solution Orchestrarr.slnx && dotnet format Orchestrarr.slnx --verify-no-changes
 cd frontend && yarn test && yarn lint && yarn stylelint && yarn format:check && yarn typecheck
 ```
+
+**To use the sandbox from another machine**, forward its port instead of opening it: `ssh -L 5178:127.0.0.1:5178 <host>`, or the port forwarding of your editor, then open `http://localhost:5178`. The sandbox operator has no sign-in, so the host and the interface listen on the loopback only, and the routes that record something refuse anything that did not come from there. Do not start the interface with `--host 0.0.0.0`.
 
 To read a real Portarr instead of the sample, set `Portarr:BaseUrl` and give the key as `Portarr:ApiKey` through the environment (`Portarr__ApiKey`) or `dotnet user-secrets`: the key never goes in a file that is committed. Redirects are not followed, so the key only goes to that address; use https or a private network.
 
@@ -78,7 +80,7 @@ Approval answers: `201` recorded; `401` `notSignedIn`; `403` `approvalsDisabled`
 | `WorkItems:CacheDuration`, `MinRefreshInterval` | 30 s, 5 s | How long the list is kept, and the shortest gap between refreshes |
 | `WorkItems:ForgeFirstWait`, `ForgeTimeBudget`, `ForgeParallelism` | 3 s, 60 s, 4 | How the forge is read in the background |
 | `Powers:Grants` | none | What the operator grants: a list of `{ "Repository": "owner/name" or "*", "Steps": ["validate", "mergePullRequests"] }`. Off until listed. Checked at startup; outside Development a `*` grant may only cover `validate` |
-| `Approvals:Mode`, `Approvals:DevelopmentUser` | `Disabled`, `dev-operator` | `Disabled`: nobody can approve. `Development`: a fixed sandbox operator with no sign-in; **the host will not start** with it outside the Development environment or unless it listens on the loopback, and the routes that record something answer only to an IP address or `localhost` |
+| `Approvals:Mode`, `Approvals:DevelopmentUser` | `Disabled`, `dev-operator` | `Disabled`: nobody can approve. `Development`: a fixed sandbox operator with no sign-in; **the host will not start** with it outside the Development environment or unless it listens on the loopback, and the routes that record something answer only to a local request (`localhost` or a loopback address, from a client on the loopback) |
 | `Approvals:QueueCapacity`, `Approvals:AuditCapacity` | 500, 2000 | How many approvals and trail entries are kept (in memory) before refusing |
 | `Fleet:SampleFile`, `Forge:SamplePullRequestsFile` | Development only | Sample data of `samples/`; a configured Portarr or token wins over them |
 
