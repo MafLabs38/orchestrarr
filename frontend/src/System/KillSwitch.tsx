@@ -8,7 +8,7 @@ import translate from 'Utilities/translate';
 
 // Why there is no button: approving is off, or the person is not an operator
 function whyNoButton(approvals: ApprovalStatus): string {
-  return translate(approvals.enabled ? 'KillSwitchOperatorsOnly' : 'KillSwitchUnavailable');
+  return translate(approvals.enabled ? 'KillSwitchOperatorsOnly' : 'KillSwitchNoOperator');
 }
 
 const refusals = {

@@ -21,10 +21,10 @@ public sealed record ActivityDto(int Id, DateTimeOffset At, string Event, string
 public sealed record KillSwitchRequest(bool Engaged);
 
 /// <summary>The global stop: engaged or not, and whether an engagement is saved (false: held only in memory, it would not survive a restart).</summary>
-public sealed record SafetyDto(bool KillSwitchEngaged, bool Saved = true);
+public sealed record SafetyDto(bool KillSwitchEngaged, bool Saved);
 
 /// <summary>
 /// What <c>GET /api/v1/system/status</c> says about approving: the mode, who is signed in (the identifier that counts, and the name to show), whether
 /// they are an operator (the interface offers approving and the stop to nobody else), and the global stop (engaged, and whether it is saved).
 /// </summary>
-public sealed record ApprovalStatus(string Mode, bool Enabled, string? Operator, string? OperatorName, bool IsOperator, bool KillSwitchEngaged, bool KillSwitchSaved = true);
+public sealed record ApprovalStatus(string Mode, bool Enabled, string? Operator, string? OperatorName, bool IsOperator, bool KillSwitchEngaged, bool KillSwitchSaved);

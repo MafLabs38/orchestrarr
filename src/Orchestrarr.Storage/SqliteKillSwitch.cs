@@ -20,17 +20,20 @@ public sealed class SqliteKillSwitch(SqliteDatabase database, int auditCapacity,
     // An engagement that could not be saved: it holds until a release is saved
     private volatile bool _held;
 
+    // Engagements waiting for the file, or for a release that has it: they count from the moment they are asked for, and a release that finishes first cannot undo them
+    private int _engaging;
+
     // Whether the last read failed, so that a broken file is logged once and not on every poll of the status
     private volatile bool _unreadable;
 
-    public bool Engaged => _held || ReadEngaged();
+    public bool Engaged => _engaging > 0 || _held || ReadEngaged();
 
-    public bool Saved => !_held;
+    public bool Saved => _engaging == 0 && !_held;
 
     public ValueTask<bool> IsEngagedAsync(CancellationToken cancellationToken) => ValueTask.FromResult(Engaged);
 
-    /// <summary>Changes the stop without tracing it: for what is not a decision of a person (tests).</summary>
-    public void Set(bool engaged)
+    /// <summary>Changes the stop without tracing it: for the tests, which need a stop in a given state. Production goes through <see cref="ChangeAsync"/>.</summary>
+    internal void Set(bool engaged)
     {
         // One change at a time: an engage and a release at once cannot leave the memory and the file disagreeing
         lock (_gate)
@@ -57,55 +60,71 @@ public sealed class SqliteKillSwitch(SqliteDatabase database, int auditCapacity,
     public ValueTask<KillSwitchChange> ChangeAsync(bool engaged, AuditEntry entry, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(entry);
-        cancellationToken.ThrowIfCancellationRequested();
-        lock (_gate)
+        if (engaged)
+        {
+            // Engaging always takes effect, and a client that gave up is no reason to skip it: it counts from now, before it gets the file
+            Interlocked.Increment(ref _engaging);
+        }
+        else
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+        }
+        try
+        {
+            lock (_gate)
+            {
+                return ValueTask.FromResult(Write(engaged, entry));
+            }
+        }
+        finally
         {
             if (engaged)
             {
-                // It counts at once, before the write: while another writer holds the file, the stop does not wait for it
-                _held = true;
+                Interlocked.Decrement(ref _engaging);
             }
-            try
+        }
+    }
+
+    private KillSwitchChange Write(bool engaged, AuditEntry entry)
+    {
+        try
+        {
+            // The stop and its trace are one write: a failure leaves nothing to undo, and a crash cannot leave a release without its trace
+            var change = database.InWriteTransaction(connection =>
             {
-                // The stop and its trace are one write: a failure leaves nothing to undo, and a crash cannot leave a release without its trace
-                var change = database.InWriteTransaction(connection =>
+                var traced = AuditCapacityPolicy.Fits(auditCapacity, SqliteAuditLog.Count(connection), SqliteAuditLog.RefusalCount(connection), [entry]);
+                if (!engaged && !traced)
                 {
-                    var traced = AuditCapacityPolicy.Fits(auditCapacity, SqliteAuditLog.Count(connection), SqliteAuditLog.RefusalCount(connection), [entry]);
-                    if (!engaged && !traced)
-                    {
-                        return (false, KillSwitchChange.NotTraced);
-                    }
-                    Save(connection, engaged);
-                    if (traced)
-                    {
-                        SqliteAuditLog.Insert(connection, entry);
-                    }
-                    return (true, traced ? KillSwitchChange.Applied : KillSwitchChange.AppliedUntraced);
-                });
-                if (change != KillSwitchChange.NotTraced)
-                {
-                    _held = false;
+                    return (false, KillSwitchChange.NotTraced);
                 }
-                else
+                Save(connection, engaged);
+                if (traced)
                 {
-                    _logger.LogError("The global stop cannot be released: its release cannot be written to the audit trail, so it stays engaged");
+                    SqliteAuditLog.Insert(connection, entry);
                 }
-                if (change == KillSwitchChange.AppliedUntraced)
-                {
-                    _logger.LogError("The global stop is engaged, but the audit trail is full and cannot trace it");
-                }
-                return ValueTask.FromResult(change);
-            }
-            catch (Exception failure) when (failure is SqliteException or IOException or InvalidOperationException)
+                return (true, traced ? KillSwitchChange.Applied : KillSwitchChange.AppliedUntraced);
+            });
+            if (change == KillSwitchChange.NotTraced)
             {
-                _logger.LogError(failure, "The state of the global stop cannot be saved");
-                if (!engaged)
-                {
-                    return ValueTask.FromResult(KillSwitchChange.NotSaved);
-                }
-                _held = true;
-                return ValueTask.FromResult(KillSwitchChange.AppliedUntraced);
+                _logger.LogError("The global stop cannot be released: its release cannot be written to the audit trail, so it stays engaged");
+                return change;
             }
+            _held = false;
+            if (change == KillSwitchChange.AppliedUntraced)
+            {
+                _logger.LogError("The global stop is engaged, but the audit trail is full and cannot trace it");
+            }
+            return change;
+        }
+        catch (Exception failure) when (SqliteDatabase.IsUnavailable(failure))
+        {
+            _logger.LogError(failure, "The state of the global stop cannot be saved");
+            if (!engaged)
+            {
+                return KillSwitchChange.NotSaved;
+            }
+            _held = true;
+            return KillSwitchChange.AppliedUntraced;
         }
     }
 
@@ -121,7 +140,7 @@ public sealed class SqliteKillSwitch(SqliteDatabase database, int auditCapacity,
             _unreadable = false;
             return engaged;
         }
-        catch (Exception failure) when (failure is SqliteException or IOException or InvalidOperationException)
+        catch (Exception failure) when (SqliteDatabase.IsUnavailable(failure))
         {
             if (!_unreadable)
             {
@@ -140,7 +159,7 @@ public sealed class SqliteKillSwitch(SqliteDatabase database, int auditCapacity,
             Save(connection, engaged);
             return true;
         }
-        catch (Exception failure) when (failure is SqliteException or IOException or InvalidOperationException)
+        catch (Exception failure) when (SqliteDatabase.IsUnavailable(failure))
         {
             _logger.LogError(failure, "The state of the global stop cannot be saved");
             return false;

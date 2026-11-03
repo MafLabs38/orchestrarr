@@ -408,6 +408,16 @@ public sealed class ApprovalsApiTests
         start.Should().Throw<InvalidOperationException>().WithMessage("*greater than zero*");
     }
 
+    [Fact]
+    public void A_trail_of_one_place_stops_the_host_from_starting_because_that_place_is_the_stops()
+    {
+        using var factory = new ForgeApiFactory { Settings = new Dictionary<string, string?> { ["Approvals:AuditCapacity"] = "1" } };
+
+        var start = () => factory.CreateClient();
+
+        start.Should().Throw<InvalidOperationException>().WithMessage("*at least 2*");
+    }
+
     [Theory]
     [InlineData("Kestrel:Endpoints:Web:Url", "http://0.0.0.0:7878")]
     [InlineData("HTTP_PORTS", "8080")]

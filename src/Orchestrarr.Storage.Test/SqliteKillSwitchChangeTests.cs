@@ -158,15 +158,16 @@ public sealed class SqliteKillSwitchChangeTests : IDisposable
     }
 
     [Fact]
-    public async Task A_cancelled_change_changes_nothing()
+    public async Task A_cancelled_release_changes_nothing_and_a_cancelled_engagement_still_engages()
     {
         var stop = new SqliteKillSwitch(_file.Open(), StoreLimits.FileAudit);
         using var cancelled = new CancellationTokenSource();
         await cancelled.CancelAsync();
 
-        var change = async () => await stop.ChangeAsync(true, Engaged(), cancelled.Token);
+        (await stop.ChangeAsync(true, Engaged(), cancelled.Token)).Should().Be(KillSwitchChange.Applied);
+        var release = async () => await stop.ChangeAsync(false, Released(), cancelled.Token);
 
-        await change.Should().ThrowAsync<OperationCanceledException>();
-        stop.Engaged.Should().BeFalse();
+        await release.Should().ThrowAsync<OperationCanceledException>();
+        stop.Engaged.Should().BeTrue();
     }
 }

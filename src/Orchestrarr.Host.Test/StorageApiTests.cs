@@ -182,9 +182,10 @@ public sealed class StorageApiTests : IDisposable
     [Fact]
     public async Task A_release_that_cannot_be_traced_is_refused_and_the_stop_stays_engaged_in_the_file()
     {
-        // A trail of one place: the engagement takes it, and the release has nowhere to be traced
-        using var factory = Sqlite(settings: new() { ["Approvals:AuditCapacity"] = "1" });
+        // A trail of two places, both taken by engagements: the release has nowhere to be traced
+        using var factory = Sqlite(settings: new() { ["Approvals:AuditCapacity"] = "2" });
         var client = factory.CreateClient();
+        (await client.PutAsJsonAsync("/api/v1/safety/kill-switch", new { engaged = true }, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
         (await client.PutAsJsonAsync("/api/v1/safety/kill-switch", new { engaged = true }, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
 
         var release = await client.PutAsJsonAsync("/api/v1/safety/kill-switch", new { engaged = false }, Ct);
@@ -192,14 +193,15 @@ public sealed class StorageApiTests : IDisposable
         release.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
         (await Json(release)).GetProperty("error").GetString().Should().Be("auditUnavailable");
         (await Json(await client.GetAsync("/api/v1/safety", Ct))).GetProperty("killSwitchEngaged").GetBoolean().Should().BeTrue();
-        new SqliteKillSwitch(SqliteDatabase.Open(DatabasePath), 1).Engaged.Should().BeTrue("the refused release left nothing in the file");
+        new SqliteKillSwitch(SqliteDatabase.Open(DatabasePath), 2).Engaged.Should().BeTrue("the refused release left nothing in the file");
     }
 
     [Fact]
     public async Task Engaging_does_not_wait_for_its_trace()
     {
-        using var factory = Sqlite(settings: new() { ["Approvals:AuditCapacity"] = "1" });
+        using var factory = Sqlite(settings: new() { ["Approvals:AuditCapacity"] = "2" });
         var client = factory.CreateClient();
+        await client.PutAsJsonAsync("/api/v1/safety/kill-switch", new { engaged = true }, Ct);
         await client.PutAsJsonAsync("/api/v1/safety/kill-switch", new { engaged = true }, Ct);
 
         var again = await client.PutAsJsonAsync("/api/v1/safety/kill-switch", new { engaged = true }, Ct);

@@ -15,7 +15,7 @@ public sealed class InMemoryKillSwitch(IAuditSink? audit = null) : IKillSwitchCo
 
     public bool Saved => true;
 
-    /// <summary>Changes the stop without tracing it: for what is not a decision of a person (tests, the sandbox's start).</summary>
+    /// <summary>Changes the stop without tracing it: for the tests, which need a stop in a given state. A person's decision goes through <see cref="ChangeAsync"/>.</summary>
     public void Set(bool engaged) => _engaged = engaged;
 
     public ValueTask<bool> IsEngagedAsync(CancellationToken cancellationToken) => ValueTask.FromResult(_engaged);
@@ -23,10 +23,12 @@ public sealed class InMemoryKillSwitch(IAuditSink? audit = null) : IKillSwitchCo
     public async ValueTask<KillSwitchChange> ChangeAsync(bool engaged, AuditEntry entry, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(entry);
-        await _gate.WaitAsync(cancellationToken);
+        // Engaging always takes effect, and a client that gave up is no reason to skip it
+        var token = engaged ? CancellationToken.None : cancellationToken;
+        await _gate.WaitAsync(token);
         try
         {
-            var traced = audit is null || await audit.TryRecordAsync(entry, cancellationToken);
+            var traced = audit is null || await audit.TryRecordAsync(entry, token);
             if (engaged)
             {
                 _engaged = true;

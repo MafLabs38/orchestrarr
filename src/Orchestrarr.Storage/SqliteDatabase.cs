@@ -117,6 +117,9 @@ public sealed class SqliteDatabase
         }
     }
 
+    /// <summary>What a file can do wrong: the storage cannot be used.</summary>
+    internal static bool IsUnavailable(Exception failure) => failure is SqliteException or IOException or InvalidOperationException;
+
     /// <summary>Turns what a file can do wrong into the one failure the product knows: the storage cannot be used.</summary>
     internal static T Guard<T>(Func<T> action)
     {
@@ -124,7 +127,7 @@ public sealed class SqliteDatabase
         {
             return action();
         }
-        catch (Exception failure) when (failure is SqliteException or IOException or InvalidOperationException)
+        catch (Exception failure) when (IsUnavailable(failure))
         {
             throw new StorageUnavailableException("The storage cannot be used.", failure);
         }

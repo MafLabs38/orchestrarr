@@ -31,7 +31,7 @@ public sealed class SqliteApprovalLedger(SqliteDatabase database, int queueCapac
         {
             return ValueTask.FromResult(database.InWriteTransaction(connection => Write(connection, approvals, entries)));
         }
-        catch (Exception failure) when (failure is SqliteException or IOException or InvalidOperationException)
+        catch (Exception failure) when (SqliteDatabase.IsUnavailable(failure))
         {
             _logger.LogError(failure, "The approvals and their trace cannot be written, so nothing is recorded");
             return ValueTask.FromResult(LedgerResult.Unavailable);

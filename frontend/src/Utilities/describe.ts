@@ -105,6 +105,7 @@ const events = {
   'approval.refused': 'EventApprovalRefused',
   'killswitch.engaged': 'EventKillSwitchEngaged',
   'killswitch.released': 'EventKillSwitchReleased',
+  'instance.created': 'EventInstanceCreated',
 } as const;
 
 // The words of an event of the audit trail; one the interface does not know is shown as the server names it.

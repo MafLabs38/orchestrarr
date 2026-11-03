@@ -42,7 +42,7 @@ public sealed class SqliteAuditLog(SqliteDatabase database, int capacity = Store
                 return (true, true);
             }));
         }
-        catch (Exception failure) when (failure is SqliteException or IOException or InvalidOperationException)
+        catch (Exception failure) when (SqliteDatabase.IsUnavailable(failure))
         {
             _logger.LogError(failure, "The audit trail cannot be written, so nothing is recorded");
             return ValueTask.FromResult(false);
