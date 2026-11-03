@@ -13,7 +13,7 @@ public sealed class SqliteDatabase
 {
     public static readonly TimeSpan DefaultBusyTimeout = TimeSpan.FromSeconds(5);
 
-    private const int SchemaVersion = 1;
+    // The version is the number of steps: one place to say it
 
     // The extended codes of a constraint, so that only a duplicate is read as "this decision is already there"
     private const int UniqueConstraint = 2067;
@@ -160,6 +160,14 @@ public sealed class SqliteDatabase
         }
     }
 
+    // The schema as ordered steps: step n brings a database of version n to version n + 1, and each runs in the transaction that sets the version.
+    // A new step is appended here, and SchemaVersion goes up with it.
+    private delegate void Step(SqliteConnection connection, bool created, bool startEngagedWhenNew, TimeProvider time);
+
+    private static readonly Step[] Steps = [CreateVersion1];
+
+    private static int SchemaVersion => Steps.Length;
+
     private void Migrate(bool startEngagedWhenNew, TimeProvider time)
     {
         using var connection = Connect();
@@ -169,12 +177,19 @@ public sealed class SqliteDatabase
         {
             throw new InvalidOperationException($"The database is of a newer version ({version}) than this program knows ({SchemaVersion}).");
         }
-        if (version == SchemaVersion)
+        IsNew = version == 0;
+        for (var from = version; from < SchemaVersion; from++)
         {
-            return;
+            using var transaction = connection.BeginTransaction();
+            Steps[from](connection, IsNew, startEngagedWhenNew, time);
+            Run(connection, string.Create(CultureInfo.InvariantCulture, $"PRAGMA user_version = {from + 1};"));
+            transaction.Commit();
         }
+    }
 
-        using var transaction = connection.BeginTransaction();
+    // Version 0 to 1: the tables, the triggers that keep the trail append-only and its counters, and the row of the stop
+    private static void CreateVersion1(SqliteConnection connection, bool created, bool startEngagedWhenNew, TimeProvider time)
+    {
         Run(connection, """
             CREATE TABLE IF NOT EXISTS approvals (
               id TEXT NOT NULL PRIMARY KEY,
@@ -213,17 +228,14 @@ public sealed class SqliteDatabase
               engaged INTEGER NOT NULL CHECK (engaged IN (0, 1))
             );
             """);
-        IsNew = version == 0;
         // The row of the stop is always there: a row that is missing later is unknown, and unknown counts as engaged. An engaged stop that was
         // already there stays engaged.
         Run(connection, string.Create(CultureInfo.InvariantCulture,
-            $"INSERT INTO kill_switch (id, engaged) VALUES (1, {(IsNew && startEngagedWhenNew ? 1 : 0)}) ON CONFLICT (id) DO UPDATE SET engaged = MAX(engaged, excluded.engaged);"));
-        if (IsNew && startEngagedWhenNew)
+            $"INSERT INTO kill_switch (id, engaged) VALUES (1, {(created && startEngagedWhenNew ? 1 : 0)}) ON CONFLICT (id) DO UPDATE SET engaged = MAX(engaged, excluded.engaged);"));
+        if (created && startEngagedWhenNew)
         {
             SqliteAuditLog.Insert(connection, AuditEvents.InstanceCreatedEntry(time.GetUtcNow(), "database"));
         }
-        Run(connection, string.Create(CultureInfo.InvariantCulture, $"PRAGMA user_version = {SchemaVersion};"));
-        transaction.Commit();
     }
 
     private static object? Scalar(SqliteConnection connection, string sql)

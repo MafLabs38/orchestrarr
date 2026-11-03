@@ -3,7 +3,7 @@ import Alert from 'Components/Alert';
 import Button from 'Components/Button';
 import { ApiRefusal } from 'Helpers/Hooks/sendJson';
 import { kinds } from 'Helpers/Props/kinds';
-import type { ApprovalStatus } from 'typings/api';
+import type { ApprovalStatus, StorageKind } from 'typings/api';
 import translate from 'Utilities/translate';
 
 // Why there is no button: approving is off, or the person is not an operator
@@ -27,13 +27,17 @@ function failureText(error: unknown): string {
 }
 
 // The global stop (SPEC D-43): engaged, nothing is approved and nothing launches. Only an operator can engage or release it.
-export default function KillSwitch({ approvals }: Readonly<{ approvals: ApprovalStatus }>) {
+export default function KillSwitch({
+  approvals,
+  storageKind,
+}: Readonly<{ approvals: ApprovalStatus; storageKind: StorageKind }>) {
   const killSwitch = useKillSwitch();
 
   return (
     <section aria-label={translate('KillSwitch')}>
       {approvals.killSwitchEngaged ? <Alert kind={kinds.DANGER}>{translate('KillSwitchEngaged')}</Alert> : null}
-      {approvals.killSwitchEngaged && !approvals.killSwitchSaved ? (
+      {/* In memory, nothing is kept by choice and the storage line says so: the warning is for a file that failed */}
+      {approvals.killSwitchEngaged && !approvals.killSwitchSaved && storageKind === 'sqlite' ? (
         <Alert kind={kinds.WARNING}>{translate('KillSwitchNotSaved')}</Alert>
       ) : null}
       {approvals.enabled && approvals.isOperator ? (

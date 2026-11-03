@@ -290,6 +290,18 @@ public sealed class StorageApiTests : IDisposable
         all.Should().HaveCount(2);
     }
 
+    [Fact]
+    public void A_second_host_on_the_same_file_stops_at_its_start()
+    {
+        using var first = Sqlite();
+        first.CreateClient();
+        using var second = Sqlite();
+
+        var start = () => second.CreateClient();
+
+        start.Should().Throw<InvalidOperationException>().Which.ToString().Should().Contain("only one host may write it");
+    }
+
     private Dictionary<string, string?> SqliteSettings() => new() { ["Storage:Provider"] = "Sqlite", ["Storage:Path"] = DatabasePath };
 
     private sealed class HeldInMemory : IKillSwitchControl

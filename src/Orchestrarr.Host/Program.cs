@@ -51,6 +51,7 @@ if (!storage.Persistent && approvals.Mode == ApprovalsMode.OpenIdConnect && !app
 if (storage.Persistent)
 {
     app.Services.GetRequiredService<SqliteDatabase>();
+    app.Services.GetRequiredService<SqliteWriterLock>();
 }
 SandboxGuard.StopIfListeningBeyondLoopback(app, approvals);
 

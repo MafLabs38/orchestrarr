@@ -83,6 +83,8 @@ internal static class ApprovalsServiceCollectionExtensions
         services
             // Opened when the host starts (Program asks for it), so that a file that cannot be used stops it there and not at the first approval
             .AddSingleton(provider => SqliteDatabase.Open(file.Path, file.StartEngagedWhenNew, provider.GetRequiredService<TimeProvider>()))
+            // One writer: held for the life of the host, taken once the folder exists
+            .AddSingleton(provider => { provider.GetRequiredService<SqliteDatabase>(); return SqliteWriterLock.Acquire(file.Path); })
             .AddSingleton<IApprovalStore>(provider => new SqliteApprovalStore(provider.GetRequiredService<SqliteDatabase>(), queueCapacity))
             .AddSingleton<IApprovalLedger>(provider => new SqliteApprovalLedger(provider.GetRequiredService<SqliteDatabase>(), provider.GetRequiredService<IKillSwitchControl>(), queueCapacity, auditCapacity, provider.GetService<ILogger<SqliteApprovalLedger>>()))
             .AddSingleton(provider => new SqliteKillSwitch(provider.GetRequiredService<SqliteDatabase>(), auditCapacity, provider.GetService<ILogger<SqliteKillSwitch>>()))

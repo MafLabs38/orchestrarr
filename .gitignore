@@ -65,3 +65,5 @@ frontend/reports/
 *.db-wal
 *.db-shm
 data/
+
+*.db.lock

@@ -71,7 +71,7 @@ export default function Status() {
             <dd>{storageName(data.storage.kind)}</dd>
             <dt>{translate('KillSwitch')}</dt>
             <dd>
-              <KillSwitch approvals={data.approvals} />
+              <KillSwitch approvals={data.approvals} storageKind={data.storage.kind} />
             </dd>
             <dt>{translate('Version')}</dt>
             <dd className={styles.mono}>{data.version}</dd>

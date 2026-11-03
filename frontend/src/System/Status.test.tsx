@@ -164,7 +164,12 @@ describe('Status', () => {
   });
 
   it('warns that an engaged stop that could not be saved would not survive a restart', async () => {
-    stubApi({ '/api/v1/system/status': status({}, { killSwitchEngaged: true, killSwitchSaved: false }) });
+    stubApi({
+      '/api/v1/system/status': {
+        ...status({}, { killSwitchEngaged: true, killSwitchSaved: false }),
+        storage: { kind: 'sqlite' },
+      },
+    });
 
     renderWithProviders(<Status />);
 
@@ -245,5 +250,14 @@ describe('Status', () => {
         expect.objectContaining({ method: 'PUT', body: '{"engaged":false}' }),
       ),
     );
+  });
+
+  it('does not warn about saving when everything is in memory by choice', async () => {
+    stubApi({ '/api/v1/system/status': status({}, { killSwitchEngaged: true, killSwitchSaved: false }) });
+
+    renderWithProviders(<Status />);
+
+    await screen.findByRole('button', { name: 'Release the global stop' });
+    expect(screen.queryByText(/do not count on it across a restart/)).not.toBeInTheDocument();
   });
 });
