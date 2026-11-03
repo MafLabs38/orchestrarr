@@ -45,6 +45,7 @@ Same as Portarr, so the three products share conventions:
 9. **Fix what the editor underlines before committing.** SonarLint is bound to the project on the SonarQube server ([docs/TESTING.md](docs/TESTING.md) §7): read the diagnostics of the files you changed (open in the editor, wait for the analysis) and fix the code smells, in addition to the command-line linters.
 10. **Never** commit secrets. Use `dotnet user-secrets` locally and GitHub Secrets in CI.
 11. **Decisions** get an ADR in `docs/adr/NNNN-title.md` and a `D-xx` row in the spec.
+12. **Work autonomously; interrupt the maintainer only for a real advance.** Never propose an intermediate or technical pull request (CI, dependencies, settings, documentation, scaffolding): prepare it, get it green and merge it yourself where the repository allows. Propose a pull request only when it is a real advance of a vertical, **with a demo** (a sandbox URL and what to try), after iterating until the work is good: no SonarQube or SonarLint finding, no major finding from the review agents, CI fully green. Check the real state (merged? green?) before saying anything.
 
 ## The constellation
 
