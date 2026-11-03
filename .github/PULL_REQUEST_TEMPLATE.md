@@ -29,6 +29,9 @@ Known limitations:
 - [ ] No power was added that merges, deploys or writes to a repository, or the maintainer decided it (ADR 0001)
 - [ ] No real infrastructure value, no secret (public repository)
 
+## Version
+The title of this pull request is a Conventional Commit and, once squash-merged into `develop`, decides the version of the next release (`feat` minor, `fix` patch): check that its type is the right one.
+
 ## Review
 <!-- Filled by the review-vertical skill: per agent (tests, quality, security, architecture), what was fixed and what was
      declined with its reason; test count and duration before and after. An architecture verdict of "no" blocks the PR. -->

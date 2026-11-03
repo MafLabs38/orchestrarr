@@ -93,6 +93,7 @@ In practice the operator rarely reads code: they check that the AI did not drift
 | 🟡 D-46 | **The control plane is small and only launches.** The API decides and signs; the **launcher** has no inbound port and **pulls** signed orders from the store; the agent run acts. An attacker cannot call the launcher, and only a signed, unexpired, unused order within the granted powers makes it do anything. |
 | 🟡 D-47 | **Whoever gives an order is authorized twice and is always a person**: the API checks the identity provider's token (operator role, step-up on production) before signing, the launcher checks the signature and the powers again. A service client cannot hold the operator role. |
 | 🟡 D-48 | **The dedicated Vault runs on the production cluster, like every production element**, deployed by the cluster's GitOps repository and configured by its own infrastructure repository. It starts sealed and is unsealed deliberately; the credential issued to a run for the cluster excludes the Vault's namespace. [ADR 0007](adr/0007-a-dedicated-vault-and-a-small-control-plane.md). |
+| 🟡 D-50 | **Releases are decided by semantic-release on `main`, which takes merge commits only**: the version comes from the Conventional Commits, the image is tagged with it, and the cluster's GitOps deploys the newest version tag. A squash of the release pull request would hide the commits, so the repository forbids it. [ADR 0009](adr/0009-releases-are-decided-by-semantic-release-from-main.md). |
 
 ---
 
@@ -248,6 +249,7 @@ User interface, deferred: the light theme (its accent text color is ready, nothi
 | Date | Change |
 |---|---|
 | 2026-11-01 | v0.1: first interview. Decisions D-01 to D-09 and D-14 frozen; D-10 to D-13 proposed. |
+| 2026-11-03 | v0.7 (amended): releases by semantic-release from `main`, merge commits only, deployed by GitOps (D-50, ADR 0009). |
 | 2026-11-03 | v0.7: the second vertical: the pull requests read from the forge (D-36 to D-38, ADR 0005), the screens as a list of applications, Q-18 (what a dependency pull request is). |
 | 2026-11-03 | v0.6 (amended): the dedicated Vault runs on the production cluster (D-48, Q-22 resolved, Q-23 opened; ADR 0007). |
 | 2026-11-03 | v0.6 (amended): a new Vault dedicated to this purpose and tied to the identity provider, the small control plane that only launches, the authorization of whoever gives an order (D-44 to D-47, Q-20 resolved, Q-22; ADR 0007). |
