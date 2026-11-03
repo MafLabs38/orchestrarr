@@ -3,7 +3,7 @@ import { render } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 
-import type { SystemStatus, WorkItem, WorkItemReport } from 'typings/api';
+import type { Finding, PlanStep, SystemStatus, WorkItem, WorkItemReport } from 'typings/api';
 
 export function renderWithProviders(ui: ReactElement) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -27,23 +27,43 @@ export function stubApi(routes: Record<string, unknown>) {
   return fetchMock;
 }
 
+// A fetch that never answers: the screen is still waiting.
+export function stubPendingApi() {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => new Promise<Response>(() => undefined)),
+  );
+}
+
+export const finding: Finding = {
+  kind: 'dependencyAlerts',
+  severity: 'danger',
+  count: 1,
+  alerts: { critical: 1, high: 0, medium: 0, low: 0 },
+  image: null,
+};
+
+export function step(overrides: Partial<PlanStep> = {}): PlanStep {
+  return {
+    kind: 'validate',
+    environmentId: null,
+    environmentName: null,
+    ticked: true,
+    available: true,
+    granted: false,
+    reason: null,
+    ...overrides,
+  };
+}
+
 export const workItem: WorkItem = {
   id: 'repository:example/shop',
   title: 'example/shop',
   repositoryFullName: 'example/shop',
   appIds: ['shop'],
   severity: 'danger',
-  findings: [{ kind: 'dependencyAlerts', severity: 'danger', count: 1, summary: '1 dependency alert (1 critical)' }],
-  plan: [
-    {
-      kind: 'validate',
-      label: 'Build and test the change',
-      environmentId: null,
-      ticked: true,
-      available: true,
-      reason: null,
-    },
-  ],
+  findings: [finding],
+  plan: [step()],
   placements: [],
 };
 

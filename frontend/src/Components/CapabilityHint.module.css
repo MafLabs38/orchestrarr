@@ -1,5 +1,5 @@
 .hint {
   margin: 0;
   color: var(--inkMuted);
-  font-size: 13px;
+  font-size: var(--fontSizeMeta);
 }

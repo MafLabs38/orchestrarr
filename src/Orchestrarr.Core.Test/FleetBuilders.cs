@@ -1,4 +1,5 @@
 using Orchestrarr.Core.Fleet;
+using Orchestrarr.Core.WorkItems;
 
 namespace Orchestrarr.Core.Test;
 
@@ -9,15 +10,17 @@ internal static class FleetBuilders
     public static RepositoryState Repository(
         string fullName = "example/app",
         bool archived = false,
+        bool fork = false,
         AlertCounts? dependencyAlerts = null,
+        AlertScanState dependencyScan = AlertScanState.On,
         AlertCounts? codeScanning = null,
         int secrets = 0,
         int pullRequests = 0,
         CiState ci = CiState.Passing,
         string[]? images = null)
     {
-        return new RepositoryState(fullName, null, archived, dependencyAlerts ?? AlertCounts.None, codeScanning ?? AlertCounts.None,
-            secrets, pullRequests, ci, [], images ?? []);
+        return new RepositoryState(fullName, null, archived, fork, new AlertScan(dependencyScan, dependencyAlerts ?? AlertCounts.None),
+            AlertScan.Of(codeScanning ?? AlertCounts.None), secrets, pullRequests, ci, [], images ?? []);
     }
 
     public static ImageState Image(
@@ -38,5 +41,10 @@ internal static class FleetBuilders
     public static FleetSnapshot Snapshot(IReadOnlyList<RepositoryState>? repositories = null, IReadOnlyList<ImageState>? images = null)
     {
         return new FleetSnapshot(Now, repositories ?? [], images ?? []);
+    }
+
+    public static IReadOnlyList<WorkItem> Build(FleetSnapshot fleet)
+    {
+        return WorkItemBuilder.Build(fleet, new NoPowers());
     }
 }

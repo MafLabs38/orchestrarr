@@ -1,4 +1,5 @@
-// The resources of the Orchestrarr API (GET /api/v1/...). Enums are camelCase strings.
+// The resources of the Orchestrarr API (GET /api/v1/...). Enums are camelCase strings. The server sends data and codes; the
+// interface words them (Utilities/describe.ts).
 
 export type Severity = 'info' | 'warning' | 'danger';
 
@@ -8,24 +9,45 @@ export type FindingKind =
   | 'secretScanningAlerts'
   | 'openDependencyPullRequests'
   | 'failingCi'
-  | 'outdatedImage';
+  | 'outdatedImage'
+  | 'dependencyScanUnavailable';
+
+export interface AlertCounts {
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+}
+
+export type ImageChange = 'none' | 'build' | 'patch' | 'minor' | 'major';
+
+export interface ImageUpdate {
+  reference: string;
+  current: string | null;
+  latest: string | null;
+  change: ImageChange;
+}
 
 export interface Finding {
   kind: FindingKind;
   severity: Severity;
   count: number;
-  summary: string;
+  alerts: AlertCounts | null;
+  image: ImageUpdate | null;
 }
 
-export type StepKind = 'validate' | 'merge' | 'deploy';
+export type StepKind = 'validate' | 'mergePullRequests' | 'mergeFix' | 'deploy';
+
+export type StepReason = 'noPlacement';
 
 export interface PlanStep {
   kind: StepKind;
-  label: string;
   environmentId: string | null;
+  environmentName: string | null;
   ticked: boolean;
   available: boolean;
-  reason: string | null;
+  granted: boolean;
+  reason: StepReason | null;
 }
 
 export interface Placement {
@@ -46,16 +68,18 @@ export interface WorkItem {
   placements: Placement[];
 }
 
+export type SourceError = 'failed' | 'unreachable' | 'unauthorized' | 'timeout' | 'invalidResponse';
+
 export interface WorkItemReport {
   readAt: string | null;
   sourceKind: string;
   items: WorkItem[];
-  error: string | null;
+  error: SourceError | null;
   stale: boolean;
 }
 
 export interface SystemStatus {
   name: string;
   version: string;
-  source: { kind: string; configured: boolean; readAt: string | null; error: string | null; stale: boolean };
+  source: { kind: string; configured: boolean; readAt: string | null; error: SourceError | null; stale: boolean };
 }

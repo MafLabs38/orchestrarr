@@ -10,7 +10,9 @@ public sealed class EmptyFleetSource : IFleetSource
         _time = time;
     }
 
-    public string Kind => "none";
+    public string Kind => FleetSourceKinds.None;
+
+    public bool Configured => false;
 
     public Task<FleetSnapshot> ReadAsync(CancellationToken cancellationToken)
     {

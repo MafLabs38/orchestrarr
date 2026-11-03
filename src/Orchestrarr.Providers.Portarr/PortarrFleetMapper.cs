@@ -21,6 +21,7 @@ internal static class PortarrFleetMapper
             FullName: repository.FullName,
             Url: repository.Url,
             Archived: repository.Archived,
+            Fork: repository.Fork,
             DependencyAlerts: MapAlerts(repository.Dependabot),
             CodeScanningAlerts: MapAlerts(repository.CodeScanning),
             SecretScanningAlerts: repository.SecretScanning?.Total ?? 0,
@@ -30,10 +31,22 @@ internal static class PortarrFleetMapper
             ImageReferences: repository.Images ?? []);
     }
 
-    // "Other" alerts have no severity: they are not counted, as Portarr does not rank them either
-    private static AlertCounts MapAlerts(PortarrAlertScan? scan)
+    // "Other" alerts have no severity: they are not counted, as Portarr does not rank them either. A scan that is off or unknown
+    // is not a clean repository, and a missing scan is unknown.
+    private static AlertScan MapAlerts(PortarrAlertScan? scan)
     {
-        return scan is null ? AlertCounts.None : new AlertCounts(scan.Critical, scan.High, scan.Medium, scan.Low);
+        if (scan is null)
+        {
+            return new AlertScan(AlertScanState.Unknown, AlertCounts.None);
+        }
+
+        var state = scan.State?.ToLowerInvariant() switch
+        {
+            "on" => AlertScanState.On,
+            "off" => AlertScanState.Off,
+            _ => AlertScanState.Unknown,
+        };
+        return new AlertScan(state, new AlertCounts(scan.Critical, scan.High, scan.Medium, scan.Low));
     }
 
     private static CiState MapCi(PortarrCiRun? run)

@@ -12,7 +12,7 @@ This file is read automatically by Claude Code. It applies to every task in this
 |---|---|
 | [docs/VISION.md](docs/VISION.md) | Always: why this exists, what it must do, safety model, open questions |
 | [docs/TESTING.md](docs/TESTING.md) | Before writing or changing tests, or the pipeline: the strategy, the lanes, the thresholds |
-| [docs/SPEC.md](docs/SPEC.md) | Always: frozen decisions `D-xx`, features `F-xx`, open questions `Q-xx` (same format as Portarr's). Draft v0.1 from the first interview |
+| [docs/SPEC.md](docs/SPEC.md) | Always: frozen decisions `D-xx`, features `F-xx`, open questions `Q-xx` (same format as Portarr's). Draft, from the first interviews |
 
 ## Tech stack
 
@@ -22,7 +22,7 @@ Same as Portarr, so the three products share conventions:
 - **Frontend**: React, TypeScript (strict), Vite, TanStack Query, CSS Modules
 - **Tests**: xUnit v3 + NSubstitute + AwesomeAssertions, Vitest + Testing Library, Playwright (see [docs/TESTING.md](docs/TESTING.md))
 - **Quality**: analyzers as errors and `dotnet format`, ESLint (SonarJS), Stylelint, Prettier, SonarQube, CodeQL, gitleaks, Trivy, Stryker, the four review agents. Same as Portarr
-- **CI/CD**: GitHub Actions, single multi-arch container image on GHCR
+- **CI/CD**: GitHub Actions, a single container image on GHCR (amd64 now, multi-arch when a target needs it)
 - Agent runtime (Claude Code headless, Agent SDK, Managed Agents…) and where workers run: **undecided**, see the open questions.
 
 ## Non-negotiable rules

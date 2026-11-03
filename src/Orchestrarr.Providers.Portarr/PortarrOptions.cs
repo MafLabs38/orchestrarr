@@ -1,16 +1,21 @@
 namespace Orchestrarr.Providers.Portarr;
 
-/// <summary>Settings of the Portarr provider (<c>Portarr</c> section). With neither a URL nor a sample file, the provider reads nothing.</summary>
+/// <summary>Settings of the Portarr provider (<c>Portarr</c> section). Without a <see cref="BaseUrl"/>, this provider is not used.</summary>
 public sealed class PortarrOptions
 {
     public const string SectionName = "Portarr";
 
-    /// <summary>Base address of a Portarr, for example <c>http://portarr:8484</c>.</summary>
+    /// <summary>Base address of a Portarr. Use https, or a private network: the key is sent in a header.</summary>
     public Uri? BaseUrl { get; set; }
 
-    /// <summary>The name of the environment variable that holds a Portarr API key. The key itself never goes in a file.</summary>
-    public string ApiKeyEnv { get; set; } = "ORCHESTRARR_PORTARR_APIKEY";
+    /// <summary>
+    /// A Portarr API key. Never put it in a file that is committed: use an environment variable (<c>Portarr__ApiKey</c>), a secret store
+    /// (<c>dotnet user-secrets</c>) or the secrets of the platform.
+    /// </summary>
+    public string? ApiKey { get; set; }
 
-    /// <summary>A JSON file with the shape of Portarr's maintenance report, read instead of a Portarr (demo, tests, offline).</summary>
-    public string? SampleFile { get; set; }
+    public int TimeoutSeconds { get; set; } = 20;
+
+    /// <summary>The largest report accepted: a source that answers with more is refused, not buffered.</summary>
+    public long MaxResponseBytes { get; set; } = 10 * 1024 * 1024;
 }

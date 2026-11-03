@@ -7,7 +7,7 @@
   border-radius: var(--radiusMedium);
   background: var(--paperCard);
   color: var(--ink);
-  font: 800 14px var(--defaultFontFamily);
+  font: 800 var(--fontSizeBody) var(--defaultFontFamily);
   cursor: pointer;
 }
 
@@ -26,6 +26,6 @@
 }
 
 .primary:not(:disabled):active {
-  transform: translateY(3px);
+  transform: translateY(var(--pressedOffset));
   box-shadow: var(--shadowPressed);
 }

@@ -1,5 +1,8 @@
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 
+// How often the screens read again; the server keeps a read for about as long (WorkItems:CacheDuration)
+export const refreshIntervalMs = 30_000;
+
 export class ApiError extends Error {
   constructor(
     public readonly status: number,

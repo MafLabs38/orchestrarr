@@ -38,12 +38,12 @@ describe('Decisions', () => {
     expect(screen.queryByText(/Nothing needs a decision/)).not.toBeInTheDocument();
   });
 
-  it('shows the error when the source cannot be read and there is nothing to show', async () => {
-    stubApi({ [path]: report({ items: [], error: 'Portarr is down' }) });
+  it('words the code of the error when the source cannot be read and there is nothing to show', async () => {
+    stubApi({ [path]: report({ items: [], error: 'unreachable' }) });
 
     renderWithProviders(<Decisions />);
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Cannot read the fleet: Portarr is down');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Cannot read the fleet: The source cannot be reached');
   });
 
   it('keeps the cards of the last read and warns when the last read failed', async () => {
@@ -52,7 +52,7 @@ describe('Decisions', () => {
     renderWithProviders(<Decisions />);
 
     expect(await screen.findByRole('heading', { name: 'example/shop' })).toBeInTheDocument();
-    expect(screen.getByRole('status')).toHaveTextContent('The last read failed: timeout');
+    expect(screen.getByRole('status')).toHaveTextContent('The last read failed: The source did not answer in time');
   });
 
   it('shows an error when the API itself answers with a failure', async () => {
@@ -72,5 +72,19 @@ describe('Decisions', () => {
 
     expect(await screen.findByText(/Nothing needs a decision/)).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(`${path}?refresh=true`, expect.anything());
+  });
+
+  it('never sends anything but a read, whatever the operator does', async () => {
+    const fetchMock = stubApi({ [path]: report(), [`${path}?refresh=true`]: report() });
+
+    renderWithProviders(<Decisions />);
+    await screen.findByRole('heading', { name: 'example/shop' });
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Build and test the change' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Approve and run' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(1);
+    const calls = fetchMock.mock.calls as unknown as [string, RequestInit | undefined][];
+    expect(calls.every(([, init]) => !init?.method || init.method === 'GET')).toBe(true);
   });
 });

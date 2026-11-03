@@ -15,7 +15,7 @@ Orchestrarr reads the findings of [Portarr](https://github.com/MafLabs38/portarr
 
 ## Repository settings
 
-The GitHub repository, its branches, rulesets and labels are declared as code in `repos/orchestrarr.yaml` of `MafLabs38/github-template`: change a setting with a pull request there, never in the GitHub settings. `ci.yml` is the CI of the first verticals; CodeQL is off in that file until its workflow is added (the ruleset waits for CodeQL results, so turning it on without the workflow blocks every merge).
+The GitHub repository, its branches, rulesets and labels are declared as code in `repos/orchestrarr.yaml` of `MafLabs38/github-template`: change a setting with a pull request there, never in the GitHub settings. `ci.yml`, `codeql.yml` and `mutation.yml` are the pipeline (see [docs/TESTING.md](docs/TESTING.md)). CodeQL runs but does not gate merges: the ruleset waits for CodeQL results, so a skipped CodeQL would block every merge.
 
 Before a push, check that no real infrastructure value slipped in (`gitleaks dir .`).
 
@@ -35,7 +35,9 @@ dotnet test --solution Orchestrarr.slnx && dotnet format Orchestrarr.slnx --veri
 cd frontend && yarn test && yarn lint && yarn stylelint && yarn format:check && yarn typecheck
 ```
 
-To read a real Portarr instead of the sample, set `Portarr:BaseUrl` and export a Portarr API key in `ORCHESTRARR_PORTARR_APIKEY` (the variable name is `Portarr:ApiKeyEnv`; the key itself never goes in a file).
+To read a real Portarr instead of the sample, set `Portarr:BaseUrl` and give the key as `Portarr:ApiKey` through the environment (`Portarr__ApiKey`) or `dotnet user-secrets`: the key never goes in a file that is committed. Redirects are not followed, so the key only goes to that address; use https or a private network.
+
+> **Security.** The API has **no authentication yet** (SPEC Q-12) and the image listens on all interfaces. It reads and shows the state of your fleet: put it behind an authenticating front (single sign-on, a private network) and do not publish its port.
 
 ## License
 

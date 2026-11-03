@@ -5,26 +5,28 @@ import PageContent from 'Components/Page/PageContent';
 import PageContentBody from 'Components/Page/PageContentBody';
 import PageHeading from 'Components/Page/PageHeading';
 import PageToolbar from 'Components/Page/PageToolbar';
-import useApiQuery from 'Helpers/Hooks/useApiQuery';
 import * as icons from 'Helpers/Props/icons';
 import { kinds } from 'Helpers/Props/kinds';
+import { iconSizes } from 'Helpers/Props/sizes';
 import type { WorkItemReport } from 'typings/api';
+import { describeError } from 'Utilities/describe';
 import formatTime from 'Utilities/formatTime';
 import translate from 'Utilities/translate';
 
 import DecisionCard from './DecisionCard';
 import styles from './Decisions.module.css';
-import useRefreshWorkItems, { workItemsPath } from './useRefreshWorkItems';
+import useRefreshWorkItems from './useRefreshWorkItems';
+import useWorkItems from './useWorkItems';
 
 export default function Decisions() {
-  const { data: report, error, isPending } = useApiQuery<WorkItemReport>(workItemsPath, { refetchInterval: 30_000 });
+  const { data: report, error, isPending } = useWorkItems();
   const refresh = useRefreshWorkItems();
 
   return (
     <PageContent title={translate('Decisions')}>
       <PageToolbar>
         <Button onClick={() => refresh.mutate()} disabled={refresh.isPending}>
-          <icons.REFRESH size={16} aria-hidden="true" />
+          <icons.REFRESH size={iconSizes.MEDIUM} aria-hidden="true" />
           {translate('Refresh')}
         </Button>
       </PageToolbar>
@@ -40,14 +42,17 @@ export default function Decisions() {
 
 function Report({ report }: { report: WorkItemReport }) {
   if (report.error && report.items.length === 0) {
-    return <Alert kind={kinds.DANGER}>{translate('CannotReadFleet', { error: report.error })}</Alert>;
+    return <Alert kind={kinds.DANGER}>{translate('CannotReadFleet', { error: describeError(report.error) })}</Alert>;
   }
 
   return (
     <>
       {report.stale && report.error ? (
         <Alert kind={kinds.WARNING}>
-          {translate('ShowingLastRead', { time: formatTime(report.readAt) ?? translate('Never'), error: report.error })}
+          {translate('ShowingLastRead', {
+            time: formatTime(report.readAt) ?? translate('Never'),
+            error: describeError(report.error),
+          })}
         </Alert>
       ) : null}
       {report.items.length === 0 ? (

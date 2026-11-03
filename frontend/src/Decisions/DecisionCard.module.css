@@ -7,7 +7,7 @@
 
 .title {
   margin: 0;
-  font: 700 20px var(--monoSpaceFontFamily);
+  font: 700 var(--fontSizeCardTitle) var(--monoSpaceFontFamily);
   word-break: break-all;
 }
 
@@ -20,7 +20,7 @@
   margin: 18px 0 6px;
   padding: 0;
   color: var(--inkMuted);
-  font: 800 12px var(--defaultFontFamily);
+  font: 800 var(--fontSizeMeta) var(--defaultFontFamily);
   text-transform: uppercase;
 }
 
@@ -79,7 +79,7 @@
 
 .reason {
   color: var(--inkMuted);
-  font-size: 13px;
+  font-size: var(--fontSizeMeta);
   font-style: italic;
 }
 
@@ -92,5 +92,5 @@
 
 .count {
   color: var(--inkSoft);
-  font-size: 13px;
+  font-size: var(--fontSizeMeta);
 }

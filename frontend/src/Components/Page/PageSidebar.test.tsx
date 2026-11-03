@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 
 import { renderWithProviders, report, stubApi, workItem } from 'testUtils';
 
@@ -19,12 +19,15 @@ describe('PageSidebar', () => {
     expect(screen.getByRole('link', { name: /Status/ })).toBeInTheDocument();
   });
 
-  it('shows no counter when nothing is waiting', async () => {
-    stubApi({ '/api/v1/work-items': report({ items: [] }) });
+  it('shows no counter when nothing is waiting, once the answer has arrived', async () => {
+    const fetchMock = stubApi({ '/api/v1/work-items': report({ items: [] }) });
 
     renderWithProviders(<PageSidebar />);
 
-    await screen.findByRole('link', { name: /Decisions/ });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    await waitFor(() => expect(fetchMock.mock.results.every((result) => result.type === 'return')).toBe(true));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.getByRole('link', { name: 'Decisions' })).toBeInTheDocument();
     expect(screen.queryByText('0')).not.toBeInTheDocument();
   });
 });

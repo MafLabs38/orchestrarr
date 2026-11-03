@@ -15,7 +15,9 @@ public sealed class SampleFleetSource : IFleetSource
         _time = time;
     }
 
-    public string Kind => "sample";
+    public string Kind => FleetSourceKinds.Sample;
+
+    public bool Configured => true;
 
     public async Task<FleetSnapshot> ReadAsync(CancellationToken cancellationToken)
     {

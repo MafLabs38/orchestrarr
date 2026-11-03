@@ -8,13 +8,13 @@
 
 /* a colored left edge says the severity, next to the label that says it in words */
 .danger {
-  border-left: 8px solid var(--dangerColor);
+  border-left: var(--severityBorderWidth) solid var(--dangerColor);
 }
 
 .warning {
-  border-left: 8px solid var(--warningColor);
+  border-left: var(--severityBorderWidth) solid var(--warningColor);
 }
 
 .info {
-  border-left: 8px solid var(--infoColor);
+  border-left: var(--severityBorderWidth) solid var(--infoColor);
 }

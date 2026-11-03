@@ -3,7 +3,8 @@ namespace Orchestrarr.Providers.Portarr;
 // The part of Portarr's GET /api/v1/maintenance that Orchestrarr reads. Properties Orchestrarr does not use are left out;
 // the contract is Portarr's (MaintenanceResource), so the names follow it.
 
-internal sealed record PortarrAlertScan(int Critical = 0, int High = 0, int Medium = 0, int Low = 0, int Other = 0, int Total = 0);
+/// <summary><c>State</c> is Portarr's scanning state: on, off or unknown.</summary>
+internal sealed record PortarrAlertScan(string? State = null, int Critical = 0, int High = 0, int Medium = 0, int Low = 0, int Other = 0, int Total = 0);
 
 internal sealed record PortarrCiRun(string? Status = null, string? Conclusion = null, bool Failed = false);
 
@@ -11,6 +12,7 @@ internal sealed record PortarrRepository(
     string FullName,
     Uri? Url = null,
     bool Archived = false,
+    bool Fork = false,
     PortarrAlertScan? Dependabot = null,
     PortarrAlertScan? CodeScanning = null,
     PortarrAlertScan? SecretScanning = null,

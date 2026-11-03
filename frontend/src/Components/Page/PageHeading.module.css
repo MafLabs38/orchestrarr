@@ -4,14 +4,14 @@
 
 .scope {
   color: var(--inkMuted);
-  font-size: 12px;
+  font-size: var(--fontSizeMeta);
   font-weight: 800;
   text-transform: uppercase;
 }
 
 .title {
   margin: 0;
-  font: 700 30px var(--displayFontFamily);
+  font: 700 var(--fontSizePage) var(--displayFontFamily);
 }
 
 .description {

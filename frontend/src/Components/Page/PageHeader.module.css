@@ -13,7 +13,7 @@
 }
 
 .name {
-  font: 700 22px var(--displayFontFamily);
+  font: 700 var(--fontSizeBrand) var(--displayFontFamily);
 }
 
 .spacer {

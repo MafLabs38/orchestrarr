@@ -8,6 +8,21 @@ public sealed record AlertCounts(int Critical, int High, int Medium, int Low)
     public int Total => Critical + High + Medium + Low;
 }
 
+/// <summary>Whether a scan of alerts is on, off, or could not be read: an off scan is not a clean repository.</summary>
+public enum AlertScanState
+{
+    Unknown,
+    Off,
+    On,
+}
+
+public sealed record AlertScan(AlertScanState State, AlertCounts Counts)
+{
+    public static AlertScan Clean { get; } = new(AlertScanState.On, AlertCounts.None);
+
+    public static AlertScan Of(AlertCounts counts) => new(AlertScanState.On, counts);
+}
+
 public enum CiState
 {
     Unknown,
@@ -43,8 +58,9 @@ public sealed record RepositoryState(
     string FullName,
     Uri? Url,
     bool Archived,
-    AlertCounts DependencyAlerts,
-    AlertCounts CodeScanningAlerts,
+    bool Fork,
+    AlertScan DependencyAlerts,
+    AlertScan CodeScanningAlerts,
     int SecretScanningAlerts,
     int OpenDependencyPullRequests,
     CiState Ci,
@@ -61,14 +77,24 @@ public sealed record ImageState(
     string? RepositoryFullName,
     IReadOnlyList<Placement> Placements);
 
-/// <summary>What a source of findings says about the fleet at one moment, whatever the source (Portarr, an environment file…).</summary>
+/// <summary>What a source says about the fleet at one moment, whatever the source (Portarr, an environment file…).</summary>
 public sealed record FleetSnapshot(DateTimeOffset ReadAt, IReadOnlyList<RepositoryState> Repositories, IReadOnlyList<ImageState> Images);
+
+public static class FleetSourceKinds
+{
+    public const string Portarr = "portarr";
+    public const string Sample = "sample";
+    public const string None = "none";
+}
 
 /// <summary>A source of findings and of the environment description (SPEC D-03, D-18).</summary>
 public interface IFleetSource
 {
-    /// <summary>The kind of source, shown in the status page: <c>portarr</c>, <c>sample</c>…</summary>
+    /// <summary>The kind of source, shown in the status page: see <see cref="FleetSourceKinds"/>.</summary>
     string Kind { get; }
+
+    /// <summary>False for the source that reads nothing: the screens say that no source is configured.</summary>
+    bool Configured { get; }
 
     Task<FleetSnapshot> ReadAsync(CancellationToken cancellationToken);
 }
