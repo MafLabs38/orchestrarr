@@ -31,8 +31,6 @@ internal sealed class FullQueue : IApprovalStore
 
     public bool Contains(Approval approval) => false;
 
-    public bool TryAddRange(IReadOnlyList<Approval> approvals) => false;
-
     public IReadOnlyList<Approval> List(int limit = int.MaxValue) => [];
 }
 
@@ -72,8 +70,7 @@ public sealed class ApprovalsApiTests
     // The global stop, already engaged: the case where letting the wrong caller release it would be the harm
     private static void EngagedStop(IServiceCollection services)
     {
-        var stop = new InMemoryKillSwitch();
-        stop.Set(true);
+        var stop = new InMemoryKillSwitch(startEngaged: true);
         Replace(services, stop);
         Replace<IKillSwitchControl>(services, stop);
         Replace<IKillSwitch>(services, stop);
@@ -399,6 +396,7 @@ public sealed class ApprovalsApiTests
     [InlineData("Approvals:QueueCapacity", "0")]
     [InlineData("Approvals:QueueCapacity", "-1")]
     [InlineData("Approvals:AuditCapacity", "0")]
+    [InlineData("Approvals:ApprovalsPerMinute", "0")]
     public void A_capacity_of_zero_or_less_stops_the_host_from_starting(string key, string value)
     {
         using var factory = new ForgeApiFactory { Settings = new Dictionary<string, string?> { [key] = value } };

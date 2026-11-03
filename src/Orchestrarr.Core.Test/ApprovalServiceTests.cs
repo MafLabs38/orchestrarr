@@ -48,7 +48,7 @@ public sealed class ApprovalServiceTests
         _forge.Items = pullRequests.Length == 0 ? [PullRequest(1, HeadA), PullRequest(2, HeadB)] : pullRequests;
         var chosenStore = store ?? _store;
         var chosenAudit = audit ?? _audit;
-        return new ApprovalService(await CatalogOf(_forge), chosenStore, _killSwitch, chosenAudit, _time, new InMemoryApprovalLedger(chosenStore, chosenAudit));
+        return new ApprovalService(await CatalogOf(_forge), chosenStore, _killSwitch, chosenAudit, _time, new InMemoryApprovalLedger(_store, chosenAudit));
     }
 
     private Task<ApprovalService> Service(params PullRequestInfo[] pullRequests) => Service(null, null, pullRequests);
@@ -229,13 +229,13 @@ public sealed class ApprovalServiceTests
     public async Task The_kill_switch_stops_approving()
     {
         var service = await Service();
-        _killSwitch.Set(true);
+        await ChangeStop(_killSwitch, engaged: true);
 
         (await Approve(service)).Refusal.Should().Be(ApprovalRefusal.KillSwitchEngaged);
         _store.List().Should().BeEmpty();
         _audit.List().Should().ContainSingle().Which.Detail.Should().StartWith(nameof(ApprovalRefusal.KillSwitchEngaged));
 
-        _killSwitch.Set(false);
+        await ChangeStop(_killSwitch, engaged: false);
         (await Approve(service)).Recorded.Should().BeTrue();
     }
 
@@ -545,6 +545,9 @@ public sealed class ApprovalServiceTests
         public ValueTask<bool> TryRecordRangeAsync(IReadOnlyList<AuditEntry> entries, CancellationToken cancellationToken) => ValueTask.FromResult(false);
     }
 
+    private static ValueTask<KillSwitchChange> ChangeStop(InMemoryKillSwitch killSwitch, bool engaged) =>
+        killSwitch.ChangeAsync(engaged, new AuditEntry(Now, engaged ? AuditEvents.KillSwitchEngaged : AuditEvents.KillSwitchReleased, "alice-1", null, null), TestContext.Current.CancellationToken);
+
     // A store that engages the global stop the first time it is asked for room: the stop arrives while an approval is in flight
     private sealed class StopsWhenAsked(IApprovalStore inner, InMemoryKillSwitch killSwitch) : IApprovalStore
     {
@@ -552,14 +555,12 @@ public sealed class ApprovalServiceTests
         {
             get
             {
-                killSwitch.Set(true);
+                ChangeStop(killSwitch, engaged: true).AsTask().GetAwaiter().GetResult();
                 return inner.Free;
             }
         }
 
         public bool Contains(Approval approval) => inner.Contains(approval);
-
-        public bool TryAddRange(IReadOnlyList<Approval> approvals) => inner.TryAddRange(approvals);
 
         public IReadOnlyList<Approval> List(int limit = int.MaxValue) => inner.List(limit);
     }
@@ -601,23 +602,25 @@ public sealed class ApprovalServiceTests
     {
         var store = Substitute.For<IApprovalStore>();
         store.Contains(Arg.Any<Approval>()).Returns(_ => throw new StorageUnavailableException());
+        var ledger = Substitute.For<IApprovalLedger>();
 
-        var result = await Approve(await ServiceWith(Substitute.For<IApprovalLedger>(), store));
+        var result = await Approve(await ServiceWith(ledger, store));
 
         result.Refusal.Should().Be(ApprovalRefusal.AuditUnavailable);
-        _audit.List().Should().NotContain(entry => entry.Event == AuditEvents.ApprovalRecorded);
+        await ledger.DidNotReceiveWithAnyArgs().TryRecordAsync(default!, default!, TestContext.Current.CancellationToken);
     }
 
     [Fact]
-    public async Task A_store_that_stops_working_while_recording_is_a_refusal_for_the_in_memory_ledger_too()
+    public async Task A_trail_that_stops_working_while_recording_is_a_refusal_for_the_in_memory_ledger_too()
     {
-        var store = Substitute.For<IApprovalStore>();
-        store.Contains(Arg.Any<Approval>()).Returns(false);
-        store.Free.Returns(10);
-        store.TryAddRange(Arg.Any<IReadOnlyList<Approval>>()).Returns(_ => throw new StorageUnavailableException());
+        var sink = Substitute.For<IAuditSink>();
+        sink.TryRecordRangeAsync(Arg.Any<IReadOnlyList<AuditEntry>>(), Arg.Any<CancellationToken>()).Returns<ValueTask<bool>>(_ => throw new StorageUnavailableException());
+        var ledger = new InMemoryApprovalLedger(_store, sink);
 
-        var result = await Approve(await Service(store));
+        var approval = new Approval(Guid.NewGuid(), ItemId, "example/app", 1, HeadA, [StepKind.Validate], "alice", Now);
+        var result = await ledger.TryRecordAsync([approval], [new AuditEntry(Now, AuditEvents.ApprovalRecorded, "alice-1", null, null)], TestContext.Current.CancellationToken);
 
-        result.Refusal.Should().Be(ApprovalRefusal.AuditUnavailable);
+        result.Should().Be(LedgerResult.Unavailable);
+        _store.List().Should().BeEmpty("no trace, no approval");
     }
 }

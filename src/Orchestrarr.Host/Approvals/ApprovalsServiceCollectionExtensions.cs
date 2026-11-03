@@ -1,3 +1,4 @@
+using System.Threading.RateLimiting;
 using Orchestrarr.Core.Approvals;
 using Orchestrarr.Core.Launch;
 using Orchestrarr.Core.WorkItems;
@@ -8,6 +9,13 @@ namespace Orchestrarr.Host.Approvals;
 
 internal static class ApprovalsServiceCollectionExtensions
 {
+    /// <summary>The name of the rate limit on approving.</summary>
+    internal const string ApprovingPolicy = "approving";
+
+    // Whose turn it is: the person who signed in, else where the request comes from
+    private static string PartitionOf(HttpContext context) =>
+        context.RequestServices.GetRequiredService<IApproverAccessor>().Current(context)?.Subject ?? context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
     /// <summary>
     /// Approving a decision card: the grants, the queue, the trail, the global stop and the service, in a SQLite file or in memory. The same
     /// instance answers to each interface it implements, so that the routes and the service see one trail and one stop.
@@ -29,6 +37,14 @@ internal static class ApprovalsServiceCollectionExtensions
                 : new NoApprover());
         }
 
+        services.AddRateLimiter(limits =>
+        {
+            limits.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+            limits.OnRejected = (rejected, token) => new ValueTask(rejected.HttpContext.Response.WriteAsJsonAsync(new ErrorResponse("tooManyRequests"), token));
+            limits.AddPolicy(ApprovingPolicy, context => RateLimitPartition.GetFixedWindowLimiter(
+                PartitionOf(context),
+                _ => new FixedWindowRateLimiterOptions { PermitLimit = options.ApprovalsPerMinute, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
+        });
         services
             .AddSingleton(options)
             .AddSingleton(storage)
@@ -41,8 +57,8 @@ internal static class ApprovalsServiceCollectionExtensions
             var queueCapacity = options.QueueCapacity ?? StoreLimits.FileQueue;
             var auditCapacity = options.AuditCapacity ?? StoreLimits.FileAudit;
             services
-                // Opened now, so that a file that cannot be used stops the host at its start and not at the first approval
-                .AddSingleton(SqliteDatabase.Open(file.Path, file.StartEngagedWhenNew))
+                // Opened when the host starts (Program asks for it), so that a file that cannot be used stops it there and not at the first approval
+                .AddSingleton(provider => SqliteDatabase.Open(file.Path, file.StartEngagedWhenNew, provider.GetRequiredService<TimeProvider>()))
                 .AddSingleton<IApprovalStore>(provider => new SqliteApprovalStore(provider.GetRequiredService<SqliteDatabase>(), queueCapacity))
                 .AddSingleton<IApprovalLedger>(provider => new SqliteApprovalLedger(provider.GetRequiredService<SqliteDatabase>(), queueCapacity, auditCapacity, provider.GetService<ILogger<SqliteApprovalLedger>>()))
                 .AddSingleton(provider => new SqliteKillSwitch(provider.GetRequiredService<SqliteDatabase>(), auditCapacity, provider.GetService<ILogger<SqliteKillSwitch>>()))
@@ -59,7 +75,7 @@ internal static class ApprovalsServiceCollectionExtensions
             var killSwitch = new InMemoryKillSwitch(auditLog);
             services
                 .AddSingleton<IApprovalStore>(store)
-                .AddSingleton<IApprovalLedger>(provider => new InMemoryApprovalLedger(provider.GetRequiredService<IApprovalStore>(), provider.GetRequiredService<IAuditSink>()))
+                .AddSingleton<IApprovalLedger>(provider => new InMemoryApprovalLedger(store, provider.GetRequiredService<IAuditSink>()))
                 .AddSingleton(killSwitch)
                 .AddSingleton<IKillSwitchControl>(killSwitch)
                 .AddSingleton<IKillSwitch>(killSwitch)

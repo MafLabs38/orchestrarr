@@ -29,6 +29,7 @@ public sealed class InMemoryApprovalStore(int capacity = InMemoryApprovalStore.D
         }
     }
 
+    /// <summary>Adds all of them or none: false when one is already there or they do not all fit. Only the in-memory ledger writes here.</summary>
     public bool TryAddRange(IReadOnlyList<Approval> approvals)
     {
         ArgumentNullException.ThrowIfNull(approvals);

@@ -42,7 +42,7 @@ internal static class ApprovalEndpoints
             return result.Refusal is { } code
                 ? Error(JsonCode(code), Statuses.GetValueOrDefault(code, StatusCodes.Status422UnprocessableEntity))
                 : Results.Json(new ApproveResponse([.. result.Approvals.Select(ToDto)]), statusCode: StatusCodes.Status201Created);
-        });
+        }).RequireRateLimiting(ApprovalsServiceCollectionExtensions.ApprovingPolicy);
 
         api.MapGet("/activity", (IAuditLog audit, int? limit) =>
         {

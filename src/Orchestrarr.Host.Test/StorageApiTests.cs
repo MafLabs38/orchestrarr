@@ -197,7 +197,7 @@ public sealed class StorageApiTests : IDisposable
     }
 
     [Fact]
-    public async Task Engaging_does_not_wait_for_its_trace()
+    public async Task Engaging_with_a_full_trail_still_engages()
     {
         using var factory = Sqlite(settings: new() { ["Approvals:AuditCapacity"] = "2" });
         var client = factory.CreateClient();
@@ -227,6 +227,25 @@ public sealed class StorageApiTests : IDisposable
         two.Select(entry => entry.GetProperty("event").GetString()).Should().Equal("killswitch.released", "killswitch.engaged");
         floor.Should().ContainSingle();
         all.Should().HaveCount(4);
+    }
+
+    [Fact]
+    public async Task Approving_is_limited_per_person_so_that_a_loop_of_refusals_cannot_fill_the_trail_and_the_stop_never_is()
+    {
+        using var factory = Sqlite(settings: new() { ["Approvals:ApprovalsPerMinute"] = "2" });
+        var client = factory.CreateClient();
+
+        var first = await Approve(client);
+        var second = await Approve(client);
+        var third = await Approve(client);
+        var engage = await client.PutAsJsonAsync("/api/v1/safety/kill-switch", new { engaged = true }, Ct);
+
+        first.StatusCode.Should().Be(HttpStatusCode.Created);
+        second.StatusCode.Should().Be(HttpStatusCode.Conflict, "the same decision again is refused, and traced");
+        third.StatusCode.Should().Be(HttpStatusCode.TooManyRequests);
+        (await Json(third)).GetProperty("error").GetString().Should().Be("tooManyRequests");
+        engage.StatusCode.Should().Be(HttpStatusCode.OK, "the global stop is never limited");
+        (await Json(await client.GetAsync("/api/v1/activity", Ct))).EnumerateArray().Should().HaveCount(3, "the third attempt left nothing in the trail: two entries for the first two, one for the stop");
     }
 
     private Dictionary<string, string?> SqliteSettings() => new() { ["Storage:Provider"] = "Sqlite", ["Storage:Path"] = DatabasePath };

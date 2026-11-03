@@ -8,6 +8,7 @@ using Orchestrarr.Core.Forge;
 using Orchestrarr.Core.Launch;
 using Orchestrarr.Core.WorkItems;
 using Orchestrarr.Host;
+using Orchestrarr.Storage;
 using Orchestrarr.Host.Approvals;
 using Orchestrarr.Host.SignIn;
 using Orchestrarr.Host.Storage;
@@ -36,7 +37,7 @@ if (approvals.Mode == ApprovalsMode.OpenIdConnect)
     builder.Services.AddSignIn(signIn);
 }
 // Where the approvals, the trail and the global stop are kept: checked now, so that a file that cannot be used stops the host
-var storage = (builder.Configuration.GetSection(StorageOptions.SectionName).Get<StorageOptions>() ?? new StorageOptions()).Validate(builder.Environment.ContentRootPath, builder.Environment.IsDevelopment());
+var storage = (builder.Configuration.GetSection(StorageOptions.SectionName).Get<StorageOptions>() ?? new StorageOptions()).Validate(builder.Environment.ContentRootPath, builder.Environment.IsDevelopment(), approving: approvals.Mode != ApprovalsMode.Disabled);
 builder.Services.AddApprovals(approvals, grants, storage);
 builder.Services.AddSingleton(builder.Configuration.GetSection(WorkItemCatalogOptions.SectionName).Get<WorkItemCatalogOptions>() ?? new WorkItemCatalogOptions());
 builder.Services.AddSingleton<WorkItemCatalog>();
@@ -45,6 +46,11 @@ var app = builder.Build();
 if (!storage.Persistent && approvals.Mode == ApprovalsMode.OpenIdConnect && !app.Environment.IsDevelopment())
 {
     app.Logger.LogWarning("Storage:Provider is Memory: the approvals, the audit trail and the global stop are lost at every restart. Use Sqlite.");
+}
+// The file is opened now: one that cannot be used stops the host at its start and not at the first approval
+if (storage.Persistent)
+{
+    app.Services.GetRequiredService<SqliteDatabase>();
 }
 SandboxGuard.StopIfListeningBeyondLoopback(app, approvals);
 
@@ -56,6 +62,9 @@ if (signIn is not null)
     // Everything the API says, reads included, is for a person who signed in: who approved what is not for anybody
     app.ConfigureSignIn(signIn, api);
 }
+
+// Approving is limited per person, so that a loop of refusals cannot fill the trail. After the sign-in, which tells who is asking.
+app.UseRateLimiter();
 
 // For a probe of the deployment: it says the host is up and nothing else
 app.MapGet("/health", () => Results.Ok(new HealthStatus("ok")));

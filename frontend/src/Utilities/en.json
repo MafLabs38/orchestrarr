@@ -180,6 +180,7 @@
   "ApprovalErrorNoPullRequests": "There is no pull request to approve.",
   "ApprovalErrorAlreadyApproved": "These pull requests were already approved at this commit.",
   "ApprovalErrorStoreFull": "The queue is full.",
+  "ApprovalErrorTooManyRequests": "Too many attempts: wait a minute and try again.",
   "ApprovalErrorAuditUnavailable": "The audit trail cannot be written or read, so the request is refused.",
   "ApprovalErrorUnknown": "The approval was refused.",
   "ApprovalErrorPlanChanged": "The pull requests changed since you looked at them: read the card again, then approve.",

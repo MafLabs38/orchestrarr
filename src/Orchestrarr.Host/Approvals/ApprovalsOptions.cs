@@ -6,6 +6,9 @@ public sealed class ApprovalsOptions
 
     public ApprovalsMode Mode { get; set; } = ApprovalsMode.Disabled;
 
+    /// <summary>How many times a person (or, with no one signed in, an address) may try to approve in a minute: more is a 429, before anything is recorded. Refusals are traced and the trail is bounded, so a loop must not fill it. The global stop is never limited.</summary>
+    public int ApprovalsPerMinute { get; set; } = 30;
+
     /// <summary>The name the sandbox operator signs with.</summary>
     public string DevelopmentUser { get; set; } = "dev-operator";
 
@@ -21,6 +24,10 @@ public sealed class ApprovalsOptions
         if (QueueCapacity <= 0 || AuditCapacity <= 0)
         {
             throw new InvalidOperationException("Approvals:QueueCapacity and Approvals:AuditCapacity must be greater than zero.");
+        }
+        if (ApprovalsPerMinute <= 0)
+        {
+            throw new InvalidOperationException("Approvals:ApprovalsPerMinute must be greater than zero.");
         }
         if (AuditCapacity < 2)
         {

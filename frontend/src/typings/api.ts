@@ -199,4 +199,5 @@ export type ApprovalError =
   | 'noPullRequests'
   | 'alreadyApproved'
   | 'storeFull'
-  | 'auditUnavailable';
+  | 'auditUnavailable'
+  | 'tooManyRequests';

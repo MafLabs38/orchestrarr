@@ -133,6 +133,7 @@ const approvalErrors = {
   alreadyApproved: 'ApprovalErrorAlreadyApproved',
   storeFull: 'ApprovalErrorStoreFull',
   auditUnavailable: 'ApprovalErrorAuditUnavailable',
+  tooManyRequests: 'ApprovalErrorTooManyRequests',
 } as const satisfies Record<ApprovalError, string>;
 
 // Why an approval was refused, from the code of the server; a code the interface does not know still gets a sentence.

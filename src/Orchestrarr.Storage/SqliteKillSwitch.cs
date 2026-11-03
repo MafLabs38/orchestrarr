@@ -28,34 +28,10 @@ public sealed class SqliteKillSwitch(SqliteDatabase database, int auditCapacity,
 
     public bool Engaged => _engaging > 0 || _held || ReadEngaged();
 
-    public bool Saved => _engaging == 0 && !_held;
+    // An unreadable file is not saved either: the stop counts as engaged, and the state is unknown
+    public bool Saved => _engaging == 0 && !_held && !_unreadable;
 
     public ValueTask<bool> IsEngagedAsync(CancellationToken cancellationToken) => ValueTask.FromResult(Engaged);
-
-    /// <summary>Changes the stop without tracing it: for the tests, which need a stop in a given state. Production goes through <see cref="ChangeAsync"/>.</summary>
-    internal void Set(bool engaged)
-    {
-        // One change at a time: an engage and a release at once cannot leave the memory and the file disagreeing
-        lock (_gate)
-        {
-            if (engaged)
-            {
-                // It counts at once, before the write: while another writer holds the file, the stop does not wait for it
-                _held = true;
-                if (TrySave(engaged: true))
-                {
-                    _held = false;
-                }
-                return;
-            }
-
-            if (!TrySave(engaged: false))
-            {
-                throw new KillSwitchUnavailableException();
-            }
-            _held = false;
-        }
-    }
 
     public ValueTask<KillSwitchChange> ChangeAsync(bool engaged, AuditEntry entry, CancellationToken cancellationToken)
     {
@@ -148,21 +124,6 @@ public sealed class SqliteKillSwitch(SqliteDatabase database, int auditCapacity,
                 _logger.LogError(failure, "The state of the global stop cannot be read, so it counts as engaged");
             }
             return true;
-        }
-    }
-
-    private bool TrySave(bool engaged)
-    {
-        try
-        {
-            using var connection = database.Connect();
-            Save(connection, engaged);
-            return true;
-        }
-        catch (Exception failure) when (SqliteDatabase.IsUnavailable(failure))
-        {
-            _logger.LogError(failure, "The state of the global stop cannot be saved");
-            return false;
         }
     }
 

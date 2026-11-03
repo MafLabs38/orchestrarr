@@ -34,7 +34,8 @@ public sealed class SqliteApprovalStore(SqliteDatabase database, int capacity = 
         });
     }
 
-    public bool TryAddRange(IReadOnlyList<Approval> approvals)
+    /// <summary>Adds all of them or none, without a trace: the way the tests seed a store. The product records through the ledger.</summary>
+    internal bool TryAddRange(IReadOnlyList<Approval> approvals)
     {
         ArgumentNullException.ThrowIfNull(approvals);
         if (approvals.Select(Key).Distinct().Count() != approvals.Count)
@@ -44,24 +45,29 @@ public sealed class SqliteApprovalStore(SqliteDatabase database, int capacity = 
 
         return SqliteDatabase.Guard(() => database.InWriteTransaction(connection =>
         {
-            if (approvals.Count > _capacity - Count(connection))
-            {
-                return (false, false);
-            }
-            try
-            {
-                foreach (var approval in approvals)
-                {
-                    Insert(connection, approval);
-                }
-                return (true, true);
-            }
-            catch (SqliteException failure) when (SqliteDatabase.IsDuplicate(failure))
-            {
-                // The same decision is already there: nothing of this batch stays
-                return (false, false);
-            }
+            var added = HasRoom(connection, _capacity, approvals.Count) && InsertAll(connection, approvals);
+            return (added, added);
         }));
+    }
+
+    /// <summary>Whether this many more fit in a queue of this capacity.</summary>
+    internal static bool HasRoom(SqliteConnection connection, int capacity, int adding) => adding <= capacity - Count(connection);
+
+    /// <summary>Inserts all of them in the transaction of <paramref name="connection"/>; false when the same decision is already there (nothing of the batch stays once the caller rolls back).</summary>
+    internal static bool InsertAll(SqliteConnection connection, IReadOnlyList<Approval> approvals)
+    {
+        try
+        {
+            foreach (var approval in approvals)
+            {
+                Insert(connection, approval);
+            }
+            return true;
+        }
+        catch (SqliteException failure) when (SqliteDatabase.IsDuplicate(failure))
+        {
+            return false;
+        }
     }
 
     public IReadOnlyList<Approval> List(int limit = int.MaxValue) => SqliteDatabase.Guard<IReadOnlyList<Approval>>(() =>

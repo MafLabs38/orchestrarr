@@ -180,13 +180,17 @@ describe('Status', () => {
     expect(screen.queryByText(/a restart would release it/)).not.toBeInTheDocument();
   });
 
-  it('says a release that cannot be traced is refused and the stop stays engaged', async () => {
+  it.each([
+    ['auditUnavailable', /cannot be written to the audit trail/],
+    ['killSwitchUnavailable', /stays engaged/],
+    ['somethingNew', /could not be changed/],
+  ])('says why a release was refused (%s) and the stop stays engaged', async (code, text) => {
     vi.stubGlobal(
       'fetch',
       vi.fn((_input: string, init?: RequestInit) =>
         Promise.resolve(
           init?.method === 'PUT'
-            ? new Response('{"error":"auditUnavailable"}', { status: 503 })
+            ? new Response(JSON.stringify({ error: code }), { status: 503 })
             : new Response(JSON.stringify(status({}, { killSwitchEngaged: true })), { status: 200 }),
         ),
       ),
@@ -195,26 +199,8 @@ describe('Status', () => {
 
     await userEvent.click(await screen.findByRole('button', { name: 'Release the global stop' }));
 
-    expect(await screen.findByText(/cannot be written to the audit trail/)).toBeInTheDocument();
+    expect(await screen.findByText(text)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Release the global stop' })).toBeInTheDocument();
-  });
-
-  it('says a stop that cannot be released stays engaged', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn((_input: string, init?: RequestInit) =>
-        Promise.resolve(
-          init?.method === 'PUT'
-            ? new Response('{"error":"killSwitchUnavailable"}', { status: 503 })
-            : new Response(JSON.stringify(status({}, { killSwitchEngaged: true })), { status: 200 }),
-        ),
-      ),
-    );
-    renderWithProviders(<Status />);
-
-    await userEvent.click(await screen.findByRole('button', { name: 'Release the global stop' }));
-
-    expect(await screen.findByText(/stays engaged/)).toBeInTheDocument();
   });
 
   it('says when the global stop could not be changed', async () => {

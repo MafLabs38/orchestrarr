@@ -6,17 +6,14 @@ namespace Orchestrarr.Core.Approvals;
 /// The stop in memory, the sandbox's: a restart releases it. The persistent one counts unknown as engaged (ADR 0013). With no trail given, a
 /// change has nothing to trace to and counts as traced.
 /// </summary>
-public sealed class InMemoryKillSwitch(IAuditSink? audit = null) : IKillSwitchControl, IDisposable
+public sealed class InMemoryKillSwitch(IAuditSink? audit = null, bool startEngaged = false) : IKillSwitchControl, IDisposable
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
-    private volatile bool _engaged;
+    private volatile bool _engaged = startEngaged;
 
     public bool Engaged => _engaged;
 
     public bool Saved => true;
-
-    /// <summary>Changes the stop without tracing it: for the tests, which need a stop in a given state. A person's decision goes through <see cref="ChangeAsync"/>.</summary>
-    public void Set(bool engaged) => _engaged = engaged;
 
     public ValueTask<bool> IsEngagedAsync(CancellationToken cancellationToken) => ValueTask.FromResult(_engaged);
 

@@ -56,10 +56,13 @@ public sealed class SqliteKillSwitchChangeTests : IDisposable
     [Fact]
     public async Task An_engagement_that_cannot_be_traced_still_takes_effect_and_is_saved()
     {
-        var stop = new SqliteKillSwitch(_file.Open(), auditCapacity: 1);
-        await stop.ChangeAsync(true, Engaged(), Ct);
-        stop.Set(false);
-        stop.Engaged.Should().BeFalse("the trail is full, and the stop was released without a trace");
+        var database = _file.Open();
+        var stop = new SqliteKillSwitch(database, auditCapacity: 1);
+        using (var connection = database.Connect())
+        {
+            SqliteAuditLog.Insert(connection, Released());
+        }
+        stop.Engaged.Should().BeFalse("the trail is full, and the stop is released");
 
         (await stop.ChangeAsync(true, Engaged(), Ct)).Should().Be(KillSwitchChange.AppliedUntraced);
 

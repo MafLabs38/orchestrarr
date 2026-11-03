@@ -124,7 +124,7 @@ public sealed class SqliteApprovalLedgerTests : IDisposable
     [Fact]
     public async Task A_locked_database_is_unavailable_and_leaves_nothing()
     {
-        var database = SqliteDatabase.Open(_file.Path, busyTimeout: TimeSpan.FromSeconds(1));
+        var database = SqliteDatabase.Open(_file.Path, busyTimeout: TimeSpan.FromMilliseconds(50));
         using var other = database.Connect();
         SqliteDatabase.Run(other, "BEGIN IMMEDIATE;");
         var approval = Approval();

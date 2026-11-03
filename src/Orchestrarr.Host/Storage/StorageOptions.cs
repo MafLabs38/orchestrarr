@@ -13,7 +13,8 @@ public sealed class StorageOptions
 {
     public const string SectionName = "Storage";
 
-    public StorageProvider Provider { get; set; } = StorageProvider.Memory;
+    /// <summary>Unset: Memory in Development, or when nobody can approve; otherwise the host refuses to start, so that a restart never releases the stop by omission. The image sets Sqlite.</summary>
+    public StorageProvider? Provider { get; set; }
 
     /// <summary>The SQLite file. A relative path is read from the content root of the host; the image gives an absolute one, in its volume.</summary>
     public string Path { get; set; } = "data/orchestrarr.db";
@@ -22,13 +23,18 @@ public sealed class StorageOptions
     /// Checked when the host starts: a persistent store with nowhere to persist is an error, never a quiet fallback to memory. Outside
     /// Development a database that does not exist yet starts with the global stop engaged: it may be a volume that was lost.
     /// </summary>
-    public IStorageSettings Validate(string contentRoot, bool development)
+    public IStorageSettings Validate(string contentRoot, bool development, bool approving)
     {
-        if (!Enum.IsDefined(Provider))
+        if (Provider is { } named && !Enum.IsDefined(named))
         {
             throw new InvalidOperationException("Storage:Provider must be Memory or Sqlite.");
         }
-        if (Provider == StorageProvider.Memory)
+        if (Provider is null && approving && !development)
+        {
+            throw new InvalidOperationException(
+                "Storage:Provider is not set, and approving is on: a restart would release the global stop. Set it to Sqlite (the image does), or to Memory explicitly if losing everything at a restart is what you want.");
+        }
+        if (Provider is null or StorageProvider.Memory)
         {
             return new MemoryStorage();
         }

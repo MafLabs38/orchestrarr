@@ -40,7 +40,7 @@ public sealed class SqliteApprovalLedger(SqliteDatabase database, int queueCapac
 
     private (bool Commit, LedgerResult Result) Write(SqliteConnection connection, IReadOnlyList<Approval> approvals, IReadOnlyList<AuditEntry> entries)
     {
-        if (approvals.Count > _queueCapacity - SqliteApprovalStore.Count(connection))
+        if (!SqliteApprovalStore.HasRoom(connection, _queueCapacity, approvals.Count))
         {
             return (false, LedgerResult.StoreFull);
         }
@@ -48,22 +48,11 @@ public sealed class SqliteApprovalLedger(SqliteDatabase database, int queueCapac
         {
             return (false, LedgerResult.Unavailable);
         }
-        try
+        foreach (var entry in entries)
         {
-            foreach (var entry in entries)
-            {
-                SqliteAuditLog.Insert(connection, entry);
-            }
-            foreach (var approval in approvals)
-            {
-                SqliteApprovalStore.Insert(connection, approval);
-            }
-            return (true, LedgerResult.Recorded);
+            SqliteAuditLog.Insert(connection, entry);
         }
-        catch (SqliteException failure) when (SqliteDatabase.IsDuplicate(failure))
-        {
-            // Another process recorded the same decision first: nothing of this one stays, trace included
-            return (false, LedgerResult.AlreadyThere);
-        }
+        // Another process may have recorded the same decision first: nothing of this one stays, trace included
+        return SqliteApprovalStore.InsertAll(connection, approvals) ? (true, LedgerResult.Recorded) : (false, LedgerResult.AlreadyThere);
     }
 }
