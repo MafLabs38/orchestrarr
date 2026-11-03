@@ -61,7 +61,15 @@ internal static class ApprovalEndpoints
                 return Error(ApiErrors.NotAnOperator, StatusCodes.Status403Forbidden);
             }
 
-            killSwitch.Set(request.Engaged);
+            try
+            {
+                killSwitch.Set(request.Engaged);
+            }
+            catch (KillSwitchUnavailableException)
+            {
+                // The release could not be saved: the stop stays engaged, and nothing says it was released
+                return Error(ApiErrors.KillSwitchUnavailable, StatusCodes.Status503ServiceUnavailable);
+            }
             await audit.TryRecordAsync(
                 new AuditEntry(time.GetUtcNow(), request.Engaged ? AuditEvents.KillSwitchEngaged : AuditEvents.KillSwitchReleased, approver.Subject, null, null), ct);
             return Results.Ok(new SafetyDto(killSwitch.Engaged));

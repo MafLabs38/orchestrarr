@@ -125,6 +125,12 @@ export interface SystemStatus {
   source: { kind: string; configured: boolean; readAt: string | null; error: SourceError | null; stale: boolean };
   forge: { kind: string; configured: boolean };
   approvals: ApprovalStatus;
+  storage: StorageStatus;
+}
+
+// Where the approvals, the trail and the global stop are kept: "sqlite" survives a restart, "memory" does not.
+export interface StorageStatus {
+  kind: string;
 }
 
 export type ApprovalMode = 'disabled' | 'development' | 'openidconnect';

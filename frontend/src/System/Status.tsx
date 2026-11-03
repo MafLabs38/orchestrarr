@@ -23,6 +23,15 @@ function forgeName(kind: string): string {
   return (forgeNames[kind] ?? (() => kind))();
 }
 
+const storageNames: Record<string, () => string> = {
+  sqlite: () => translate('StorageSqlite'),
+  memory: () => translate('StorageMemory'),
+};
+
+function storageName(kind: string): string {
+  return (storageNames[kind] ?? (() => kind))();
+}
+
 function approvalsText(approvals: ApprovalStatus): string {
   if (!approvals.enabled) {
     return translate('ApprovalsOff');
@@ -57,6 +66,8 @@ export default function Status() {
             </dd>
             <dt>{translate('Approvals')}</dt>
             <dd>{approvalsText(data.approvals)}</dd>
+            <dt>{translate('Storage')}</dt>
+            <dd>{storageName(data.storage.kind)}</dd>
             <dt>{translate('KillSwitch')}</dt>
             <dd>
               <KillSwitch approvals={data.approvals} />

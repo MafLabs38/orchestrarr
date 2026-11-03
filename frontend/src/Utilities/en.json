@@ -155,6 +155,9 @@
   "SignInFailed": "Signing in failed. Try again; if it keeps failing, ask whoever runs this server.",
   "SignInAgain": "Sign in again",
   "AccountRefused": "This account cannot use Orchestrarr: it is not in the group allowed to read here. Sign out and sign in with another account, or ask whoever runs this server.",
+  "Storage": "Storage",
+  "StorageSqlite": "Saved in a file: kept across restarts",
+  "StorageMemory": "In memory: lost at every restart",
   "KillSwitch": "Global stop",
   "KillSwitchEngaged": "The global stop is engaged: nothing is approved and nothing launches.",
   "KillSwitchEngage": "Engage the global stop",
@@ -183,5 +186,6 @@
   "ApprovalPullRequestsNotReadHint": "The pull requests are not read yet, or only an old list is left: nothing can be approved on a list that is not read.",
   "ApprovalNotOperatorHint": "You are signed in but you are not an operator: you can read, and only an operator can approve.",
   "ApprovalErrorOriginNotAllowed": "This change did not come from this application's own page, so it was refused.",
-  "KillSwitchOperatorsOnly": "Only an operator can use the global stop."
+  "KillSwitchOperatorsOnly": "Only an operator can use the global stop.",
+  "KillSwitchCannotBeReleased": "The global stop could not be released: its state cannot be saved, so it stays engaged."
 }

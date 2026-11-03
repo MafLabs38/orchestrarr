@@ -16,6 +16,7 @@ using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Orchestrarr.Host.Approvals;
 using Orchestrarr.Host.SignIn;
+using Orchestrarr.Host.Storage;
 
 namespace Orchestrarr.Host.Test;
 
@@ -615,7 +616,7 @@ public sealed class SignInApiTests
     {
         var services = new ServiceCollection();
 
-        var act = () => services.AddApprovals(new ApprovalsOptions { Mode = ApprovalsMode.OpenIdConnect }, []);
+        var act = () => services.AddApprovals(new ApprovalsOptions { Mode = ApprovalsMode.OpenIdConnect }, [], new StorageSettings(StorageProvider.Memory, null));
 
         act.Should().Throw<InvalidOperationException>().WithMessage("*AddSignIn*");
     }

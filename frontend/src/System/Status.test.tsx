@@ -138,6 +138,40 @@ describe('Status', () => {
     expect(screen.getByRole('button', { name: 'Release the global stop' })).toBeInTheDocument();
   });
 
+  it('says where the approvals and the trail are kept', async () => {
+    stubApi({ '/api/v1/system/status': { ...status(), storage: { kind: 'sqlite' } } });
+
+    renderWithProviders(<Status />);
+
+    expect(await screen.findByText('Saved in a file: kept across restarts')).toBeInTheDocument();
+  });
+
+  it('warns that nothing is kept across a restart when everything is in memory', async () => {
+    stubApi({ '/api/v1/system/status': status() });
+
+    renderWithProviders(<Status />);
+
+    expect(await screen.findByText('In memory: lost at every restart')).toBeInTheDocument();
+  });
+
+  it('says a stop that cannot be released stays engaged', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_input: string, init?: RequestInit) =>
+        Promise.resolve(
+          init?.method === 'PUT'
+            ? new Response('{"error":"killSwitchUnavailable"}', { status: 503 })
+            : new Response(JSON.stringify(status({}, { killSwitchEngaged: true })), { status: 200 }),
+        ),
+      ),
+    );
+    renderWithProviders(<Status />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Release the global stop' }));
+
+    expect(await screen.findByText(/stays engaged/)).toBeInTheDocument();
+  });
+
   it('says when the global stop could not be changed', async () => {
     vi.stubGlobal(
       'fetch',

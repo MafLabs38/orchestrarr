@@ -148,7 +148,7 @@ One container, API first; the UI consumes the REST API (*arr pattern). Pluggable
 | Verifier | Smoke test after deployment | ❓ Q-06 (Portarr health checks are the candidate) |
 | Memory | Runbooks read before acting, outcomes written back | Mnemarr |
 | Launch (Core) | The **issuer** (control-plane side: authorizes, builds, signs) and the **launcher** (verifies, cannot sign: it has no signer), joined only by the signed order. Ports: signer, verifier (asymmetric), nonce ledger, kill switch, audit sink, granted powers, environment classifier. Faked in tests, except the kill switch, the audit sink and the granted powers, which have in-memory implementations used by the approval vertical (D-53); no signer, verifier or ledger yet | ❓ Q-23 for the Vault adapter |
-| Approvals (Core, host) | The approval store, the audit trail and the global stop, behind `IApprovalStore`, `IAuditLog` and `IKillSwitchControl`; the routes depend on the interfaces | in memory, bounded, refuse when full (D-53); a persistent store comes with the workshop |
+| Approvals (Core, host) | The approval store, the audit trail and the global stop, behind `IApprovalStore`, `IAuditLog` and `IKillSwitchControl`; the routes depend on the interfaces | in memory (the sandbox) or in a SQLite file (D-58), bounded, refuse when full (D-53) |
 | Sign-in (host) | People sign in through an OpenID Connect identity provider; the host keeps the session | any provider; a local Keycloak in `samples/keycloak` (D-54) |
 | Notifier | Tells the operator | Portarr sends (D-03); Orchestrarr shows status in its UI |
 
