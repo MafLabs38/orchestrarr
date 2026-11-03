@@ -1,6 +1,6 @@
 # Orchestrarr — Functional and Technical Specification
 
-> **Status**: draft v0.4. The first vertical (read-only) is built; no power that acts exists yet.
+> **Status**: draft v0.5. The first vertical (read-only) is built; no power that acts exists yet.
 > **Related documents**: [VISION.md](VISION.md) (pitch, safety principles, first interview questions) · [environment-file.md](environment-file.md) (standalone description format) · [adr/](adr/) (architecture decisions)
 > **Last updated**: 2026-11-03
 > **Audience**: the project owner and contributors.
@@ -68,6 +68,11 @@ In practice the operator rarely reads code: they check that the AI did not drift
 | 🟡 D-21 | **The unit of work is the repository, or the image for a third-party image; not the application.** Work item ids are `repository:<owner>/<name>` and `image:<reference>`, frozen before anything persists against them. A fix, a merge and a build happen at a repository; an application can span several repositories and a repository several applications, so Portarr's `appIds` stay an attribute. Forks and archived repositories are not work items (Q-10 will make this an allow-list). [ADR 0003](adr/0003-work-items-are-per-repository.md). |
 | 🟡 D-22 | **The server sends data and codes; the interface words them.** Findings, plan steps, reasons and source errors are codes and numbers: no sentence travels in the API, because the contract outlives one client. No exception text reaches a client: a failed read gives a code (`unreachable`, `unauthorized`, `timeout`, `invalidResponse`, `failed`) and the details stay in the log. |
 | 🟡 D-23 | **"Available" and "granted" are two things.** `available`: possible, from what the source says. `granted`: allowed by the powers granted to Orchestrarr (D-10, D-11). No power exists yet, so no step is granted and a card is a preview. A scan that is off or unreadable is a finding, not a clean repository. |
+| ✅ D-24 | **The worker is Claude Code, run non-interactively, in a container started for the run.** [ADR 0004](adr/0004-repair-runs-in-disposable-workspaces-on-a-workshop.md). |
+| ✅ D-25 | **A workshop is a machine where workers run and build, separate from the target environments.** It has a root directory, a limit of concurrent runs, resource limits and a retention time; the first one is the development host, local. A repair runs in a disposable workspace, one directory per run with a codified name, from a fresh checkout. |
+| ✅ D-26 | **The worker holds a repository credential only** (a GitHub App installation token scoped to one repository, minted for the run). **It never holds deploy credentials**: merging and deploying are done by Orchestrarr's own code, with credentials scoped to one target and one ticked step. |
+| 🟡 D-27 | **The model credential is the maintainer's subscription token, not an API key.** Budgets are in attempts, turns and minutes (defaults: 3 attempts, 20 minutes, one run at a time). A run that hits the quota is paused and retried, not failed. |
+| 🟡 D-28 | **The worker's network is restricted** to the model provider, the forge and the package registries, because the subscription token is a long-lived secret an injected prompt could try to send out. |
 
 ---
 
@@ -177,9 +182,9 @@ User interface, deferred: the light theme (its accent text color is ready, nothi
 | ❓ Q-04 | **Rollback and data.** Restoring the previous version does not undo a database migration. Which applications are stateful, and are they eligible for automatic deployment? |
 | ❓ Q-05 | **Desktop clients (D-13).** Is a "release" step ever pre-ticked? Is there a staged rollout or a beta channel? |
 | ❓ Q-06 | **Smoke tests.** Are Portarr's health checks enough (the application answers for N minutes), or does each application declare its own check? |
-| ❓ Q-07 | **Agent runtime.** Claude Code headless, the Agent SDK, Managed Agents, or a provider abstraction? |
-| ❓ Q-08 | **Where workers run, and how builds are kept from saturating a small host.** |
-| ❓ Q-09 | **Budgets.** Cost, tokens and time per work item, per day, per month; what happens at the limit. |
+| ✅ Q-07 | **Agent runtime.** Resolved: Claude Code, non-interactive, in a container (D-24, ADR 0004). |
+| ✅ Q-08 | **Where workers run, and how builds are kept from saturating a small host.** Resolved: on a workshop host, in containers capped by the host's resource-limited slice, one run at a time (D-25, ADR 0004). |
+| 🟡 Q-09 | **Budgets.** Proposed: in attempts, turns and minutes, not in money, because the model credential is the maintainer's subscription (D-27). The exact ceilings per day and per month are open. |
 | ❓ Q-10 | **Allow-list of repositories**, and whether infrastructure-as-code and container definitions are in scope. |
 | ❓ Q-11 | **The existing backlog of dependency pull requests.** Order, conflicts between pull requests of one application, grouping. |
 | ❓ Q-12 | **Authentication** for the UI and for the card links (single-sign-on in front, API keys for machines). Until it is decided the API has none and the image must sit behind an authenticating front; it must be settled before any route acts. |
@@ -205,6 +210,7 @@ User interface, deferred: the light theme (its accent text color is ready, nothi
 | Date | Change |
 |---|---|
 | 2026-11-01 | v0.1: first interview. Decisions D-01 to D-09 and D-14 frozen; D-10 to D-13 proposed. |
+| 2026-11-03 | v0.5: the repair protocol: Claude Code in a container (D-24), the workshop host and the disposable workspaces (D-25), the worker never deploys (D-26), the subscription credential and the budgets in attempts and minutes (D-27), the restricted network (D-28); Q-07 and Q-08 resolved, Q-09 proposed (ADR 0004). |
 | 2026-11-03 | v0.4: the first vertical is built; its review made three decisions explicit (D-21 the unit of work, D-22 data and codes not sentences, D-23 available versus granted); Q-12 says the API has no authentication yet; roadmap and interface notes. |
 | 2026-11-01 | v0.3: Orchestrarr may approve its own pull requests (D-19, Q-14 resolved); environment file format proposed ([environment-file.md](environment-file.md), D-20, Q-15); Q-03 narrowed to the missing deployment source. |
 | 2026-11-01 | v0.2: merge and deploy on tick (D-15, ADR 0001), everything ticked by default (D-16), deployment observed not declared, Portarr as environment provider with a standalone structure file (D-17, D-18, ADR 0002). Q-01, Q-02 resolved; Q-03 reformulated; Q-14, Q-15 added. |
