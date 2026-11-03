@@ -33,13 +33,14 @@ Known limitations:
 The title of this pull request is a Conventional Commit and, once squash-merged into `develop`, decides the version of the next release (`feat` minor, `fix` patch): check that its type is the right one.
 
 ## Review
-<!-- Filled by the review-vertical skill: per agent (tests, quality, security, architecture), what was fixed and what was
+<!-- Filled by the review-vertical skill: per agent (tests, quality, spec, security, architecture), what was fixed and what was
      declined with its reason; test count and duration before and after. An architecture verdict of "no" blocks the PR. -->
 
 | Agent | Fixed | Declined (and why) |
 |---|---|---|
 | test-reviewer | | |
 | quality-reviewer | | |
+| spec-reviewer | | |
 | security-reviewer | | |
 | architecture-reviewer | | |
 

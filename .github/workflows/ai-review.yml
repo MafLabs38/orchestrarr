@@ -1,7 +1,7 @@
 # Advisory AI review of pull requests, from the organization's github-template (quality option "ai_review"), as in Portarr.
-# The four agents of .claude/agents/ (tests, quality, security, architecture) review the diff and each keeps one
+# The five agents of .claude/agents/ (tests, quality, security, architecture, spec) review the diff and each keeps one
 # comment up to date on the PR. They never block a merge: SonarQube, CodeQL and the tests do.
-# The two on Sonnet (tests, quality) and the two on Opus (security, architecture) run on the maintainer's subscription
+# The three on Sonnet (tests, quality, spec) and the two on Opus (security, architecture) run on the maintainer's subscription
 # (CLAUDE_CODE_OAUTH_TOKEN, from `claude setup-token`), not on an API key.
 #
 # Runs when a PR is opened or marked ready, not on every push (subscription quota). To review again
@@ -61,6 +61,8 @@ jobs:
           - agent: test-reviewer
             model: claude-sonnet-5-5
           - agent: quality-reviewer
+            model: claude-sonnet-5-5
+          - agent: spec-reviewer
             model: claude-sonnet-5-5
           - agent: security-reviewer
             model: claude-opus-5-5
