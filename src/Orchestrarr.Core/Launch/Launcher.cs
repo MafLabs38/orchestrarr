@@ -19,7 +19,8 @@ public sealed record LauncherOptions
 /// The only component that can start an agent run, and it only does so from a valid order (SPEC D-41, D-46). It verifies, it cannot
 /// sign (it has no signer). It answers with the verified, normalized order: that is what is to be run, not the object it was handed.
 /// This class decides whether to start; starting the run itself, the pull from the store, the concurrency and the budget come with the
-/// vertical that acts. Every dependency is a parameter of its own, not grouped: a test reads this list to prove that the launcher has no way to sign.
+/// vertical that acts.
+/// Each dependency is a parameter of its own, not grouped: a test reads the list to check that no signer is among them.
 /// </summary>
 public sealed class Launcher(
     IOrderVerifier verifier,
