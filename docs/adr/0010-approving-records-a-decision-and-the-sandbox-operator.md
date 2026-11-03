@@ -24,7 +24,7 @@ The control plane issues the order **from a recorded approval**, when the run is
 
 - The global stop is **persistent and starts engaged** when its state cannot be read, and any authenticated operator can engage it whatever the approvals mode (today it lives in memory and answers 403 in `Disabled`).
 - The approvals and the trail are **persistent**, with a lifecycle (waiting, taken, done, expired, and *superseded* when the pull request moved on), and the store enforces the uniqueness of a decision itself.
-- The sign-in (SPEC Q-12) exists, and the reads of the queue and of the trail are behind it.
+- The sign-in (SPEC Q-12) exists, and the reads of the queue and of the trail are behind it. **Done**: [ADR 0011](0011-people-sign-in-through-the-identity-provider.md).
 - Whether the card tells which steps an approval can record (today the interface repeats the server's list).
 
 ## Consequences
@@ -35,5 +35,4 @@ The control plane issues the order **from a recorded approval**, when the run is
 
 ## Not decided here
 
-- The sign-in (SPEC Q-12) and who counts as an operator in the identity provider.
 - A second approver for what cannot be undone (SPEC Q-21).

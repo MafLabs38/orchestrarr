@@ -73,6 +73,16 @@ describe('Status', () => {
     expect(screen.getByRole('button', { name: 'Engage the global stop' })).toBeEnabled();
   });
 
+  it('says who is signed in when people sign in through the identity provider', async () => {
+    stubApi({
+      '/api/v1/system/status': status({}, { mode: 'openidconnect', operator: 'a1b2', operatorName: 'alice' }),
+    });
+
+    renderWithProviders(<Status />);
+
+    expect(await screen.findByText('Signed in: alice')).toBeInTheDocument();
+  });
+
   it('says approving is turned off, and offers no global stop to nobody', async () => {
     stubApi({ '/api/v1/system/status': status({}, { enabled: false, mode: 'disabled', operator: null }) });
 

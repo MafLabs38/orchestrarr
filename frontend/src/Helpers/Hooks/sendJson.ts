@@ -1,3 +1,5 @@
+import { redirectToSignIn, signInHolds } from 'Helpers/signIn';
+
 import { ApiError } from './useApiQuery';
 
 // A refusal of the API: its status and the code it gives ({ "error": "stepNotGranted" }), which the interface words.
@@ -27,7 +29,11 @@ export default async function sendJson<T>(method: 'POST' | 'PUT', path: string, 
     body: JSON.stringify(body),
   });
   if (!response.ok) {
+    if (response.status === 401) {
+      redirectToSignIn();
+    }
     throw new ApiRefusal(response.status, await errorCode(response));
   }
+  signInHolds();
   return (await response.json()) as T;
 }

@@ -4,6 +4,7 @@ import PageContentBody from 'Components/Page/PageContentBody';
 import PageHeading from 'Components/Page/PageHeading';
 import { sourceName } from 'Components/Page/SourceBadge';
 import { kinds } from 'Helpers/Props/kinds';
+import type { ApprovalStatus } from 'typings/api';
 import { describeError } from 'Utilities/describe';
 import formatTime from 'Utilities/formatTime';
 import translate from 'Utilities/translate';
@@ -20,6 +21,16 @@ const forgeNames: Record<string, () => string> = {
 
 function forgeName(kind: string): string {
   return (forgeNames[kind] ?? (() => kind))();
+}
+
+function approvalsText(approvals: ApprovalStatus): string {
+  if (!approvals.enabled) {
+    return translate('ApprovalsOff');
+  }
+  const operator = approvals.operatorName ?? approvals.operator ?? '';
+  return approvals.mode === 'openidconnect'
+    ? translate('ApprovalsSignedIn', { operator })
+    : translate('ApprovalsSandbox', { operator });
 }
 
 export default function Status() {
@@ -45,11 +56,7 @@ export default function Status() {
                 : translate('ForgeNotConnected')}
             </dd>
             <dt>{translate('Approvals')}</dt>
-            <dd>
-              {data.approvals.enabled
-                ? translate('ApprovalsSandbox', { operator: data.approvals.operator ?? '' })
-                : translate('ApprovalsOff')}
-            </dd>
+            <dd>{approvalsText(data.approvals)}</dd>
             <dt>{translate('KillSwitch')}</dt>
             <dd>
               <KillSwitch approvals={data.approvals} />

@@ -9,6 +9,7 @@ using Orchestrarr.Core.Launch;
 using Orchestrarr.Core.WorkItems;
 using Orchestrarr.Host;
 using Orchestrarr.Host.Approvals;
+using Orchestrarr.Host.SignIn;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -26,7 +27,15 @@ approvals.Validate();
 SandboxGuard.Check(approvals, builder.Environment, builder.Configuration);
 // The powers the operator listed in the configuration (SPEC D-10, D-11): none unless a grant is written. Checked now, not at a request.
 var grants = (builder.Configuration.GetSection(PowersOptions.SectionName).Get<PowersOptions>() ?? new PowersOptions()).ToGrants(builder.Environment.IsDevelopment());
-builder.Services.AddApprovals(approvals, grants);
+// Signing in through the identity provider, when that is how operators are known (SPEC D-40, D-54). Checked now: a missing value stops the host.
+SignInOptions? signIn = null;
+if (approvals.Mode == ApprovalsMode.OpenIdConnect)
+{
+    signIn = builder.Configuration.GetSection(SignInOptions.SectionName).Get<SignInOptions>() ?? new SignInOptions();
+    signIn.Validate(builder.Environment.IsDevelopment());
+    builder.Services.AddSignIn(signIn);
+}
+builder.Services.AddApprovals(approvals, grants, signIn);
 builder.Services.AddSingleton(builder.Configuration.GetSection(WorkItemCatalogOptions.SectionName).Get<WorkItemCatalogOptions>() ?? new WorkItemCatalogOptions());
 builder.Services.AddSingleton<WorkItemCatalog>();
 
@@ -34,6 +43,15 @@ var app = builder.Build();
 SandboxGuard.StopIfListeningBeyondLoopback(app, approvals);
 
 var api = app.MapGroup("/api/v1");
+if (signIn is not null)
+{
+    // Everything the API says, reads included, is for a person who signed in: who approved what is not for anybody
+    app.UseSameOriginGuard(signIn);
+    app.UseAuthentication();
+    app.UseAuthorization();
+    app.MapSignInEndpoints();
+    api.RequireAuthorization();
+}
 
 // The decision cards waiting for the operator, and the approvals recorded for the launcher. Approving records a decision; nothing runs.
 api.MapGet("/work-items", async (WorkItemCatalog catalog, bool? refresh, CancellationToken ct) =>

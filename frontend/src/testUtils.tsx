@@ -91,7 +91,14 @@ export function report(overrides: Partial<WorkItemReport> = {}): WorkItemReport 
 }
 
 export function approvalStatus(overrides: Partial<ApprovalStatus> = {}): ApprovalStatus {
-  return { mode: 'development', enabled: true, operator: 'dev-operator', killSwitchEngaged: false, ...overrides };
+  return {
+    mode: 'development',
+    enabled: true,
+    operator: 'dev-operator',
+    operatorName: 'dev-operator',
+    killSwitchEngaged: false,
+    ...overrides,
+  };
 }
 
 export function status(

@@ -45,6 +45,13 @@ cd frontend && yarn test && yarn lint && yarn stylelint && yarn format:check && 
 
 **To use the sandbox from another machine**, forward its port instead of opening it: `ssh -L 5178:127.0.0.1:5178 <host>`, or the port forwarding of your editor, then open `http://localhost:5178`. The sandbox operator has no sign-in, so the host and the interface listen on the loopback only, and the routes that record something refuse anything that did not come from there. Do not start the interface with `--host 0.0.0.0`.
 
+**To try the sign-in** with a throwaway identity provider, start the one of `samples/keycloak` (`docker compose up -d`, port 8081 on the loopback, realm `orchestrarr` with the operator `alice`/`alice` and `bob`/`bob`, who is not one), then run the host and the interface with the sign-in on and open `http://localhost:5178` (forward 5178 and 8081 if you are on another machine):
+
+```bash
+Approvals__Mode=OpenIdConnect SignIn__Authority=http://localhost:8081/realms/orchestrarr SignIn__ClientId=orchestrarr \
+  SignIn__ClientSecret=sandbox-only-client-secret SignIn__PublicUrl=http://localhost:5178 dotnet run --project src/Orchestrarr.Host
+```
+
 To read a real Portarr instead of the sample, set `Portarr:BaseUrl` and give the key as `Portarr:ApiKey` through the environment (`Portarr__ApiKey`) or `dotnet user-secrets`: the key never goes in a file that is committed. Redirects are not followed, so the key only goes to that address; use https or a private network.
 
 To read the dependency pull requests, give a GitHub token that can **only read** as `GitHub:Token` (`GitHub__Token`, or `dotnet user-secrets`): a fine-grained token with *Pull requests: read*, *Checks: read* and *Commit statuses: read* on the repositories (without the last one, the checks of a repository that reports commit statuses stay unknown). Without a token the screens say the pull requests were not read. The token only goes to the configured API address, which must be https (redirects are not followed). The pull requests of the bots of `GitHub:BotLogins` are read (default: Dependabot and Renovate); a list in the configuration replaces the default. For a demo without GitHub, `Forge:SamplePullRequestsFile` reads a file of the shape of `samples/github-pull-requests.sample.json`.
@@ -57,10 +64,12 @@ Under `/api/v1` (anything else there is a 404). Two routes record something, and
 |---|---|
 | `GET /api/v1/work-items[?refresh=true]` | The work items, with their findings, plan and pull requests |
 | `GET /api/v1/work-items/{id}` | One work item (404 if unknown) |
-| `GET /api/v1/system/status` | Name, version, the state of the sources (`source`, `forge`) and of approving (`approvals`: mode, operator, global stop) |
+| `GET /api/v1/system/status` | Name, version, the state of the sources (`source`, `forge`) and of approving (`approvals`: mode, operator and the name to show, global stop) |
 | `POST /api/v1/approvals` | Approves a card: `{ "workItemId", "steps", "pullRequests": [{ "number", "headSha" }] }`, the pull requests and commits the card displayed. The server decides the repository, the powers and the approver, and refuses unless what was displayed is what is there now |
 | `GET /api/v1/approvals` | The approvals waiting for a launcher, newest first |
 | `GET /api/v1/activity` | The audit trail (in memory), newest first |
+| `GET /auth/login?returnUrl=` | Sends the browser to the identity provider, then back to `returnUrl` (a path of this application, otherwise `/`). Only when `Approvals:Mode=OpenIdConnect` |
+| `POST /auth/logout` | Ends the session and sends the browser to the provider's end-session page. A POST, sent as a form, from the application's own origin |
 | `GET /api/v1/safety` | The global stop: `{ "killSwitchEngaged" }` |
 | `PUT /api/v1/safety/kill-switch` | The global stop: `{ "engaged": true }`. Engaged, nothing is approved |
 
@@ -81,12 +90,15 @@ Approval answers: `201` recorded; `401` `notSignedIn`; `403` `approvalsDisabled`
 | `WorkItems:ForgeFirstWait`, `ForgeTimeBudget`, `ForgeParallelism` | 3 s, 60 s, 4 | How the forge is read in the background |
 | `Powers:Grants` | none | What the operator grants: a list of `{ "Repository": "owner/name" or "*", "Steps": ["validate", "mergePullRequests"] }`. Off until listed. Checked at startup; outside Development a `*` grant may only cover `validate` |
 | `Approvals:Mode`, `Approvals:DevelopmentUser` | `Disabled`, `dev-operator` | `Disabled`: nobody can approve. `Development`: a fixed sandbox operator with no sign-in; **the host will not start** with it outside the Development environment or unless it listens on the loopback, and the routes that record something answer only to a local request (`localhost` or a loopback address, from a client on the loopback) |
+| `Approvals:Mode=OpenIdConnect`, `SignIn:Authority`, `SignIn:ClientId`, `SignIn:ClientSecret`, `SignIn:PublicUrl` | none | People sign in through the identity provider (authorization code flow with PKCE, a confidential client). The authority and the public address are https (http only on the loopback of a Development machine), the secret goes through the environment or `dotnet user-secrets`, never a file; the host does not start without them. The public address is where the browser reaches Orchestrarr (an origin): the redirect addresses and the origin accepted for a change are built from it |
+| `SignIn:OperatorGroup`, `SignIn:GroupsClaim` | `orchestrarr-operators`, `groups` | Members of the group (in that claim of the identity token) are operators; anybody else who signed in can read, not approve or stop |
+| `SignIn:StepUpAcr`, `SignIn:SessionHours`, `SignIn:KeysDirectory` | unset, 8, unset | The authentication context that counts as a second factor (read, not asked for yet); the length of a session (not extended by use); a folder for the keys that protect the session cookie, so that a restart or a second replica still reads it |
 | `Approvals:QueueCapacity`, `Approvals:AuditCapacity` | 500, 2000 | How many approvals and trail entries are kept (in memory) before refusing |
 | `Fleet:SampleFile`, `Forge:SamplePullRequestsFile` | Development only | Sample data of `samples/`; a configured Portarr or token wins over them |
 
 `dotnet run` runs as Development: it enables the sandbox operator (`dev-operator`) and grants validate and merge on every repository, so the Approve button works. The image runs as Production, where approving is off, and it does not carry `appsettings.Development.json`. It listens on port 8080 as a non-root user: `docker run -p 8080:8080 -e Portarr__BaseUrl=... -e Portarr__ApiKey=... -e GitHub__Token=...`.
 
-> **Security.** The API has **no authentication yet** (SPEC Q-12) and the image listens on all interfaces. It reads and shows the state of your fleet, and the two routes that record something (approve, global stop) answer only to the sandbox operator, which the host refuses outside Development and off the loopback; with the default `Disabled` they answer 403. Never start the image with `ASPNETCORE_ENVIRONMENT=Development`: put it behind an authenticating front (single sign-on, a private network) and do not publish its port.
+> **Security.** With the default `Disabled` the API has **no authentication**: it reads and shows the state of your fleet to anybody who can reach it, and approving answers 403. Either turn the sign-in on (`Approvals:Mode=OpenIdConnect`: every route of the API then needs a session, and approving needs the operator group), or put the image behind an authenticating front (single sign-on, a private network) and do not publish its port. The sandbox operator (`Development`) is refused outside Development and off the loopback. Never start the image with `ASPNETCORE_ENVIRONMENT=Development`.
 
 ## License
 

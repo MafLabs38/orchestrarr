@@ -23,4 +23,4 @@ public sealed record KillSwitchRequest(bool Engaged);
 public sealed record SafetyDto(bool KillSwitchEngaged);
 
 /// <summary>What <c>GET /api/v1/system/status</c> says about approving: the mode, who the operator is, the global stop.</summary>
-public sealed record ApprovalStatus(string Mode, bool Enabled, string? Operator, bool KillSwitchEngaged);
+public sealed record ApprovalStatus(string Mode, bool Enabled, string? Operator, string? OperatorName, bool KillSwitchEngaged);

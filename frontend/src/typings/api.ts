@@ -127,11 +127,13 @@ export interface SystemStatus {
   approvals: ApprovalStatus;
 }
 
-// Who may approve (the mode is "disabled" or "development"), who the operator is, and whether the global stop is engaged.
+// Who may approve (the mode is "disabled", "development" or "openidconnect"), who the operator is (the identifier that counts, and the
+// name to show), and whether the global stop is engaged.
 export interface ApprovalStatus {
   mode: string;
   enabled: boolean;
   operator: string | null;
+  operatorName: string | null;
   killSwitchEngaged: boolean;
 }
 

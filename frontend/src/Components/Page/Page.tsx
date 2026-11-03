@@ -5,6 +5,7 @@ import translate from 'Utilities/translate';
 import styles from './Page.module.css';
 import PageHeader from './PageHeader';
 import PageSidebar from './PageSidebar';
+import SignInFailed from './SignInFailed';
 
 export default function Page({ children }: Readonly<{ children: ReactNode }>) {
   return (
@@ -16,6 +17,7 @@ export default function Page({ children }: Readonly<{ children: ReactNode }>) {
       <div className={styles.body}>
         <PageSidebar />
         <main id="main" className={styles.main}>
+          <SignInFailed />
           {children}
         </main>
       </div>

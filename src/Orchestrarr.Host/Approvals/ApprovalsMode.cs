@@ -7,4 +7,7 @@ public enum ApprovalsMode
 
     /// <summary>A single, fixed operator with no sign-in, for the local sandbox only (see <see cref="SandboxGuard"/>).</summary>
     Development,
+
+    /// <summary>The person signed in through the identity provider (OpenID Connect), who is an operator when they belong to the configured group.</summary>
+    OpenIdConnect,
 }
