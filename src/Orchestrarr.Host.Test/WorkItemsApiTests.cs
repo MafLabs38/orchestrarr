@@ -77,14 +77,36 @@ public sealed class WorkItemsApiTests : IClassFixture<SampleApiFactory>
     }
 
     [Fact]
-    public void Every_route_of_the_api_only_reads()
+    public void Every_route_of_the_api_only_reads_apart_from_the_fallback_that_answers_404_to_everything_else()
     {
         var routes = _factory.Services.GetServices<EndpointDataSource>().SelectMany(source => source.Endpoints).OfType<RouteEndpoint>()
             .Where(e => e.RoutePattern.RawText?.StartsWith("/api", StringComparison.Ordinal) == true)
             .ToList();
 
         routes.Should().NotBeEmpty();
-        routes.Should().OnlyContain(e => e.Metadata.GetMetadata<HttpMethodMetadata>()!.HttpMethods.All(m => m == HttpMethods.Get));
+        var withMethods = routes.Where(e => e.Metadata.GetMetadata<HttpMethodMetadata>() is not null).ToList();
+        withMethods.Should().NotBeEmpty().And.OnlyContain(e => e.Metadata.GetMetadata<HttpMethodMetadata>()!.HttpMethods.All(m => m == HttpMethods.Get));
+        routes.Except(withMethods).Should().ContainSingle().Which.RoutePattern.RawText.Should().Contain("{*path");
+    }
+
+    [Theory]
+    [InlineData("POST")]
+    [InlineData("PUT")]
+    [InlineData("PATCH")]
+    [InlineData("DELETE")]
+    public async Task Any_write_to_the_api_is_refused_with_a_404(string method)
+    {
+        var response = await _client.SendAsync(new HttpRequestMessage(new HttpMethod(method), "/api/v1/work-items/repository:example/shop/approve"), TestContext.Current.CancellationToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task An_unknown_route_of_the_api_is_a_404()
+    {
+        var response = await _client.GetAsync("/api/v1/nothing", TestContext.Current.CancellationToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     [Fact]
