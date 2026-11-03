@@ -177,11 +177,48 @@ public sealed class ApprovalService(
 
     public void Dispose() => _gate.Dispose();
 
+    // The same person refused for the same reason is traced once in a while, not at every try: a loop of refusals must not use up the share of the
+    // trail that is kept for them, and what matters (who, what for, that it went on) is in the first entry.
+    private static readonly TimeSpan RefusalTraceWindow = TimeSpan.FromMinutes(10);
+    private const int RefusalTraceMemory = 1024;
+    private readonly Lock _refusalLock = new();
+    private readonly Dictionary<(string Subject, ApprovalRefusal Refusal), DateTimeOffset> _lastRefusalTrace = [];
+
+    private bool ShouldTraceRefusal(string subject, ApprovalRefusal refusal)
+    {
+        var now = time.GetUtcNow();
+        lock (_refusalLock)
+        {
+            if (_lastRefusalTrace.TryGetValue((subject, refusal), out var last) && now - last < RefusalTraceWindow)
+            {
+                return false;
+            }
+            if (_lastRefusalTrace.Count >= RefusalTraceMemory)
+            {
+                // Bounded: what is old enough to be traced again is forgotten
+                foreach (var key in _lastRefusalTrace.Where(entry => now - entry.Value >= RefusalTraceWindow).Select(entry => entry.Key).ToList())
+                {
+                    _lastRefusalTrace.Remove(key);
+                }
+                if (_lastRefusalTrace.Count >= RefusalTraceMemory)
+                {
+                    return false;
+                }
+            }
+            _lastRefusalTrace[(subject, refusal)] = now;
+            return true;
+        }
+    }
+
     private async Task RecordRefusalAsync(Approver approver, string workItemId, ApprovalRefusal refusal, CancellationToken cancellationToken)
     {
         // A refusal is worth a trace, but it does not depend on one: it already fails closed. The work item id comes from the client, so
         // it is recorded only if it has the shape of one.
         var subject = OrderValidation.IsValidSubject(approver.Subject) ? approver.Subject : AuditEvents.Unverified;
+        if (!ShouldTraceRefusal(subject, refusal))
+        {
+            return;
+        }
         var detail = OrderValidation.IsValidWorkItem(workItemId) ? $"{refusal} {workItemId}" : refusal.ToString();
         await audit.TryRecordAsync(new AuditEntry(time.GetUtcNow(), AuditEvents.ApprovalRefused, subject, null, detail), cancellationToken);
     }

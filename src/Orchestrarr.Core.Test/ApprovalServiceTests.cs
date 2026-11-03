@@ -661,4 +661,34 @@ public sealed class ApprovalServiceTests
         _audit.List().Should().ContainSingle("the second attempt left no trace");
         _store.List().Should().ContainSingle();
     }
+
+    [Fact]
+    public async Task The_same_person_refused_for_the_same_reason_is_traced_once_in_a_while_so_that_a_loop_cannot_fill_the_trail()
+    {
+        var service = await Service();
+        var reader = new Approver("reader-1", IsPerson: true, IsOperator: false, StepUpAt: null);
+
+        for (var i = 0; i < 5; i++)
+        {
+            (await Approve(service, approver: reader)).Refusal.Should().Be(ApprovalRefusal.NotAnOperator);
+        }
+
+        _audit.List().Should().ContainSingle("the first refusal is traced, the repeats within ten minutes are not");
+    }
+
+    [Fact]
+    public async Task Another_reason_another_person_or_a_later_time_is_traced_again()
+    {
+        var service = await Service();
+        var reader = new Approver("reader-1", IsPerson: true, IsOperator: false, StepUpAt: null);
+        var other = new Approver("reader-2", IsPerson: true, IsOperator: false, StepUpAt: null);
+
+        await Approve(service, approver: reader);
+        await Approve(service, approver: other);
+        await Approve(service, steps: [], approver: Operator);
+        _time.Advance(TimeSpan.FromMinutes(11));
+        await Approve(service, approver: reader);
+
+        _audit.List().Select(entry => entry.Subject).Should().Equal("reader-1", "alice", "reader-2", "reader-1");
+    }
 }

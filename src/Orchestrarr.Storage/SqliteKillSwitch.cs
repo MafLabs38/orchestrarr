@@ -29,7 +29,19 @@ public sealed class SqliteKillSwitch(SqliteDatabase database, int auditCapacity,
     public bool Engaged => _engaging > 0 || _held || ReadEngaged();
 
     // An unreadable file is not saved either: the stop counts as engaged, and the state is unknown
-    public bool Saved => _engaging == 0 && !_held && !_unreadable;
+    public bool Saved
+    {
+        get
+        {
+            if (_engaging > 0 || _held)
+            {
+                return false;
+            }
+            // Read now, so that the answer does not depend on who asked before
+            ReadEngaged();
+            return !_unreadable;
+        }
+    }
 
     public ValueTask<bool> IsEngagedAsync(CancellationToken cancellationToken) => ValueTask.FromResult(Engaged);
 

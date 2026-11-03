@@ -49,6 +49,15 @@ public sealed class SqliteKillSwitchTests : IDisposable
     }
 
     [Fact]
+    public void Saved_read_alone_says_the_file_cannot_be_read_without_anyone_asking_for_the_stop_first()
+    {
+        var stop = Stop();
+        _file.Damage();
+
+        stop.Saved.Should().BeFalse();
+    }
+
+    [Fact]
     public void A_missing_row_is_unknown_and_unknown_is_engaged()
     {
         var database = _file.Open();
