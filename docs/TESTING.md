@@ -75,4 +75,5 @@ The SonarQube rules can run in the editor (SonarLint) and be read by assistants,
 
 - Bind by the **address**, not by a connection id in `.vscode/settings.json`: an id that is not defined as a connection of the machine gives "The specified connection id doesn't exist", and the binding is invalid.
 - The project is created on the server through its API (name, key `<owner>_<repository>`, main branch `develop`, the default Quality Gate), not by hand.
+- **An assistant reads what the editor underlines** with the editor's diagnostics (the Problems panel, including SonarLint), before committing. SonarLint only analyses files that are open in the editor: editing a file opens it; wait about ten seconds, then read the diagnostics of the files changed, and fix them. This needs no SonarQube server for assistants.
 - An assistant's SonarQube server that runs in a container reaches the editor's SonarLint on `localhost` only with the host network (`--network=host`); without it the editor is never found and the server falls back on a weaker analysis. One editor window per port: the port tells which window is analysed.
