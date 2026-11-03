@@ -67,7 +67,7 @@ public sealed class SqliteKillSwitchChangeTests : IDisposable
         (await stop.ChangeAsync(true, Engaged(), Ct)).Should().Be(KillSwitchChange.AppliedUntraced);
 
         stop.Engaged.Should().BeTrue();
-        stop.Saved.Should().BeTrue("the file holds it, only the trace is missing");
+        stop.State().Saved.Should().BeTrue("the file holds it, only the trace is missing");
         new SqliteKillSwitch(_file.Reopen(), auditCapacity: 1).Engaged.Should().BeTrue();
     }
 
@@ -78,7 +78,7 @@ public sealed class SqliteKillSwitchChangeTests : IDisposable
         _file.Damage();
 
         (await stop.ChangeAsync(true, Engaged(), Ct)).Should().Be(KillSwitchChange.AppliedUntraced);
-        stop.Saved.Should().BeFalse();
+        stop.State().Saved.Should().BeFalse();
         stop.State().Should().Be(new KillSwitchState(Engaged: true, Saved: false), "held in memory: engaged, and a restart would not keep it");
         (await stop.ChangeAsync(false, Released(), Ct)).Should().Be(KillSwitchChange.NotSaved);
         stop.Engaged.Should().BeTrue();
@@ -95,7 +95,7 @@ public sealed class SqliteKillSwitchChangeTests : IDisposable
 
         (await stop.ChangeAsync(true, Engaged(), Ct)).Should().Be(KillSwitchChange.Applied);
 
-        stop.Saved.Should().BeTrue();
+        stop.State().Saved.Should().BeTrue();
     }
 
     [Theory]
@@ -112,7 +112,7 @@ public sealed class SqliteKillSwitchChangeTests : IDisposable
         _file.Vanish();
 
         stop.Engaged.Should().BeTrue("a file that is not there cannot say the stop was released");
-        stop.Saved.Should().BeFalse("and the state is unknown");
+        stop.State().Saved.Should().BeFalse("and the state is unknown");
         (await stop.ChangeAsync(false, Released(), Ct)).Should().Be(KillSwitchChange.NotSaved);
         File.Exists(_file.Path).Should().BeFalse("nothing creates a database behind the host's back");
     }
@@ -147,7 +147,7 @@ public sealed class SqliteKillSwitchChangeTests : IDisposable
         (await stop.ChangeAsync(false, Released(), Ct)).Should().Be(KillSwitchChange.Applied);
 
         stop.Engaged.Should().BeFalse();
-        stop.Saved.Should().BeTrue();
+        stop.State().Saved.Should().BeTrue();
     }
 
     [Fact]
@@ -166,7 +166,7 @@ public sealed class SqliteKillSwitchChangeTests : IDisposable
         (await stop.ChangeAsync(false, Released(), Ct)).Should().Be(KillSwitchChange.NotTraced);
 
         stop.Engaged.Should().BeTrue();
-        stop.Saved.Should().BeFalse();
+        stop.State().Saved.Should().BeFalse();
     }
 
     [Fact]

@@ -9,7 +9,7 @@ namespace Orchestrarr.Storage;
 /// <summary>
 /// The global stop, kept in the SQLite file so that a restart does not release it (ADR 0013). **Unknown means engaged**: a state that cannot be
 /// read is read as engaged. Engaging always takes effect, even when it cannot be saved, because the stop must work when nothing else does; it
-/// is then held in memory and <see cref="Saved"/> says it would not survive a restart. Releasing needs the release to be saved, and otherwise
+/// is then held in memory and <see cref="State"/> says it would not survive a restart. Releasing needs the release to be saved, and otherwise
 /// the stop stays engaged. A fresh database starts released, unless it was created to start engaged (see <see cref="SqliteDatabase.Open"/>).
 /// </summary>
 public sealed class SqliteKillSwitch(SqliteDatabase database, int auditCapacity, ILogger<SqliteKillSwitch>? logger = null) : IKillSwitchControl
@@ -28,30 +28,15 @@ public sealed class SqliteKillSwitch(SqliteDatabase database, int auditCapacity,
 
     public bool Engaged => Volatile.Read(ref _engaging) > 0 || _held || ReadEngaged();
 
-    // An unreadable file is not saved either: the stop counts as engaged, and the state is unknown
+    // One read of the file for both answers. An unreadable file is engaged, and not saved: the state is unknown.
     public KillSwitchState State()
     {
-        // One read of the file for both answers
         if (Volatile.Read(ref _engaging) > 0 || _held)
         {
             return new KillSwitchState(Engaged: true, Saved: false);
         }
         var engaged = ReadEngaged();
         return new KillSwitchState(engaged, Saved: !_unreadable);
-    }
-
-    public bool Saved
-    {
-        get
-        {
-            if (Volatile.Read(ref _engaging) > 0 || _held)
-            {
-                return false;
-            }
-            // Read now, so that the answer does not depend on who asked before
-            ReadEngaged();
-            return !_unreadable;
-        }
     }
 
     public ValueTask<bool> IsEngagedAsync(CancellationToken cancellationToken) => ValueTask.FromResult(Engaged);
@@ -117,8 +102,16 @@ public sealed class SqliteKillSwitch(SqliteDatabase database, int auditCapacity,
         }
         catch (Exception failure) when (SqliteDatabase.IsUnavailable(failure) || engaged)
         {
-            // Engaging takes effect whatever went wrong: any failure of the write holds it in memory
-            _logger.LogError(failure, "The state of the global stop cannot be saved");
+            // Engaging takes effect whatever went wrong: any failure of the write holds it in memory. A failure that is not the storage's is a
+            // bug, and is logged as one, so that it does not pass for a full disk.
+            if (SqliteDatabase.IsUnavailable(failure))
+            {
+                _logger.LogError(failure, "The state of the global stop cannot be saved");
+            }
+            else
+            {
+                _logger.LogCritical(failure, "A failure that is not the storage's stopped the global stop from being saved: it is held in memory, and this is a bug");
+            }
             if (!engaged)
             {
                 return KillSwitchChange.NotSaved;

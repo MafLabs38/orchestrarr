@@ -271,9 +271,7 @@ public sealed class StorageApiTests : IDisposable
 
         public bool Engaged => _engaged;
 
-        public bool Saved => !_engaged;
-
-        public KillSwitchState State() => new(_engaged, Saved);
+        public KillSwitchState State() => new(_engaged, Saved: !_engaged);
 
         public ValueTask<bool> IsEngagedAsync(CancellationToken cancellationToken) => ValueTask.FromResult(_engaged);
 

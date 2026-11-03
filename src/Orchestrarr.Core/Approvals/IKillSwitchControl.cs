@@ -29,9 +29,6 @@ public interface IKillSwitchControl : IKillSwitch
     /// <summary>Both answers from one read: what the status and the responses of the stop say, so that the pair never comes from two moments.</summary>
     KillSwitchState State();
 
-    /// <summary>False while an engagement is held only in memory because it could not be saved: it would not survive a restart.</summary>
-    bool Saved { get; }
-
     /// <summary>
     /// Engages or releases the stop, and traces it with <paramref name="entry"/>. Engaging always takes effect, even when it cannot be saved or
     /// traced, because the stop must work when nothing else does. A release needs to be saved and traced, in one write where the storage allows

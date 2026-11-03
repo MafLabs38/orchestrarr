@@ -15,6 +15,6 @@ internal static class StopExtensions
     private static KillSwitchChange Change(IKillSwitchControl stop, bool engaged)
     {
         var entry = new AuditEntry(Noon, engaged ? AuditEvents.KillSwitchEngaged : AuditEvents.KillSwitchReleased, "alice-1", null, null);
-        return stop.ChangeAsync(engaged, entry, CancellationToken.None).AsTask().GetAwaiter().GetResult();
+        return stop.ChangeAsync(engaged, entry, TestContext.Current.CancellationToken).AsTask().GetAwaiter().GetResult();
     }
 }

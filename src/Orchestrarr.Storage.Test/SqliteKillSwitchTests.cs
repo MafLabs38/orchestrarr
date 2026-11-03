@@ -26,7 +26,7 @@ public sealed class SqliteKillSwitchTests : IDisposable
         _file.Damage();
 
         stop.Engaged.Should().BeTrue();
-        stop.Saved.Should().BeFalse("the state is unknown, so nothing says a restart keeps it");
+        stop.State().Saved.Should().BeFalse("the state is unknown, so nothing says a restart keeps it");
         (await stop.IsEngagedAsync(Ct)).Should().BeTrue();
     }
 
@@ -36,7 +36,7 @@ public sealed class SqliteKillSwitchTests : IDisposable
         var stop = Stop();
         _file.Damage();
 
-        stop.Saved.Should().BeFalse();
+        stop.State().Saved.Should().BeFalse();
     }
 
     [Fact]
@@ -87,7 +87,7 @@ public sealed class SqliteKillSwitchTests : IDisposable
         stop.Release().Should().Be(KillSwitchChange.NotSaved);
 
         stop.Engaged.Should().BeTrue();
-        stop.Saved.Should().BeFalse();
+        stop.State().Saved.Should().BeFalse();
     }
 
     [Fact]
@@ -103,7 +103,7 @@ public sealed class SqliteKillSwitchTests : IDisposable
         var release = stop.Release();
 
         engage.Should().Be(KillSwitchChange.AppliedUntraced);
-        stop.Saved.Should().BeFalse("the file was locked, so the engagement is held in memory");
+        stop.State().Saved.Should().BeFalse("the file was locked, so the engagement is held in memory");
         release.Should().Be(KillSwitchChange.NotSaved);
         stop.Engaged.Should().BeTrue();
     }
@@ -111,7 +111,7 @@ public sealed class SqliteKillSwitchTests : IDisposable
     [Fact]
     public async Task Engaging_and_releasing_at_once_leave_a_stop_that_agrees_with_its_last_trace()
     {
-        var database = _file.Open();
+        var database = SqliteDatabase.Open(_file.Path, busyTimeout: TimeSpan.FromSeconds(30));
         var stop = new SqliteKillSwitch(database, StoreLimits.FileAudit);
         var at = new DateTimeOffset(2026, 11, 3, 12, 0, 0, TimeSpan.Zero);
 
@@ -138,7 +138,7 @@ public sealed class SqliteKillSwitchTests : IDisposable
         SpinWait.SpinUntil(() => stop.Engaged, TimeSpan.FromSeconds(10)).Should().BeTrue("the stop does not wait for the lock");
         SqliteDatabase.Run(other, "ROLLBACK;");
         (await engage.WaitAsync(TimeSpan.FromSeconds(10), Ct)).Should().Be(KillSwitchChange.Applied);
-        stop.Saved.Should().BeTrue();
+        stop.State().Saved.Should().BeTrue();
     }
 
     [Fact]

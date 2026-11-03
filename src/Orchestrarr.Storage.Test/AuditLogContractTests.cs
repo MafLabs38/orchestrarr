@@ -119,7 +119,7 @@ public sealed class AuditLogContractTests : IDisposable
     [Fact]
     public async Task Entries_recorded_at_once_by_several_tasks_never_pass_the_capacity()
     {
-        var database = _file.Open();
+        var database = SqliteDatabase.Open(_file.Path, busyTimeout: TimeSpan.FromSeconds(30));
 
         var results = await Task.WhenAll(Enumerable.Range(0, 4).Select(n => Task.Run(
             async () => await new SqliteAuditLog(database, capacity: 3).TryRecordAsync(Decision(n), Ct),

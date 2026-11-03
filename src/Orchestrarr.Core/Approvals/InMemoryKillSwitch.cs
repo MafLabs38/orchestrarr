@@ -13,8 +13,6 @@ public sealed class InMemoryKillSwitch(IAuditSink? audit = null, bool startEngag
 
     public bool Engaged => _engaged;
 
-    public bool Saved => true;
-
     public KillSwitchState State() => new(_engaged, Saved: true);
 
     public ValueTask<bool> IsEngagedAsync(CancellationToken cancellationToken) => ValueTask.FromResult(_engaged);

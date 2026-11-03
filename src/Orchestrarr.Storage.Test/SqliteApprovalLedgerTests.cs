@@ -190,4 +190,61 @@ public sealed class SqliteApprovalLedgerTests : IDisposable
         new SqliteApprovalStore(database).List().Should().BeEmpty();
         new SqliteAuditLog(database).List().Should().BeEmpty();
     }
+
+    [Fact]
+    public async Task The_stop_is_read_while_the_ledger_holds_the_write_lock_and_not_before()
+    {
+        var database = SqliteDatabase.Open(_file.Path, busyTimeout: TimeSpan.FromMilliseconds(1));
+        var probe = new LockProbe(database);
+        var approval = Approval();
+
+        var result = await new SqliteApprovalLedger(database, probe).TryRecordAsync([approval], [Entry(approval)], Ct);
+
+        result.Should().Be(LedgerResult.Recorded);
+        probe.WriteLockWasHeldWhenRead.Should().BeTrue("an engagement cannot slip in between the read of the stop and the write");
+    }
+
+    [Fact]
+    public async Task A_real_stop_engaged_in_the_file_refuses_the_write()
+    {
+        var database = _file.Open();
+        var stop = new SqliteKillSwitch(database, StoreLimits.FileAudit);
+        stop.Engage();
+        var approval = Approval();
+
+        var result = await new SqliteApprovalLedger(database, stop).TryRecordAsync([approval], [Entry(approval)], Ct);
+
+        result.Should().Be(LedgerResult.Stopped);
+        new SqliteApprovalStore(database).List().Should().BeEmpty();
+    }
+
+    // A stop that says whether another writer could have written at the moment it was read
+    private sealed class LockProbe(SqliteDatabase database) : IKillSwitchControl
+    {
+        public bool WriteLockWasHeldWhenRead { get; private set; }
+
+        public bool Engaged
+        {
+            get
+            {
+                using var other = database.Connect();
+                try
+                {
+                    SqliteDatabase.Run(other, "BEGIN IMMEDIATE;");
+                    SqliteDatabase.Run(other, "ROLLBACK;");
+                }
+                catch (SqliteException)
+                {
+                    WriteLockWasHeldWhenRead = true;
+                }
+                return false;
+            }
+        }
+
+        public KillSwitchState State() => new(Engaged, Saved: true);
+
+        public ValueTask<bool> IsEngagedAsync(CancellationToken cancellationToken) => ValueTask.FromResult(Engaged);
+
+        public ValueTask<KillSwitchChange> ChangeAsync(bool engaged, AuditEntry entry, CancellationToken cancellationToken) => ValueTask.FromResult(KillSwitchChange.Applied);
+    }
 }
