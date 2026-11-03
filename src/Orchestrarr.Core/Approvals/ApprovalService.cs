@@ -136,6 +136,7 @@ public sealed class ApprovalService(
         await _gate.WaitAsync(cancellationToken);
         try
         {
+            // These checks are a cheap fast path, in front of the ledger: the ledger checks the same again inside its write, and has the last word
             var fresh = candidates.Where(approval => !store.Contains(approval)).ToList();
             if (fresh.Count == 0)
             {
@@ -184,29 +185,33 @@ public sealed class ApprovalService(
     private readonly Lock _refusalLock = new();
     private readonly Dictionary<(string Subject, ApprovalRefusal Refusal), DateTimeOffset> _lastRefusalTrace = [];
 
-    private bool ShouldTraceRefusal(string subject, ApprovalRefusal refusal)
+    private bool WasTracedRecently(string subject, ApprovalRefusal refusal)
     {
         var now = time.GetUtcNow();
         lock (_refusalLock)
         {
-            if (_lastRefusalTrace.TryGetValue((subject, refusal), out var last) && now - last < RefusalTraceWindow)
-            {
-                return false;
-            }
+            return _lastRefusalTrace.TryGetValue((subject, refusal), out var last) && now - last < RefusalTraceWindow;
+        }
+    }
+
+    // Remembered only once the trace is written: a refusal that could not be traced is traced the next time it comes
+    private void RememberTraced(string subject, ApprovalRefusal refusal)
+    {
+        var now = time.GetUtcNow();
+        lock (_refusalLock)
+        {
             if (_lastRefusalTrace.Count >= RefusalTraceMemory)
             {
-                // Bounded: what is old enough to be traced again is forgotten
+                // Bounded: what is old enough to be traced again is forgotten. When nothing is, this one is simply not remembered, and traced again.
                 foreach (var key in _lastRefusalTrace.Where(entry => now - entry.Value >= RefusalTraceWindow).Select(entry => entry.Key).ToList())
                 {
                     _lastRefusalTrace.Remove(key);
                 }
-                if (_lastRefusalTrace.Count >= RefusalTraceMemory)
-                {
-                    return false;
-                }
             }
-            _lastRefusalTrace[(subject, refusal)] = now;
-            return true;
+            if (_lastRefusalTrace.Count < RefusalTraceMemory)
+            {
+                _lastRefusalTrace[(subject, refusal)] = now;
+            }
         }
     }
 
@@ -215,11 +220,14 @@ public sealed class ApprovalService(
         // A refusal is worth a trace, but it does not depend on one: it already fails closed. The work item id comes from the client, so
         // it is recorded only if it has the shape of one.
         var subject = OrderValidation.IsValidSubject(approver.Subject) ? approver.Subject : AuditEvents.Unverified;
-        if (!ShouldTraceRefusal(subject, refusal))
+        if (WasTracedRecently(subject, refusal))
         {
             return;
         }
         var detail = OrderValidation.IsValidWorkItem(workItemId) ? $"{refusal} {workItemId}" : refusal.ToString();
-        await audit.TryRecordAsync(new AuditEntry(time.GetUtcNow(), AuditEvents.ApprovalRefused, subject, null, detail), cancellationToken);
+        if (await audit.TryRecordAsync(new AuditEntry(time.GetUtcNow(), AuditEvents.ApprovalRefused, subject, null, detail), cancellationToken))
+        {
+            RememberTraced(subject, refusal);
+        }
     }
 }

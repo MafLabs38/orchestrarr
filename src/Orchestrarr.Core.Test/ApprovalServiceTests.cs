@@ -691,4 +691,19 @@ public sealed class ApprovalServiceTests
 
         _audit.List().Select(entry => entry.Subject).Should().Equal("reader-1", "alice", "reader-2", "reader-1");
     }
+
+    [Fact]
+    public async Task A_refusal_that_could_not_be_traced_is_traced_the_next_time_it_comes()
+    {
+        var sink = Substitute.For<IAuditSink>();
+        sink.TryRecordAsync(Arg.Any<AuditEntry>(), Arg.Any<CancellationToken>()).Returns(false, true);
+        var service = await Service(null, sink);
+        var reader = new Approver("reader-1", IsPerson: true, IsOperator: false, StepUpAt: null);
+
+        await Approve(service, approver: reader);
+        await Approve(service, approver: reader);
+        await Approve(service, approver: reader);
+
+        await sink.Received(2).TryRecordAsync(Arg.Any<AuditEntry>(), Arg.Any<CancellationToken>());
+    }
 }
