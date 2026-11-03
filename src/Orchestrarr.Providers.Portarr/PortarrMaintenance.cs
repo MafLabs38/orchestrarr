@@ -1,7 +1,7 @@
 namespace Orchestrarr.Providers.Portarr;
 
-// The part of Portarr's GET /api/v1/maintenance that Orchestrarr reads. Properties Orchestrarr does not use are left out;
-// the contract is Portarr's (MaintenanceResource), so the names follow it.
+// What Orchestrarr reads of the maintenance endpoint of Portarr (GET /api/v1/maintenance). Properties it does not use are left out.
+// The contract belongs to Portarr (its MaintenanceResource), so the names follow it.
 
 /// <summary><c>State</c> is Portarr's scanning state: on, off or unknown.</summary>
 internal sealed record PortarrAlertScan(string? State = null, int Critical = 0, int High = 0, int Medium = 0, int Low = 0, int Other = 0, int Total = 0);

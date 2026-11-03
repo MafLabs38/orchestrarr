@@ -31,8 +31,8 @@ const stepKey = (step: PlanStep) => `${step.kind}:${step.environmentId ?? ''}`;
 
 // What an approval can record today: building and testing a pull request, and merging those that pass. The other steps are shown and
 // can be granted, but run with later versions.
-const approvableKinds: StepKind[] = ['validate', 'mergePullRequests'];
-const isApprovable = (step: PlanStep) => step.environmentId === null && approvableKinds.includes(step.kind);
+const approvableKinds = new Set<StepKind>(['validate', 'mergePullRequests']);
+const isApprovable = (step: PlanStep) => step.environmentId === null && approvableKinds.has(step.kind);
 
 // Why a step cannot be approved as it stands, if it cannot: possible at all, granted, and a step that approving records today.
 function stepNote(step: PlanStep): string | null {

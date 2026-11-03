@@ -13,7 +13,7 @@ export default function useRefreshWorkItems() {
     mutationFn: () => getJson<WorkItemReport>(`${workItemsPath}?refresh=true`),
     onSuccess: (report) => {
       queryClient.setQueryData([workItemsPath], report);
-      void queryClient.invalidateQueries({ queryKey: [systemStatusPath] });
+      return queryClient.invalidateQueries({ queryKey: [systemStatusPath] });
     },
   });
 }
