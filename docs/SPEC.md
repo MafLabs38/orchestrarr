@@ -1,6 +1,6 @@
 # Orchestrarr — Functional and Technical Specification
 
-> **Status**: draft v0.5. The first vertical (read-only) is built; no power that acts exists yet.
+> **Status**: draft v0.6. The first vertical (read-only) is built; no power that acts exists yet.
 > **Related documents**: [VISION.md](VISION.md) (pitch, safety principles, first interview questions) · [environment-file.md](environment-file.md) (standalone description format) · [adr/](adr/) (architecture decisions)
 > **Last updated**: 2026-11-03
 > **Audience**: the project owner and contributors.
@@ -74,6 +74,9 @@ In practice the operator rarely reads code: they check that the AI did not drift
 | ✅ D-27 | **The model credential is the maintainer's subscription token, not an API key.** Budgets are in attempts, turns and minutes (defaults: 3 attempts, 20 minutes, one run at a time). A run that hits the quota is paused and retried, not failed. |
 | 🟡 D-28 | **The worker's network is restricted** to the model provider, the forge and the package registries, because the subscription token is a long-lived secret an injected prompt could try to send out. |
 | ✅ D-29 | **Every analysis and every fix uses Claude Sonnet.** The model and the amount of reasoning are settings, not code. |
+| ✅ D-30 | **Every repair comes with a regression report** (F-RUN-04): the maintainer asked to see what the tests proved, not only that they passed. |
+| 🟡 D-31 | **Acting on a machine is a power like the others** (D-10, D-11): configured per machine (an SSH connection: user, key by reference, allowed actions), off until the operator enables it, never beyond what the card ticked. The connection credentials are held by Orchestrarr's own code, **never by a worker** (D-26). |
+| 🟡 D-32 | **Prefer changing the declared state to running a command.** A fix to the infrastructure is a pull request on the repository that declares it (the infrastructure-as-code repositories), applied by Orchestrarr's deployer. A command on a machine is the exception, approved as its own step, with the output recorded. A diagnosis is read-only first. |
 
 ---
 
@@ -87,6 +90,9 @@ In practice the operator rarely reads code: they check that the AI did not drift
 | UC-04 | After a deployment, a smoke test fails. The previous version is restored automatically, and I see what happened and why. |
 | UC-05 | A desktop client with auto-update needs a new release. Orchestrarr builds and checks it, and publishes only when I ticked the release step. |
 | UC-06 | I stop everything at once with a global stop. |
+| UC-07 | Three of my backups do not work. I see which ones, why, and I approve a repair that Orchestrarr carries out on the machine, then checks that a backup now succeeds. |
+| UC-08 | A fix has to be proved where the application runs: Orchestrarr tests it on the target environment, and tells me what it did and what it found. |
+| UC-09 | After a repair I read a **regression report**: which tests ran before and after, what changed, whether the finding is gone. |
 
 ---
 
@@ -139,6 +145,11 @@ Screens in *arr style: **Queue** (running and waiting), **Decisions** (cards awa
 | F-RUN-01 | Run an agent in an isolated clone with a narrow credential and a budget |
 | F-RUN-02 | Validate a dependency pull request: build, tests, regression check |
 | F-RUN-03 | Merge when ticked, deploy per environment when ticked, smoke test, rollback |
+| F-RUN-04 | **Regression report** of every repair: the tests before and after (counts, names of those that changed state, durations), the lint and the scan results, the finding that was targeted (gone or not), the files changed and the coverage of the change. It is part of the verdict of the decision card and of the pull request (D-30) |
+| F-ENV-01 | **Machines Orchestrarr may act on**, each with its own connection (SSH first): user, key by reference, the actions allowed. Off until the operator enables them (D-31) |
+| F-ENV-02 | **Diagnose on a machine**: read-only commands, to find why something fails (a backup, a service) |
+| F-ENV-03 | **Act on a machine**: a declared action, approved as a step of the card, with the output kept in the audit trail and a check that it worked (D-32) |
+| F-BKP-01 | **Backups that fail or are missing are findings** (read from Portarr, which already follows the backups) and become work items like any other (UC-07) |
 | F-SAF-01 | Global stop, dry-run mode, budgets (cost, time, concurrency) |
 | F-SAF-02 | Full audit trail of prompts, tool calls, decisions and approvals |
 | F-APP-01 | Powers per application and environment, off until enabled (D-10) |
@@ -165,7 +176,8 @@ The principles of [VISION.md §5](VISION.md) apply, as amended by [ADR 0001](adr
 | 1 | **Intake from Portarr and read-only decision cards** (F-INT-01, F-INT-02, F-CRD-01), before any write power exists | built, reviewed in the sandbox by the four review agents. The *verdict* half of F-CRD-01 and the eligibility of *deploy* (a known check and rollback, D-10) come with later verticals, so deploy is shown as a preview. Reading Portarr every 30 seconds is the interim answer to VISION question 8 (poll or webhook) |
 | 2 | Read the dependency pull requests and the CI of each repository from the forge (Portarr only gives their number) | next, read-only |
 | 3 | Validate and merge: needs the agent runtime (Q-07) | blocked on Q-07 |
-| 4 | Deploy, smoke test and roll back (F-RUN-03) | after 3 |
+| 4 | Deploy, smoke test and roll back (F-RUN-03), with the regression report (F-RUN-04) | after 3 |
+| 5 | Backups and actions on machines: find the backups that fail (F-BKP-01), diagnose and act through a configured connection (F-ENV-01 to F-ENV-03) | **not started**: the maintainer wants the repair vertical to be correct first. Needs Q-16 and Q-17 |
 
 The acceptance scenarios are the rotten test repository's `SCENARIOS.md`.
 
@@ -192,6 +204,8 @@ User interface, deferred: the light theme (its accent text color is ready, nothi
 | ❓ Q-13 | **Standalone mode**: manual work items when no Portarr is connected (VISION.md §3). |
 | ✅ Q-14 | **Merging under required-review rulesets.** Resolved: Orchestrarr's identity may approve its own pull requests; accounts, tokens and rulesets are set up accordingly (D-19). |
 | 🟡 Q-15 | **Structure file format** for standalone mode. Proposed: a subset of Portarr's catalog plus a `deployment` key ([environment-file.md](environment-file.md), D-20). To confirm when the first vertical reads it. |
+| ❓ Q-16 | **How does Orchestrarr act on a machine?** A connection per machine (SSH, like Ansible), configured, never in a worker. Open: where the key lives, whether commands are free or only declared actions (playbooks run by Orchestrarr's own code), and whether an agent in a container may run commands through that connection (Claude Code in a container with its own narrow credential), or only propose them. Recommendation: diagnosis free but read-only, changes through the declared state (D-32), a free command only per machine and per approval. |
+| ❓ Q-17 | **What does a backup finding look like?** Which backup tools and which signals (last success too old, never ran, failed run). Portarr already reads the backups of a Backrest instance and reports unprotected data; the question is how much of that is enough to name a cause, and what a repair of each looks like (a configuration, a permission, a full disk, a credential). |
 
 ---
 
@@ -211,6 +225,7 @@ User interface, deferred: the light theme (its accent text color is ready, nothi
 | Date | Change |
 |---|---|
 | 2026-11-01 | v0.1: first interview. Decisions D-01 to D-09 and D-14 frozen; D-10 to D-13 proposed. |
+| 2026-11-03 | v0.6: the new scopes the maintainer named: the regression report of every repair (F-RUN-04, D-30), acting on machines through a configured SSH connection (F-ENV-01 to F-ENV-03, D-31, D-32), backups that fail as findings (F-BKP-01); use cases UC-07 to UC-09; roadmap row 5 (not started); Q-16 and Q-17. |
 | 2026-11-03 | v0.5: the repair protocol: Claude Code in a container (D-24), the workshop host and the disposable workspaces (D-25), the worker never deploys (D-26), the subscription credential and the budgets in attempts and minutes (D-27), the restricted network (D-28), Sonnet for every run (D-29); Q-07 and Q-08 resolved, Q-09 proposed (ADR 0004). |
 | 2026-11-03 | v0.4: the first vertical is built; its review made three decisions explicit (D-21 the unit of work, D-22 data and codes not sentences, D-23 available versus granted); Q-12 says the API has no authentication yet; roadmap and interface notes. |
 | 2026-11-01 | v0.3: Orchestrarr may approve its own pull requests (D-19, Q-14 resolved); environment file format proposed ([environment-file.md](environment-file.md), D-20, Q-15); Q-03 narrowed to the missing deployment source. |
