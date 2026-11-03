@@ -31,7 +31,7 @@ var grants = (builder.Configuration.GetSection(PowersOptions.SectionName).Get<Po
 SignInSettings? signIn = null;
 if (approvals.Mode == ApprovalsMode.OpenIdConnect)
 {
-    signIn = (builder.Configuration.GetSection(SignInOptions.SectionName).Get<SignInOptions>() ?? new SignInOptions()).Validate(allowCleartextOnLoopback: builder.Environment.IsDevelopment());
+    signIn = (builder.Configuration.GetSection(SignInOptions.SectionName).Get<SignInOptions>() ?? new SignInOptions()).Validate(allowCleartextOnPrivateNetwork: builder.Environment.IsDevelopment());
     builder.Services.AddSignIn(signIn);
 }
 builder.Services.AddApprovals(approvals, grants);

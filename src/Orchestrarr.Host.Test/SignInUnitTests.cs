@@ -22,7 +22,7 @@ public sealed class SignInUnitTests
         options.OperatorGroup = group;
         options.GroupsClaim = claim;
         options.StepUpAcr = stepUpAcr;
-        return options.Validate(allowCleartextOnLoopback: false);
+        return options.Validate(allowCleartextOnPrivateNetwork: false);
     }
 
     private static ClaimsPrincipal Person(params (string Type, string Value)[] claims) =>
@@ -305,7 +305,7 @@ public sealed class SignInUnitTests
     [Fact]
     public void Complete_options_make_settings_that_say_where_the_provider_and_the_application_are()
     {
-        var settings = Valid().Validate(allowCleartextOnLoopback: false);
+        var settings = Valid().Validate(allowCleartextOnPrivateNetwork: false);
 
         settings.CallbackUrl.AbsoluteUri.Should().Be("https://orchestrarr.example/auth/callback");
         settings.Secure.Should().BeTrue();
@@ -322,7 +322,7 @@ public sealed class SignInUnitTests
         var options = Valid();
         options.Authority = authority;
 
-        var act = () => options.Validate(allowCleartextOnLoopback: false);
+        var act = () => options.Validate(allowCleartextOnPrivateNetwork: false);
 
         act.Should().Throw<InvalidOperationException>().WithMessage("*SignIn:Authority*");
     }
@@ -334,8 +334,8 @@ public sealed class SignInUnitTests
         local.Authority = "http://localhost:8081/realms/example";
         local.PublicUrl = "http://localhost:5178";
 
-        var inDevelopment = local.Validate(allowCleartextOnLoopback: true);
-        var inProduction = () => local.Validate(allowCleartextOnLoopback: false);
+        var inDevelopment = local.Validate(allowCleartextOnPrivateNetwork: true);
+        var inProduction = () => local.Validate(allowCleartextOnPrivateNetwork: false);
 
         inDevelopment.Secure.Should().BeFalse();
         inDevelopment.SessionCookieName.Should().Be("orchestrarr.session");
@@ -343,14 +343,39 @@ public sealed class SignInUnitTests
     }
 
     [Theory]
+    [InlineData("http://10.0.0.10:8081/realms/example")]
+    [InlineData("http://172.16.4.2:8081/realms/example")]
+    [InlineData("http://172.31.255.1:8081/realms/example")]
+    [InlineData("http://192.168.0.20:8081/realms/example")]
+    [InlineData("http://[fd12:3456::1]:8081/realms/example")]
+    public void A_development_machine_may_speak_clear_text_to_an_address_of_a_private_network(string authority)
+    {
+        var options = Valid();
+        options.Authority = authority;
+        options.PublicUrl = "http://192.168.0.20:5178";
+
+        var settings = options.Validate(allowCleartextOnPrivateNetwork: true);
+
+        settings.Secure.Should().BeFalse();
+        var production = () => options.Validate(allowCleartextOnPrivateNetwork: false);
+        production.Should().Throw<InvalidOperationException>();
+    }
+
+    [Theory]
     [InlineData("http://sso.example/realms/example")]
     [InlineData("http://localhost.evil.example/realms/example")]
-    public void Clear_text_to_somewhere_else_than_the_loopback_is_refused_even_in_development(string authority)
+    [InlineData("http://wacken.lan:8081/realms/example")]
+    [InlineData("http://203.0.113.5:8081/realms/example")]
+    [InlineData("http://172.32.0.1:8081/realms/example")]
+    [InlineData("http://192.169.0.1:8081/realms/example")]
+    [InlineData("http://169.254.1.1:8081/realms/example")]
+    [InlineData("http://[2001:db8::1]:8081/realms/example")]
+    public void Clear_text_to_somewhere_else_than_the_loopback_or_a_private_network_is_refused_even_in_development(string authority)
     {
         var options = Valid();
         options.Authority = authority;
 
-        var act = () => options.Validate(allowCleartextOnLoopback: true);
+        var act = () => options.Validate(allowCleartextOnPrivateNetwork: true);
 
         act.Should().Throw<InvalidOperationException>().WithMessage("*SignIn:Authority*");
     }
@@ -361,7 +386,7 @@ public sealed class SignInUnitTests
         var options = Valid();
         options.PublicUrl = "http://orchestrarr.example";
 
-        var act = () => options.Validate(allowCleartextOnLoopback: true);
+        var act = () => options.Validate(allowCleartextOnPrivateNetwork: true);
 
         act.Should().Throw<InvalidOperationException>().WithMessage("*SignIn:PublicUrl*");
     }
@@ -372,7 +397,7 @@ public sealed class SignInUnitTests
         var options = Valid();
         options.PublicUrl = "http://[::1]:5178";
 
-        var act = () => options.Validate(allowCleartextOnLoopback: true);
+        var act = () => options.Validate(allowCleartextOnPrivateNetwork: true);
 
         act.Should().NotThrow();
     }
@@ -392,7 +417,7 @@ public sealed class SignInUnitTests
             options.ClientSecret = null;
         }
 
-        var act = () => options.Validate(allowCleartextOnLoopback: false);
+        var act = () => options.Validate(allowCleartextOnPrivateNetwork: false);
 
         act.Should().Throw<InvalidOperationException>().WithMessage("*SignIn:ClientId*");
     }
@@ -410,7 +435,7 @@ public sealed class SignInUnitTests
         var options = Valid();
         options.PublicUrl = publicUrl;
 
-        var act = () => options.Validate(allowCleartextOnLoopback: false);
+        var act = () => options.Validate(allowCleartextOnPrivateNetwork: false);
 
         act.Should().Throw<InvalidOperationException>().WithMessage("*SignIn:PublicUrl*");
     }
@@ -431,7 +456,7 @@ public sealed class SignInUnitTests
         options.GroupsClaim = claim;
         options.SessionHours = hours;
 
-        var act = () => options.Validate(allowCleartextOnLoopback: false);
+        var act = () => options.Validate(allowCleartextOnPrivateNetwork: false);
 
         act.Should().Throw<InvalidOperationException>().WithMessage("*SignIn:*");
     }
@@ -445,7 +470,7 @@ public sealed class SignInUnitTests
         var options = Valid();
         options.Scopes = [.. scopes];
 
-        var act = () => options.Validate(allowCleartextOnLoopback: false);
+        var act = () => options.Validate(allowCleartextOnPrivateNetwork: false);
 
         act.Should().Throw<InvalidOperationException>().WithMessage("*SignIn:Scopes*");
     }
@@ -459,7 +484,7 @@ public sealed class SignInUnitTests
         options.ClientId = "x";
         options.ClientSecret = "y";
         options.PublicUrl = "https://orchestrarr.example";
-        return options.Validate(allowCleartextOnLoopback: false);
+        return options.Validate(allowCleartextOnPrivateNetwork: false);
     }
 
     [Fact]
@@ -485,7 +510,7 @@ public sealed class SignInUnitTests
         options.Scopes = ["openid", "profile", "groups"];
         options.ClaimsFromUserInfo = true;
 
-        var settings = options.Validate(allowCleartextOnLoopback: false);
+        var settings = options.Validate(allowCleartextOnPrivateNetwork: false);
 
         settings.Scopes.Should().Equal("openid", "profile", "groups");
         settings.ClaimsFromUserInfo.Should().BeTrue();
@@ -499,6 +524,6 @@ public sealed class SignInUnitTests
         var options = Valid();
         options.SessionHours = hours;
 
-        options.Validate(allowCleartextOnLoopback: false).SessionLifetime.Should().Be(TimeSpan.FromHours(hours));
+        options.Validate(allowCleartextOnPrivateNetwork: false).SessionLifetime.Should().Be(TimeSpan.FromHours(hours));
     }
 }

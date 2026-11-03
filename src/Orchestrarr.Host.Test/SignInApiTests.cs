@@ -639,7 +639,7 @@ public sealed class SignInApiTests
     [Fact]
     public void The_secret_of_the_client_is_not_in_the_text_of_the_settings()
     {
-        var settings = new SignInOptions { Authority = "https://sso.example/r", ClientId = "orchestrarr", ClientSecret = "a-very-secret-value", PublicUrl = "https://orchestrarr.example" }.Validate(allowCleartextOnLoopback: false);
+        var settings = new SignInOptions { Authority = "https://sso.example/r", ClientId = "orchestrarr", ClientSecret = "a-very-secret-value", PublicUrl = "https://orchestrarr.example" }.Validate(allowCleartextOnPrivateNetwork: false);
 
         settings.ToString().Should().NotContain("a-very-secret-value").And.Contain("orchestrarr");
     }

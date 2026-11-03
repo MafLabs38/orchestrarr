@@ -1,4 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Net;
+using System.Net.Sockets;
 using System.Text;
 
 namespace Orchestrarr.Host.SignIn;
@@ -66,19 +68,19 @@ public sealed class SignInOptions
     /// Checked when the host starts. Everything is refused unless it is safe: an address in clear text is only for the loopback of a
     /// development machine, and a value that is missing stops the host instead of leaving a door open.
     /// </summary>
-    public SignInSettings Validate(bool allowCleartextOnLoopback)
+    public SignInSettings Validate(bool allowCleartextOnPrivateNetwork)
     {
-        if (!IsAbsolute(Authority, out var authority) || !AllowsScheme(authority, allowCleartextOnLoopback))
+        if (!IsAbsolute(Authority, out var authority) || !AllowsScheme(authority, allowCleartextOnPrivateNetwork))
         {
-            throw new InvalidOperationException("SignIn:Authority must be an https address (http only on the loopback in Development).");
+            throw new InvalidOperationException("SignIn:Authority must be an https address (http only on the loopback or a private network address, in Development).");
         }
         if (string.IsNullOrWhiteSpace(ClientId) || string.IsNullOrWhiteSpace(ClientSecret))
         {
             throw new InvalidOperationException("SignIn:ClientId and SignIn:ClientSecret are required.");
         }
-        if (!IsAbsolute(PublicUrl, out var origin) || !AllowsScheme(origin, allowCleartextOnLoopback) || origin.PathAndQuery != "/" || origin.UserInfo.Length > 0 || origin.Fragment.Length > 0)
+        if (!IsAbsolute(PublicUrl, out var origin) || !AllowsScheme(origin, allowCleartextOnPrivateNetwork) || origin.PathAndQuery != "/" || origin.UserInfo.Length > 0 || origin.Fragment.Length > 0)
         {
-            throw new InvalidOperationException("SignIn:PublicUrl must be an origin: https://host[:port] (http only on the loopback in Development).");
+            throw new InvalidOperationException("SignIn:PublicUrl must be an origin: https://host[:port] (http only on the loopback or a private network address, in Development).");
         }
         if (!IsGroup(OperatorGroup) || (ReaderGroup is not null && !IsGroup(ReaderGroup)) || string.IsNullOrWhiteSpace(GroupsClaim))
         {
@@ -99,9 +101,24 @@ public sealed class SignInOptions
 
     private static bool IsAbsolute(string? value, [NotNullWhen(true)] out Uri? uri) => Uri.TryCreate(value, UriKind.Absolute, out uri);
 
-    // https, or http for the loopback of a development machine
-    private static bool AllowsScheme(Uri uri, bool allowCleartextOnLoopback) =>
-        uri.Scheme == Uri.UriSchemeHttps || (allowCleartextOnLoopback && uri.Scheme == Uri.UriSchemeHttp && uri.IsLoopback);
+    // https, or, for a development machine, http to the loopback or to an address of a private network (an address, never a name: a name can lead anywhere)
+    private static bool AllowsScheme(Uri uri, bool allowCleartextOnPrivateNetwork) =>
+        uri.Scheme == Uri.UriSchemeHttps || (allowCleartextOnPrivateNetwork && uri.Scheme == Uri.UriSchemeHttp && (uri.IsLoopback || IsPrivateNetworkAddress(uri.Host)));
+
+    // 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 and the unique local addresses of IPv6
+    private static bool IsPrivateNetworkAddress(string host)
+    {
+        if (!IPAddress.TryParse(host.Trim('[', ']'), out var address))
+        {
+            return false;
+        }
+        if (address.IsIPv6UniqueLocal)
+        {
+            return true;
+        }
+        var bytes = address.GetAddressBytes();
+        return address.AddressFamily == AddressFamily.InterNetwork && (bytes[0] == 10 || (bytes[0] == 172 && bytes[1] is >= 16 and <= 31) || (bytes[0] == 192 && bytes[1] == 168));
+    }
 
     private static bool IsGroup(string? group) => !string.IsNullOrWhiteSpace(group) && !group.Any(char.IsWhiteSpace) && group != "/";
 }
