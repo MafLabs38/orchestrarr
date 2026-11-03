@@ -13,12 +13,15 @@ public sealed class InMemoryKillSwitch(IAuditSink? audit = null, bool startEngag
     internal SemaphoreSlim Gate { get; } = new(1, 1);
     private volatile bool _engaged = startEngaged;
 
-    public bool Engaged => _engaged;
+    // Engagements waiting for the gate: they count from the moment they are asked for, and a release that finishes first cannot undo them
+    private int _pending;
+
+    public bool Engaged => _engaged || Volatile.Read(ref _pending) > 0;
 
     // Nothing here survives a restart, and the state says so
-    public KillSwitchState State() => new(_engaged, Saved: false);
+    public KillSwitchState State() => new(Engaged, Saved: false);
 
-    public ValueTask<bool> IsEngagedAsync(CancellationToken cancellationToken) => ValueTask.FromResult(_engaged);
+    public ValueTask<bool> IsEngagedAsync(CancellationToken cancellationToken) => ValueTask.FromResult(Engaged);
 
     public async ValueTask<KillSwitchChange> ChangeAsync(bool engaged, AuditEntry entry, CancellationToken cancellationToken)
     {
@@ -27,26 +30,37 @@ public sealed class InMemoryKillSwitch(IAuditSink? audit = null, bool startEngag
         var token = engaged ? CancellationToken.None : cancellationToken;
         if (engaged)
         {
-            _engaged = true;
+            Interlocked.Increment(ref _pending);
         }
-        await Gate.WaitAsync(token);
         try
         {
-            var traced = audit is null || await audit.TryRecordAsync(entry, token);
-            if (engaged)
+            await Gate.WaitAsync(token);
+            try
             {
-                return traced ? KillSwitchChange.Applied : KillSwitchChange.AppliedUntraced;
+                var traced = audit is null || await audit.TryRecordAsync(entry, token);
+                if (engaged)
+                {
+                    _engaged = true;
+                    return traced ? KillSwitchChange.Applied : KillSwitchChange.AppliedUntraced;
+                }
+                if (!traced)
+                {
+                    return KillSwitchChange.NotTraced;
+                }
+                _engaged = false;
+                return KillSwitchChange.Applied;
             }
-            if (!traced)
+            finally
             {
-                return KillSwitchChange.NotTraced;
+                Gate.Release();
             }
-            _engaged = false;
-            return KillSwitchChange.Applied;
         }
         finally
         {
-            Gate.Release();
+            if (engaged)
+            {
+                Interlocked.Decrement(ref _pending);
+            }
         }
     }
 

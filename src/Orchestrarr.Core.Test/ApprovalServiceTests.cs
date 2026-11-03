@@ -785,4 +785,30 @@ public sealed class ApprovalServiceTests
         var next = new Approval(Guid.NewGuid(), ItemId, "example/app", 2, HeadB, [StepKind.Validate], "alice", Now);
         (await ledger.TryRecordAsync([next], [], TestContext.Current.CancellationToken)).Should().Be(LedgerResult.Stopped);
     }
+
+    [Fact]
+    public async Task A_release_that_finishes_while_an_engagement_waits_cannot_undo_it()
+    {
+        var releaseTrace = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var inside = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var sink = Substitute.For<IAuditSink>();
+        sink.TryRecordAsync(Arg.Is<AuditEntry>(entry => entry.Event == AuditEvents.KillSwitchReleased), Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            inside.SetResult();
+            return new ValueTask<bool>(releaseTrace.Task);
+        });
+        sink.TryRecordAsync(Arg.Is<AuditEntry>(entry => entry.Event == AuditEvents.KillSwitchEngaged), Arg.Any<CancellationToken>()).Returns(true);
+        using var stop = new InMemoryKillSwitch(sink, startEngaged: true);
+        var release = ChangeStop(stop, engaged: false).AsTask();
+        await inside.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+        var engage = ChangeStop(stop, engaged: true).AsTask();
+        releaseTrace.SetResult(true);
+        await release;
+
+        stop.Engaged.Should().BeTrue("the engagement was asked for before the release finished, and is still on its way");
+        (await engage).Should().Be(KillSwitchChange.Applied);
+        stop.Engaged.Should().BeTrue();
+        stop.State().Should().Be(new KillSwitchState(Engaged: true, Saved: false));
+    }
 }
