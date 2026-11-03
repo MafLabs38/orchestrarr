@@ -1,9 +1,9 @@
+import Label from 'Components/Label';
 import useApiQuery from 'Helpers/Hooks/useApiQuery';
-import { kinds } from 'Helpers/Props/kinds';
 import * as icons from 'Helpers/Props/icons';
+import { type Kind, kinds } from 'Helpers/Props/kinds';
 import type { SystemStatus } from 'typings/api';
 import translate from 'Utilities/translate';
-import Label from 'Components/Label';
 
 const sourceNames: Record<string, () => string> = {
   portarr: () => translate('SourcePortarr'),
@@ -15,6 +15,22 @@ export function sourceName(kind: string): string {
   return (sourceNames[kind] ?? (() => kind))();
 }
 
+interface Presentation {
+  kind: Kind;
+  Icon: typeof icons.SUCCESS;
+  state: string;
+}
+
+function present(source: SystemStatus['source']): Presentation {
+  if (source.error !== null) {
+    return { kind: kinds.DANGER, Icon: icons.DANGER, state: translate('ConnectionFailed') };
+  }
+  if (source.configured) {
+    return { kind: kinds.SUCCESS, Icon: icons.SUCCESS, state: translate('ConnectionOk') };
+  }
+  return { kind: kinds.DISABLED, Icon: icons.UNKNOWN, state: translate('SourceNone') };
+}
+
 // The source of findings, in the header: where what is on screen comes from, and whether it can be read.
 export default function SourceBadge() {
   const { data } = useApiQuery<SystemStatus>('/api/v1/system/status', { refetchInterval: 30_000 });
@@ -22,15 +38,13 @@ export default function SourceBadge() {
     return null;
   }
 
-  const failing = data.source.error !== null;
-  const Icon = failing ? icons.DANGER : data.source.configured ? icons.SUCCESS : icons.UNKNOWN;
-  const kind = failing ? kinds.DANGER : data.source.configured ? kinds.SUCCESS : kinds.DISABLED;
+  const { kind, Icon, state } = present(data.source);
   return (
     <Label kind={kind}>
       <Icon size={14} aria-hidden="true" />
       {sourceName(data.source.kind)}
       {' · '}
-      {failing ? translate('ConnectionFailed') : data.source.configured ? translate('ConnectionOk') : translate('SourceNone')}
+      {state}
     </Label>
   );
 }

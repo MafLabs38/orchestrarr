@@ -16,6 +16,7 @@ export default defineConfig({
       System: src('System'),
       Utilities: src('Utilities'),
       typings: src('typings'),
+      testUtils: src('testUtils.tsx'),
     },
   },
   server: {
@@ -30,5 +31,14 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./src/setupTests.ts'],
     css: { modules: { classNameStrategy: 'non-scoped' } },
+    coverage: {
+      provider: 'v8',
+      reporter: ['text-summary', 'lcov'],
+      reportsDirectory: 'coverage',
+      include: ['src/**/*.{ts,tsx}'],
+      exclude: ['src/**/*.test.{ts,tsx}', 'src/setupTests.ts', 'src/testUtils.tsx', 'src/main.tsx', 'src/typings/**'],
+      // The threshold of docs/TESTING.md: the shared components and the screens
+      thresholds: { lines: 70, statements: 70 },
+    },
   },
 });

@@ -1,7 +1,8 @@
 import * as icons from 'Helpers/Props/icons';
 import translate from 'Utilities/translate';
-import SourceBadge from './SourceBadge';
+
 import styles from './PageHeader.module.css';
+import SourceBadge from './SourceBadge';
 
 export default function PageHeader() {
   return (

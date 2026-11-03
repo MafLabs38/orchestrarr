@@ -1,6 +1,8 @@
 import classNames from 'classnames';
 import type { ReactNode } from 'react';
-import { kinds, type Kind } from 'Helpers/Props/kinds';
+
+import { type Kind, kinds } from 'Helpers/Props/kinds';
+
 import styles from './Alert.module.css';
 
 export default function Alert({ kind = kinds.INFO, children }: { kind?: Kind; children: ReactNode }) {

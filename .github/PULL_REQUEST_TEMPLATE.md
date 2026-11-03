@@ -1,32 +1,47 @@
+<!-- The title is a Conventional Commit (feat(scope): …, fix(scope): …, chore(scope): …). -->
 ## Summary
 <!-- Briefly describe your changes (1-3 bullet points) -->
 
 -
 
+Closes #
+
 ## Type of change
+- [ ] Vertical (a feature end to end, see the roadmap in the spec)
 - [ ] Bug fix (non-breaking change which fixes an issue)
-- [ ] New feature (non-breaking change which adds functionality)
 - [ ] Breaking change (fix or feature that would cause existing functionality to not work as expected)
 - [ ] Refactoring (no functional changes)
-- [ ] Documentation update
+- [ ] Documentation or pipeline
 
-## JIRA Ticket
-<!-- Link to the JIRA ticket -->
+## Spec references
+<!-- Features, decisions or questions covered: F-XXX-nn, D-xx, Q-xx. A structural decision has its ADR. -->
 -
 
-## How Has This Been Tested?
-<!-- Describe the tests that you ran to verify your changes -->
+## How has this been tested?
+- [ ] Unit tests (backend and/or frontend)
+- [ ] API tests
+- [ ] Manual testing in the sandbox, and accepted by the maintainer
 
-- [ ] Unit tests
-- [ ] Integration tests
-- [ ] E2E tests
-- [ ] Manual testing
+Known limitations:
+-
+
+## Safety
+- [ ] No power was added that merges, deploys or writes to a repository, or the maintainer decided it (ADR 0001)
+- [ ] No real infrastructure value, no secret (public repository)
+
+## Review
+<!-- Filled by the review-vertical skill: per agent (tests, quality, security, architecture), what was fixed and what was
+     declined with its reason; test count and duration before and after. An architecture verdict of "no" blocks the PR. -->
+
+| Agent | Fixed | Declined (and why) |
+|---|---|---|
+| test-reviewer | | |
+| quality-reviewer | | |
+| security-reviewer | | |
+| architecture-reviewer | | |
 
 ## Checklist
-- [ ] My code follows the project's coding conventions
-- [ ] I have performed a self-review of my code
-- [ ] I have added tests that prove my fix is effective or that my feature works
-- [ ] New and existing unit tests pass locally with my changes
-- [ ] I have updated the documentation accordingly
-- [ ] My changes generate no new warnings or errors
-- [ ] No secrets or credentials are committed
+- [ ] I performed a self-review
+- [ ] Tests pass locally (`dotnet test --solution Orchestrarr.slnx`, `yarn test` in `frontend/`)
+- [ ] Lint is clean (`dotnet format --verify-no-changes`, `yarn lint`, `yarn stylelint`, `yarn format:check`, `yarn typecheck`)
+- [ ] Documentation is updated

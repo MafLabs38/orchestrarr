@@ -7,6 +7,14 @@
   font-weight: 700;
 }
 
-.info { color: var(--infoColor); }
-.warning { color: var(--warningColor); }
-.danger { color: var(--dangerColor); }
+.info {
+  color: var(--infoColor);
+}
+
+.warning {
+  color: var(--warningColor);
+}
+
+.danger {
+  color: var(--dangerColor);
+}

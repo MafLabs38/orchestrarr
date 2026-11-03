@@ -1,4 +1,5 @@
-import { useEffect, type ReactNode } from 'react';
+import { type ReactNode, useEffect } from 'react';
+
 import translate from 'Utilities/translate';
 
 // Every page is a PageContent: it sets the browser tab title.

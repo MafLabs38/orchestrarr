@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+
 import styles from './CapabilityHint.module.css';
 
 // What is not available, and why: never a silent gap.

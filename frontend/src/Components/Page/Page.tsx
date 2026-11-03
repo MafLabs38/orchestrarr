@@ -1,8 +1,10 @@
 import type { ReactNode } from 'react';
+
 import translate from 'Utilities/translate';
+
+import styles from './Page.module.css';
 import PageHeader from './PageHeader';
 import PageSidebar from './PageSidebar';
-import styles from './Page.module.css';
 
 export default function Page({ children }: { children: ReactNode }) {
   return (

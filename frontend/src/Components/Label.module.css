@@ -10,11 +10,36 @@
   white-space: nowrap;
 }
 
-.default { color: var(--inkSoft); }
-.primary { color: var(--accent); }
-.success { color: var(--successColor); }
-.warning { color: var(--warningColor); }
-.danger { color: var(--dangerColor); }
-.info { color: var(--infoColor); }
-.inverse { color: var(--paper); background: var(--ink); border-color: var(--ink); }
-.disabled { color: var(--disabledColor); }
+.default {
+  color: var(--inkSoft);
+}
+
+.primary {
+  color: var(--accent);
+}
+
+.success {
+  color: var(--successColor);
+}
+
+.warning {
+  color: var(--warningColor);
+}
+
+.danger {
+  color: var(--dangerColor);
+}
+
+.info {
+  color: var(--infoColor);
+}
+
+.inverse {
+  color: var(--paper);
+  background: var(--ink);
+  border-color: var(--ink);
+}
+
+.disabled {
+  color: var(--disabledColor);
+}

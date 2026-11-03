@@ -7,16 +7,13 @@
   --paperSunken: #0d1026;
   --hairline: #2c3366;
   --hairlineStrong: #3a4280;
-
   --ink: #eef0ff;
   --inkSoft: #c3c8ee;
   --inkMuted: #a9b1d6;
   --inkOnAccent: #1a1d3a;
-
   --accent: #ffc145;
   --accentDeep: #b9851b;
   --secondary: #3ee0c5;
-
   --successColor: #5eea9b;
   --warningColor: #ff9f43;
   --dangerColor: #ff6b81;
@@ -24,7 +21,6 @@
   --disabledColor: #a9b1d6;
   --purple: #b18cff;
   --pink: #ff8fa0;
-
   --radiusSmall: 10px;
   --radiusMedium: 14px;
   --radiusLarge: 22px;
@@ -38,21 +34,18 @@
 [data-theme='light'] {
   --paper: #f4f2ff;
   --paperWarm: #ebe8fb;
-  --paperCard: #ffffff;
+  --paperCard: #fff;
   --paperSunken: #ece9fa;
   --hairline: #d9d6f5;
   --hairlineStrong: #c3bfee;
-
   --ink: #1a1d3a;
   --inkSoft: #3b3f6b;
   --inkMuted: #5b6091;
   --inkOnAccent: #1a1d3a;
-
   --successColor: #138a4c;
   --warningColor: #b35a00;
   --dangerColor: #c4254a;
   --infoColor: #2a5bd7;
   --disabledColor: #5b6091;
-
   --shadowCard: 0 6px 0 #c9c5ef;
 }

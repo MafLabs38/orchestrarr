@@ -1,12 +1,14 @@
 import { useId, useState } from 'react';
+
 import Button from 'Components/Button';
-import Card from 'Components/Card';
 import CapabilityHint from 'Components/CapabilityHint';
+import Card from 'Components/Card';
 import StatusLabel, { severityKind } from 'Components/StatusLabel';
-import { kinds } from 'Helpers/Props/kinds';
 import * as icons from 'Helpers/Props/icons';
+import { kinds } from 'Helpers/Props/kinds';
 import type { Finding, WorkItem } from 'typings/api';
 import translate from 'Utilities/translate';
+
 import styles from './DecisionCard.module.css';
 
 const findingIcons = { danger: icons.DANGER, warning: icons.WARNING, info: icons.INFO } as const;
@@ -38,7 +40,9 @@ export default function DecisionCard({ item }: { item: WorkItem }) {
         </h2>
         <StatusLabel severity={item.severity} />
       </div>
-      {item.appIds.length > 0 ? <p className={styles.apps}>{translate('Apps', { apps: item.appIds.join(', ') })}</p> : null}
+      {item.appIds.length > 0 ? (
+        <p className={styles.apps}>{translate('Apps', { apps: item.appIds.join(', ') })}</p>
+      ) : null}
 
       <h3 className={styles.section}>{translate('Findings')}</h3>
       <ul className={styles.findings}>
@@ -53,7 +57,9 @@ export default function DecisionCard({ item }: { item: WorkItem }) {
           <label key={`${step.kind}-${step.environmentId ?? index}`} className={styles.step}>
             <input type="checkbox" checked={checked[index]} disabled={!step.available} onChange={() => toggle(index)} />
             <span className={step.available ? undefined : styles.unavailable}>{step.label}</span>
-            {!step.available && step.reason ? <span className={styles.reason}>{translate('StepUnavailable', { reason: step.reason })}</span> : null}
+            {!step.available && step.reason ? (
+              <span className={styles.reason}>{translate('StepUnavailable', { reason: step.reason })}</span>
+            ) : null}
           </label>
         ))}
       </fieldset>
@@ -62,7 +68,9 @@ export default function DecisionCard({ item }: { item: WorkItem }) {
         <Button kind={kinds.PRIMARY} disabled aria-describedby={hintId}>
           {translate('ApproveAndRun')}
         </Button>
-        <span className={styles.count}>{translate('StepsTicked', { ticked: tickedCount, total: item.plan.length })}</span>
+        <span className={styles.count}>
+          {translate('StepsTicked', { ticked: tickedCount, total: item.plan.length })}
+        </span>
       </div>
       <CapabilityHint id={hintId}>{translate('ApprovalNotAvailable')}</CapabilityHint>
     </Card>

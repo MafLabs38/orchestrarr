@@ -7,7 +7,7 @@
   /* The fonts of the design (Fredoka, Nunito, JetBrains Mono) will be self-hosted; until then the system ones are used */
   --displayFontFamily: 'Fredoka', ui-rounded, 'Nunito', system-ui, sans-serif;
   --defaultFontFamily: 'Nunito', ui-rounded, system-ui, sans-serif;
-  --monoSpaceFontFamily: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  --monoSpaceFontFamily: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', menlo, monospace;
 }
 
 @media (width <= 768px) {

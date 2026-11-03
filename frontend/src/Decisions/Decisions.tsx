@@ -6,11 +6,12 @@ import PageContentBody from 'Components/Page/PageContentBody';
 import PageHeading from 'Components/Page/PageHeading';
 import PageToolbar from 'Components/Page/PageToolbar';
 import useApiQuery from 'Helpers/Hooks/useApiQuery';
-import { kinds } from 'Helpers/Props/kinds';
 import * as icons from 'Helpers/Props/icons';
+import { kinds } from 'Helpers/Props/kinds';
 import type { WorkItemReport } from 'typings/api';
 import formatTime from 'Utilities/formatTime';
 import translate from 'Utilities/translate';
+
 import DecisionCard from './DecisionCard';
 import styles from './Decisions.module.css';
 import useRefreshWorkItems, { workItemsPath } from './useRefreshWorkItems';
@@ -45,10 +46,14 @@ function Report({ report }: { report: WorkItemReport }) {
   return (
     <>
       {report.stale && report.error ? (
-        <Alert kind={kinds.WARNING}>{translate('ShowingLastRead', { time: formatTime(report.readAt) ?? translate('Never'), error: report.error })}</Alert>
+        <Alert kind={kinds.WARNING}>
+          {translate('ShowingLastRead', { time: formatTime(report.readAt) ?? translate('Never'), error: report.error })}
+        </Alert>
       ) : null}
       {report.items.length === 0 ? (
-        <CapabilityHint>{report.sourceKind === 'none' ? translate('NoSourceConfigured') : translate('NothingToDecide')}</CapabilityHint>
+        <CapabilityHint>
+          {report.sourceKind === 'none' ? translate('NoSourceConfigured') : translate('NothingToDecide')}
+        </CapabilityHint>
       ) : (
         <div className={styles.list}>
           {report.items.map((item) => (

@@ -21,7 +21,8 @@
       "Helpers/*": ["./src/Helpers/*"],
       "System/*": ["./src/System/*"],
       "Utilities/*": ["./src/Utilities/*"],
-      "typings/*": ["./src/typings/*"]
+      "typings/*": ["./src/typings/*"],
+      "testUtils": ["./src/testUtils.tsx"]
     }
   },
   "include": ["src", "vite.config.ts"]

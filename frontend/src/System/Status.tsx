@@ -8,6 +8,7 @@ import { kinds } from 'Helpers/Props/kinds';
 import type { SystemStatus } from 'typings/api';
 import formatTime from 'Utilities/formatTime';
 import translate from 'Utilities/translate';
+
 import styles from './Status.module.css';
 
 export default function Status() {
@@ -17,7 +18,9 @@ export default function Status() {
     <PageContent title={translate('Status')}>
       <PageContentBody>
         <PageHeading scope={translate('System')} title={translate('Status')} />
-        {data?.source.error ? <Alert kind={kinds.DANGER}>{translate('CannotReadFleet', { error: data.source.error })}</Alert> : null}
+        {data?.source.error ? (
+          <Alert kind={kinds.DANGER}>{translate('CannotReadFleet', { error: data.source.error })}</Alert>
+        ) : null}
         {data ? (
           <dl className={styles.list}>
             <dt>{translate('Source')}</dt>

@@ -1,8 +1,10 @@
 import { NavLink } from 'react-router-dom';
-import * as icons from 'Helpers/Props/icons';
+
 import useApiQuery from 'Helpers/Hooks/useApiQuery';
+import * as icons from 'Helpers/Props/icons';
 import type { WorkItemReport } from 'typings/api';
 import translate from 'Utilities/translate';
+
 import styles from './PageSidebar.module.css';
 
 export default function PageSidebar() {
@@ -15,7 +17,10 @@ export default function PageSidebar() {
         {data && data.items.length > 0 ? <span className={styles.badge}>{data.items.length}</span> : null}
       </NavLink>
       <div className={styles.group}>{translate('System')}</div>
-      <NavLink to="/system/status" className={({ isActive }) => (isActive ? `${styles.link} ${styles.active}` : styles.link)}>
+      <NavLink
+        to="/system/status"
+        className={({ isActive }) => (isActive ? `${styles.link} ${styles.active}` : styles.link)}
+      >
         <icons.STATUS size={18} aria-hidden="true" />
         <span className={styles.text}>{translate('Status')}</span>
       </NavLink>

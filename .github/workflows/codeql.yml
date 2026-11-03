@@ -1,0 +1,46 @@
+# Static analysis (SAST) with CodeQL, from MafLabs38/github-template (quality option "codeql").
+# Alerts appear in Security > Code scanning. Advisory by default; with quality.codeql_gate the ruleset blocks merges on
+# high or critical alerts (and then this check cannot be skipped).
+#
+# Skippable on a pull request: it does not run on a draft (it runs when the PR is marked ready) nor with the
+# "skip-quality" label. Pushes to main and develop and the weekly run always analyse.
+name: CodeQL
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  schedule:
+    - cron: "17 4 * * 1" # weekly, to catch new queries on unchanged code
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: codeql (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || (!github.event.pull_request.draft && !contains(github.event.pull_request.labels.*.name, 'skip-quality'))
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        # build-mode none: no build needed, fast, and accurate enough for most languages
+        language: [csharp, javascript-typescript, actions]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+          queries: security-and-quality
+      - uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
+        with:
+          category: /language:${{ matrix.language }}

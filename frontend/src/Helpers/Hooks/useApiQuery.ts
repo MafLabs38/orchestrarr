@@ -3,7 +3,7 @@ import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
-    message: string
+    message: string,
   ) {
     super(message);
   }
@@ -18,7 +18,10 @@ export async function getJson<T>(path: string): Promise<T> {
 }
 
 // The only place that talks to the API: components never call fetch.
-export default function useApiQuery<T>(path: string, options: { refetchInterval?: number } = {}): UseQueryResult<T, ApiError> {
+export default function useApiQuery<T>(
+  path: string,
+  options: { refetchInterval?: number } = {},
+): UseQueryResult<T, ApiError> {
   return useQuery<T, ApiError>({
     queryKey: [path],
     queryFn: () => getJson<T>(path),

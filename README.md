@@ -30,9 +30,9 @@ dotnet run --project src/Orchestrarr.Host
 # Interface with hot reload (http://127.0.0.1:5178), proxying /api to the API
 cd frontend && yarn install && yarn dev
 
-# Tests
-dotnet test --solution Orchestrarr.slnx
-cd frontend && yarn test
+# Tests and lint (see docs/TESTING.md)
+dotnet test --solution Orchestrarr.slnx && dotnet format Orchestrarr.slnx --verify-no-changes
+cd frontend && yarn test && yarn lint && yarn stylelint && yarn format:check && yarn typecheck
 ```
 
 To read a real Portarr instead of the sample, set `Portarr:BaseUrl` and export a Portarr API key in `ORCHESTRARR_PORTARR_APIKEY` (the variable name is `Portarr:ApiKeyEnv`; the key itself never goes in a file).

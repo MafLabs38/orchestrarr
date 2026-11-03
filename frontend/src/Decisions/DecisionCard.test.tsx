@@ -1,6 +1,8 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+
 import type { WorkItem } from 'typings/api';
+
 import DecisionCard from './DecisionCard';
 
 const item: WorkItem = {
@@ -10,13 +12,44 @@ const item: WorkItem = {
   appIds: ['shop'],
   severity: 'danger',
   findings: [
-    { kind: 'dependencyAlerts', severity: 'danger', count: 4, summary: '4 dependency alerts (1 critical, 2 high, 1 medium)' },
-    { kind: 'openDependencyPullRequests', severity: 'info', count: 5, summary: '5 open dependency pull requests waiting' },
+    {
+      kind: 'dependencyAlerts',
+      severity: 'danger',
+      count: 4,
+      summary: '4 dependency alerts (1 critical, 2 high, 1 medium)',
+    },
+    {
+      kind: 'openDependencyPullRequests',
+      severity: 'info',
+      count: 5,
+      summary: '5 open dependency pull requests waiting',
+    },
   ],
   plan: [
-    { kind: 'validate', label: 'Build and test the change', environmentId: null, ticked: true, available: true, reason: null },
-    { kind: 'merge', label: 'Merge the pull requests that pass', environmentId: null, ticked: true, available: true, reason: null },
-    { kind: 'deploy', label: 'Deploy to Cluster', environmentId: 'cluster', ticked: true, available: true, reason: null },
+    {
+      kind: 'validate',
+      label: 'Build and test the change',
+      environmentId: null,
+      ticked: true,
+      available: true,
+      reason: null,
+    },
+    {
+      kind: 'merge',
+      label: 'Merge the pull requests that pass',
+      environmentId: null,
+      ticked: true,
+      available: true,
+      reason: null,
+    },
+    {
+      kind: 'deploy',
+      label: 'Deploy to Cluster',
+      environmentId: 'cluster',
+      ticked: true,
+      available: true,
+      reason: null,
+    },
   ],
   placements: [],
 };
@@ -25,7 +58,14 @@ const noPlacement: WorkItem = {
   ...item,
   plan: [
     ...item.plan.slice(0, 2),
-    { kind: 'deploy', label: 'Deploy', environmentId: null, ticked: false, available: false, reason: 'The environment description does not say where this runs.' },
+    {
+      kind: 'deploy',
+      label: 'Deploy',
+      environmentId: null,
+      ticked: false,
+      available: false,
+      reason: 'The environment description does not say where this runs.',
+    },
   ],
 };
 
@@ -63,7 +103,9 @@ describe('DecisionCard', () => {
     const deploy = screen.getByRole('checkbox', { name: /Deploy/ });
     expect(deploy).toBeDisabled();
     expect(deploy).not.toBeChecked();
-    expect(screen.getByText('Not possible: The environment description does not say where this runs.')).toBeInTheDocument();
+    expect(
+      screen.getByText('Not possible: The environment description does not say where this runs.'),
+    ).toBeInTheDocument();
     expect(screen.getByText('2 of 3 steps ticked')).toBeInTheDocument();
   });
 
