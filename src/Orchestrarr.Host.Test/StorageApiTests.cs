@@ -107,18 +107,18 @@ public sealed class StorageApiTests : IDisposable
     }
 
     [Theory]
-    [InlineData("Storage:Provider", "Postgres")]
-    [InlineData("Storage:Path", "")]
-    public void A_persistent_store_with_nowhere_to_persist_stops_the_host(string key, string value)
+    [InlineData("Postgres", "data/o.db", "Storage:Provider")]
+    [InlineData("Sqlite", "", "Storage:Path")]
+    public void A_persistent_store_with_nowhere_to_persist_stops_the_host(string provider, string path, string key)
     {
         using var factory = new ForgeApiFactory
         {
-            Settings = new Dictionary<string, string?> { ["Storage:Provider"] = key == "Storage:Provider" ? value : "Sqlite", ["Storage:Path"] = key == "Storage:Path" ? value : DatabasePath },
+            Settings = new Dictionary<string, string?> { ["Storage:Provider"] = provider, ["Storage:Path"] = path },
         };
 
         var start = () => factory.CreateClient();
 
-        start.Should().Throw<InvalidOperationException>().Which.ToString().Should().Contain("Storage:");
+        start.Should().Throw<InvalidOperationException>().Which.ToString().Should().Contain(key);
     }
 
     [Fact]
@@ -237,7 +237,7 @@ public sealed class StorageApiTests : IDisposable
     [Fact]
     public async Task Approving_is_limited_per_person_so_that_a_loop_of_refusals_cannot_fill_the_trail_and_the_stop_never_is()
     {
-        using var factory = Sqlite(settings: new() { ["Approvals:ApprovalsPerMinute"] = "2" });
+        using var factory = Sqlite(settings: new() { ["Approvals:ApprovalsLimit"] = "2", ["Approvals:ApprovalsWindowMinutes"] = "600" });
         var client = factory.CreateClient();
 
         var first = await Approve(client);

@@ -407,7 +407,8 @@ public sealed class ApprovalsApiTests
     [InlineData("Approvals:QueueCapacity", "0")]
     [InlineData("Approvals:QueueCapacity", "-1")]
     [InlineData("Approvals:AuditCapacity", "0")]
-    [InlineData("Approvals:ApprovalsPerMinute", "0")]
+    [InlineData("Approvals:ApprovalsLimit", "0")]
+    [InlineData("Approvals:ApprovalsWindowMinutes", "0")]
     public void A_capacity_of_zero_or_less_stops_the_host_from_starting(string key, string value)
     {
         using var factory = new ForgeApiFactory { Settings = new Dictionary<string, string?> { [key] = value } };
@@ -721,7 +722,7 @@ public sealed class ApprovalsApiTests
     {
         using var factory = new ForgeApiFactory
         {
-            Settings = new Dictionary<string, string?> { ["Approvals:ApprovalsPerMinute"] = "1" },
+            Settings = new Dictionary<string, string?> { ["Approvals:ApprovalsLimit"] = "1", ["Approvals:ApprovalsWindowMinutes"] = "600" },
             ServiceOverrides = services => Replace<IApproverAccessor>(services, new HeaderApprover()),
         };
         var client = factory.CreateClient();

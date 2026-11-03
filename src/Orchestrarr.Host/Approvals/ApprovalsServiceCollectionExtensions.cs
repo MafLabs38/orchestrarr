@@ -43,7 +43,7 @@ internal static class ApprovalsServiceCollectionExtensions
             limits.OnRejected = (rejected, token) => new ValueTask(rejected.HttpContext.Response.WriteAsJsonAsync(new ErrorResponse("tooManyRequests"), token));
             limits.AddPolicy(ApprovingPolicy, context => RateLimitPartition.GetFixedWindowLimiter(
                 PartitionOf(context),
-                _ => new FixedWindowRateLimiterOptions { PermitLimit = options.ApprovalsPerMinute, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
+                _ => new FixedWindowRateLimiterOptions { PermitLimit = options.ApprovalsLimit, Window = TimeSpan.FromMinutes(options.ApprovalsWindowMinutes), QueueLimit = 0 }));
         });
         services
             .AddSingleton(options)
@@ -70,24 +70,20 @@ internal static class ApprovalsServiceCollectionExtensions
         }
         else
         {
-            var store = new InMemoryApprovalStore(options.QueueCapacity ?? StoreLimits.MemoryQueue);
-            var auditLog = new InMemoryAuditLog(options.AuditCapacity ?? StoreLimits.MemoryAudit);
             var startEngaged = storage is MemoryStorage { StartEngaged: true };
-            var killSwitch = new InMemoryKillSwitch(auditLog, startEngaged);
-            if (startEngaged)
-            {
-                // A new store, as far as anyone can tell: the stop starts engaged, and the trail says why
-                auditLog.TryRecordAsync(new AuditEntry(TimeProvider.System.GetUtcNow(), AuditEvents.InstanceCreated, AuditEvents.System, null, "the store was created in memory: the global stop starts engaged"), CancellationToken.None).AsTask().GetAwaiter().GetResult();
-            }
+            var store = new InMemoryApprovalStore(options.QueueCapacity ?? StoreLimits.MemoryQueue);
             services
                 .AddSingleton<IApprovalStore>(store)
                 .AddSingleton<IApprovalLedger>(provider => new InMemoryApprovalLedger(store, provider.GetRequiredService<IAuditSink>(), provider.GetRequiredService<IKillSwitchControl>()))
-                .AddSingleton(killSwitch)
-                .AddSingleton<IKillSwitchControl>(killSwitch)
-                .AddSingleton<IKillSwitch>(killSwitch)
-                .AddSingleton(auditLog)
-                .AddSingleton<IAuditLog>(auditLog)
-                .AddSingleton<IAuditSink>(auditLog);
+                // A store that starts engaged is a new store, as far as anyone can tell: the trail says so, with the time of the host
+                .AddSingleton(provider => new InMemoryAuditLog(
+                    options.AuditCapacity ?? StoreLimits.MemoryAudit,
+                    startEngaged ? [AuditEvents.InstanceCreatedEntry(provider.GetRequiredService<TimeProvider>().GetUtcNow(), "store")] : []))
+                .AddSingleton<IAuditLog>(provider => provider.GetRequiredService<InMemoryAuditLog>())
+                .AddSingleton<IAuditSink>(provider => provider.GetRequiredService<InMemoryAuditLog>())
+                .AddSingleton(provider => new InMemoryKillSwitch(provider.GetRequiredService<InMemoryAuditLog>(), startEngaged))
+                .AddSingleton<IKillSwitchControl>(provider => provider.GetRequiredService<InMemoryKillSwitch>())
+                .AddSingleton<IKillSwitch>(provider => provider.GetRequiredService<InMemoryKillSwitch>());
         }
 
         return services.AddSingleton(provider => new ApprovalService(

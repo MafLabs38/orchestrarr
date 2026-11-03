@@ -75,6 +75,10 @@ public static class AuditEvents
     public const string KillSwitchEngaged = "killswitch.engaged";
     public const string KillSwitchReleased = "killswitch.released";
 
+    /// <summary>The entry that says a store was created, so the global stop starts engaged until someone releases it: one text for every kind of store.</summary>
+    public static AuditEntry InstanceCreatedEntry(DateTimeOffset at, string store) =>
+        new(at, InstanceCreated, System, null, $"the {store} was created: the global stop starts engaged");
+
     /// <summary>A database that did not exist was created: whatever history there was is gone, so the stop starts engaged until someone releases it.</summary>
     public const string InstanceCreated = "instance.created";
 

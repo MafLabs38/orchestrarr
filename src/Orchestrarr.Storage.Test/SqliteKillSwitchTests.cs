@@ -128,7 +128,7 @@ public sealed class SqliteKillSwitchTests : IDisposable
     [Fact]
     public async Task Engaging_counts_at_once_while_another_writer_holds_the_file()
     {
-        var database = SqliteDatabase.Open(_file.Path, busyTimeout: TimeSpan.FromSeconds(30));
+        var database = SqliteDatabase.Open(_file.Path, busyTimeout: TimeSpan.FromSeconds(5));
         var stop = new SqliteKillSwitch(database, StoreLimits.FileAudit);
         using var other = database.Connect();
         SqliteDatabase.Run(other, "BEGIN IMMEDIATE;");
@@ -137,7 +137,7 @@ public sealed class SqliteKillSwitchTests : IDisposable
 
         SpinWait.SpinUntil(() => stop.Engaged, TimeSpan.FromSeconds(10)).Should().BeTrue("the stop does not wait for the lock");
         SqliteDatabase.Run(other, "ROLLBACK;");
-        (await engage).Should().Be(KillSwitchChange.Applied);
+        (await engage.WaitAsync(TimeSpan.FromSeconds(10), Ct)).Should().Be(KillSwitchChange.Applied);
         stop.Saved.Should().BeTrue();
     }
 

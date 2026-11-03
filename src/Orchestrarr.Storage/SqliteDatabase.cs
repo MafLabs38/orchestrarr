@@ -214,7 +214,7 @@ public sealed class SqliteDatabase
             $"INSERT INTO kill_switch (id, engaged) VALUES (1, {(IsNew && startEngagedWhenNew ? 1 : 0)}) ON CONFLICT (id) DO UPDATE SET engaged = MAX(engaged, excluded.engaged);"));
         if (IsNew && startEngagedWhenNew)
         {
-            SqliteAuditLog.Insert(connection, new AuditEntry(time.GetUtcNow(), AuditEvents.InstanceCreated, AuditEvents.System, null, "the database was created: the global stop starts engaged"));
+            SqliteAuditLog.Insert(connection, AuditEvents.InstanceCreatedEntry(time.GetUtcNow(), "database"));
         }
         Run(connection, string.Create(CultureInfo.InvariantCulture, $"PRAGMA user_version = {SchemaVersion};"));
         transaction.Commit();
