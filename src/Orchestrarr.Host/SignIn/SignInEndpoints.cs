@@ -40,7 +40,7 @@ internal static class SignInEndpoints
         app.MapGet(SignInPaths.Me, (ClaimsPrincipal user) =>
         {
             var approver = ApproverClaims.From(user, settings);
-            return Results.Ok(new SessionDto(ApproverClaims.DisplayName(user) ?? user.FindFirst(JwtRegisteredClaimNames.Sub)?.Value, ApproverClaims.CanRead(user, settings), approver?.IsOperator ?? false));
+            return Results.Ok(new SessionDto(ApproverClaims.NameToShow(user), ApproverClaims.CanRead(user, approver, settings), approver?.IsOperator ?? false));
         }).RequireAuthorization(new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
     }
 
@@ -52,5 +52,4 @@ internal static class SignInEndpoints
         InvalidOperationException { InnerException: HttpRequestException or IOException } => true,
         _ => false,
     };
-
 }

@@ -2,16 +2,27 @@ namespace Orchestrarr.Host;
 
 /// <summary>
 /// What every answer says to the browser about itself. The interface is never framed by another page: a click on it, with the session of
-/// the person, is the person's own.
+/// the person, is the person's own. Its scripts, styles and requests come from itself and nowhere else, so that a script that found its way
+/// into a page cannot load another or send what it reads elsewhere. Over https the browser is told to keep to it.
 /// </summary>
 internal static class SecurityHeaders
 {
-    public static IApplicationBuilder UseSecurityHeaders(this IApplicationBuilder app) =>
+    // The form-action directive is left out on purpose: signing out is a form whose answer is a redirect to the identity provider
+    private const string Policy = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; "
+        + "object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
+
+    private const string StrictTransport = "max-age=31536000";
+
+    public static IApplicationBuilder UseSecurityHeaders(this IApplicationBuilder app, bool overHttps) =>
         app.Use(async (context, next) =>
         {
             context.Response.Headers.XFrameOptions = "DENY";
-            context.Response.Headers.ContentSecurityPolicy = "frame-ancestors 'none'";
+            context.Response.Headers.ContentSecurityPolicy = Policy;
             context.Response.Headers.XContentTypeOptions = "nosniff";
+            if (overHttps)
+            {
+                context.Response.Headers.StrictTransportSecurity = StrictTransport;
+            }
             await next(context);
         });
 }

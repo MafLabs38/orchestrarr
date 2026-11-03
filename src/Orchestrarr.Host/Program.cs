@@ -41,7 +41,7 @@ builder.Services.AddSingleton<WorkItemCatalog>();
 var app = builder.Build();
 SandboxGuard.StopIfListeningBeyondLoopback(app, approvals);
 
-app.UseSecurityHeaders();
+app.UseSecurityHeaders(overHttps: signIn?.Secure == true);
 
 var api = app.MapGroup("/api/v1");
 if (signIn is not null)

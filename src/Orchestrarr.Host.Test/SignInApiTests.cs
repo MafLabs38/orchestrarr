@@ -14,6 +14,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
+using Orchestrarr.Host.Approvals;
 using Orchestrarr.Host.SignIn;
 
 namespace Orchestrarr.Host.Test;
@@ -578,8 +579,45 @@ public sealed class SignInApiTests
         var response = await Client(factory, Operator).GetAsync(path, Ct);
 
         response.Headers.GetValues("X-Frame-Options").Should().Equal("DENY");
-        response.Headers.GetValues("Content-Security-Policy").Should().Equal("frame-ancestors 'none'");
         response.Headers.GetValues("X-Content-Type-Options").Should().Equal("nosniff");
+        var policy = response.Headers.GetValues("Content-Security-Policy").Should().ContainSingle().Which;
+        policy.Should().Contain("default-src 'self'").And.Contain("script-src 'self'").And.Contain("frame-ancestors 'none'").And.Contain("base-uri 'none'");
+        policy.Should().NotContain("unsafe-eval").And.NotContain("script-src 'self' 'unsafe-inline'").And.NotContain("form-action");
+        response.Headers.GetValues("Strict-Transport-Security").Should().ContainSingle().Which.Should().StartWith("max-age=");
+    }
+
+    [Fact]
+    public async Task Nothing_tells_the_browser_to_keep_to_https_where_the_application_is_not_served_over_it()
+    {
+        using var factory = new ForgeApiFactory();
+
+        var response = await factory.CreateClient().GetAsync("/health", Ct);
+
+        response.Headers.Contains("Strict-Transport-Security").Should().BeFalse();
+        response.Headers.Contains("Content-Security-Policy").Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task The_status_and_the_session_name_a_person_the_same_way()
+    {
+        using var factory = Factory();
+        var client = Client(factory, "sub=carol-3;groups=orchestrarr-operators");
+
+        var status = (await Json(await client.GetAsync("/api/v1/system/status", Ct))).GetProperty("approvals");
+        var me = await Json(await client.GetAsync("/auth/me", Ct));
+
+        status.GetProperty("operatorName").GetString().Should().Be("carol-3");
+        me.GetProperty("name").GetString().Should().Be("carol-3");
+    }
+
+    [Fact]
+    public void The_approvals_of_the_sign_in_are_not_registered_without_the_sign_in()
+    {
+        var services = new ServiceCollection();
+
+        var act = () => services.AddApprovals(new ApprovalsOptions { Mode = ApprovalsMode.OpenIdConnect }, []);
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*AddSignIn*");
     }
 
     // --- the provider cannot be reached

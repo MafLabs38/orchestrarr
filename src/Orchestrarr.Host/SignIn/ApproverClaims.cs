@@ -50,12 +50,18 @@ internal static class ApproverClaims
         return name.Length > length ? name[..length] : name;
     }
 
+    /// <summary>The name to show for a session: the username, else the full name, else the subject. Null when there is none of them.</summary>
+    public static string? NameToShow(ClaimsPrincipal user) => DisplayName(user) ?? user.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
+
     /// <summary>
     /// What the API asks of whoever calls it: a session with an identity the order can carry, and the reader group when there is one. An
     /// operator always reads.
     /// </summary>
-    public static bool CanRead(ClaimsPrincipal user, SignInSettings settings) =>
-        From(user, settings) is { } approver
+    public static bool CanRead(ClaimsPrincipal user, SignInSettings settings) => CanRead(user, From(user, settings), settings);
+
+    /// <summary>The same, for an approver that is already known.</summary>
+    public static bool CanRead(ClaimsPrincipal user, Approver? approver, SignInSettings settings) =>
+        approver is not null
         && (settings.ReaderGroup is null || approver.IsOperator || IsMember(user, settings.GroupsClaim, settings.ReaderGroup));
 
     /// <summary>Whether the person belongs to the group, as the claim writes it: a group is compared exactly, so that a group of the same name elsewhere in a tree does not count.</summary>
