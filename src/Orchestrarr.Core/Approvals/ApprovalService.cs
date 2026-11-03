@@ -160,6 +160,7 @@ public sealed class ApprovalService(
                 LedgerResult.Recorded => new ApprovalResult(fresh, null),
                 LedgerResult.AlreadyThere => ApprovalResult.Refused(ApprovalRefusal.AlreadyApproved),
                 LedgerResult.StoreFull => ApprovalResult.Refused(ApprovalRefusal.StoreFull),
+                LedgerResult.Stopped => ApprovalResult.Refused(ApprovalRefusal.KillSwitchEngaged),
                 _ => ApprovalResult.Refused(ApprovalRefusal.AuditUnavailable),
             };
         }

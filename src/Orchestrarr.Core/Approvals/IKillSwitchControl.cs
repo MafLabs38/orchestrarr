@@ -29,7 +29,8 @@ public interface IKillSwitchControl : IKillSwitch
     /// <summary>
     /// Engages or releases the stop, and traces it with <paramref name="entry"/>. Engaging always takes effect, even when it cannot be saved or
     /// traced, because the stop must work when nothing else does. A release needs to be saved and traced, in one write where the storage allows
-    /// it: otherwise the stop stays engaged (unknown means engaged).
+    /// it: otherwise the stop stays engaged (unknown means engaged). The implementations are synchronous: a call can wait for the file, no longer than
+    /// its busy timeout, and an engagement does not wait for anything else.
     /// </summary>
     ValueTask<KillSwitchChange> ChangeAsync(bool engaged, AuditEntry entry, CancellationToken cancellationToken);
 }

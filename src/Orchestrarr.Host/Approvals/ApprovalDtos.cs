@@ -15,8 +15,8 @@ public sealed record ApproveResponse(IReadOnlyList<ApprovalDto> Approvals);
 
 public sealed record ErrorResponse(string Error);
 
-/// <summary>One entry of the trail. <c>Id</c> is its place in this answer, counted from the oldest entry returned: a key for the screen, not stable across calls.</summary>
-public sealed record ActivityDto(int Id, DateTimeOffset At, string Event, string Subject, string? Reference, string? Detail);
+/// <summary>One entry of the trail. <c>Id</c> is its number in the trail, counted from 1 in the order it was recorded: it never changes.</summary>
+public sealed record ActivityDto(long Id, DateTimeOffset At, string Event, string Subject, string? Reference, string? Detail);
 
 public sealed record KillSwitchRequest(bool Engaged);
 

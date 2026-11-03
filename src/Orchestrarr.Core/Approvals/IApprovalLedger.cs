@@ -12,6 +12,9 @@ public enum LedgerResult
     /// <summary>The queue or the trail has no room for all of it: nothing was written.</summary>
     StoreFull,
 
+    /// <summary>The global stop is engaged, as the ledger reads it in the write itself: nothing was written.</summary>
+    Stopped,
+
     /// <summary>The queue or the trail cannot be written: nothing was written.</summary>
     Unavailable,
 }

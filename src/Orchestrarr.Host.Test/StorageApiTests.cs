@@ -90,8 +90,11 @@ public sealed class StorageApiTests : IDisposable
 
         approve.StatusCode.Should().Be(HttpStatusCode.Locked);
         safety.GetProperty("killSwitchEngaged").GetBoolean().Should().BeTrue();
-        (await client.GetAsync("/api/v1/approvals", Ct)).StatusCode.Should().Be(HttpStatusCode.InternalServerError, "an unreadable queue is an error, never an empty list");
-        (await client.GetAsync("/api/v1/activity", Ct)).StatusCode.Should().Be(HttpStatusCode.InternalServerError, "an unreadable trail is an error, never an empty list");
+        var queue = await client.GetAsync("/api/v1/approvals", Ct);
+        var trail = await client.GetAsync("/api/v1/activity", Ct);
+        queue.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable, "an unreadable queue is an error, never an empty list");
+        trail.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable, "an unreadable trail is an error, never an empty list");
+        (await Json(queue)).GetProperty("error").GetString().Should().Be("storageUnavailable");
         (await client.GetAsync("/api/v1/system/status", Ct)).StatusCode.Should().Be(HttpStatusCode.OK, "the status still answers, and says the stop is engaged");
 
         var release = await client.PutAsJsonAsync("/api/v1/safety/kill-switch", new { engaged = false }, Ct);
@@ -225,6 +228,8 @@ public sealed class StorageApiTests : IDisposable
         var all = (await Json(await client.GetAsync("/api/v1/activity", Ct))).EnumerateArray().ToList();
 
         two.Select(entry => entry.GetProperty("event").GetString()).Should().Equal("killswitch.released", "killswitch.engaged");
+        two.Select(entry => entry.GetProperty("id").GetInt64()).Should().Equal(4, 3);
+        all.Select(entry => entry.GetProperty("id").GetInt64()).Should().Equal(4, 3, 2, 1);
         floor.Should().ContainSingle();
         all.Should().HaveCount(4);
     }

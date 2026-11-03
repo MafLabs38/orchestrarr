@@ -161,4 +161,20 @@ public sealed class SqliteApprovalStoreTests : IDisposable
 
         read.Should().Throw<StorageUnavailableException>();
     }
+
+    [Fact]
+    public void A_row_that_does_not_read_back_is_an_unusable_storage_and_not_an_empty_list_or_a_raw_error()
+    {
+        var database = _file.Open();
+        var store = new SqliteApprovalStore(database);
+        store.TryAddRange([Approval()]).Should().BeTrue();
+        using (var connection = database.Connect())
+        {
+            SqliteDatabase.Run(connection, "UPDATE approvals SET steps = 'NoSuchStep';");
+        }
+
+        var read = () => store.List();
+
+        read.Should().Throw<StorageUnavailableException>();
+    }
 }

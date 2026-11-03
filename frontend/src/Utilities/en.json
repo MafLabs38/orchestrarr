@@ -191,5 +191,5 @@
   "KillSwitchOperatorsOnly": "Only an operator can use the global stop.",
   "KillSwitchCannotBeReleased": "The global stop could not be released: its state cannot be saved, so it stays engaged.",
   "KillSwitchCannotBeTraced": "The global stop could not be released: the release cannot be written to the audit trail, so it stays engaged.",
-  "KillSwitchNotSaved": "The global stop is engaged but could not be saved: a restart would release it."
+  "KillSwitchNotSaved": "The global stop is engaged, but its state could not be saved or read: do not count on it across a restart."
 }

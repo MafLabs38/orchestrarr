@@ -27,7 +27,7 @@ internal static class ApprovalEndpoints
 
     public static void MapApprovalEndpoints(this RouteGroupBuilder api)
     {
-        api.MapGet("/approvals", (IApprovalStore store, int? limit) => Results.Ok(store.List(PageSize(limit)).Select(ToDto)));
+        api.MapGet("/approvals", (IApprovalStore store, int? limit) => WhenReadable(() => Results.Ok(store.List(PageSize(limit)).Select(ToDto).ToList())));
 
         // Ids of work items contain a slash, so the work item travels in the body.
         api.MapPost("/approvals", async (ApproveRequest request, HttpContext context, IApproverAccessor accessor, ApprovalService service, CancellationToken ct) =>
@@ -44,11 +44,8 @@ internal static class ApprovalEndpoints
                 : Results.Json(new ApproveResponse([.. result.Approvals.Select(ToDto)]), statusCode: StatusCodes.Status201Created);
         }).RequireRateLimiting(ApprovalsServiceCollectionExtensions.ApprovingPolicy);
 
-        api.MapGet("/activity", (IAuditLog audit, int? limit) =>
-        {
-            var entries = audit.List(PageSize(limit));
-            return Results.Ok(entries.Select((entry, index) => new ActivityDto(entries.Count - index, entry.At, entry.Event, entry.Subject, entry.OrderId, entry.Detail)));
-        });
+        api.MapGet("/activity", (IAuditLog audit, int? limit) => WhenReadable(() =>
+            Results.Ok(audit.Page(PageSize(limit)).Select(row => new ActivityDto(row.Id, row.Entry.At, row.Entry.Event, row.Entry.Subject, row.Entry.OrderId, row.Entry.Detail)).ToList())));
 
         api.MapGet("/safety", (IKillSwitchControl killSwitch) => Results.Ok(new SafetyDto(killSwitch.Engaged, killSwitch.Saved)));
 
@@ -74,6 +71,19 @@ internal static class ApprovalEndpoints
                 _ => Results.Ok(new SafetyDto(killSwitch.Engaged, killSwitch.Saved)),
             };
         });
+    }
+
+    // A list that cannot be read is an error and never an empty list: the answer says the storage is unavailable
+    private static IResult WhenReadable(Func<IResult> read)
+    {
+        try
+        {
+            return read();
+        }
+        catch (StorageUnavailableException)
+        {
+            return Error(ApiErrors.StorageUnavailable, StatusCodes.Status503ServiceUnavailable);
+        }
     }
 
     // The newest ones: a trail in a file can hold hundreds of thousands, and the screens poll

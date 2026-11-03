@@ -60,7 +60,7 @@ internal static class ApprovalsServiceCollectionExtensions
                 // Opened when the host starts (Program asks for it), so that a file that cannot be used stops it there and not at the first approval
                 .AddSingleton(provider => SqliteDatabase.Open(file.Path, file.StartEngagedWhenNew, provider.GetRequiredService<TimeProvider>()))
                 .AddSingleton<IApprovalStore>(provider => new SqliteApprovalStore(provider.GetRequiredService<SqliteDatabase>(), queueCapacity))
-                .AddSingleton<IApprovalLedger>(provider => new SqliteApprovalLedger(provider.GetRequiredService<SqliteDatabase>(), queueCapacity, auditCapacity, provider.GetService<ILogger<SqliteApprovalLedger>>()))
+                .AddSingleton<IApprovalLedger>(provider => new SqliteApprovalLedger(provider.GetRequiredService<SqliteDatabase>(), queueCapacity, auditCapacity, provider.GetService<ILogger<SqliteApprovalLedger>>(), provider.GetRequiredService<IKillSwitchControl>()))
                 .AddSingleton(provider => new SqliteKillSwitch(provider.GetRequiredService<SqliteDatabase>(), auditCapacity, provider.GetService<ILogger<SqliteKillSwitch>>()))
                 .AddSingleton<IKillSwitchControl>(provider => provider.GetRequiredService<SqliteKillSwitch>())
                 .AddSingleton<IKillSwitch>(provider => provider.GetRequiredService<SqliteKillSwitch>())
@@ -75,7 +75,7 @@ internal static class ApprovalsServiceCollectionExtensions
             var killSwitch = new InMemoryKillSwitch(auditLog);
             services
                 .AddSingleton<IApprovalStore>(store)
-                .AddSingleton<IApprovalLedger>(provider => new InMemoryApprovalLedger(store, provider.GetRequiredService<IAuditSink>()))
+                .AddSingleton<IApprovalLedger>(provider => new InMemoryApprovalLedger(store, provider.GetRequiredService<IAuditSink>(), provider.GetRequiredService<IKillSwitchControl>()))
                 .AddSingleton(killSwitch)
                 .AddSingleton<IKillSwitchControl>(killSwitch)
                 .AddSingleton<IKillSwitch>(killSwitch)

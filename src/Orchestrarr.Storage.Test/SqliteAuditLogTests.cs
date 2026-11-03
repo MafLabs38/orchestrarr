@@ -1,4 +1,5 @@
 using Microsoft.Data.Sqlite;
+using Orchestrarr.Core.Approvals;
 using Orchestrarr.Core.Launch;
 
 namespace Orchestrarr.Storage.Test;

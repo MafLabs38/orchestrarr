@@ -97,14 +97,22 @@ public sealed class SqliteKillSwitchChangeTests : IDisposable
         stop.Saved.Should().BeTrue();
     }
 
-    [Fact]
-    public async Task A_file_that_vanishes_is_an_error_and_not_a_new_database()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_file_that_vanishes_is_an_error_and_not_a_new_database_whatever_the_stop_was(bool engagedBefore)
     {
         var stop = new SqliteKillSwitch(_file.Open(), StoreLimits.FileAudit);
         await stop.ChangeAsync(true, Engaged(), Ct);
+        if (!engagedBefore)
+        {
+            await stop.ChangeAsync(false, Released(), Ct);
+        }
         _file.Repair();
 
         stop.Engaged.Should().BeTrue("a file that is not there cannot say the stop was released");
+        stop.Saved.Should().BeFalse("and the state is unknown");
+        (await stop.ChangeAsync(false, Released(), Ct)).Should().Be(KillSwitchChange.NotSaved);
         File.Exists(_file.Path).Should().BeFalse("nothing creates a database behind the host's back");
     }
 

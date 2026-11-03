@@ -176,4 +176,18 @@ public sealed class SqliteApprovalLedgerTests : IDisposable
         failing.Should().Throw<SqliteException>().WithMessage("*a failure after a write*");
         new SqliteApprovalStore(database).List().Should().BeEmpty();
     }
+
+    [Fact]
+    public async Task An_engaged_stop_is_read_inside_the_write_and_nothing_is_recorded()
+    {
+        var database = _file.Open();
+        using var stop = new InMemoryKillSwitch(startEngaged: true);
+        var approval = Approval();
+
+        var result = await new SqliteApprovalLedger(database, killSwitch: stop).TryRecordAsync([approval], [Entry(approval)], Ct);
+
+        result.Should().Be(LedgerResult.Stopped);
+        new SqliteApprovalStore(database).List().Should().BeEmpty();
+        new SqliteAuditLog(database).List().Should().BeEmpty();
+    }
 }

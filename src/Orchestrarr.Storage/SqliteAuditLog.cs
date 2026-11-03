@@ -49,24 +49,26 @@ public sealed class SqliteAuditLog(SqliteDatabase database, int capacity = Store
         }
     }
 
-    public IReadOnlyList<AuditEntry> List(int limit = int.MaxValue) => SqliteDatabase.Guard<IReadOnlyList<AuditEntry>>(() =>
+    public IReadOnlyList<AuditRow> Page(int limit) => SqliteDatabase.Guard<IReadOnlyList<AuditRow>>(() =>
     {
         using var connection = database.Connect();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT at, event, subject, order_id, detail FROM audit ORDER BY id DESC LIMIT $limit;";
+        command.CommandText = "SELECT id, at, event, subject, order_id, detail FROM audit ORDER BY id DESC LIMIT $limit;";
         command.Parameters.AddWithValue("$limit", limit);
         using var reader = command.ExecuteReader();
-        var entries = new List<AuditEntry>();
+        var rows = new List<AuditRow>();
         while (reader.Read())
         {
-            entries.Add(new AuditEntry(
-                SqliteDatabase.Parse(reader.GetString(0)),
-                reader.GetString(1),
-                reader.GetString(2),
-                reader.IsDBNull(3) ? null : reader.GetString(3),
-                reader.IsDBNull(4) ? null : reader.GetString(4)));
+            rows.Add(new AuditRow(
+                reader.GetInt64(0),
+                new AuditEntry(
+                    SqliteDatabase.Parse(reader.GetString(1)),
+                    reader.GetString(2),
+                    reader.GetString(3),
+                    reader.IsDBNull(4) ? null : reader.GetString(4),
+                    reader.IsDBNull(5) ? null : reader.GetString(5))));
         }
-        return entries;
+        return rows;
     });
 
     internal static int Count(SqliteConnection connection) => Scalar(connection, "SELECT COUNT(*) FROM audit;");

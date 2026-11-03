@@ -37,11 +37,11 @@ public sealed class InMemoryAuditLog(int capacity = InMemoryAuditLog.DefaultCapa
         }
     }
 
-    public IReadOnlyList<AuditEntry> List(int limit = int.MaxValue)
+    public IReadOnlyList<AuditRow> Page(int limit)
     {
         lock (_lock)
         {
-            return [.. Enumerable.Reverse(_entries).Take(limit)];
+            return [.. _entries.Select((entry, index) => new AuditRow(index + 1, entry)).Reverse().Take(limit)];
         }
     }
 }

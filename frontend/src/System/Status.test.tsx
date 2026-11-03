@@ -168,7 +168,9 @@ describe('Status', () => {
 
     renderWithProviders(<Status />);
 
-    expect(await screen.findByText(/could not be saved: a restart would release it/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/could not be saved or read: do not count on it across a restart/),
+    ).toBeInTheDocument();
   });
 
   it('does not warn about saving when the stop is saved', async () => {
@@ -177,7 +179,7 @@ describe('Status', () => {
     renderWithProviders(<Status />);
 
     await screen.findByRole('button', { name: 'Release the global stop' });
-    expect(screen.queryByText(/a restart would release it/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/do not count on it across a restart/)).not.toBeInTheDocument();
   });
 
   it.each([

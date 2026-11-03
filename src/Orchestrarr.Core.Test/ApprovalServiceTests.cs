@@ -623,4 +623,26 @@ public sealed class ApprovalServiceTests
         result.Should().Be(LedgerResult.Unavailable);
         _store.List().Should().BeEmpty("no trace, no approval");
     }
+
+    [Fact]
+    public async Task The_in_memory_ledger_reads_the_stop_at_the_moment_of_writing()
+    {
+        using var stop = new InMemoryKillSwitch(startEngaged: true);
+        var ledger = new InMemoryApprovalLedger(_store, _audit, stop);
+        var approval = new Approval(Guid.NewGuid(), ItemId, "example/app", 1, HeadA, [StepKind.Validate], "alice", Now);
+
+        var result = await ledger.TryRecordAsync([approval], [new AuditEntry(Now, AuditEvents.ApprovalRecorded, "alice", null, null)], TestContext.Current.CancellationToken);
+
+        result.Should().Be(LedgerResult.Stopped);
+        _store.List().Should().BeEmpty();
+        _audit.List().Should().BeEmpty();
+    }
+
+    [Fact]
+    public void The_approval_store_only_reads_so_that_nothing_is_approved_without_its_trace()
+    {
+        var read = typeof(IApprovalStore).GetMethods().Select(method => method.Name).Order(StringComparer.Ordinal);
+
+        read.Should().Equal("Contains", "List", "get_Free");
+    }
 }
