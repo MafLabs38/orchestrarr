@@ -54,6 +54,19 @@ public sealed class ApprovalsApiTests
         services.AddSingleton(instance);
     }
 
+    // The global stop, already engaged: the case where letting the wrong caller release it would be the harm
+    private static void EngagedStop(IServiceCollection services)
+    {
+        var stop = new InMemoryKillSwitch();
+        stop.Set(true);
+        Replace(services, stop);
+        Replace<IKillSwitchControl>(services, stop);
+        Replace<IKillSwitch>(services, stop);
+    }
+
+    private static async Task<bool> StopIsEngaged(HttpClient client) =>
+        (await Json(await client.GetAsync("/api/v1/safety", Ct))).GetProperty("killSwitchEngaged").GetBoolean();
+
     // A trail that holds nothing: every write is refused
     private static void FullTrail(IServiceCollection services)
     {
@@ -372,6 +385,10 @@ public sealed class ApprovalsApiTests
     [InlineData("http://[::1]:7878", true)]
     [InlineData("http://127.0.0.2:7878", true)]
     [InlineData("http://loopback:7878", false)]
+    [InlineData("http://localhost:80@0.0.0.0", false)]
+    [InlineData("http://127.0.0.1:1@example.test", false)]
+    [InlineData("http://127.0.0.1:80x", false)]
+    [InlineData("http://[::1]x", false)]
     [InlineData("http://localhost.:7878", false)]
     [InlineData("http://0.0.0.0:7878", false)]
     [InlineData("http://[::]:7878", false)]
@@ -385,38 +402,92 @@ public sealed class ApprovalsApiTests
     }
 
     [Fact]
-    public async Task When_nobody_is_signed_in_nothing_is_recorded_and_the_stop_is_unchanged()
+    public async Task When_nobody_is_signed_in_nothing_is_recorded_and_an_engaged_stop_stays_engaged()
     {
-        using var factory = new ForgeApiFactory { ServiceOverrides = services => Replace<IApproverAccessor>(services, new FixedApprover(null)) };
+        using var factory = new ForgeApiFactory
+        {
+            ServiceOverrides = services =>
+            {
+                Replace<IApproverAccessor>(services, new FixedApprover(null));
+                EngagedStop(services);
+            },
+        };
         var client = factory.CreateClient();
 
         var approve = await Approve(client);
-        var stop = await Stop(client, true);
+        var release = await Stop(client, false);
 
         approve.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
         (await ErrorOf(approve)).Should().Be("notSignedIn");
-        stop.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
-        (await Json(await client.GetAsync("/api/v1/safety", Ct))).GetProperty("killSwitchEngaged").GetBoolean().Should().BeFalse();
+        release.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await StopIsEngaged(client)).Should().BeTrue();
         (await Json(await client.GetAsync("/api/v1/approvals", Ct))).EnumerateArray().Should().BeEmpty();
     }
 
     [Theory]
     [InlineData(true, false)]
     [InlineData(false, true)]
-    public async Task Somebody_who_is_not_a_person_with_the_operator_role_can_neither_approve_nor_release_the_stop(bool person, bool isOperator)
+    public async Task Somebody_who_is_not_a_person_with_the_operator_role_cannot_approve(bool person, bool isOperator)
     {
         var signedIn = new Approver("someone", person, isOperator, StepUpAt: null);
         using var factory = new ForgeApiFactory { ServiceOverrides = services => Replace<IApproverAccessor>(services, new FixedApprover(signedIn)) };
         var client = factory.CreateClient();
 
         var approve = await Approve(client);
-        var stop = await Stop(client, true);
 
         approve.StatusCode.Should().Be(HttpStatusCode.Forbidden);
-        stop.StatusCode.Should().Be(HttpStatusCode.Forbidden);
-        (await ErrorOf(stop)).Should().Be("notAnOperator");
-        (await Json(await client.GetAsync("/api/v1/safety", Ct))).GetProperty("killSwitchEngaged").GetBoolean().Should().BeFalse();
         (await Json(await client.GetAsync("/api/v1/approvals", Ct))).EnumerateArray().Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task Somebody_who_is_not_a_person_with_the_operator_role_cannot_release_an_engaged_stop(bool person, bool isOperator)
+    {
+        var signedIn = new Approver("someone", person, isOperator, StepUpAt: null);
+        using var factory = new ForgeApiFactory
+        {
+            ServiceOverrides = services =>
+            {
+                Replace<IApproverAccessor>(services, new FixedApprover(signedIn));
+                EngagedStop(services);
+            },
+        };
+        var client = factory.CreateClient();
+
+        var release = await Stop(client, false);
+
+        release.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await ErrorOf(release)).Should().Be("notAnOperator");
+        (await StopIsEngaged(client)).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Nobody_can_release_an_engaged_stop_while_approving_is_turned_off()
+    {
+        using var factory = new ForgeApiFactory { EnvironmentName = "Testing", ServiceOverrides = EngagedStop };
+        var client = factory.CreateClient();
+
+        var release = await Stop(client, false);
+
+        release.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await ErrorOf(release)).Should().Be("approvalsDisabled");
+        (await StopIsEngaged(client)).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_name_cannot_release_an_engaged_stop_either()
+    {
+        using var factory = new ForgeApiFactory { ServiceOverrides = EngagedStop };
+        var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Host = "rebound.attacker.example";
+
+        var release = await Stop(client, false);
+
+        release.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await ErrorOf(release)).Should().Be("hostNotAllowed");
+        client.DefaultRequestHeaders.Host = "127.0.0.1";
+        (await StopIsEngaged(client)).Should().BeTrue();
     }
 
     [Fact]
@@ -455,6 +526,9 @@ public sealed class ApprovalsApiTests
     [InlineData("http://127.0.0.1:7878;http://10.0.0.20:7878")]
     [InlineData("http://loopback:7878")]
     [InlineData("http://localhost.example:7878")]
+    [InlineData("http://localhost:80@0.0.0.0")]
+    [InlineData("http://127.0.0.1:1@example.test")]
+    [InlineData("http://127.0.0.1:port")]
     [InlineData("http://127.0.0.1.example:7878")]
     [InlineData("http://vault.example:8080")]
     public void The_sandbox_operator_is_refused_when_the_host_listens_beyond_the_loopback(string urls)

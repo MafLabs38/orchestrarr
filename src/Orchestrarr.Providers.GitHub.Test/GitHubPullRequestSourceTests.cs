@@ -189,6 +189,19 @@ public sealed class GitHubPullRequestSourceTests
     }
 
     [Fact]
+    public async Task A_pull_request_that_the_pagination_gives_twice_is_kept_once()
+    {
+        _handler.On("/repos/example/app/pulls", $"[{Pull(1)}]", link: "<https://api.github.com/repos/example/app/pulls?state=open&per_page=100&page=2>; rel=\"next\"");
+        _handler.On("/repos/example/app/pulls?state=open&per_page=100&page=2", $"[{Pull(1)},{Pull(2)}]");
+        Serve(1);
+        Serve(2);
+
+        var list = await ListAsync(Source());
+
+        list.Items.Select(p => p.Number).Should().Equal(1, 2);
+    }
+
+    [Fact]
     public async Task Stopping_at_the_maximum_number_of_pages_is_said()
     {
         _handler.On("/repos/example/app/pulls", $"[{Pull(1)}]", link: "<https://api.github.com/repos/example/app/pulls?page=2>; rel=\"next\"");

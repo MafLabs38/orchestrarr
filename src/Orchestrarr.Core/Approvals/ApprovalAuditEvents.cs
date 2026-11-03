@@ -4,7 +4,7 @@ namespace Orchestrarr.Core.Approvals;
 public static class ApprovalAuditEvents
 {
     public const string Recorded = "approval.recorded";
-    public const string Refused = "approval.refused";
+    public const string Refused = Launch.AuditEvents.ApprovalRefused;
     public const string KillSwitchEngaged = "killswitch.engaged";
     public const string KillSwitchReleased = "killswitch.released";
 }

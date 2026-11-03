@@ -119,5 +119,7 @@ describe('pull request words', () => {
   it('gives a sentence even for a refusal it does not know, or none', () => {
     expect(describeApprovalError('brandNew')).toBe('The approval was refused.');
     expect(describeApprovalError(null)).toBe('The approval was refused.');
+    expect(describeApprovalError('constructor')).toBe('The approval was refused.');
+    expect(describeEvent('toString')).toBe('toString');
   });
 });

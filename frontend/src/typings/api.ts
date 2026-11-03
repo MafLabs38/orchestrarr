@@ -148,6 +148,7 @@ export interface Approval {
 }
 
 export interface ActivityEntry {
+  id: number;
   at: string;
   event: string;
   subject: string;

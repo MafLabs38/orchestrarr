@@ -169,6 +169,17 @@ public sealed class ApprovalServiceTests
     }
 
     [Fact]
+    public async Task The_same_pull_request_twice_in_the_list_is_a_list_to_read_again_and_traces_nothing()
+    {
+        var service = await Service(PullRequest(1, HeadA), PullRequest(1, HeadA));
+
+        var result = await Approve(service, seen: [new SeenPullRequest(1, HeadA), new SeenPullRequest(1, HeadA)]);
+
+        result.Refusal.Should().Be(ApprovalRefusal.PlanChanged);
+        _audit.List().Should().NotContain(e => e.Event == ApprovalAuditEvents.Recorded);
+    }
+
+    [Fact]
     public async Task The_order_in_which_the_pull_requests_were_displayed_does_not_matter()
     {
         var service = await Service(PullRequest(1, HeadA), PullRequest(2, HeadB));

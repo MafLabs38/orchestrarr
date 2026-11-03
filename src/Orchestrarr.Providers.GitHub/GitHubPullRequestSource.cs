@@ -145,7 +145,8 @@ public sealed partial class GitHubPullRequestSource : IPullRequestSource
         {
             page++;
             var (body, link) = await GetAsync<List<GitHubPullRequest>>(next, cancellationToken);
-            listed.AddRange(body ?? []);
+            // Offset pagination can give a pull request twice when the list shifts between two pages: one copy is kept
+            listed.AddRange((body ?? []).Where(pullRequest => listed.TrueForAll(known => known.Number != pullRequest.Number)));
             next = link;
             if (next is not null && page >= _options.MaxPages)
             {

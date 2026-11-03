@@ -7,8 +7,11 @@ namespace Orchestrarr.Core.Approvals;
 /// trace; the persistent trail that SPEC D-43 and F-SAF-02 require comes with the workshop. Refusals have a smaller share than the rest: a
 /// client that is refused again and again cannot use the whole trail up and make every real decision (and every stop) untraceable.
 /// </summary>
-public sealed class InMemoryAuditLog(int capacity = 2000) : IAuditLog
+public sealed class InMemoryAuditLog(int capacity = InMemoryAuditLog.DefaultCapacity) : IAuditLog
 {
+    public const int DefaultCapacity = 2000;
+
+    private readonly int _capacity = int.IsNegative(capacity) ? throw new ArgumentOutOfRangeException(nameof(capacity), "The capacity cannot be negative.") : capacity;
     /// <summary>The share of the trail that refusals may use, in quarters.</summary>
     private const int RefusalQuarters = 3;
 
@@ -28,7 +31,7 @@ public sealed class InMemoryAuditLog(int capacity = 2000) : IAuditLog
         lock (_lock)
         {
             var refusals = entries.Count(entry => AuditEvents.IsRefusal(entry.Event));
-            var fits = _entries.Count + entries.Count <= capacity && (refusals == 0 || _entries.Count + refusals <= _refusalLimit);
+            var fits = _entries.Count + entries.Count <= _capacity && (refusals == 0 || _entries.Count + refusals <= _refusalLimit);
             if (fits)
             {
                 _entries.AddRange(entries);

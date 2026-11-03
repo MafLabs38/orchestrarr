@@ -1,5 +1,4 @@
 using System.Net;
-using System.Text.RegularExpressions;
 
 namespace Orchestrarr.Host.Approvals;
 
@@ -8,7 +7,7 @@ namespace Orchestrarr.Host.Approvals;
 /// listens only on the loopback, on every way an address can be given, and the addresses that were really bound are checked once the host
 /// started. The two routes that record something also answer only to a direct address (see <see cref="IsDirectHost"/>).
 /// </summary>
-internal static partial class SandboxGuard
+internal static class SandboxGuard
 {
     // Where an address can come from. All of them are read: only one takes effect, which is not known here, so every one must be safe.
     private static readonly string[] UrlKeys = ["urls", "ASPNETCORE_URLS", "DOTNET_URLS"];
@@ -55,19 +54,26 @@ internal static partial class SandboxGuard
             return null;
         }
         var authority = address[(scheme + 3)..].Split('/')[0];
+        if (authority.Contains('@', StringComparison.Ordinal))
+        {
+            return null; // user information is not an address: Kestrel would read the whole text as a name
+        }
         if (authority.StartsWith('['))
         {
             var close = authority.IndexOf(']', StringComparison.Ordinal);
-            return close < 0 ? null : authority[1..close];
+            return close < 0 || !IsPort(authority[(close + 1)..]) ? null : authority[1..close];
         }
         var colons = authority.Count(character => character == ':');
         return colons switch
         {
             0 => authority,
-            1 => authority[..authority.IndexOf(':', StringComparison.Ordinal)],
+            1 when IsPort(authority[authority.IndexOf(':', StringComparison.Ordinal)..]) => authority[..authority.IndexOf(':', StringComparison.Ordinal)],
             _ => null,
         };
     }
+
+    // What follows a host: nothing, or a colon and a number
+    private static bool IsPort(string text) => text.Length == 0 || (text[0] == ':' && text.Length > 1 && text.Skip(1).All(char.IsAsciiDigit));
 
     private static IEnumerable<string> Split(string? urls) =>
         (urls ?? string.Empty).Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -103,8 +109,4 @@ internal static partial class SandboxGuard
         return host.Equals("localhost", StringComparison.OrdinalIgnoreCase) || IPAddress.TryParse(host.Trim('[', ']'), out _);
     }
 
-    public static bool IsRepositoryName(string value) => RepositoryName().IsMatch(value);
-
-    [GeneratedRegex(@"^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}\z", RegexOptions.None, 100)]
-    private static partial Regex RepositoryName();
 }

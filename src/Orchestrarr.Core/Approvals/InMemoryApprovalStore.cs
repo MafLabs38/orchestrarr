@@ -1,8 +1,11 @@
 namespace Orchestrarr.Core.Approvals;
 
 /// <summary>A bounded, in-memory store (ADR 0010). Restarting forgets it, which a sandbox accepts and production does not.</summary>
-public sealed class InMemoryApprovalStore(int capacity = 500) : IApprovalStore
+public sealed class InMemoryApprovalStore(int capacity = InMemoryApprovalStore.DefaultCapacity) : IApprovalStore
 {
+    public const int DefaultCapacity = 500;
+
+    private readonly int _capacity = int.IsPositive(capacity) ? capacity : throw new ArgumentOutOfRangeException(nameof(capacity), "The capacity must be greater than zero.");
     private readonly object _lock = new();
     private readonly List<Approval> _approvals = [];
 
@@ -12,7 +15,7 @@ public sealed class InMemoryApprovalStore(int capacity = 500) : IApprovalStore
         {
             lock (_lock)
             {
-                return capacity - _approvals.Count;
+                return _capacity - _approvals.Count;
             }
         }
     }
@@ -32,7 +35,7 @@ public sealed class InMemoryApprovalStore(int capacity = 500) : IApprovalStore
         lock (_lock)
         {
             var distinct = approvals.Select(Key).Distinct().Count() == approvals.Count;
-            if (!distinct || approvals.Count > capacity - _approvals.Count || approvals.Any(candidate => _approvals.Exists(existing => SameDecision(existing, candidate))))
+            if (!distinct || approvals.Count > _capacity - _approvals.Count || approvals.Any(candidate => _approvals.Exists(existing => SameDecision(existing, candidate))))
             {
                 return false;
             }

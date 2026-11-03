@@ -114,7 +114,7 @@ public sealed class OrderIssuer(
     {
         // A refusal is worth a trace, but it does not depend on one: the refusal already fails closed. The subject is the identity
         // provider's, but the request is not recorded: its fields have not been validated.
-        var subject = OrderValidation.IsValidSubject(approver.Subject) ? approver.Subject : "unverified";
+        var subject = OrderValidation.IsValidSubject(approver.Subject) ? approver.Subject : AuditEvents.Unverified;
         await audit.TryRecordAsync(new AuditEntry(now, AuditEvents.IssueRefused, subject, null, refusal.ToString()), cancellationToken);
         return new IssueResult(null, refusal);
     }

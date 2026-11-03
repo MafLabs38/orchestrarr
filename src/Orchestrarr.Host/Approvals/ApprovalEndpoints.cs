@@ -41,7 +41,10 @@ internal static class ApprovalEndpoints
         });
 
         api.MapGet("/activity", (IAuditLog audit) =>
-            Results.Ok(audit.List().Select(entry => new ActivityDto(entry.At, entry.Event, entry.Subject, entry.OrderId, entry.Detail))));
+        {
+            var entries = audit.List();
+            return Results.Ok(entries.Select((entry, index) => new ActivityDto(entries.Count - index, entry.At, entry.Event, entry.Subject, entry.OrderId, entry.Detail)));
+        });
 
         api.MapGet("/safety", (IKillSwitchControl killSwitch) => Results.Ok(new SafetyDto(killSwitch.Engaged)));
 

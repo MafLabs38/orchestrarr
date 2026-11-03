@@ -35,6 +35,8 @@ internal static partial class OrderValidation
     public static bool IsValidApproval(string workItemId, string repository, string headSha, IReadOnlyList<StepKind> steps, string approverSubject) =>
         HasValidFields(workItemId, repository, headSha, environment: null, steps, approverSubject);
 
+    public static bool IsRepositoryName(string? repository) => Repository().IsMatch(repository ?? string.Empty);
+
     public static bool IsValidWorkItem(string? workItemId) => WorkItem().IsMatch(workItemId ?? string.Empty);
 
     /// <summary>The subject of an approver, as the identity provider gives it.</summary>

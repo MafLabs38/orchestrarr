@@ -44,7 +44,7 @@ export default function Activity() {
             </thead>
             <tbody>
               {entries.map((entry) => (
-                <tr key={`${entry.at}-${entry.event}-${entry.reference ?? entry.detail ?? ''}`}>
+                <tr key={entry.id}>
                   <td className={styles.mono}>{formatTime(entry.at)}</td>
                   <td>{describeEvent(entry.event)}</td>
                   <td>{entry.subject}</td>

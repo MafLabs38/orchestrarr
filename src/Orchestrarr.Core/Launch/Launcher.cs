@@ -51,7 +51,7 @@ public sealed class Launcher(
         var name = refusal is null ? AuditEvents.LaunchAccepted : AuditEvents.LaunchRefused;
         return trusted
             ? new AuditEntry(now, name, order.ApproverSubject, order.Id.ToString("D"), $"{refusal?.ToString() ?? "accepted"} {OrderIssuer.Describe(order)}")
-            : new AuditEntry(now, name, "unverified", null, refusal?.ToString());
+            : new AuditEntry(now, name, AuditEvents.Unverified, null, refusal?.ToString());
     }
 
     private async ValueTask<(LaunchRefusal? Refusal, bool Trusted)> FirstRefusalAsync(

@@ -109,7 +109,7 @@ const events = {
 
 // The words of an event of the audit trail; one the interface does not know is shown as the server names it.
 export function describeEvent(event: string): string {
-  return event in events ? translate(events[event as keyof typeof events]) : event;
+  return Object.hasOwn(events, event) ? translate(events[event as keyof typeof events]) : event;
 }
 
 const approvalErrors = {
@@ -135,7 +135,7 @@ const approvalErrors = {
 
 // Why an approval was refused, from the code of the server; a code the interface does not know still gets a sentence.
 export function describeApprovalError(code: string | null): string {
-  return code !== null && code in approvalErrors
+  return code !== null && Object.hasOwn(approvalErrors, code)
     ? translate(approvalErrors[code as ApprovalError])
     : translate('ApprovalErrorUnknown');
 }

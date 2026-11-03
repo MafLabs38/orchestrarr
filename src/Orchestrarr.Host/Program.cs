@@ -24,24 +24,9 @@ builder.Services.AddSingleton(provider => PullRequestSourceFactory.Create(builde
 var approvals = builder.Configuration.GetSection(ApprovalsOptions.SectionName).Get<ApprovalsOptions>() ?? new ApprovalsOptions();
 approvals.Validate();
 SandboxGuard.Check(approvals, builder.Environment, builder.Configuration);
-builder.Services.AddSingleton(approvals);
-
 // The powers the operator listed in the configuration (SPEC D-10, D-11): none unless a grant is written. Checked now, not at a request.
 var grants = (builder.Configuration.GetSection(PowersOptions.SectionName).Get<PowersOptions>() ?? new PowersOptions()).ToGrants(builder.Environment.IsDevelopment());
-builder.Services.AddSingleton<IPowerPolicy>(new ConfiguredPowerPolicy(grants));
-builder.Services.AddSingleton<IGrantedPowers, PolicyGrantedPowers>();
-
-builder.Services.AddSingleton<IApproverAccessor>(provider => approvals.Mode == ApprovalsMode.Development
-    ? new DevelopmentApprover(approvals, provider.GetRequiredService<TimeProvider>())
-    : new NoApprover());
-builder.Services.AddSingleton<IApprovalStore>(new InMemoryApprovalStore(approvals.QueueCapacity));
-builder.Services.AddSingleton<InMemoryKillSwitch>();
-builder.Services.AddSingleton<IKillSwitchControl>(provider => provider.GetRequiredService<InMemoryKillSwitch>());
-builder.Services.AddSingleton<IKillSwitch>(provider => provider.GetRequiredService<InMemoryKillSwitch>());
-builder.Services.AddSingleton<InMemoryAuditLog>(new InMemoryAuditLog(approvals.AuditCapacity));
-builder.Services.AddSingleton<IAuditLog>(provider => provider.GetRequiredService<InMemoryAuditLog>());
-builder.Services.AddSingleton<IAuditSink>(provider => provider.GetRequiredService<InMemoryAuditLog>());
-builder.Services.AddSingleton<ApprovalService>();
+builder.Services.AddApprovals(approvals, grants);
 builder.Services.AddSingleton(builder.Configuration.GetSection(WorkItemCatalogOptions.SectionName).Get<WorkItemCatalogOptions>() ?? new WorkItemCatalogOptions());
 builder.Services.AddSingleton<WorkItemCatalog>();
 

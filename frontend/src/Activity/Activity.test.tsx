@@ -9,6 +9,7 @@ const path = '/api/v1/activity';
 
 const entries: ActivityEntry[] = [
   {
+    id: 3,
     at: '2026-11-03T10:00:02Z',
     event: 'approval.refused',
     subject: 'dev-operator',
@@ -16,13 +17,14 @@ const entries: ActivityEntry[] = [
     detail: 'AlreadyApproved repository:example/shop',
   },
   {
+    id: 2,
     at: '2026-11-03T10:00:01Z',
     event: 'approval.recorded',
     subject: 'dev-operator',
     reference: 'r1',
     detail: 'example/shop#7@abc steps=Validate',
   },
-  { at: '2026-11-03T10:00:00Z', event: 'something.new', subject: 'x', reference: null, detail: null },
+  { id: 1, at: '2026-11-03T10:00:00Z', event: 'something.new', subject: 'x', reference: null, detail: null },
 ];
 
 afterEach(() => {

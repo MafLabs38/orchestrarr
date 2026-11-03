@@ -70,7 +70,11 @@ public static class AuditEvents
     public const string IssueRefused = "order.refused";
     public const string LaunchAccepted = "launch.accepted";
     public const string LaunchRefused = "launch.refused";
+    public const string ApprovalRefused = "approval.refused";
+
+    /// <summary>Who the trail names when the order or the approver could not be verified: what an unverified party claims is never written.</summary>
+    public const string Unverified = "unverified";
 
     /// <summary>A refusal, as opposed to a decision or a stop: refusals can be provoked by anyone, so they have the smaller share of a bounded trail.</summary>
-    public static bool IsRefusal(string name) => name is IssueRefused or LaunchRefused or "approval.refused";
+    public static bool IsRefusal(string name) => name is IssueRefused or LaunchRefused or ApprovalRefused;
 }

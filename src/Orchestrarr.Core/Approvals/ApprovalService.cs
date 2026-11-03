@@ -87,6 +87,11 @@ public sealed class ApprovalService(
         {
             return ([], ApprovalRefusal.NoPullRequests);
         }
+        // The same pull request twice (a list that shifted while it was read) is not a list that can be approved: read it again
+        if (approvals.Select(approval => approval.PullRequest).Distinct().Count() != approvals.Count)
+        {
+            return ([], ApprovalRefusal.PlanChanged);
+        }
         return seen.All(pullRequest => pullRequest is not null) && SameAsSeen(approvals, seen) ? (approvals, null) : ([], ApprovalRefusal.PlanChanged);
     }
 
@@ -167,7 +172,7 @@ public sealed class ApprovalService(
     {
         // A refusal is worth a trace, but it does not depend on one: it already fails closed. The work item id comes from the client, so
         // it is recorded only if it has the shape of one.
-        var subject = OrderValidation.IsValidSubject(approver.Subject) ? approver.Subject : "unverified";
+        var subject = OrderValidation.IsValidSubject(approver.Subject) ? approver.Subject : AuditEvents.Unverified;
         var detail = OrderValidation.IsValidWorkItem(workItemId) ? $"{refusal} {workItemId}" : refusal.ToString();
         await audit.TryRecordAsync(new AuditEntry(time.GetUtcNow(), ApprovalAuditEvents.Refused, subject, null, detail), cancellationToken);
     }
