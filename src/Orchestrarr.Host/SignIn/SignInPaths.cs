@@ -1,6 +1,6 @@
 namespace Orchestrarr.Host.SignIn;
 
-/// <summary>The addresses of the sign-in. <see cref="Failed"/> is also written in <c>frontend/src/Helpers/signIn.ts</c>: the interface reads what the host sends.</summary>
+/// <summary>The addresses of the sign-in. The marker of <see cref="Failed"/> (<c>signInFailed</c>) is also written in <c>frontend/src/Helpers/signIn.ts</c>: the interface reads what the host sends.</summary>
 internal static class SignInPaths
 {
     public const string Login = "/auth/login";

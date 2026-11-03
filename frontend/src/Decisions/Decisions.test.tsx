@@ -94,7 +94,10 @@ describe('Decisions', () => {
     const fetchMock = stubApi({
       [path]: report({ items: [withPullRequests] }),
       [`${path}?refresh=true`]: report({ items: [withPullRequests] }),
-      '/api/v1/system/status': status({}, { enabled: false, mode: 'disabled', operator: null }),
+      '/api/v1/system/status': status(
+        {},
+        { enabled: false, mode: 'disabled', operator: null, operatorName: null, isOperator: false },
+      ),
     });
 
     renderWithProviders(<Decisions />);

@@ -57,6 +57,9 @@ describe('signIn', () => {
     redirectToSignIn();
 
     expect(assign).not.toHaveBeenCalled();
+  });
+
+  it('reads the marker of a failed sign-in in the address', () => {
     expect(signInFailed('?signInFailed=1')).toBe(true);
     expect(signInFailed('?other=1')).toBe(false);
   });
@@ -86,7 +89,18 @@ describe('signIn', () => {
     expect(assign).toHaveBeenCalledWith('/auth/login?returnUrl=%2Fsystem%2Fstatus');
   });
 
-  it.each([403, 500])('is not what a %i does, and it does not say the session held', async (code) => {
+  it.each([403, 500])('is not what a %i does', async (code) => {
+    const assign = stubLocation('/');
+    stubFetch(code);
+
+    for (const [, request] of requests) {
+      await expect(request()).rejects.toMatchObject({ status: code });
+    }
+
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it.each([403, 500])('does not clear the guard against a loop of redirects when it is a %i', async (code) => {
     const assign = stubLocation('/');
     redirectToSignIn();
     stubFetch(code);

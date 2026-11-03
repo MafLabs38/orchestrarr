@@ -91,14 +91,12 @@ export function report(overrides: Partial<WorkItemReport> = {}): WorkItemReport 
 }
 
 export function approvalStatus(overrides: Partial<ApprovalStatus> = {}): ApprovalStatus {
-  const enabled = overrides.enabled ?? true;
   return {
     mode: 'development',
-    enabled,
+    enabled: true,
     operator: 'dev-operator',
     operatorName: 'dev-operator',
-    // Only somebody signed in can be an operator, and nobody is when approving is off
-    isOperator: enabled && overrides.operator !== null,
+    isOperator: true,
     killSwitchEngaged: false,
     ...overrides,
   };

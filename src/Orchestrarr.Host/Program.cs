@@ -41,14 +41,7 @@ builder.Services.AddSingleton<WorkItemCatalog>();
 var app = builder.Build();
 SandboxGuard.StopIfListeningBeyondLoopback(app, approvals);
 
-// The interface is never framed by another page: a click on it, with the session of the person, is the person's own
-app.Use(async (context, next) =>
-{
-    context.Response.Headers.XFrameOptions = "DENY";
-    context.Response.Headers.ContentSecurityPolicy = "frame-ancestors 'none'";
-    context.Response.Headers.XContentTypeOptions = "nosniff";
-    await next(context);
-});
+app.UseSecurityHeaders();
 
 var api = app.MapGroup("/api/v1");
 if (signIn is not null)
@@ -77,8 +70,9 @@ api.MapGet("/system/status", (WorkItemCatalog catalog, IApproverAccessor accesso
     return Results.Ok(new SystemStatus("Orchestrarr", version, new SourceStatus(catalog.SourceKind, catalog.SourceConfigured, report?.ReadAt, report?.Error, report?.Stale ?? false), new ForgeStatus(catalog.ForgeKind, catalog.ForgeConfigured), ApprovalEndpoints.StatusOf(accessor, context, killSwitch)));
 });
 
-// An unknown route of the API is a 404, never the page of the interface
+// An unknown route of the API, or of the sign-in (which is not there at all unless people sign in), is a 404, never the page of the interface
 api.MapFallback(() => Results.NotFound());
+app.MapFallback("/auth/{**rest}", () => Results.NotFound());
 
 // The user interface, once built into wwwroot (in development the Vite server serves it)
 if (app.Environment.WebRootFileProvider.GetDirectoryContents("/").Exists)

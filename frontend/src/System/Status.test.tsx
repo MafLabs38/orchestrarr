@@ -84,7 +84,12 @@ describe('Status', () => {
   });
 
   it('says approving is turned off, and offers no global stop to nobody', async () => {
-    stubApi({ '/api/v1/system/status': status({}, { enabled: false, mode: 'disabled', operator: null }) });
+    stubApi({
+      '/api/v1/system/status': status(
+        {},
+        { enabled: false, mode: 'disabled', operator: null, operatorName: null, isOperator: false },
+      ),
+    });
 
     renderWithProviders(<Status />);
 

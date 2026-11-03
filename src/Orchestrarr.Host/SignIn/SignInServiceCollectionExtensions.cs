@@ -93,6 +93,12 @@ internal static class SignInServiceCollectionExtensions
         // No token is kept: the session holds the claims of the person and nothing else
         oidc.SaveTokens = false;
         oidc.GetClaimsFromUserInfoEndpoint = settings.ClaimsFromUserInfo;
+        if (settings.ClaimsFromUserInfo)
+        {
+            // Only what is needed is copied from the user-information endpoint: never the authentication context, which the step-up trusts
+            oidc.ClaimActions.MapJsonKey(settings.GroupsClaim, settings.GroupsClaim);
+            oidc.ClaimActions.MapJsonKey(ApproverClaims.PreferredUsername, ApproverClaims.PreferredUsername);
+        }
         oidc.MapInboundClaims = false;
         oidc.RequireHttpsMetadata = settings.Authority.Scheme == Uri.UriSchemeHttps;
         oidc.Scope.Clear();

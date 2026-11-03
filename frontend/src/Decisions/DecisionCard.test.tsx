@@ -201,7 +201,7 @@ describe('DecisionCard approval', () => {
   });
 
   it('cannot be approved while approving is turned off, and says so next to the button', async () => {
-    stubApproving({ enabled: false, mode: 'disabled', operator: null });
+    stubApproving({ enabled: false, mode: 'disabled', operator: null, operatorName: null, isOperator: false });
 
     renderWithProviders(<DecisionCard item={granted} />);
 

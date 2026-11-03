@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 
 import { renderWithProviders, status, stubApi } from 'testUtils';
 
@@ -9,16 +9,20 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-// The status is read for the badge: when it shows, the session has been asked for too, and had its chance to show
-function renderBeside(session?: unknown) {
-  stubApi({ '/api/v1/system/status': status(), ...(session === undefined ? {} : { '/auth/me': session }) });
+// The session is asked for, and the status too (for the badge): once both have answered, an absence means something
+async function renderBeside(session?: unknown) {
+  const fetchMock = stubApi({
+    '/api/v1/system/status': status(),
+    ...(session === undefined ? {} : { '/auth/me': session }),
+  });
   renderWithProviders(
     <>
       <SignedInUser />
       <SourceBadge />
     </>,
   );
-  return screen.findByText('Sample data · Connected');
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/auth/me', expect.anything()));
+  await screen.findByText('Sample data · Connected');
 }
 
 describe('SignedInUser', () => {

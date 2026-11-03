@@ -15,7 +15,7 @@ export default function SignedInUser() {
 
   return (
     <form method="post" action={signOutPath} className={styles.user}>
-      <span>{translate('SignedInAs', { name: data.name ?? '' })}</span>
+      <span>{translate('SignedInAs', { name: data.name ?? translate('UnknownAccount') })}</span>
       <Button type="submit">{translate('SignOut')}</Button>
     </form>
   );

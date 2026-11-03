@@ -40,6 +40,13 @@ internal sealed class TestSessionHandler(IOptionsMonitor<AuthenticationSchemeOpt
     }
 }
 
+/// <summary>A provider that does not answer: every request fails at once, as a connection refused does.</summary>
+internal sealed class UnreachableProvider : HttpMessageHandler
+{
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+        Task.FromException<HttpResponseMessage>(new HttpRequestException("connection refused"));
+}
+
 public sealed class SignInApiTests
 {
     private const string Shop = "repository:example/shop";
@@ -74,7 +81,8 @@ public sealed class SignInApiTests
         services.PostConfigure<AuthenticationOptions>(options => options.DefaultAuthenticateScheme = TestSessionHandler.SchemeName);
         if (!providerReachable)
         {
-            // Its address is the one of the configuration, which nobody answers: the discovery document cannot be read
+            // Nobody answers at the address of the configuration: the discovery document cannot be read, and no network is touched to find out
+            services.Configure<OpenIdConnectOptions>(OpenIdConnectDefaults.AuthenticationScheme, options => options.BackchannelHttpHandler = new UnreachableProvider());
             return;
         }
         services.Configure<OpenIdConnectOptions>(OpenIdConnectDefaults.AuthenticationScheme, options =>
@@ -233,7 +241,7 @@ public sealed class SignInApiTests
         endpoints.Where(endpoint => endpoint.RoutePattern.RawText!.StartsWith("/api", StringComparison.Ordinal))
             .Should().NotBeEmpty().And.OnlyContain(endpoint => endpoint.Metadata.GetMetadata<IAuthorizeData>() != null);
         endpoints.Where(endpoint => endpoint.Metadata.GetMetadata<IAuthorizeData>() == null).Select(endpoint => endpoint.RoutePattern.RawText)
-            .Should().BeSubsetOf(["/health", "/auth/login", "/auth/logout", "{*path:nonfile}"]);
+            .Should().BeSubsetOf(["/health", "/auth/login", "/auth/logout", "/auth/{**rest}", "{*path:nonfile}"]);
     }
 
     [Fact]
@@ -428,7 +436,7 @@ public sealed class SignInApiTests
     {
         using var factory = Factory();
 
-        (await Client(factory, Operator).GetAsync("/auth/logout", Ct)).StatusCode.Should().Be(HttpStatusCode.MethodNotAllowed);
+        (await Client(factory, Operator).GetAsync("/auth/logout", Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
         (await Client(factory, Operator).GetAsync("/signout-oidc", Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
@@ -549,20 +557,35 @@ public sealed class SignInApiTests
         response.Headers.GetValues("X-Content-Type-Options").Should().Equal("nosniff");
     }
 
-    // --- a page of another site cannot fill the cookies of the person
+    // --- a page of another site cannot fill the cookies of the person, nor keep the person from signing in
 
     [Fact]
-    public async Task Past_a_number_of_sign_ins_in_flight_no_more_cookies_are_added()
+    public async Task Past_a_number_of_sign_ins_in_flight_the_oldest_are_dropped_and_the_new_one_goes_on()
     {
         using var factory = Factory();
         var client = Client(factory);
-        client.DefaultRequestHeaders.Add("Cookie", string.Join("; ", Enumerable.Range(0, 8).Select(n => $".AspNetCore.Correlation.state{n}=N")));
+        var stale = Enumerable.Range(0, 8).Select(n => $".AspNetCore.Correlation.state{n}").ToList();
+        client.DefaultRequestHeaders.Add("Cookie", string.Join("; ", stale.Select(name => $"{name}=N")));
 
         var response = await client.GetAsync("/auth/login", Ct);
 
-        response.StatusCode.Should().Be(HttpStatusCode.TooManyRequests);
-        (await Json(response)).GetProperty("error").GetString().Should().Be("tooManySignIns");
-        response.Headers.Contains("Set-Cookie").Should().BeFalse();
+        response.StatusCode.Should().Be(HttpStatusCode.Redirect);
+        response.Headers.Location!.GetLeftPart(UriPartial.Path).Should().Be("https://sso.example/realms/example/auth");
+        var cookies = response.Headers.GetValues("Set-Cookie").ToList();
+        stale.Should().OnlyContain(name => cookies.Any(cookie => cookie.StartsWith(name + "=;", StringComparison.Ordinal) && cookie.Contains("1970", StringComparison.Ordinal)));
+        cookies.Should().Contain(cookie => cookie.StartsWith(".AspNetCore.Correlation.", StringComparison.Ordinal) && !cookie.Contains("1970", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Below_the_number_nothing_is_dropped()
+    {
+        using var factory = Factory();
+        var client = Client(factory);
+        client.DefaultRequestHeaders.Add("Cookie", ".AspNetCore.Correlation.state0=N");
+
+        var response = await client.GetAsync("/auth/login", Ct);
+
+        response.Headers.GetValues("Set-Cookie").Should().NotContain(cookie => cookie.StartsWith(".AspNetCore.Correlation.state0=;", StringComparison.Ordinal));
     }
 
     // --- the provider cannot be reached
@@ -583,8 +606,73 @@ public sealed class SignInApiTests
     [Fact]
     public void The_secret_of_the_client_is_not_in_the_text_of_the_settings()
     {
-        var settings = new SignInOptions { Authority = "https://sso.example/r", ClientId = "orchestrarr", ClientSecret = "a-very-secret-value", PublicUrl = "https://orchestrarr.example" }.Validate(false);
+        var settings = new SignInOptions { Authority = "https://sso.example/r", ClientId = "orchestrarr", ClientSecret = "a-very-secret-value", PublicUrl = "https://orchestrarr.example" }.Validate(allowCleartextOnLoopback: false);
 
         settings.ToString().Should().NotContain("a-very-secret-value").And.Contain("orchestrarr");
+    }
+
+    [Fact]
+    public void Reading_the_user_information_takes_the_groups_and_the_username_and_never_the_authentication_context()
+    {
+        using var factory = Factory(settings => settings["SignIn:ClaimsFromUserInfo"] = "true");
+        factory.CreateClient();
+
+        var oidc = factory.Services.GetRequiredService<IOptionsMonitor<OpenIdConnectOptions>>().Get(OpenIdConnectDefaults.AuthenticationScheme);
+
+        oidc.GetClaimsFromUserInfoEndpoint.Should().BeTrue();
+        oidc.SaveTokens.Should().BeFalse();
+        oidc.ClaimActions.OfType<JsonKeyClaimAction>().Select(action => action.JsonKey).Should().Contain(["groups", "preferred_username"]).And.NotContain(["acr", "auth_time"]);
+    }
+
+    [Fact]
+    public void Without_it_nothing_is_taken_from_the_user_information()
+    {
+        using var factory = Factory();
+        factory.CreateClient();
+
+        var oidc = factory.Services.GetRequiredService<IOptionsMonitor<OpenIdConnectOptions>>().Get(OpenIdConnectDefaults.AuthenticationScheme);
+
+        oidc.GetClaimsFromUserInfoEndpoint.Should().BeFalse();
+        oidc.ClaimActions.OfType<JsonKeyClaimAction>().Select(action => action.JsonKey).Should().NotContain("groups");
+    }
+
+    [Fact]
+    public void The_scopes_of_the_configuration_replace_the_default_ones()
+    {
+        using var factory = Factory(settings =>
+        {
+            settings["SignIn:Scopes:0"] = "openid";
+            settings["SignIn:Scopes:1"] = "groups";
+        });
+        factory.CreateClient();
+
+        var oidc = factory.Services.GetRequiredService<IOptionsMonitor<OpenIdConnectOptions>>().Get(OpenIdConnectDefaults.AuthenticationScheme);
+
+        oidc.Scope.Should().Equal("openid", "groups");
+    }
+
+    // --- the interface is served: the sign-in has no route in the page's fallback
+
+    [Fact]
+    public async Task A_route_of_the_sign_in_that_is_not_there_is_a_404_and_never_the_page_of_the_interface()
+    {
+        var webRoot = Directory.CreateTempSubdirectory("orchestrarr-web-").FullName;
+        await File.WriteAllTextAsync(Path.Combine(webRoot, "index.html"), "<html>the interface</html>", Ct);
+        try
+        {
+            // The sign-in is not on (the sandbox): /auth/me would otherwise be answered with the page, a 200 that is not JSON
+            using var factory = new ForgeApiFactory { Settings = new Dictionary<string, string?> { ["webroot"] = webRoot } };
+            var client = factory.CreateClient();
+
+            (await client.GetAsync("/auth/me", Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+            (await client.GetAsync("/auth/anything/else", Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+            var page = await client.GetAsync("/queue", Ct);
+            page.StatusCode.Should().Be(HttpStatusCode.OK);
+            (await page.Content.ReadAsStringAsync(Ct)).Should().Contain("the interface");
+        }
+        finally
+        {
+            Directory.Delete(webRoot, recursive: true);
+        }
     }
 }

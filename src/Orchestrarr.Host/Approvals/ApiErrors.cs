@@ -8,5 +8,4 @@ internal static class ApiErrors
     public const string NotAnOperator = "notAnOperator";
     public const string HostNotAllowed = "hostNotAllowed";
     public const string OriginNotAllowed = "originNotAllowed";
-    public const string TooManySignIns = "tooManySignIns";
 }

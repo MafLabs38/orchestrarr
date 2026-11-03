@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Orchestrarr.Host.SignIn;
 
@@ -197,6 +198,17 @@ public sealed class SignInUnitTests
     public void A_long_name_is_cut()
     {
         ApproverClaims.DisplayName(Person(("name", new string('x', 500)))).Should().HaveLength(100);
+    }
+
+    [Fact]
+    public void A_name_is_never_cut_in_the_middle_of_a_pair_of_characters()
+    {
+        var name = new string('x', 99) + "😀" + "tail";
+
+        var shown = ApproverClaims.DisplayName(Person(("name", name)));
+
+        shown.Should().Be(new string('x', 99));
+        shown.Any(char.IsSurrogate).Should().BeFalse();
     }
 
     // --- where to go after signing in
@@ -436,6 +448,27 @@ public sealed class SignInUnitTests
         var act = () => options.Validate(allowCleartextOnLoopback: false);
 
         act.Should().Throw<InvalidOperationException>().WithMessage("*SignIn:Scopes*");
+    }
+
+    [Fact]
+    public void Scopes_bound_from_the_configuration_replace_the_defaults_and_without_any_the_defaults_are_asked()
+    {
+        var configured = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["SignIn:Scopes:0"] = "openid", ["SignIn:Scopes:1"] = "groups", ["SignIn:Scopes:2"] = "groups" }).Build();
+        var none = new ConfigurationBuilder().Build();
+
+        var bound = configured.GetSection("SignIn").Get<SignInOptions>()!;
+        bound.Authority = Valid().Authority;
+        bound.ClientId = "x";
+        bound.ClientSecret = "y";
+        bound.PublicUrl = Valid().PublicUrl;
+        var unbound = none.GetSection("SignIn").Get<SignInOptions>() ?? new SignInOptions();
+        unbound.Authority = Valid().Authority;
+        unbound.ClientId = "x";
+        unbound.ClientSecret = "y";
+        unbound.PublicUrl = Valid().PublicUrl;
+
+        bound.Validate(allowCleartextOnLoopback: false).Scopes.Should().Equal("openid", "groups");
+        unbound.Validate(allowCleartextOnLoopback: false).Scopes.Should().Equal("openid", "profile");
     }
 
     [Fact]

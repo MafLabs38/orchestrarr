@@ -12,6 +12,8 @@ public sealed class SignInOptions
 {
     public const string SectionName = "SignIn";
 
+    private static readonly List<string> DefaultScopes = ["openid", "profile"];
+
     /// <summary>The issuer of the identity provider, for example <c>https://sso.example/realms/example</c>. Its discovery document is read from here.</summary>
     public string? Authority { get; set; }
 
@@ -36,12 +38,15 @@ public sealed class SignInOptions
     public string? ReaderGroup { get; set; }
 
     /// <summary>
-    /// What the host asks of the provider. The groups must come back in the identity token: some providers only send them for a scope of their own
-    /// (add it here), or at the user-information endpoint (see <see cref="ClaimsFromUserInfo"/>).
+    /// What the host asks of the provider (default: <c>openid</c> and <c>profile</c>; a list here replaces it). The groups must reach the session:
+    /// some providers only send them for a scope of their own (add it here), or at the user-information endpoint (see <see cref="ClaimsFromUserInfo"/>).
     /// </summary>
-    public List<string> Scopes { get; set; } = ["openid", "profile"];
+    public List<string> Scopes { get; set; } = [];
 
-    /// <summary>Read the claims of the person at the provider's user-information endpoint too, during the sign-in. The access token is used for that call only and is not kept.</summary>
+    /// <summary>
+    /// Read the groups (and the username) of the person at the provider's user-information endpoint too, during the sign-in. The access token is used for that
+    /// call only and is not kept; nothing else of what that endpoint says is taken, and never the authentication context.
+    /// </summary>
     public bool ClaimsFromUserInfo { get; set; }
 
     /// <summary>The claim of the identity token that lists the groups of the person.</summary>
@@ -78,7 +83,8 @@ public sealed class SignInOptions
         {
             throw new InvalidOperationException("SignIn:OperatorGroup, SignIn:ReaderGroup and SignIn:GroupsClaim must be set, and a group has no space in it and is not just a slash.");
         }
-        if (!Scopes.Contains("openid") || Scopes.Any(scope => string.IsNullOrWhiteSpace(scope) || scope.Any(char.IsWhiteSpace)))
+        var scopes = Scopes.Count == 0 ? DefaultScopes : Scopes.Distinct().ToList();
+        if (!scopes.Contains("openid") || scopes.Any(scope => string.IsNullOrWhiteSpace(scope) || scope.Any(char.IsWhiteSpace)))
         {
             throw new InvalidOperationException("SignIn:Scopes must include openid, and a scope has no space in it.");
         }
@@ -87,7 +93,7 @@ public sealed class SignInOptions
             throw new InvalidOperationException("SignIn:SessionHours must be between 1 and 24.");
         }
 
-        return new SignInSettings(authority, ClientId, ClientSecret, origin, OperatorGroup, ReaderGroup, GroupsClaim, StepUpAcr, TimeSpan.FromHours(SessionHours), KeysDirectory, [.. Scopes], ClaimsFromUserInfo);
+        return new SignInSettings(authority, ClientId, ClientSecret, origin, OperatorGroup, ReaderGroup, GroupsClaim, StepUpAcr, TimeSpan.FromHours(SessionHours), KeysDirectory, [.. scopes], ClaimsFromUserInfo);
     }
 
     private static bool IsAbsolute(string? value, [NotNullWhen(true)] out Uri? uri) => Uri.TryCreate(value, UriKind.Absolute, out uri);

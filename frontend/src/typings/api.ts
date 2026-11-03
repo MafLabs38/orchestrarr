@@ -127,17 +127,10 @@ export interface SystemStatus {
   approvals: ApprovalStatus;
 }
 
-// Who may approve (the mode is "disabled", "development" or "openidconnect"), who the operator is (the identifier that counts, and the
-// name to show), and whether the global stop is engaged.
-// Who the session is, whatever it may do (GET /auth/me, only when people sign in): canRead false is an account the API refuses.
-export interface Session {
-  name: string | null;
-  canRead: boolean;
-  isOperator: boolean;
-}
-
 export type ApprovalMode = 'disabled' | 'development' | 'openidconnect';
 
+// Who may approve (the mode is "disabled", "development" or "openidconnect"), who the operator is (the identifier that counts, and the
+// name to show), and whether the global stop is engaged.
 export interface ApprovalStatus {
   mode: ApprovalMode;
   enabled: boolean;
@@ -146,6 +139,13 @@ export interface ApprovalStatus {
   // Only an operator is offered approving and the global stop
   isOperator: boolean;
   killSwitchEngaged: boolean;
+}
+
+// Who the session is, whatever it may do (GET /auth/me, only when people sign in): canRead false is an account the API refuses.
+export interface Session {
+  name: string | null;
+  canRead: boolean;
+  isOperator: boolean;
 }
 
 // A decision of the operator, recorded: these steps on this pull request at this commit. It waits for a launcher; nothing runs yet.
