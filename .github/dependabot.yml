@@ -16,7 +16,19 @@ updates:
     directory: "/frontend"
     schedule:
       interval: "weekly"
+    # React moves with Portarr and Mnemarr (the three products share their conventions): a decision, not a bot's pull request.
+    ignore:
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/react"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
       interval: "weekly"
+    # The Node baseline (CI, README, image) changes everywhere at once, as a decision.
+    ignore:
+      - dependency-name: "node"
+        update-types: ["version-update:semver-major"]
