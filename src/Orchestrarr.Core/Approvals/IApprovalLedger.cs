@@ -25,5 +25,6 @@ public enum LedgerResult
 /// </summary>
 public interface IApprovalLedger
 {
+    // The implementations in a file are synchronous: a call can wait for the file, no longer than its busy timeout.
     ValueTask<LedgerResult> TryRecordAsync(IReadOnlyList<Approval> approvals, IReadOnlyList<AuditEntry> entries, CancellationToken cancellationToken);
 }

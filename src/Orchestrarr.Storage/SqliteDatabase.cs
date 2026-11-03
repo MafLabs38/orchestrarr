@@ -9,7 +9,7 @@ namespace Orchestrarr.Storage;
 /// The SQLite file that holds what must survive a restart: the approvals, the audit trail and the global stop (ADR 0013). One file, opened
 /// for each operation; WAL so that a reader never blocks the writer. The schema is created here and versioned with <c>user_version</c>.
 /// </summary>
-public sealed class SqliteDatabase
+public sealed class SqliteDatabase : IDisposable
 {
     public static readonly TimeSpan DefaultBusyTimeout = TimeSpan.FromSeconds(5);
 
@@ -91,6 +91,32 @@ public sealed class SqliteDatabase
         }
         using var created = new FileStream(full, options);
     }
+
+    // The lock of the one writer, when this database was opened as the sole writer: it lives as long as the database does
+    private SqliteWriterLock? _writerLock;
+
+    /// <summary>
+    /// Opens the database as the one writer of its file: the lock is taken first, before anything is created, migrated or written, and it is held
+    /// until this database is disposed. A second host on the same file gets a <see cref="WriterLockException"/> and has touched nothing.
+    /// </summary>
+    public static SqliteDatabase OpenAsSoleWriter(string path, bool startEngagedWhenNew = false, TimeProvider? time = null, TimeSpan? busyTimeout = null)
+    {
+        var writerLock = SqliteWriterLock.Acquire(path);
+        try
+        {
+            var database = Open(path, startEngagedWhenNew, time, busyTimeout);
+            database._writerLock = writerLock;
+            return database;
+        }
+        catch
+        {
+            writerLock.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>Lets go of the lock of the one writer, when this database holds one.</summary>
+    public void Dispose() => _writerLock?.Dispose();
 
     internal SqliteConnection Connect()
     {

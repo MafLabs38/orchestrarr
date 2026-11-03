@@ -72,13 +72,13 @@ public sealed class SqliteWriterLockTests : IDisposable
     }
 
     [Fact]
-    public void A_lock_file_that_cannot_be_opened_is_reported_as_the_lock_and_keeps_its_cause()
+    public void A_lock_file_that_cannot_be_opened_is_not_mistaken_for_a_lock_that_another_host_holds()
     {
         var path = Path.Combine(Path.GetDirectoryName(_file.Path)!, "orchestrarr.db");
         Directory.CreateDirectory(SqliteWriterLock.LockPathOf(path));
 
         var acquire = () => SqliteWriterLock.Acquire(path);
 
-        acquire.Should().Throw<Exception>("a directory where the lock file should be is not a lock that another host holds");
+        acquire.Should().Throw<Exception>().Which.Should().NotBeOfType<WriterLockException>("a directory where the lock file should be is not a lock that another host holds");
     }
 }

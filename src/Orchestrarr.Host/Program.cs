@@ -11,7 +11,6 @@ using Orchestrarr.Host;
 using Orchestrarr.Host.Approvals;
 using Orchestrarr.Host.SignIn;
 using Orchestrarr.Host.Storage;
-using Orchestrarr.Storage;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -46,12 +45,6 @@ var app = builder.Build();
 if (!storage.Persistent && approvals.Mode == ApprovalsMode.OpenIdConnect && !app.Environment.IsDevelopment())
 {
     app.Logger.LogWarning("Storage:Provider is Memory: the approvals, the audit trail and the global stop are lost at every restart. Use Sqlite.");
-}
-// The file is opened now: one that cannot be used stops the host at its start and not at the first approval
-if (storage.Persistent)
-{
-    app.Services.GetRequiredService<SqliteWriterLock>();
-    app.Services.GetRequiredService<SqliteDatabase>();
 }
 SandboxGuard.StopIfListeningBeyondLoopback(app, approvals);
 
