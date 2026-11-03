@@ -118,6 +118,7 @@ describe('pull request words', () => {
 
   it('gives a sentence even for a refusal it does not know, or none', () => {
     expect(describeApprovalError('brandNew')).toBe('The approval was refused.');
+    expect(describeApprovalError('tooManyRequests')).toBe('Too many attempts: wait a minute and try again.');
     expect(describeApprovalError(null)).toBe('The approval was refused.');
     expect(describeApprovalError('constructor')).toBe('The approval was refused.');
     expect(describeEvent('toString')).toBe('toString');

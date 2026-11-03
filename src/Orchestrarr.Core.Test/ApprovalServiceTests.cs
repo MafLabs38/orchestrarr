@@ -570,6 +570,7 @@ public sealed class ApprovalServiceTests
     [Theory]
     [InlineData(LedgerResult.AlreadyThere, ApprovalRefusal.AlreadyApproved)]
     [InlineData(LedgerResult.StoreFull, ApprovalRefusal.StoreFull)]
+    [InlineData(LedgerResult.Stopped, ApprovalRefusal.KillSwitchEngaged)]
     [InlineData(LedgerResult.Unavailable, ApprovalRefusal.AuditUnavailable)]
     public async Task What_the_ledger_cannot_record_is_a_refusal_of_the_same_kind(LedgerResult answer, ApprovalRefusal expected)
     {
@@ -639,7 +640,7 @@ public sealed class ApprovalServiceTests
     }
 
     [Fact]
-    public void The_approval_store_only_reads_so_that_nothing_is_approved_without_its_trace()
+    public void Architecture_guard_the_approval_store_has_no_method_that_takes_approvals_so_that_nothing_is_approved_without_its_trace()
     {
         var writes = typeof(IApprovalStore).GetMethods()
             .Where(method => method.Name != nameof(IApprovalStore.Contains) && method.GetParameters().Any(parameter => parameter.ParameterType.IsAssignableTo(typeof(IEnumerable<Approval>)) || parameter.ParameterType == typeof(Approval)))
@@ -707,5 +708,19 @@ public sealed class ApprovalServiceTests
         await Approve(service, approver: reader);
 
         await sink.Received(2).TryRecordAsync(Arg.Any<AuditEntry>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task A_loop_of_refusals_while_the_stop_is_engaged_leaves_one_trace()
+    {
+        var service = await Service();
+        await ChangeStop(_killSwitch, engaged: true);
+
+        for (var i = 0; i < 6; i++)
+        {
+            (await Approve(service)).Refusal.Should().Be(ApprovalRefusal.KillSwitchEngaged);
+        }
+
+        _audit.List().Count(entry => entry.Event == AuditEvents.ApprovalRefused).Should().Be(1);
     }
 }

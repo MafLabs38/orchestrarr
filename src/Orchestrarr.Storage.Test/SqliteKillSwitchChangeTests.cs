@@ -79,6 +79,7 @@ public sealed class SqliteKillSwitchChangeTests : IDisposable
 
         (await stop.ChangeAsync(true, Engaged(), Ct)).Should().Be(KillSwitchChange.AppliedUntraced);
         stop.Saved.Should().BeFalse();
+        stop.State().Should().Be(new KillSwitchState(Engaged: true, Saved: false), "held in memory: engaged, and a restart would not keep it");
         (await stop.ChangeAsync(false, Released(), Ct)).Should().Be(KillSwitchChange.NotSaved);
         stop.Engaged.Should().BeTrue();
     }

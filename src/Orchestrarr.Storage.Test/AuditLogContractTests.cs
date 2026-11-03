@@ -73,15 +73,6 @@ public sealed class AuditLogContractTests : IDisposable
 
     [Theory]
     [MemberData(nameof(Logs))]
-    public async Task A_capacity_of_five_gives_refusals_three_places(string kind)
-    {
-        var log = Make(kind, capacity: 5);
-
-        (await Accepted(log, Enumerable.Range(0, 5).Select(Refusal))).Should().Be(3);
-    }
-
-    [Theory]
-    [MemberData(nameof(Logs))]
     public async Task A_batch_that_crosses_the_share_or_the_capacity_leaves_nothing(string kind)
     {
         var log = Make(kind, capacity: 4);

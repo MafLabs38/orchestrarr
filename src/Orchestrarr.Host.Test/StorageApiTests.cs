@@ -118,7 +118,7 @@ public sealed class StorageApiTests : IDisposable
 
         var start = () => factory.CreateClient();
 
-        start.Should().Throw<Exception>().Which.ToString().Should().Contain("Storage:");
+        start.Should().Throw<InvalidOperationException>().Which.ToString().Should().Contain("Storage:");
     }
 
     [Fact]

@@ -66,7 +66,6 @@ public sealed class SqliteNewDatabaseTests : IDisposable
     [UnsupportedOSPlatform("windows")]
     public void The_folder_is_for_its_owner_only()
     {
-        Assert.SkipWhen(OperatingSystem.IsWindows(), "Unix file modes");
         var folder = Path.Combine(Path.GetDirectoryName(_file.Path)!, "made", "by-the-host");
 
         SqliteDatabase.Open(Path.Combine(folder, "o.db"));
