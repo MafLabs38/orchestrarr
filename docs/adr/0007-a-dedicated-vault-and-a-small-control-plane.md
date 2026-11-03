@@ -1,6 +1,6 @@
 # 0007 — A dedicated Vault tied to the identity provider, and a small control plane that only launches
 
-- **Status**: proposed (the Vault's host and unseal are open, SPEC Q-22)
+- **Status**: proposed (how clients reach the Vault, and over what, is open, SPEC Q-23)
 - **Date**: 2026-11-03
 
 ## Context
@@ -44,9 +44,15 @@ The design rules:
 4. **The launcher is small and boring on purpose**: a deterministic loop, no model in it, no template engine, a few hundred lines that can be read in one sitting. It is a module with an interface first, then a separate process, then a separate host, as ADR 0006 planned.
 5. **Fail closed** (SPEC D-43): no audit sink, a sealed Vault, an unreachable store or an engaged kill switch means no launch.
 
+### Where it runs
+
+On the production cluster, like every production element (SPEC D-48): a one-node StatefulSet in its own namespace, integrated storage on a retained volume, deployed by the cluster's GitOps repository, configured by the Vault's own repository, with no Kubernetes API token in the pod and network policies that close everything by default. It starts sealed, and the unseal stays a deliberate act.
+
+The cost is accepted and written down: the root of trust lives in the cluster the agent may act on, on a single node. Two answers: the credential issued to a run for the cluster **excludes the Vault's namespace** (no `exec`, `port-forward`, `secrets` or logs there), and a sealed Vault protects its data at rest whatever happens to the cluster. A cluster administrator could still read the memory of an unsealed Vault, which is why the administrator role is never given to a run.
+
 ## Not decided here
 
-- Where the Vault runs and how it is unsealed (SPEC Q-22). The recommendation is a dedicated small virtual machine of its own, outside the cluster it will help to administer, with integrated storage, key shares held by the maintainer and an off-host backup of the snapshots.
+- How clients reach the Vault and over what (SPEC Q-23): TLS, and a way in for a launcher outside the cluster.
 - Whether the launcher authenticates to Vault with an AppRole or with a workload identity of its host.
 - Whether production needs one approver with a step-up, or two (SPEC Q-21).
 
