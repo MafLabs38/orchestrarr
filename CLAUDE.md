@@ -18,9 +18,9 @@ This file is read automatically by Claude Code. It applies to every task in this
 
 Same as Portarr, so the three products share conventions:
 
-- **Backend**: .NET 10 (LTS), C# 14, ASP.NET Core, SignalR, FluentValidation
+- **Backend**: .NET 10 (LTS), C# 14, ASP.NET Core (SignalR and FluentValidation planned, not used yet)
 - **Frontend**: React, TypeScript (strict), Vite, TanStack Query, CSS Modules
-- **Tests**: xUnit v3 + NSubstitute + AwesomeAssertions, Vitest + Testing Library, Playwright (see [docs/TESTING.md](docs/TESTING.md))
+- **Tests**: xUnit v3 + NSubstitute + AwesomeAssertions, Vitest + Testing Library, Playwright (planned; see [docs/TESTING.md](docs/TESTING.md))
 - **Quality**: analyzers as errors and `dotnet format`, ESLint (SonarJS), Stylelint, Prettier, SonarQube, CodeQL, gitleaks, Trivy, Stryker, the five review agents. Same as Portarr, plus the fifth agent (`spec-reviewer`, [ADR 0008](docs/adr/0008-a-fifth-agent-keeps-the-documentation-true.md))
 - **CI/CD**: GitHub Actions, a single container image on GHCR (amd64 now, multi-arch when a target needs it)
 - Agent runtime (Claude Code headless, Agent SDK, Managed Agents…) and where workers run: **undecided**, see the open questions.

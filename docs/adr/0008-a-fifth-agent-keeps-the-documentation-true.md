@@ -14,7 +14,7 @@ The quality reviewer checks compliance of the **code** with the spec, one direct
 1. **A fifth agent, `spec-reviewer`**, reviews the **documentation against the code**, in both directions: what the documents say that the code no longer does, and what the code does that no document says. It reads the README (the entry point) first, as a newcomer would, then the docs, the spec (statuses, identifiers, roadmap, changelog, version), the ADRs, the samples and the configuration they describe.
 2. **It sweeps the whole documentation, not only the diff**, because drift lives in files a change did not touch; the diff tells it where to look first.
 3. **Every finding carries evidence on both sides and the exact text to write**, so the fix is mechanical and can be applied in the same pull request. It never edits: like the others it is read-only and advisory in CI; the `review-vertical` skill triages and applies its findings locally.
-4. **It runs where the others run**: locally through the `review-vertical` skill before a vertical's pull request, and in CI on every pull request (Sonnet, on the maintainer's subscription). The Review table of the pull request gets a row for it.
+4. **It runs where the others run**: locally through the `review-vertical` skill before a vertical's pull request, and in CI on pull requests when they are opened or marked ready, and again with the `ai-review` label, not on drafts, forks or `skip-quality` (Sonnet, on the maintainer's subscription). The Review table of the pull request gets a row for it.
 5. **A statement about powers, safety or stage that is false is a blocker**, because these documents are the safety model's source of truth (CLAUDE.md, the spec's §7).
 
 ## Not decided here

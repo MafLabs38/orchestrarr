@@ -1,6 +1,6 @@
 # Orchestrarr — Functional and Technical Specification
 
-> **Status**: draft v0.7. The first vertical (read-only) is built; no power that acts exists yet.
+> **Status**: draft v0.7. The first two verticals (intake and decision cards; the dependency pull requests from the forge) are built, read-only; no power that acts exists yet.
 > **Related documents**: [VISION.md](VISION.md) (pitch, safety principles, first interview questions) · [environment-file.md](environment-file.md) (standalone description format) · [adr/](adr/) (architecture decisions)
 > **Last updated**: 2026-11-03
 > **Audience**: the project owner and contributors.
@@ -66,7 +66,7 @@ In practice the operator rarely reads code: they check that the AI did not drift
 | ✅ D-19 | **The review is not the safety net, the operator's tick is.** Orchestrarr's identity may approve and merge its own pull requests, as the maintainer's other agents already do. GitHub accounts, tokens and rulesets are set up to give Orchestrarr exactly the rights it needs, no more (D-10). |
 | 🟡 D-20 | **The environment file is a subset of Portarr's catalog plus a `deployment` key** ([environment-file.md](environment-file.md)). Portarr's catalog has the code `repository:` but no per-application deployment source yet: the key is added to Portarr as well (ADR 0002). |
 | 🟡 D-21 | **The unit of work is the repository, or the image for a third-party image; not the application.** Work item ids are `repository:<owner>/<name>` and `image:<reference>`, frozen before anything persists against them. A fix, a merge and a build happen at a repository; an application can span several repositories and a repository several applications, so Portarr's `appIds` stay an attribute. Forks and archived repositories are not work items (Q-10 will make this an allow-list). [ADR 0003](adr/0003-work-items-are-per-repository.md). |
-| 🟡 D-22 | **The server sends data and codes; the interface words them.** Findings, plan steps, reasons and source errors are codes and numbers: no sentence travels in the API, because the contract outlives one client. No exception text reaches a client: a failed read gives a code (`unreachable`, `unauthorized`, `timeout`, `invalidResponse`, `failed`) and the details stay in the log. |
+| 🟡 D-22 | **The server sends data and codes; the interface words them.** Findings, plan steps, reasons and source errors are codes and numbers: no sentence travels in the API, because the contract outlives one client. No exception text reaches a client: a failed read gives a code (`unreachable`, `unauthorized`, `timeout`, `invalidResponse`, `rateLimited`, `failed`) and the details stay in the log. |
 | 🟡 D-23 | **"Available" and "granted" are two things.** `available`: possible, from what the source says. `granted`: allowed by the powers granted to Orchestrarr (D-10, D-11). No power exists yet, so no step is granted and a card is a preview. A scan that is off or unreadable is a finding, not a clean repository. |
 | ✅ D-24 | **The worker is Claude Code, run non-interactively, in a container started for the run.** [ADR 0004](adr/0004-repair-runs-in-disposable-workspaces-on-a-workshop.md). |
 | ✅ D-25 | **A workshop is a machine where workers run and build, separate from the target environments.** It has a root directory, a limit of concurrent runs, resource limits (settings, default three of four cores, adjusted after measuring) and a retention time; the first one is the development host, local. A repair runs in a disposable workspace, one directory per run with a codified name, from a fresh checkout. |
@@ -104,7 +104,7 @@ In practice the operator rarely reads code: they check that the AI did not drift
 |---|---|
 | UC-01 | I get an email from Portarr: "3 findings need a decision". One click opens the decision card in Orchestrarr. |
 | UC-02 | On the card, each finding shows what changes, what was tested, the risk, and the planned steps, all ticked. I confirm, or untick *deploy* and only merge. |
-| UC-03 | I have a backlog of dependency-bot pull requests. Orchestrarr groups them per application, validates each one (build, tests), and proposes them on cards instead of leaving them to rot. |
+| UC-03 | I have a backlog of dependency-bot pull requests. Orchestrarr groups them per repository (D-21), validates each one (build, tests), and proposes them on cards instead of leaving them to rot. |
 | UC-04 | After a deployment, a smoke test fails. The previous version is restored automatically, and I see what happened and why. |
 | UC-05 | A desktop client with auto-update needs a new release. Orchestrarr builds and checks it, and publishes only when I ticked the release step. |
 | UC-06 | I stop everything at once with a global stop. |
@@ -252,6 +252,7 @@ User interface, deferred: the light theme (its accent text color is ready, nothi
 | 2026-11-01 | v0.1: first interview. Decisions D-01 to D-09 and D-14 frozen; D-10 to D-13 proposed. |
 | 2026-11-03 | v0.7 (amended): releases by semantic-release from `main`, merge commits only, deployed by GitOps (D-50, ADR 0009). |
 | 2026-11-03 | v0.7: the second vertical: the pull requests read from the forge (D-36 to D-38, ADR 0005), the screens as a list of applications, Q-18 (what a dependency pull request is). |
+| 2026-11-03 | v0.7 (amended): a fifth review agent keeps the documentation true (D-49, ADR 0008); the first run of it corrected the README, D-22 and UC-03. |
 | 2026-11-03 | v0.6 (amended): the dedicated Vault runs on the production cluster (D-48, Q-22 resolved, Q-23 opened; ADR 0007). |
 | 2026-11-03 | v0.6 (amended): a new Vault dedicated to this purpose and tied to the identity provider, the small control plane that only launches, the authorization of whoever gives an order (D-44 to D-47, Q-20 resolved, Q-22; ADR 0007). |
 | 2026-11-03 | v0.6 (amended): the structure of security the maintainer asked for: who orders is authenticated (Keycloak), a launch is a signed order checked by a launcher, credentials are short-lived (D-39 to D-43, Q-20, Q-21; ADR 0006). |
