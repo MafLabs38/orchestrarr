@@ -17,8 +17,8 @@ describe('Decisions', () => {
 
     renderWithProviders(<Decisions />);
 
-    expect(await screen.findByRole('heading', { name: 'example/shop' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'grafana/grafana:11' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /example\/shop/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /grafana\/grafana:11/ })).toBeInTheDocument();
   });
 
   it('says nothing needs a decision when the fleet is fine', async () => {
@@ -51,7 +51,7 @@ describe('Decisions', () => {
 
     renderWithProviders(<Decisions />);
 
-    expect(await screen.findByRole('heading', { name: 'example/shop' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /example\/shop/ })).toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent('The last read failed: The source did not answer in time');
   });
 
@@ -67,7 +67,7 @@ describe('Decisions', () => {
     const fetchMock = stubApi({ [path]: report(), [`${path}?refresh=true`]: report({ items: [] }) });
 
     renderWithProviders(<Decisions />);
-    await screen.findByRole('heading', { name: 'example/shop' });
+    await screen.findByRole('button', { name: /example\/shop/ });
     await userEvent.click(screen.getByRole('button', { name: 'Refresh' }));
 
     expect(await screen.findByText(/Nothing needs a decision/)).toBeInTheDocument();
@@ -78,7 +78,7 @@ describe('Decisions', () => {
     const fetchMock = stubApi({ [path]: report(), [`${path}?refresh=true`]: report() });
 
     renderWithProviders(<Decisions />);
-    await screen.findByRole('heading', { name: 'example/shop' });
+    await screen.findByRole('button', { name: /example\/shop/ });
     await userEvent.click(screen.getByRole('checkbox', { name: 'Build and test the change' }));
     await userEvent.click(screen.getByRole('button', { name: 'Approve and run' }));
     await userEvent.click(screen.getByRole('button', { name: 'Refresh' }));
@@ -86,5 +86,97 @@ describe('Decisions', () => {
     expect(fetchMock.mock.calls.length).toBeGreaterThan(1);
     const calls = fetchMock.mock.calls as unknown as [string, RequestInit | undefined][];
     expect(calls.every(([, init]) => !init?.method || init.method === 'GET')).toBe(true);
+  });
+
+  describe('as a list of many applications', () => {
+    const many = [
+      { ...workItem, id: 'a', title: 'example/a', severity: 'danger' as const },
+      { ...workItem, id: 'b', title: 'example/b', severity: 'danger' as const },
+      { ...workItem, id: 'c', title: 'example/c', severity: 'warning' as const },
+      { ...workItem, id: 'd', title: 'example/d', severity: 'info' as const },
+      { ...workItem, id: 'e', title: 'example/e', severity: 'info' as const },
+    ];
+
+    const renderMany = () => {
+      stubApi({ [path]: report({ items: many }) });
+      return renderWithProviders(<Decisions />);
+    };
+
+    it('shows a line per application, all closed, grouped by severity with their counts', async () => {
+      renderMany();
+
+      expect(await screen.findByRole('button', { name: /example\/a/ })).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.getAllByRole('button', { expanded: false })).toHaveLength(5);
+      expect(screen.getByRole('heading', { level: 2, name: 'Urgent · 2' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { level: 2, name: 'Attention · 1' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { level: 2, name: 'Routine · 2' })).toBeInTheDocument();
+      expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+      expect(screen.getByText('5 of 5 applications')).toBeInTheDocument();
+    });
+
+    it('opens one application at a time', async () => {
+      renderMany();
+
+      await userEvent.click(await screen.findByRole('button', { name: /example\/c/ }));
+
+      expect(screen.getByRole('button', { name: /example\/c/ })).toHaveAttribute('aria-expanded', 'true');
+      expect(screen.getByRole('button', { name: /example\/a/ })).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.getAllByRole('checkbox')).toHaveLength(1);
+
+      await userEvent.click(screen.getByRole('button', { name: /example\/c/ }));
+      expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    });
+
+    it('opens and closes them all', async () => {
+      renderMany();
+      await screen.findByRole('button', { name: /example\/a/ });
+
+      await userEvent.click(screen.getByRole('button', { name: 'Expand all' }));
+      expect(screen.getAllByRole('checkbox')).toHaveLength(5);
+
+      await userEvent.click(screen.getByRole('button', { name: 'Collapse all' }));
+      expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    });
+
+    it('shows only one severity when asked, and says how many of the total', async () => {
+      renderMany();
+      await screen.findByRole('button', { name: /example\/a/ });
+
+      await userEvent.selectOptions(screen.getByLabelText('Show'), 'info');
+
+      expect(screen.getAllByRole('button', { expanded: false })).toHaveLength(2);
+      expect(screen.queryByRole('button', { name: /example\/a/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole('heading', { level: 2, name: /Urgent/ })).not.toBeInTheDocument();
+      expect(screen.getByText('2 of 5 applications')).toBeInTheDocument();
+    });
+
+    it('expands only what is shown when a filter is on', async () => {
+      renderMany();
+      await screen.findByRole('button', { name: /example\/a/ });
+
+      await userEvent.selectOptions(screen.getByLabelText('Show'), 'danger');
+      await userEvent.click(screen.getByRole('button', { name: 'Expand all' }));
+      await userEvent.selectOptions(screen.getByLabelText('Show'), 'all');
+
+      expect(screen.getAllByRole('checkbox')).toHaveLength(2);
+      expect(screen.getByRole('button', { name: /example\/e/ })).toHaveAttribute('aria-expanded', 'false');
+    });
+
+    it('cannot filter on a severity nobody has', async () => {
+      stubApi({ [path]: report({ items: many.filter((m) => m.severity !== 'warning') }) });
+      renderWithProviders(<Decisions />);
+      await screen.findByRole('button', { name: /example\/a/ });
+
+      expect(screen.getByRole('option', { name: 'Attention · 0' })).toBeDisabled();
+    });
+  });
+
+  it('opens the cards by default when there are only a few applications', async () => {
+    stubApi({ [path]: report({ items: [workItem, { ...workItem, id: 'b', title: 'example/b' }] }) });
+
+    renderWithProviders(<Decisions />);
+
+    expect(await screen.findByRole('button', { name: /example\/b/ })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getAllByRole('checkbox')).toHaveLength(2);
   });
 });

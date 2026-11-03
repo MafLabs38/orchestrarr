@@ -37,6 +37,8 @@ cd frontend && yarn test && yarn lint && yarn stylelint && yarn format:check && 
 
 To read a real Portarr instead of the sample, set `Portarr:BaseUrl` and give the key as `Portarr:ApiKey` through the environment (`Portarr__ApiKey`) or `dotnet user-secrets`: the key never goes in a file that is committed. Redirects are not followed, so the key only goes to that address; use https or a private network.
 
+To read the dependency pull requests, give a GitHub token that can **only read** pull requests and checks as `GitHub:Token` (`GitHub__Token`, or `dotnet user-secrets`). Without it the screens say the pull requests were not read. The token only goes to the configured API address (redirects are not followed).
+
 > **Security.** The API has **no authentication yet** (SPEC Q-12) and the image listens on all interfaces. It reads and shows the state of your fleet: put it behind an authenticating front (single sign-on, a private network) and do not publish its port.
 
 ## License

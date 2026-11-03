@@ -10,6 +10,6 @@ interface LabelProps {
   children: ReactNode;
 }
 
-export default function Label({ kind = kinds.DEFAULT, children }: LabelProps) {
+export default function Label({ kind = kinds.DEFAULT, children }: Readonly<LabelProps>) {
   return <span className={classNames(styles.label, styles[kind])}>{children}</span>;
 }

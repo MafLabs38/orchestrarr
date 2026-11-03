@@ -1,0 +1,852 @@
+{
+  "example/shop": [
+    {
+      "number": 1,
+      "title": "chore(deps): Bump lodash from 4.17.4 to 4.17.21",
+      "url": "https://github.com/example/shop/pull/1",
+      "author": "dependabot[bot]",
+      "headBranch": "dependabot/npm_and_yarn/lodash-1",
+      "draft": false,
+      "checks": "failing",
+      "merge": "unstable",
+      "labels": [
+        "dependencies"
+      ],
+      "changes": [
+        {
+          "package": "lodash",
+          "from": "4.17.4",
+          "to": "4.17.21",
+          "kind": "patch"
+        }
+      ],
+      "createdAt": "2026-11-01T09:38:16Z"
+    },
+    {
+      "number": 2,
+      "title": "chore(deps): Bump express from 4.16.0 to 4.21.2",
+      "url": "https://github.com/example/shop/pull/2",
+      "author": "dependabot[bot]",
+      "headBranch": "dependabot/npm_and_yarn/express-2",
+      "draft": false,
+      "checks": "passing",
+      "merge": "clean",
+      "labels": [
+        "dependencies"
+      ],
+      "changes": [
+        {
+          "package": "express",
+          "from": "4.16.0",
+          "to": "4.21.2",
+          "kind": "minor"
+        }
+      ],
+      "createdAt": "2026-11-01T09:38:16Z"
+    },
+    {
+      "number": 3,
+      "title": "chore(deps): Bump react from 17.0.2 to 18.3.1",
+      "url": "https://github.com/example/shop/pull/3",
+      "author": "dependabot[bot]",
+      "headBranch": "dependabot/npm_and_yarn/react-3",
+      "draft": false,
+      "checks": "passing",
+      "merge": "clean",
+      "labels": [
+        "dependencies"
+      ],
+      "changes": [
+        {
+          "package": "react",
+          "from": "17.0.2",
+          "to": "18.3.1",
+          "kind": "major"
+        }
+      ],
+      "createdAt": "2026-11-01T09:38:16Z"
+    },
+    {
+      "number": 4,
+      "title": "chore(deps): Bump axios from 0.21.1 to 1.7.2",
+      "url": "https://github.com/example/shop/pull/4",
+      "author": "dependabot[bot]",
+      "headBranch": "dependabot/npm_and_yarn/axios-4",
+      "draft": false,
+      "checks": "passing",
+      "merge": "clean",
+      "labels": [
+        "dependencies"
+      ],
+      "changes": [
+        {
+          "package": "axios",
+          "from": "0.21.1",
+          "to": "1.7.2",
+          "kind": "major"
+        }
+      ],
+      "createdAt": "2026-11-01T09:38:16Z"
+    },
+    {
+      "number": 5,
+      "title": "chore(deps): Bump minimist from 0.0.8 to 1.2.8",
+      "url": "https://github.com/example/shop/pull/5",
+      "author": "dependabot[bot]",
+      "headBranch": "dependabot/npm_and_yarn/minimist-5",
+      "draft": false,
+      "checks": "passing",
+      "merge": "clean",
+      "labels": [
+        "dependencies"
+      ],
+      "changes": [
+        {
+          "package": "minimist",
+          "from": "0.0.8",
+          "to": "1.2.8",
+          "kind": "major"
+        }
+      ],
+      "createdAt": "2026-11-01T09:38:16Z"
+    }
+  ],
+  "example/recipes": [
+    {
+      "number": 1,
+      "title": "chore(deps): Bump lodash from 4.17.4 to 4.17.21",
+      "url": "https://github.com/example/recipes/pull/1",
+      "author": "dependabot[bot]",
+      "headBranch": "dependabot/npm_and_yarn/lodash-1",
+      "draft": false,
+      "checks": "passing",
+      "merge": "clean",
+      "labels": [
+        "dependencies"
+      ],
+      "changes": [
+        {
+          "package": "lodash",
+          "from": "4.17.4",
+          "to": "4.17.21",
+          "kind": "patch"
+        }
+      ],
+      "createdAt": "2026-11-01T09:38:16Z"
+    },
+    {
+      "number": 2,
+      "title": "chore(deps): Bump express from 4.16.0 to 4.21.2",
+      "url": "https://github.com/example/recipes/pull/2",
+      "author": "dependabot[bot]",
+      "headBranch": "dependabot/npm_and_yarn/express-2",
+      "draft": false,
+      "checks": "passing",
+      "merge": "clean",
+      "labels": [
+        "dependencies"
+      ],
+      "changes": [
+        {
+          "package": "express",
+          "from": "4.16.0",
+          "to": "4.21.2",
+          "kind": "minor"
+        }
+      ],
+      "createdAt": "2026-11-01T09:38:16Z"
+    }
+  ],
+  "example/notes-desktop": [
+    {
+      "number": 1,
+      "title": "chore(deps): Bump lodash from 4.17.4 to 4.17.21",
+      "url": "https://github.com/example/notes-desktop/pull/1",
+      "author": "dependabot[bot]",
+      "headBranch": "dependabot/npm_and_yarn/lodash-1",
+      "draft": false,
+      "checks": "passing",
+      "merge": "clean",
+      "labels": [
+        "dependencies"
+      ],
+      "changes": [
+        {
+          "package": "lodash",
+          "from": "4.17.4",
+          "to": "4.17.21",
+          "kind": "patch"
+        }
+      ],
+      "createdAt": "2026-11-01T09:38:16Z"
+    }
+  ],
+  "example/billing-api": [
+    {
+      "number": 1,
+      "title": "chore(deps): Bump lodash from 4.17.4 to 4.17.21",
+      "url": "https://github.com/example/billing-api/pull/1",
+      "author": "dependabot[bot]",
+      "headBranch": "dependabot/npm_and_yarn/lodash-1",
+      "draft": false,
+      "checks": "failing",
+      "merge": "unstable",
+      "labels": [
+        "dependencies"
+      ],
+      "changes": [
+        {
+          "package": "lodash",
+          "from": "4.17.4",
+          "to": "4.17.21",
+          "kind": "patch"
+        }
+      ],
+      "createdAt": "2026-11-01T09:38:16Z"
+    },
+    {
+      "number": 2,
+      "title": "chore(deps): Bump express from 4.16.0 to 4.21.2",
+      "url": "https://github.com/example/billing-api/pull/2",
+      "author": "dependabot[bot]",
+      "headBranch": "dependabot/npm_and_yarn/express-2",
+      "draft": false,
+      "checks": "failing",
+      "merge": "unstable",
+      "labels": [
+        "dependencies"
+      ],
+      "changes": [
+        {
+          "package": "express",
+          "from": "4.16.0",
+          "to": "4.21.2",
+          "kind": "minor"
+        }
+      ],
+      "createdAt": "2026-11-01T09:38:16Z"
+    },
+    {
+      "number": 3,
+      "title": "chore(deps): Bump react from 17.0.2 to 18.3.1",
+      "url": "https://github.com/example/billing-api/pull/3",
+      "author": "dependabot[bot]",
+      "headBranch": "dependabot/npm_and_yarn/react-3",
+      "draft": false,
+      "checks": "passing",
+      "merge": "conflicting",
+      "labels": [
+        "dependencies"
+      ],
+      "changes": [
+        {
+          "package": "react",
+          "from": "17.0.2",
+          "to": "18.3.1",
+          "kind": "major"
+        }
+      ],
+      "createdAt": "2026-11-01T09:38:16Z"
+    },
+    {
+      "number": 4,
+      "title": "chore(deps): Bump axios from 0.21.1 to 1.7.2",
+      "url": "https://github.com/example/billing-api/pull/4",
+      "author": "dependabot[bot]",
+      "headBranch": "dependabot/npm_and_yarn/axios-4",
+      "draft": false,
+      "checks": "passing",
+      "merge": "clean",
+      "labels": [
+        "dependencies"
+      ],
+      "changes": [
+        {
+          "package": "axios",
+          "from": "0.21.1",
+          "to": "1.7.2",
+          "kind": "major"
+        }
+      ],
+      "createdAt": "2026-11-01T09:38:16Z"
+    },
+    {
+      "number": 5,
+      "title": "chore(deps): Bump minimist from 0.0.8 to 1.2.8",
+      "url": "https://github.com/example/billing-api/pull/5",
+      "author": "dependabot[bot]",
+      "headBranch": "dependabot/npm_and_yarn/minimist-5",
+      "draft": false,
+      "checks": "passing",
+      "merge": "clean",
+      "labels": [
+        "dependencies"
+      ],
+      "changes": [
+        {
+          "package": "minimist",
+          "from": "0.0.8",
+          "to": "1.2.8",
+          "kind": "major"
+        }
+      ],
+      "createdAt": "2026-11-01T09:38:16Z"
+    },
+    {
+      "number": 6,
+      "title": "chore(deps): Bump qs and body-parser",
+      "url": "https://github.com/example/billing-api/pull/6",
+      "author": "dependabot[bot]",
+      "headBranch": "dependabot/npm_and_yarn/qs-6",
+      "draft": false,
+      "checks": "passing",
+      "merge": "clean",
+      "labels": [
+        "dependencies"
+      ],
+      "changes": [
+        {
+          "package": "qs",
+          "from": null,
+          "to": null,
+          "kind": "unknown"
+        },
+        {
+          "package": "body-parser",
+          "from": null,
+          "to": null,
+          "kind": "unknown"
+        }
+      ],
+      "createdAt": "2026-11-01T09:38:16Z"
+    },
+    {
+      "number": 7,
+      "title": "chore(deps): Bump moment from 2.19.1 to 2.30.1",
+      "url": "https://github.com/example/billing-api/pull/7",
+      "author": "dependabot[bot]",
+      "headBranch": "dependabot/npm_and_yarn/moment-7",
+      "draft": false,
+      "checks": "passing",
+      "merge": "clean",
+      "labels": [
+        "dependencies"
+      ],
+      "changes": [
+        {
+          "package": "moment",
+          "from": "2.19.1",
+          "to": "2.30.1",
+          "kind": "minor"
+        }
+      ],
+      "createdAt": "2026-11-01T09:38:16Z"
+    }
+  ],
+  "example/web-portal": [
+    {
+      "number": 1,
+      "title": "chore(deps): Bump lodash from 4.17.4 to 4.17.21",
+      "url": "https://github.com/example/web-portal/pull/1",
+      "author": "dependabot[bot]",
+      "headBranch": "dependabot/npm_and_yarn/lodash-1",
+      "draft": false,
+      "checks": "passing",
+      "merge": "clean",
+      "labels": [
+        "dependencies"
+      ],
+      "changes": [
+        {
+          "package": "lodash",
+          "from": "4.17.4",
+          "to": "4.17.21",
+          "kind": "patch"
+        }
+      ],
+      "createdAt": "2026-11-01T09:38:16Z"
+    },
+    {
+      "number": 2,
+      "title": "chore(deps): Bump express from 4.16.0 to 4.21.2",
+      "url": "https://github.com/example/web-portal/pull/2",
+      "author": "dependabot[bot]",
+      "headBranch": "dependabot/npm_and_yarn/express-2",
+      "draft": false,
+      "checks": "passing",
+      "merge": "clean",
+      "labels": [
+        "dependencies"
+      ],
+      "changes": [
+        {
+          "package": "express",
+          "from": "4.16.0",
+          "to": "4.21.2",
+          "kind": "minor"
+        }
+      ],
+      "createdAt": "2026-11-01T09:38:16Z"
+    },
+    {
+      "number": 3,
+      "title": "chore(deps): Bump react from 17.0.2 to 18.3.1",
+      "url": "https://github.com/example/web-portal/pull/3",
+      "author": "dependabot[bot]",
+      "headBranch": "dependabot/npm_and_yarn/react-3",
+      "draft": false,
+      "checks": "passing",
+      "merge": "clean",
+      "labels": [
+        "dependencies"
+      ],
+      "changes": [
+        {
+          "package": "react",
+          "from": "17.0.2",
+          "to": "18.3.1",
+          "kind": "major"
+        }
+      ],
+      "createdAt": "2026-11-01T09:38:16Z"
+    },
+    {
+      "number": 4,
+      "title": "chore(deps): Bump axios from 0.21.1 to 1.7.2",
+      "url": "https://github.com/example/web-portal/pull/4",
+      "author": "dependabot[bot]",
+      "headBranch": "dependabot/npm_and_yarn/axios-4",
+      "draft": false,
+      "checks": "passing",
+      "merge": "clean",
+      "labels": [
+        "dependencies"
+      ],
+      "changes": [
+        {
+          "package": "axios",
+          "from": "0.21.1",
+          "to": "1.7.2",
+          "kind": "major"
+        }
+      ],
+      "createdAt": "2026-11-01T09:38:16Z"
+    }
+  ],
+  "example/auth-service": [
+    {
+      "number": 1,
+      "title": "chore(deps): Bump lodash from 4.17.4 to 4.17.21",
+      "url": "https://github.com/example/auth-service/pull/1",
+      "author": "dependabot[bot]",
+      "headBranch": "dependabot/npm_and_yarn/lodash-1",
+      "draft": false,
+      "checks": "failing",
+      "merge": "unstable",
+      "labels": [
+        "dependencies"
+      ],
+      "changes": [
+        {
+          "package": "lodash",
+          "from": "4.17.4",
+          "to": "4.17.21",
+          "kind": "patch"
+        }
+      ],
+      "createdAt": "2026-11-01T09:38:16Z"
+    },
+    {
+      "number": 2,
+      "title": "chore(deps): Bump express from 4.16.0 to 4.21.2",
+      "url": "https://github.com/example/auth-service/pull/2",
+      "author": "dependabot[bot]",
+      "headBranch": "dependabot/npm_and_yarn/express-2",
+      "draft": false,
+      "checks": "passing",
+      "merge": "clean",
+      "labels": [
+        "dependencies"
+      ],
+      "changes": [
+        {
+          "package": "express",
+          "from": "4.16.0",
+          "to": "4.21.2",
+          "kind": "minor"
+        }
+      ],
+      "createdAt": "2026-11-01T09:38:16Z"
+    },
+    {
+      "number": 3,
+      "title": "chore(deps): Bump react from 17.0.2 to 18.3.1",
+      "url": "https://github.com/example/auth-service/pull/3",
+      "author": "dependabot[bot]",
+      "headBranch": "dependabot/npm_and_yarn/react-3",
+      "draft": false,
+      "checks": "passing",
+      "merge": "clean",
+      "labels": [
+        "dependencies"
+      ],
+      "changes": [
+        {
+          "package": "react",
+          "from": "17.0.2",
+          "to": "18.3.1",
+          "kind": "major"
+        }
+      ],
+      "createdAt": "2026-11-01T09:38:16Z"
+    }
+  ],
+  "example/reporting": [
+    {
+      "number": 1,
+      "title": "chore(deps): Bump lodash from 4.17.4 to 4.17.21",
+      "url": "https://github.com/example/reporting/pull/1",
+      "author": "dependabot[bot]",
+      "headBranch": "dependabot/npm_and_yarn/lodash-1",
+      "draft": false,
+      "checks": "passing",
+      "merge": "conflicting",
+      "labels": [
+        "dependencies"
+      ],
+      "changes": [
+        {
+          "package": "lodash",
+          "from": "4.17.4",
+          "to": "4.17.21",
+          "kind": "patch"
+        }
+      ],
+      "createdAt": "2026-11-01T09:38:16Z"
+    },
+    {
+      "number": 2,
+      "title": "chore(deps): Bump express from 4.16.0 to 4.21.2",
+      "url": "https://github.com/example/reporting/pull/2",
+      "author": "dependabot[bot]",
+      "headBranch": "dependabot/npm_and_yarn/express-2",
+      "draft": false,
+      "checks": "passing",
+      "merge": "conflicting",
+      "labels": [
+        "dependencies"
+      ],
+      "changes": [
+        {
+          "package": "express",
+          "from": "4.16.0",
+          "to": "4.21.2",
+          "kind": "minor"
+        }
+      ],
+      "createdAt": "2026-11-01T09:38:16Z"
+    },
+    {
+      "number": 3,
+      "title": "chore(deps): Bump react from 17.0.2 to 18.3.1",
+      "url": "https://github.com/example/reporting/pull/3",
+      "author": "dependabot[bot]",
+      "headBranch": "dependabot/npm_and_yarn/react-3",
+      "draft": false,
+      "checks": "passing",
+      "merge": "clean",
+      "labels": [
+        "dependencies"
+      ],
+      "changes": [
+        {
+          "package": "react",
+          "from": "17.0.2",
+          "to": "18.3.1",
+          "kind": "major"
+        }
+      ],
+      "createdAt": "2026-11-01T09:38:16Z"
+    },
+    {
+      "number": 4,
+      "title": "chore(deps): Bump axios from 0.21.1 to 1.7.2",
+      "url": "https://github.com/example/reporting/pull/4",
+      "author": "dependabot[bot]",
+      "headBranch": "dependabot/npm_and_yarn/axios-4",
+      "draft": false,
+      "checks": "passing",
+      "merge": "clean",
+      "labels": [
+        "dependencies"
+      ],
+      "changes": [
+        {
+          "package": "axios",
+          "from": "0.21.1",
+          "to": "1.7.2",
+          "kind": "major"
+        }
+      ],
+      "createdAt": "2026-11-01T09:38:16Z"
+    },
+    {
+      "number": 5,
+      "title": "chore(deps): Bump minimist from 0.0.8 to 1.2.8",
+      "url": "https://github.com/example/reporting/pull/5",
+      "author": "dependabot[bot]",
+      "headBranch": "dependabot/npm_and_yarn/minimist-5",
+      "draft": false,
+      "checks": "passing",
+      "merge": "clean",
+      "labels": [
+        "dependencies"
+      ],
+      "changes": [
+        {
+          "package": "minimist",
+          "from": "0.0.8",
+          "to": "1.2.8",
+          "kind": "major"
+        }
+      ],
+      "createdAt": "2026-11-01T09:38:16Z"
+    },
+    {
+      "number": 6,
+      "title": "chore(deps): Bump qs and body-parser",
+      "url": "https://github.com/example/reporting/pull/6",
+      "author": "dependabot[bot]",
+      "headBranch": "dependabot/npm_and_yarn/qs-6",
+      "draft": false,
+      "checks": "passing",
+      "merge": "clean",
+      "labels": [
+        "dependencies"
+      ],
+      "changes": [
+        {
+          "package": "qs",
+          "from": null,
+          "to": null,
+          "kind": "unknown"
+        },
+        {
+          "package": "body-parser",
+          "from": null,
+          "to": null,
+          "kind": "unknown"
+        }
+      ],
+      "createdAt": "2026-11-01T09:38:16Z"
+    }
+  ],
+  "example/search-indexer": [
+    {
+      "number": 1,
+      "title": "chore(deps): Bump lodash from 4.17.4 to 4.17.21",
+      "url": "https://github.com/example/search-indexer/pull/1",
+      "author": "dependabot[bot]",
+      "headBranch": "dependabot/npm_and_yarn/lodash-1",
+      "draft": false,
+      "checks": "passing",
+      "merge": "clean",
+      "labels": [
+        "dependencies"
+      ],
+      "changes": [
+        {
+          "package": "lodash",
+          "from": "4.17.4",
+          "to": "4.17.21",
+          "kind": "patch"
+        }
+      ],
+      "createdAt": "2026-11-01T09:38:16Z"
+    }
+  ],
+  "example/notifier": [
+    {
+      "number": 1,
+      "title": "chore(deps): Bump lodash from 4.17.4 to 4.17.21",
+      "url": "https://github.com/example/notifier/pull/1",
+      "author": "dependabot[bot]",
+      "headBranch": "dependabot/npm_and_yarn/lodash-1",
+      "draft": false,
+      "checks": "passing",
+      "merge": "clean",
+      "labels": [
+        "dependencies"
+      ],
+      "changes": [
+        {
+          "package": "lodash",
+          "from": "4.17.4",
+          "to": "4.17.21",
+          "kind": "patch"
+        }
+      ],
+      "createdAt": "2026-11-01T09:38:16Z"
+    },
+    {
+      "number": 2,
+      "title": "chore(deps): Bump express from 4.16.0 to 4.21.2",
+      "url": "https://github.com/example/notifier/pull/2",
+      "author": "dependabot[bot]",
+      "headBranch": "dependabot/npm_and_yarn/express-2",
+      "draft": false,
+      "checks": "passing",
+      "merge": "clean",
+      "labels": [
+        "dependencies"
+      ],
+      "changes": [
+        {
+          "package": "express",
+          "from": "4.16.0",
+          "to": "4.21.2",
+          "kind": "minor"
+        }
+      ],
+      "createdAt": "2026-11-01T09:38:16Z"
+    }
+  ],
+  "example/data-pipeline": [
+    {
+      "number": 1,
+      "title": "chore(deps): Bump lodash from 4.17.4 to 4.17.21",
+      "url": "https://github.com/example/data-pipeline/pull/1",
+      "author": "dependabot[bot]",
+      "headBranch": "dependabot/npm_and_yarn/lodash-1",
+      "draft": false,
+      "checks": "failing",
+      "merge": "unstable",
+      "labels": [
+        "dependencies"
+      ],
+      "changes": [
+        {
+          "package": "lodash",
+          "from": "4.17.4",
+          "to": "4.17.21",
+          "kind": "patch"
+        }
+      ],
+      "createdAt": "2026-11-01T09:38:16Z"
+    },
+    {
+      "number": 2,
+      "title": "chore(deps): Bump express from 4.16.0 to 4.21.2",
+      "url": "https://github.com/example/data-pipeline/pull/2",
+      "author": "dependabot[bot]",
+      "headBranch": "dependabot/npm_and_yarn/express-2",
+      "draft": false,
+      "checks": "failing",
+      "merge": "unstable",
+      "labels": [
+        "dependencies"
+      ],
+      "changes": [
+        {
+          "package": "express",
+          "from": "4.16.0",
+          "to": "4.21.2",
+          "kind": "minor"
+        }
+      ],
+      "createdAt": "2026-11-01T09:38:16Z"
+    },
+    {
+      "number": 3,
+      "title": "chore(deps): Bump react from 17.0.2 to 18.3.1",
+      "url": "https://github.com/example/data-pipeline/pull/3",
+      "author": "dependabot[bot]",
+      "headBranch": "dependabot/npm_and_yarn/react-3",
+      "draft": false,
+      "checks": "failing",
+      "merge": "unstable",
+      "labels": [
+        "dependencies"
+      ],
+      "changes": [
+        {
+          "package": "react",
+          "from": "17.0.2",
+          "to": "18.3.1",
+          "kind": "major"
+        }
+      ],
+      "createdAt": "2026-11-01T09:38:16Z"
+    }
+  ],
+  "example/mobile-app": [
+    {
+      "number": 1,
+      "title": "chore(deps): Bump lodash from 4.17.4 to 4.17.21",
+      "url": "https://github.com/example/mobile-app/pull/1",
+      "author": "dependabot[bot]",
+      "headBranch": "dependabot/npm_and_yarn/lodash-1",
+      "draft": false,
+      "checks": "passing",
+      "merge": "clean",
+      "labels": [
+        "dependencies"
+      ],
+      "changes": [
+        {
+          "package": "lodash",
+          "from": "4.17.4",
+          "to": "4.17.21",
+          "kind": "patch"
+        }
+      ],
+      "createdAt": "2026-11-01T09:38:16Z"
+    },
+    {
+      "number": 2,
+      "title": "chore(deps): Bump express from 4.16.0 to 4.21.2",
+      "url": "https://github.com/example/mobile-app/pull/2",
+      "author": "dependabot[bot]",
+      "headBranch": "dependabot/npm_and_yarn/express-2",
+      "draft": false,
+      "checks": "passing",
+      "merge": "clean",
+      "labels": [
+        "dependencies"
+      ],
+      "changes": [
+        {
+          "package": "express",
+          "from": "4.16.0",
+          "to": "4.21.2",
+          "kind": "minor"
+        }
+      ],
+      "createdAt": "2026-11-01T09:38:16Z"
+    }
+  ],
+  "example/docs-site": [
+    {
+      "number": 1,
+      "title": "chore(deps): Bump lodash from 4.17.4 to 4.17.21",
+      "url": "https://github.com/example/docs-site/pull/1",
+      "author": "dependabot[bot]",
+      "headBranch": "dependabot/npm_and_yarn/lodash-1",
+      "draft": false,
+      "checks": "passing",
+      "merge": "clean",
+      "labels": [
+        "dependencies"
+      ],
+      "changes": [
+        {
+          "package": "lodash",
+          "from": "4.17.4",
+          "to": "4.17.21",
+          "kind": "patch"
+        }
+      ],
+      "createdAt": "2026-11-01T09:38:16Z"
+    }
+  ]
+}

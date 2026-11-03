@@ -11,7 +11,7 @@ interface CardProps {
   'aria-labelledby'?: string;
 }
 
-export default function Card({ kind = kinds.DEFAULT, children, ...rest }: CardProps) {
+export default function Card({ kind = kinds.DEFAULT, children, ...rest }: Readonly<CardProps>) {
   return (
     <section className={classNames(styles.card, styles[kind])} {...rest}>
       {children}

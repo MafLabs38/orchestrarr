@@ -33,7 +33,7 @@ jobs:
       fail-fast: false
       matrix:
         # Unit test projects (folders under src/); the API tests are too slow to mutate.
-        project: [Orchestrarr.Core.Test, Orchestrarr.Providers.Portarr.Test]
+        project: [Orchestrarr.Core.Test, Orchestrarr.Providers.Portarr.Test, Orchestrarr.Providers.GitHub.Test]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6

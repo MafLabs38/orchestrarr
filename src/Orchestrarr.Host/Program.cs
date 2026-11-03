@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Http.Json;
 using Orchestrarr.Core.Fleet;
+using Orchestrarr.Core.Forge;
 using Orchestrarr.Core.WorkItems;
 using Orchestrarr.Host;
 
@@ -15,6 +16,7 @@ builder.Services.Configure<JsonOptions>(options =>
 });
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton(provider => FleetSourceFactory.Create(builder.Configuration, builder.Environment.ContentRootPath, provider.GetRequiredService<TimeProvider>()));
+builder.Services.AddSingleton(provider => PullRequestSourceFactory.Create(builder.Configuration, builder.Environment.ContentRootPath, provider.GetRequiredService<TimeProvider>()));
 // No power is granted yet (SPEC D-10, D-11): the policy that will read the operator's grants replaces this one
 builder.Services.AddSingleton<IPowerPolicy, NoPowers>();
 builder.Services.AddSingleton(builder.Configuration.GetSection(WorkItemCatalogOptions.SectionName).Get<WorkItemCatalogOptions>() ?? new WorkItemCatalogOptions());
@@ -35,7 +37,7 @@ api.MapGet("/system/status", async (WorkItemCatalog catalog, CancellationToken c
 {
     var report = await catalog.GetAsync(refresh: false, ct);
     var version = typeof(Program).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0.0.0-dev";
-    return Results.Ok(new SystemStatus("Orchestrarr", version, new SourceStatus(catalog.SourceKind, catalog.SourceConfigured, report.ReadAt, report.Error, report.Stale)));
+    return Results.Ok(new SystemStatus("Orchestrarr", version, new SourceStatus(catalog.SourceKind, catalog.SourceConfigured, report.ReadAt, report.Error, report.Stale), new ForgeStatus(catalog.ForgeKind, catalog.ForgeConfigured)));
 });
 
 // An unknown route of the API is a 404, never the page of the interface
@@ -57,7 +59,10 @@ public partial class Program;
 namespace Orchestrarr.Host
 {
     /// <summary>What <c>GET /api/v1/system/status</c> answers.</summary>
-    public sealed record SystemStatus(string Name, string Version, SourceStatus Source);
+    public sealed record SystemStatus(string Name, string Version, SourceStatus Source, ForgeStatus Forge);
+
+    /// <summary>The forge where pull requests are read: its kind, and whether one is connected.</summary>
+    public sealed record ForgeStatus(string Kind, bool Configured);
 
     /// <summary>The source of findings: its kind, whether one is configured, and the state of the last read.</summary>
     public sealed record SourceStatus(string Kind, bool Configured, DateTimeOffset? ReadAt, SourceError? Error, bool Stale);

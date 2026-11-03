@@ -11,8 +11,9 @@ import { describeFinding, describeReason, describeStep } from 'Utilities/describ
 import translate from 'Utilities/translate';
 
 import styles from './DecisionCard.module.css';
+import PullRequestList from './PullRequestList';
 
-function FindingRow({ finding }: { finding: Finding }) {
+function FindingRow({ finding }: Readonly<{ finding: Finding }>) {
   return (
     <li className={`${styles.finding} ${styles[finding.severity]}`}>
       <SeverityIcon severity={finding.severity} size={iconSizes.MEDIUM} />
@@ -26,7 +27,7 @@ const stepKey = (step: PlanStep) => `${step.kind}:${step.environmentId ?? ''}`;
 
 // One work item as the operator decides it: what is wrong, and the plan as checkboxes, all ticked by default (SPEC D-04, D-16).
 // Only what the operator changed is kept, so a plan that changes under the card keeps their choices and shows the server's defaults.
-export default function DecisionCard({ item }: { item: WorkItem }) {
+export default function DecisionCard({ item, showHeader = true }: Readonly<{ item: WorkItem; showHeader?: boolean }>) {
   const headingId = useId();
   const hintId = useId();
   const [choices, setChoices] = useState<Record<string, boolean>>({});
@@ -37,14 +38,18 @@ export default function DecisionCard({ item }: { item: WorkItem }) {
 
   return (
     <Card kind={severityKind(item.severity)} aria-labelledby={headingId}>
-      <div className={styles.header}>
-        <h2 id={headingId} className={styles.title}>
-          {item.title}
-        </h2>
-        <StatusLabel severity={item.severity} />
-      </div>
-      {item.appIds.length > 0 ? (
-        <p className={styles.apps}>{translate('Apps', { apps: item.appIds.join(', ') })}</p>
+      {showHeader ? (
+        <>
+          <div className={styles.header}>
+            <h2 id={headingId} className={styles.title}>
+              {item.title}
+            </h2>
+            <StatusLabel severity={item.severity} />
+          </div>
+          {item.appIds.length > 0 ? (
+            <p className={styles.apps}>{translate('Apps', { apps: item.appIds.join(', ') })}</p>
+          ) : null}
+        </>
       ) : null}
 
       <h3 className={styles.section}>{translate('Findings')}</h3>
@@ -53,6 +58,8 @@ export default function DecisionCard({ item }: { item: WorkItem }) {
           <FindingRow key={`${finding.kind}-${finding.image?.reference ?? ''}`} finding={finding} />
         ))}
       </ul>
+
+      <PullRequestList item={item} />
 
       {item.plan.length === 0 ? (
         <CapabilityHint>{translate('NoAutomaticPlan')}</CapabilityHint>

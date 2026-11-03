@@ -4,11 +4,11 @@ export default function PageHeading({
   scope,
   title,
   description,
-}: {
+}: Readonly<{
   scope?: string;
   title: string;
   description?: string;
-}) {
+}>) {
   return (
     <div className={styles.heading}>
       {scope ? <div className={styles.scope}>{scope}</div> : null}

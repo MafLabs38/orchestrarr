@@ -127,6 +127,7 @@ Screens in *arr style: **Queue** (running and waiting), **Decisions** (cards awa
 |---|---|
 | F-INT-01 | Read findings and the environment of each application from Portarr |
 | F-INT-02 | Group findings into work items, rank by severity |
+| F-INT-04 | Read the open dependency pull requests of each repository from the forge (GitHub first): what each updates and how far, whether its checks pass and whether it can be merged. Read-only. A forge that is not connected or fails is said, never shown as an empty list |
 | F-INT-03 | Environment-description provider reading a YAML structure file (standalone mode, D-18) |
 | F-CRD-01 | Decision card with ticked steps and a verdict |
 | F-CRD-02 | Signed, expiring, single-use link to a card (D-12) |
@@ -157,7 +158,7 @@ The principles of [VISION.md §5](VISION.md) apply, as amended by [ADR 0001](adr
 | # | Vertical | Status |
 |---|---|---|
 | 1 | **Intake from Portarr and read-only decision cards** (F-INT-01, F-INT-02, F-CRD-01), before any write power exists | built, reviewed in the sandbox by the four review agents. The *verdict* half of F-CRD-01 and the eligibility of *deploy* (a known check and rollback, D-10) come with later verticals, so deploy is shown as a preview. Reading Portarr every 30 seconds is the interim answer to VISION question 8 (poll or webhook) |
-| 2 | Read the dependency pull requests and the CI of each repository from the forge (Portarr only gives their number) | next, read-only |
+| 2 | **Read the dependency pull requests and their checks from the forge** (F-INT-04); Portarr only gives their number | built, in the sandbox (read-only, GitHub). The next vertical validates and merges them |
 | 3 | Validate and merge: needs the agent runtime (Q-07) | blocked on Q-07 |
 | 4 | Deploy, smoke test and roll back (F-RUN-03) | after 3 |
 

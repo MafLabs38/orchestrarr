@@ -11,6 +11,15 @@ import translate from 'Utilities/translate';
 import styles from './Status.module.css';
 import useSystemStatus from './useSystemStatus';
 
+const forgeNames: Record<string, () => string> = {
+  github: () => translate('ForgeGithub'),
+  none: () => translate('ForgeNone'),
+};
+
+function forgeName(kind: string): string {
+  return (forgeNames[kind] ?? (() => kind))();
+}
+
 export default function Status() {
   const { data } = useSystemStatus();
 
@@ -27,6 +36,12 @@ export default function Status() {
             <dd>{sourceName(data.source.kind)}</dd>
             <dt>{translate('LastRead')}</dt>
             <dd>{formatTime(data.source.readAt) ?? translate('Never')}</dd>
+            <dt>{translate('Forge')}</dt>
+            <dd>
+              {data.forge.configured
+                ? `${forgeName(data.forge.kind)} · ${translate('ForgeConnected')}`
+                : translate('ForgeNotConnected')}
+            </dd>
             <dt>{translate('Version')}</dt>
             <dd className={styles.mono}>{data.version}</dd>
           </dl>

@@ -127,6 +127,28 @@ describe('DecisionCard', () => {
     expect(screen.queryByRole('button', { name: 'Approve and run' })).not.toBeInTheDocument();
   });
 
+  it('shows the pull requests the work item waits for, inside the card', () => {
+    const pullRequest = {
+      number: 12,
+      title: 'Bump a from 1.0.0 to 2.0.0',
+      url: 'https://forge.example/o/r/pull/12',
+      author: 'bot',
+      headBranch: 'bot/a',
+      draft: false,
+      checks: 'failing' as const,
+      merge: 'unstable' as const,
+      labels: [],
+      changes: [{ package: 'a', from: '1.0.0', to: '2.0.0', kind: 'major' as const }],
+      createdAt: '2026-11-01T09:38:16Z',
+    };
+
+    render(<DecisionCard item={{ ...item, pullRequests: [pullRequest] }} />);
+
+    expect(screen.getByText('a 1.0.0 → 2.0.0')).toBeInTheDocument();
+    expect(screen.getByText('Checks fail')).toBeInTheDocument();
+    expect(screen.getByText(/0 of 1 ready to merge/)).toBeInTheDocument();
+  });
+
   it('cannot be approved yet, and says so next to the button', () => {
     render(<DecisionCard item={item} />);
 

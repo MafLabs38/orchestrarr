@@ -1,6 +1,48 @@
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 16px 0 24px;
+}
+
+.filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 800;
+}
+
+.filter select {
+  padding: 6px 10px;
+  background: var(--paperCard);
+  border: var(--borderWidth) solid var(--hairlineStrong);
+  border-radius: var(--radiusMedium);
+  color: var(--ink);
+  font: inherit;
+}
+
+.count {
+  margin-left: auto;
+  color: var(--inkMuted);
+  font-size: var(--fontSizeMeta);
+}
+
+.group {
+  margin-bottom: 24px;
+}
+
+.groupTitle {
+  margin: 0 0 8px;
+  color: var(--inkMuted);
+  font: 800 var(--fontSizeMeta) var(--defaultFontFamily);
+  text-transform: uppercase;
+}
+
 .list {
   display: grid;
-  gap: 24px;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 460px), 1fr));
-  align-items: start;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }

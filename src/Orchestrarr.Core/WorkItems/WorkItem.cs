@@ -1,4 +1,5 @@
 using Orchestrarr.Core.Fleet;
+using Orchestrarr.Core.Forge;
 
 namespace Orchestrarr.Core.WorkItems;
 
@@ -62,7 +63,9 @@ public sealed record PlanStep(
 
 /// <summary>
 /// A unit of maintenance work on one repository or one third-party image: its findings and the plan the operator would approve. An empty
-/// plan means nothing can be done automatically (for example an exposed secret, which only a person can revoke).
+/// plan means nothing can be done automatically (for example an exposed secret, which only a person can revoke). <c>PullRequests</c>: the
+/// open dependency pull requests read from the forge; null when they were not read (no forge connected, or none to read), in which case
+/// <c>PullRequestsError</c> says whether reading them failed.
 /// </summary>
 public sealed record WorkItem(
     string Id,
@@ -72,7 +75,9 @@ public sealed record WorkItem(
     Severity Severity,
     IReadOnlyList<Finding> Findings,
     IReadOnlyList<PlanStep> Plan,
-    IReadOnlyList<Placement> Placements);
+    IReadOnlyList<Placement> Placements,
+    IReadOnlyList<PullRequestInfo>? PullRequests = null,
+    SourceError? PullRequestsError = null);
 
 /// <summary>What Orchestrarr may do (SPEC D-10, D-11). Powers are off until the operator enables them.</summary>
 public interface IPowerPolicy

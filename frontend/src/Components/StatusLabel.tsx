@@ -16,13 +16,13 @@ export function severityKind(severity: Severity): Kind {
   return bySeverity[severity].kind;
 }
 
-export function SeverityIcon({ severity, size }: { severity: Severity; size: number }) {
+export function SeverityIcon({ severity, size }: Readonly<{ severity: Severity; size: number }>) {
   const { Icon } = bySeverity[severity];
   return <Icon size={size} aria-hidden="true" />;
 }
 
 // A status is never conveyed by color alone: icon plus text.
-export default function StatusLabel({ severity }: { severity: Severity }) {
+export default function StatusLabel({ severity }: Readonly<{ severity: Severity }>) {
   const { kind, Icon, text } = bySeverity[severity];
   return (
     <Label kind={kind}>

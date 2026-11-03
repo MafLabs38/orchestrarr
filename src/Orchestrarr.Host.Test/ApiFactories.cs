@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Orchestrarr.Core.Fleet;
+using Orchestrarr.Core.Forge;
 
 namespace Orchestrarr.Host.Test;
 
@@ -12,6 +13,16 @@ public sealed class SampleApiFactory : WebApplicationFactory<Program>
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
+        builder.UseSetting(FleetSourceFactory.SampleFileKey, Path.Combine(AppContext.BaseDirectory, "portarr-maintenance.sample.json"));
+    }
+}
+
+/// <summary>The sample fleet but no forge: not in Development, whose settings also read sample pull requests.</summary>
+public sealed class NoForgeApiFactory : WebApplicationFactory<Program>
+{
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        builder.UseEnvironment("Testing");
         builder.UseSetting(FleetSourceFactory.SampleFileKey, Path.Combine(AppContext.BaseDirectory, "portarr-maintenance.sample.json"));
     }
 }
@@ -46,5 +57,45 @@ public sealed class FailingApiFactory : WebApplicationFactory<Program>
         public bool Configured => true;
 
         public Task<FleetSnapshot> ReadAsync(CancellationToken cancellationToken) => throw new HttpRequestException(SecretMessage);
+    }
+}
+
+/// <summary>The sample host with a forge that answers for every repository, or fails.</summary>
+public sealed class ForgeApiFactory : WebApplicationFactory<Program>
+{
+    public bool Fails { get; init; }
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        builder.UseSetting(FleetSourceFactory.SampleFileKey, Path.Combine(AppContext.BaseDirectory, "portarr-maintenance.sample.json"));
+        builder.ConfigureTestServices(services =>
+        {
+            services.RemoveAll<IPullRequestSource>();
+            services.AddSingleton<IPullRequestSource>(new FakeForge(Fails));
+        });
+    }
+
+    private sealed class FakeForge(bool fails) : IPullRequestSource
+    {
+        public string Kind => "github";
+
+        public bool Configured => true;
+
+        public Task<IReadOnlyList<PullRequestInfo>> ListDependencyPullRequestsAsync(string repositoryFullName, CancellationToken cancellationToken)
+        {
+            if (fails)
+            {
+                return Task.FromException<IReadOnlyList<PullRequestInfo>>(new HttpRequestException("rate limited", null, System.Net.HttpStatusCode.Forbidden));
+            }
+
+            IReadOnlyList<PullRequestInfo> result =
+            [
+                new PullRequestInfo(
+                    7, "chore(deps): Bump lodash from 4.17.4 to 5.0.0", new Uri($"https://forge.example/{repositoryFullName}/pull/7"), "dependabot[bot]", "bot/lodash", false,
+                    ChecksState.Passing, MergeState.Clean, ["dependencies"], [new DependencyChange("lodash", "4.17.4", "5.0.0", UpdateKind.Major)],
+                    new DateTimeOffset(2026, 11, 1, 9, 0, 0, TimeSpan.Zero)),
+            ];
+            return Task.FromResult(result);
+        }
     }
 }

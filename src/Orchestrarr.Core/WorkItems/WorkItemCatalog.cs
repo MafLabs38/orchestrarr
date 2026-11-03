@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Orchestrarr.Core.Fleet;
+using Orchestrarr.Core.Forge;
 
 namespace Orchestrarr.Core.WorkItems;
 
@@ -28,6 +29,7 @@ public sealed record WorkItemReport(DateTimeOffset? ReadAt, string SourceKind, I
 public sealed class WorkItemCatalog
 {
     private readonly IFleetSource _source;
+    private readonly IPullRequestSource _forge;
     private readonly IPowerPolicy _powers;
     private readonly TimeProvider _time;
     private readonly WorkItemCatalogOptions _options;
@@ -36,9 +38,10 @@ public sealed class WorkItemCatalog
     private WorkItemReport? _last;
     private DateTimeOffset _lastAttempt;
 
-    public WorkItemCatalog(IFleetSource source, IPowerPolicy powers, TimeProvider time, WorkItemCatalogOptions options, ILogger<WorkItemCatalog> logger)
+    public WorkItemCatalog(IFleetSource source, IPullRequestSource forge, IPowerPolicy powers, TimeProvider time, WorkItemCatalogOptions options, ILogger<WorkItemCatalog> logger)
     {
         _source = source;
+        _forge = forge;
         _powers = powers;
         _time = time;
         _options = options;
@@ -48,6 +51,10 @@ public sealed class WorkItemCatalog
     public string SourceKind => _source.Kind;
 
     public bool SourceConfigured => _source.Configured;
+
+    public string ForgeKind => _forge.Kind;
+
+    public bool ForgeConfigured => _forge.Configured;
 
     public async Task<WorkItemReport> GetAsync(bool refresh, CancellationToken cancellationToken)
     {
@@ -65,7 +72,8 @@ public sealed class WorkItemCatalog
             try
             {
                 var fleet = await _source.ReadAsync(cancellationToken);
-                _last = new WorkItemReport(fleet.ReadAt, _source.Kind, WorkItemBuilder.Build(fleet, _powers), Error: null, Stale: false);
+                var items = await WithPullRequestsAsync(WorkItemBuilder.Build(fleet, _powers), cancellationToken);
+                _last = new WorkItemReport(fleet.ReadAt, _source.Kind, items, Error: null, Stale: false);
             }
             catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
             {
@@ -84,6 +92,39 @@ public sealed class WorkItemCatalog
         {
             _lock.Release();
         }
+    }
+
+    // The pull requests behind a "pull requests waiting" finding, read from the forge one repository at a time. A forge that fails for one
+    // repository says so on that work item only: it must not turn the whole report into an error.
+    private async Task<IReadOnlyList<WorkItem>> WithPullRequestsAsync(IReadOnlyList<WorkItem> items, CancellationToken cancellationToken)
+    {
+        if (!_forge.Configured)
+        {
+            return items;
+        }
+
+        var enriched = new List<WorkItem>(items.Count);
+        foreach (var item in items)
+        {
+            if (item.RepositoryFullName is null || item.Findings.All(f => f.Kind != FindingKind.OpenDependencyPullRequests))
+            {
+                enriched.Add(item);
+                continue;
+            }
+
+            try
+            {
+                var pullRequests = await _forge.ListDependencyPullRequestsAsync(item.RepositoryFullName, cancellationToken);
+                enriched.Add(item with { PullRequests = pullRequests });
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+            {
+                _logger.LogWarning(ex, "Reading the pull requests of {Repository} from the {Kind} forge failed", item.RepositoryFullName, _forge.Kind);
+                enriched.Add(item with { PullRequestsError = SourceErrors.From(ex) });
+            }
+        }
+
+        return enriched;
     }
 
     public async Task<WorkItem?> FindAsync(string id, CancellationToken cancellationToken)

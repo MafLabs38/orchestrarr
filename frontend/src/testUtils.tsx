@@ -65,6 +65,8 @@ export const workItem: WorkItem = {
   findings: [finding],
   plan: [step()],
   placements: [],
+  pullRequests: null,
+  pullRequestsError: null,
 };
 
 export function report(overrides: Partial<WorkItemReport> = {}): WorkItemReport {
@@ -90,5 +92,6 @@ export function status(overrides: Partial<SystemStatus['source']> = {}): SystemS
       stale: false,
       ...overrides,
     },
+    forge: { kind: 'github', configured: true },
   };
 }
