@@ -6,15 +6,14 @@ namespace Orchestrarr.Core.Approvals;
 /// The ledger of the sandbox: one step at a time, it checks what can be checked (the stop, the decisions already there, the room) before it
 /// writes anything, then the trace, then the queue. It is the only writer of the queue, so what was checked cannot change before the write.
 /// </summary>
-public sealed class InMemoryApprovalLedger(InMemoryApprovalStore store, IAuditSink audit, IKillSwitchControl killSwitch) : IApprovalLedger, IDisposable
+public sealed class InMemoryApprovalLedger(InMemoryApprovalStore store, IAuditSink audit, InMemoryKillSwitch killSwitch) : IApprovalLedger
 {
-    private readonly SemaphoreSlim _gate = new(1, 1);
-
     public async ValueTask<LedgerResult> TryRecordAsync(IReadOnlyList<Approval> approvals, IReadOnlyList<AuditEntry> entries, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(approvals);
         ArgumentNullException.ThrowIfNull(entries);
-        await _gate.WaitAsync(cancellationToken);
+        // The gate of the stop: an engagement is traced while it holds it, so the stop is read and the approval written between two engagements
+        await killSwitch.Gate.WaitAsync(cancellationToken);
         try
         {
             // The stop is read again at the moment of writing: an approval is never recorded after the stop
@@ -44,9 +43,7 @@ public sealed class InMemoryApprovalLedger(InMemoryApprovalStore store, IAuditSi
         }
         finally
         {
-            _gate.Release();
+            killSwitch.Gate.Release();
         }
     }
-
-    public void Dispose() => _gate.Dispose();
 }

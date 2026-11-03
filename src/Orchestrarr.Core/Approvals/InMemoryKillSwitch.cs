@@ -8,7 +8,9 @@ namespace Orchestrarr.Core.Approvals;
 /// </summary>
 public sealed class InMemoryKillSwitch(IAuditSink? audit = null, bool startEngaged = false) : IKillSwitchControl, IDisposable
 {
-    private readonly SemaphoreSlim _gate = new(1, 1);
+    // Shared with the in-memory ledger: it checks the stop and writes while it holds this, and an engagement traces while it holds it, so the
+    // two are one after the other. An engagement counts before it waits for it, so that an approval that comes after it is refused.
+    internal SemaphoreSlim Gate { get; } = new(1, 1);
     private volatile bool _engaged = startEngaged;
 
     public bool Engaged => _engaged;
@@ -23,13 +25,16 @@ public sealed class InMemoryKillSwitch(IAuditSink? audit = null, bool startEngag
         ArgumentNullException.ThrowIfNull(entry);
         // Engaging always takes effect, and a client that gave up is no reason to skip it
         var token = engaged ? CancellationToken.None : cancellationToken;
-        await _gate.WaitAsync(token);
+        if (engaged)
+        {
+            _engaged = true;
+        }
+        await Gate.WaitAsync(token);
         try
         {
             var traced = audit is null || await audit.TryRecordAsync(entry, token);
             if (engaged)
             {
-                _engaged = true;
                 return traced ? KillSwitchChange.Applied : KillSwitchChange.AppliedUntraced;
             }
             if (!traced)
@@ -41,9 +46,9 @@ public sealed class InMemoryKillSwitch(IAuditSink? audit = null, bool startEngag
         }
         finally
         {
-            _gate.Release();
+            Gate.Release();
         }
     }
 
-    public void Dispose() => _gate.Dispose();
+    public void Dispose() => Gate.Dispose();
 }

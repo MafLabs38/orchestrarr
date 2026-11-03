@@ -45,7 +45,17 @@ internal static class ApprovalsServiceCollectionExtensions
             .AddSingleton<IGrantedPowers, PolicyGrantedPowers>();
 
         // What must survive a restart is in one file, or, in the sandbox, in memory. The capacities default to what suits where it is kept.
-        _ = storage is SqliteStorage file ? services.AddSqliteStorage(file, options) : services.AddMemoryStorage(storage is MemoryStorage { StartEngaged: true }, options);
+        var capacities = storage.Persistent
+            ? new Capacities(options.QueueCapacity ?? StoreLimits.FileQueue, options.AuditCapacity ?? StoreLimits.FileAudit)
+            : new Capacities(options.QueueCapacity ?? StoreLimits.MemoryQueue, options.AuditCapacity ?? StoreLimits.MemoryAudit);
+        if (storage is SqliteStorage file)
+        {
+            services.AddSqliteStorage(file, capacities);
+        }
+        else
+        {
+            services.AddMemoryStorage(storage.StartsEngaged, capacities);
+        }
 
         return services.AddSingleton(provider => new ApprovalService(
             provider.GetRequiredService<WorkItemCatalog>(),
@@ -67,11 +77,10 @@ internal static class ApprovalsServiceCollectionExtensions
         });
 
     // The stop, the trail and the queue each answer to every interface they implement: one instance, so that the routes and the service see one of each
-    private static IServiceCollection AddSqliteStorage(this IServiceCollection services, SqliteStorage file, ApprovalsOptions options)
+    private static void AddSqliteStorage(this IServiceCollection services, SqliteStorage file, Capacities capacities)
     {
-        var queueCapacity = options.QueueCapacity ?? StoreLimits.FileQueue;
-        var auditCapacity = options.AuditCapacity ?? StoreLimits.FileAudit;
-        return services
+        var (queueCapacity, auditCapacity) = capacities;
+        services
             // Opened when the host starts (Program asks for it), so that a file that cannot be used stops it there and not at the first approval
             .AddSingleton(provider => SqliteDatabase.Open(file.Path, file.StartEngagedWhenNew, provider.GetRequiredService<TimeProvider>()))
             .AddSingleton<IApprovalStore>(provider => new SqliteApprovalStore(provider.GetRequiredService<SqliteDatabase>(), queueCapacity))
@@ -84,20 +93,21 @@ internal static class ApprovalsServiceCollectionExtensions
             .AddSingleton<IAuditSink>(provider => provider.GetRequiredService<SqliteAuditLog>());
     }
 
-    private static IServiceCollection AddMemoryStorage(this IServiceCollection services, bool startEngaged, ApprovalsOptions options)
-    {
-        var store = new InMemoryApprovalStore(options.QueueCapacity ?? StoreLimits.MemoryQueue);
-        return services
-            .AddSingleton<IApprovalStore>(store)
-            .AddSingleton<IApprovalLedger>(provider => new InMemoryApprovalLedger(store, provider.GetRequiredService<IAuditSink>(), provider.GetRequiredService<IKillSwitchControl>()))
+    private static void AddMemoryStorage(this IServiceCollection services, bool startEngaged, Capacities capacities) =>
+        services
+            .AddSingleton(_ => new InMemoryApprovalStore(capacities.Queue))
+            .AddSingleton<IApprovalStore>(provider => provider.GetRequiredService<InMemoryApprovalStore>())
+            .AddSingleton<IApprovalLedger>(provider => new InMemoryApprovalLedger(provider.GetRequiredService<InMemoryApprovalStore>(), provider.GetRequiredService<IAuditSink>(), provider.GetRequiredService<InMemoryKillSwitch>()))
             // A store that starts engaged is a new store, as far as anyone can tell: the trail says so, with the time of the host
             .AddSingleton(provider => new InMemoryAuditLog(
-                options.AuditCapacity ?? StoreLimits.MemoryAudit,
+                capacities.Audit,
                 startEngaged ? [AuditEvents.InstanceCreatedEntry(provider.GetRequiredService<TimeProvider>().GetUtcNow(), "store")] : []))
             .AddSingleton<IAuditLog>(provider => provider.GetRequiredService<InMemoryAuditLog>())
             .AddSingleton<IAuditSink>(provider => provider.GetRequiredService<InMemoryAuditLog>())
             .AddSingleton(provider => new InMemoryKillSwitch(provider.GetRequiredService<InMemoryAuditLog>(), startEngaged))
             .AddSingleton<IKillSwitchControl>(provider => provider.GetRequiredService<InMemoryKillSwitch>())
             .AddSingleton<IKillSwitch>(provider => provider.GetRequiredService<InMemoryKillSwitch>());
-    }
+
+    // The two bounds, decided once for the kind of storage there is
+    private readonly record struct Capacities(int Queue, int Audit);
 }

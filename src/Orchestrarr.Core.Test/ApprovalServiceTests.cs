@@ -756,4 +756,33 @@ public sealed class ApprovalServiceTests
         result.Refusal.Should().Be(ApprovalRefusal.NotAnOperator);
         await sink.Received(1).TryRecordAsync(Arg.Any<AuditEntry>(), CancellationToken.None);
     }
+
+    [Fact]
+    public async Task An_engagement_counts_at_once_and_an_approval_already_inside_the_gate_is_recorded_before_it()
+    {
+        var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var sink = Substitute.For<IAuditSink>();
+        sink.TryRecordRangeAsync(Arg.Any<IReadOnlyList<AuditEntry>>(), Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            entered.SetResult();
+            return new ValueTask<bool>(release.Task);
+        });
+        sink.TryRecordAsync(Arg.Any<AuditEntry>(), Arg.Any<CancellationToken>()).Returns(true);
+        using var stop = new InMemoryKillSwitch(sink);
+        var ledger = new InMemoryApprovalLedger(_store, sink, stop);
+        var approval = new Approval(Guid.NewGuid(), ItemId, "example/app", 1, HeadA, [StepKind.Validate], "alice", Now);
+        var write = ledger.TryRecordAsync([approval], [new AuditEntry(Now, AuditEvents.ApprovalRecorded, "alice", null, null)], TestContext.Current.CancellationToken).AsTask();
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+        var engage = ChangeStop(stop, engaged: true).AsTask();
+
+        stop.Engaged.Should().BeTrue("an engagement counts before it gets the gate: the next approval is refused");
+        engage.IsCompleted.Should().BeFalse("it waits for the write that is already inside, which was decided before it");
+        release.SetResult(true);
+        (await write).Should().Be(LedgerResult.Recorded);
+        (await engage).Should().Be(KillSwitchChange.Applied);
+        var next = new Approval(Guid.NewGuid(), ItemId, "example/app", 2, HeadB, [StepKind.Validate], "alice", Now);
+        (await ledger.TryRecordAsync([next], [], TestContext.Current.CancellationToken)).Should().Be(LedgerResult.Stopped);
+    }
 }

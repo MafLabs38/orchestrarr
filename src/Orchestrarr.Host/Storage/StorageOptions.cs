@@ -58,6 +58,9 @@ public interface IStorageSettings
 {
     bool Persistent { get; }
 
+    /// <summary>Whether the global stop starts engaged when the store is new (a database that did not exist, or a store in memory).</summary>
+    bool StartsEngaged { get; }
+
     /// <summary>What the status says: <c>memory</c> or <c>sqlite</c>.</summary>
     string Kind { get; }
 }
@@ -65,6 +68,8 @@ public interface IStorageSettings
 /// <summary>Everything in memory, the sandbox's choice.</summary>
 public sealed record MemoryStorage(bool StartEngaged = false) : IStorageSettings
 {
+    public bool StartsEngaged => StartEngaged;
+
     public bool Persistent => false;
 
     public string Kind => "memory";
@@ -73,6 +78,8 @@ public sealed record MemoryStorage(bool StartEngaged = false) : IStorageSettings
 /// <summary>A SQLite file, and whether a database created now starts with the global stop engaged.</summary>
 public sealed record SqliteStorage(string Path, bool StartEngagedWhenNew) : IStorageSettings
 {
+    public bool StartsEngaged => StartEngagedWhenNew;
+
     public bool Persistent => true;
 
     public string Kind => "sqlite";
