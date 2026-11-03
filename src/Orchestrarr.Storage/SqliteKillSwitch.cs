@@ -69,55 +69,72 @@ public sealed class SqliteKillSwitch(SqliteDatabase database, int auditCapacity,
         }
     }
 
+    // The invariant of the three flags: Engaged is true while an engagement is in flight (_engaging), while one is held because it could not be
+    // saved (_held), or when the file says so (or cannot be read). _held is set only by an engagement whose write failed, and cleared only by a write
+    // that succeeded: a release that did not happen (NotTraced, NotSaved) leaves it as it was.
     private KillSwitchChange Write(bool engaged, AuditEntry entry)
     {
         try
         {
             // The stop and its trace are one write: a failure leaves nothing to undo, and a crash cannot leave a release without its trace
-            var change = database.InWriteTransaction(connection =>
+            var change = database.InWriteTransaction(connection => Apply(connection, engaged, entry));
+            if (change != KillSwitchChange.NotTraced)
             {
-                var traced = AuditCapacityPolicy.Fits(auditCapacity, SqliteAuditLog.Count(connection), SqliteAuditLog.RefusalCount(connection), [entry]);
-                if (!engaged && !traced)
-                {
-                    return (false, KillSwitchChange.NotTraced);
-                }
-                Save(connection, engaged);
-                if (traced)
-                {
-                    SqliteAuditLog.Insert(connection, entry);
-                }
-                return (true, traced ? KillSwitchChange.Applied : KillSwitchChange.AppliedUntraced);
-            });
-            if (change == KillSwitchChange.NotTraced)
-            {
-                _logger.LogError("The global stop cannot be released: its release cannot be written to the audit trail, so it stays engaged");
-                return change;
+                _held = false;
             }
-            _held = false;
-            if (change == KillSwitchChange.AppliedUntraced)
-            {
-                _logger.LogError("The global stop is engaged, but the audit trail is full and cannot trace it");
-            }
+            LogOutcome(change);
             return change;
         }
-        catch (Exception failure) when (SqliteDatabase.IsUnavailable(failure) || engaged)
+        // Engaging takes effect whatever went wrong, except what nothing can recover from
+        catch (Exception failure) when (SqliteDatabase.IsUnavailable(failure) || (engaged && failure is not OutOfMemoryException))
         {
-            // Engaging takes effect whatever went wrong: any failure of the write holds it in memory. A failure that is not the storage's is a
-            // bug, and is logged as one, so that it does not pass for a full disk.
-            if (SqliteDatabase.IsUnavailable(failure))
-            {
-                _logger.LogError(failure, "The state of the global stop cannot be saved");
-            }
-            else
-            {
-                _logger.LogCritical(failure, "A failure that is not the storage's stopped the global stop from being saved: it is held in memory, and this is a bug");
-            }
-            if (!engaged)
-            {
-                return KillSwitchChange.NotSaved;
-            }
-            _held = true;
-            return KillSwitchChange.AppliedUntraced;
+            return OnWriteFailed(failure, engaged);
+        }
+    }
+
+    private (bool Commit, KillSwitchChange Result) Apply(SqliteConnection connection, bool engaged, AuditEntry entry)
+    {
+        var traced = AuditCapacityPolicy.Fits(auditCapacity, SqliteAuditLog.Count(connection), SqliteAuditLog.RefusalCount(connection), [entry]);
+        if (!engaged && !traced)
+        {
+            return (false, KillSwitchChange.NotTraced);
+        }
+        Save(connection, engaged);
+        if (traced)
+        {
+            SqliteAuditLog.Insert(connection, entry);
+        }
+        return (true, traced ? KillSwitchChange.Applied : KillSwitchChange.AppliedUntraced);
+    }
+
+    private KillSwitchChange OnWriteFailed(Exception failure, bool engaged)
+    {
+        // A failure that is not the storage's is a bug, and is logged as one, so that it does not pass for a full disk
+        if (SqliteDatabase.IsUnavailable(failure))
+        {
+            _logger.LogError(failure, "The state of the global stop cannot be saved");
+        }
+        else
+        {
+            _logger.LogCritical(failure, "A failure that is not the storage's stopped the global stop from being saved: it is held in memory, and this is a bug");
+        }
+        if (!engaged)
+        {
+            return KillSwitchChange.NotSaved;
+        }
+        _held = true;
+        return KillSwitchChange.AppliedUntraced;
+    }
+
+    private void LogOutcome(KillSwitchChange change)
+    {
+        if (change == KillSwitchChange.NotTraced)
+        {
+            _logger.LogError("The global stop cannot be released: its release cannot be written to the audit trail, so it stays engaged");
+        }
+        else if (change == KillSwitchChange.AppliedUntraced)
+        {
+            _logger.LogError("The global stop is engaged, but the audit trail is full and cannot trace it");
         }
     }
 

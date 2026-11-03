@@ -219,6 +219,21 @@ public sealed class SqliteApprovalLedgerTests : IDisposable
         new SqliteApprovalStore(database).List().Should().BeEmpty();
     }
 
+    [Fact]
+    public async Task A_cancelled_write_records_nothing()
+    {
+        var database = _file.Open();
+        var approval = Approval();
+        using var cancelled = new CancellationTokenSource();
+        await cancelled.CancelAsync();
+
+        var write = async () => await new SqliteApprovalLedger(database, new InMemoryKillSwitch()).TryRecordAsync([approval], [Entry(approval)], cancelled.Token);
+
+        await write.Should().ThrowAsync<OperationCanceledException>();
+        new SqliteApprovalStore(database).List().Should().BeEmpty();
+        new SqliteAuditLog(database).List().Should().BeEmpty();
+    }
+
     // A stop that says whether another writer could have written at the moment it was read
     private sealed class LockProbe(SqliteDatabase database) : IKillSwitchControl
     {

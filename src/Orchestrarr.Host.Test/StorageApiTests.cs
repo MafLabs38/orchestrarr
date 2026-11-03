@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Orchestrarr.Core.Approvals;
 using Orchestrarr.Core.Launch;
+using Orchestrarr.Host.Approvals;
 using Orchestrarr.Storage;
 
 namespace Orchestrarr.Host.Test;
@@ -31,8 +32,8 @@ public sealed class StorageApiTests : IDisposable
         ServiceOverrides = overrides,
     };
 
-    private static Task<HttpResponseMessage> Approve(HttpClient client) =>
-        client.PostAsJsonAsync("/api/v1/approvals", new { workItemId = "repository:example/shop", steps = new[] { "validate" }, pullRequests = new[] { new { number = 7, headSha = Head } } }, Ct);
+    private static Task<HttpResponseMessage> Approve(HttpClient client, string repository = "example/shop") =>
+        client.PostAsJsonAsync("/api/v1/approvals", new { workItemId = $"repository:{repository}", steps = new[] { "validate" }, pullRequests = new[] { new { number = 7, headSha = Head } } }, Ct);
 
     private static async Task<JsonElement> Json(HttpResponseMessage response) => await response.Content.ReadFromJsonAsync<JsonElement>(Ct);
 
@@ -259,6 +260,34 @@ public sealed class StorageApiTests : IDisposable
 
         (await Json(await client.GetAsync("/api/v1/safety", Ct))).GetProperty("killSwitchEngaged").GetBoolean().Should().BeTrue();
         (await Json(await client.GetAsync("/api/v1/activity", Ct))).EnumerateArray().Select(entry => entry.GetProperty("event").GetString()).Should().ContainSingle().Which.Should().Be("instance.created");
+    }
+
+    [Theory]
+    [InlineData(null, 200)]
+    [InlineData(-5, 1)]
+    [InlineData(0, 1)]
+    [InlineData(1, 1)]
+    [InlineData(1000, 1000)]
+    [InlineData(1001, 1000)]
+    [InlineData(int.MaxValue, 1000)]
+    public void A_list_is_never_longer_than_the_maximum_whatever_is_asked(int? asked, int answered)
+    {
+        ApprovalEndpoints.PageSize(asked).Should().Be(answered);
+    }
+
+    [Fact]
+    public async Task The_approvals_are_listed_newest_first_and_bounded_by_the_limit()
+    {
+        using var factory = Sqlite();
+        var client = factory.CreateClient();
+        (await Approve(client, "example/shop")).StatusCode.Should().Be(HttpStatusCode.Created);
+        (await Approve(client, "example/billing-api")).StatusCode.Should().Be(HttpStatusCode.Created);
+
+        var newest = (await Json(await client.GetAsync("/api/v1/approvals?limit=1", Ct))).EnumerateArray().ToList();
+        var all = (await Json(await client.GetAsync("/api/v1/approvals", Ct))).EnumerateArray().ToList();
+
+        newest.Should().ContainSingle().Which.GetProperty("repository").GetString().Should().Be("example/billing-api");
+        all.Should().HaveCount(2);
     }
 
     private Dictionary<string, string?> SqliteSettings() => new() { ["Storage:Provider"] = "Sqlite", ["Storage:Path"] = DatabasePath };

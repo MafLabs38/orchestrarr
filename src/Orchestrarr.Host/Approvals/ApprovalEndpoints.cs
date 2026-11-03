@@ -87,7 +87,7 @@ internal static class ApprovalEndpoints
     }
 
     // The newest ones: a trail in a file can hold hundreds of thousands, and the screens poll
-    private static int PageSize(int? limit) => Math.Clamp(limit ?? DefaultPageSize, 1, MaxPageSize);
+    internal static int PageSize(int? limit) => Math.Clamp(limit ?? DefaultPageSize, 1, MaxPageSize);
 
     // One read of the stop for both answers
     private static SafetyDto SafetyOf(IKillSwitchControl killSwitch)

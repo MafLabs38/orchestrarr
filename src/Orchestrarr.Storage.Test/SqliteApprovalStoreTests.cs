@@ -121,12 +121,14 @@ public sealed class SqliteApprovalStoreTests : IDisposable
         store.List().Select(approval => approval.PullRequest).Should().BeEquivalentTo([1, 2]);
     }
 
-    [Fact]
-    public void A_capacity_of_zero_or_less_is_refused()
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void A_capacity_of_zero_or_less_is_refused(int capacity)
     {
         var database = _file.Open();
 
-        var build = () => new SeededStore(database, capacity: 0);
+        var build = () => new SeededStore(database, capacity);
 
         build.Should().Throw<ArgumentOutOfRangeException>();
     }
