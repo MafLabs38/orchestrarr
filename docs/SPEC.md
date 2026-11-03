@@ -92,6 +92,7 @@ In practice the operator rarely reads code: they check that the AI did not drift
 | 🟡 D-45 | **One identity per component, with the right to sign split from the right to obey**: the control plane can only sign an order (non-exportable key), the launcher can only verify it and request the credentials it names, the agent run authenticates to nothing. No single compromised component can both sign and execute. |
 | 🟡 D-46 | **The control plane is small and only launches.** The API decides and signs; the **launcher** has no inbound port and **pulls** signed orders from the store; the agent run acts. An attacker cannot call the launcher, and only a signed, unexpired, unused order within the granted powers makes it do anything. |
 | 🟡 D-47 | **Whoever gives an order is authorized twice and is always a person**: the API checks the identity provider's token (operator role, step-up on production) before signing, the launcher checks the signature and the powers again. A service client cannot hold the operator role. |
+| 🟡 D-48 | **The dedicated Vault runs on the production cluster, like every production element**, deployed by the cluster's GitOps repository and configured by its own infrastructure repository. It starts sealed and is unsealed deliberately; the credential issued to a run for the cluster excludes the Vault's namespace. [ADR 0007](adr/0007-a-dedicated-vault-and-a-small-control-plane.md). |
 
 ---
 
@@ -226,7 +227,8 @@ User interface, deferred: the light theme (its accent text color is ready, nothi
 | ❓ Q-19 | **Where does the agent process run when it acts on an environment?** On the environment itself (the model credential would have to be there, on every machine), or on the workshop, which opens a session on the environment (the long-lived subscription token stays on one machine and is handed to the run only). Recommendation: the second, with the journal on the environment. |
 | ✅ Q-20 | **Vault or a lighter authority?** Resolved: a new Vault dedicated to this purpose, tied to the identity provider, provisioned by its own repository (D-44, ADR 0007). Its issued SSH certificates replace any SSH authority of its own. |
 | ❓ Q-21 | **Who approves production?** One operator with a step-up, or two people for what cannot be undone. |
-| ❓ Q-22 | **Where does the dedicated Vault run, and how is it unsealed?** Recommendation: a small virtual machine of its own, outside the cluster it will help administer, integrated storage, Shamir key shares held by the maintainer (a restart needs a deliberate unseal, which is also the deepest kill switch), snapshots backed up off the host. The alternative, automatic unseal against another Vault, ties the two together. |
+| ✅ Q-22 | **Where does the dedicated Vault run, and how is it unsealed?** Resolved: on the production cluster (D-48), integrated storage, one node, unsealed by hand with key shares the maintainer holds; the unseal never becomes automatic.
+| ❓ Q-23 | **How do clients reach the Vault, and over what?** Today: a plain HTTP listener inside the cluster, reachable only by namespaces that opt in, and a port-forward for people. Open: TLS (a certificate authority in the cluster, or the ingress), and a way in for the launcher when it runs outside the cluster.
 
 ---
 
@@ -247,6 +249,7 @@ User interface, deferred: the light theme (its accent text color is ready, nothi
 |---|---|
 | 2026-11-01 | v0.1: first interview. Decisions D-01 to D-09 and D-14 frozen; D-10 to D-13 proposed. |
 | 2026-11-03 | v0.7: the second vertical: the pull requests read from the forge (D-36 to D-38, ADR 0005), the screens as a list of applications, Q-18 (what a dependency pull request is). |
+| 2026-11-03 | v0.6 (amended): the dedicated Vault runs on the production cluster (D-48, Q-22 resolved, Q-23 opened; ADR 0007). |
 | 2026-11-03 | v0.6 (amended): a new Vault dedicated to this purpose and tied to the identity provider, the small control plane that only launches, the authorization of whoever gives an order (D-44 to D-47, Q-20 resolved, Q-22; ADR 0007). |
 | 2026-11-03 | v0.6 (amended): the structure of security the maintainer asked for: who orders is authenticated (Keycloak), a launch is a signed order checked by a launcher, credentials are short-lived (D-39 to D-43, Q-20, Q-21; ADR 0006). |
 | 2026-11-03 | v0.6 (amended): the maintainer's direction on acting on environments: the agent acts as Claude Code would, no container there, no initiative, a journal per environment (D-33 to D-35, Q-19; ADR 0004 revision). |
