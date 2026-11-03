@@ -8,6 +8,7 @@
 |---|---|---|
 | Backend unit | xUnit v3, AwesomeAssertions, NSubstitute, `FakeTimeProvider` | The domain (work items, plans, the cached catalog) and the providers (mapping a source's report to the fleet model) |
 | API | `WebApplicationFactory` | The REST contract: routes, JSON shape, 404, that no route runs anything and the two that record something are off unless the sandbox operator is configured or a person signed in; with the sign-in on, the probe `GET /health` and the security headers are checked, and a session is given to the test in a header (the provider is not reached), and the redirect to the provider is checked with its configuration given |
+| Storage | A real SQLite file in a temporary folder | What must survive a restart: persistence after reopening, the unique key of a decision, all-or-nothing batches, the append-only trail, the capacities, and the global stop (a new database is released, an unreadable one is engaged, a release that cannot be saved is refused) |
 | Frontend | Vitest, Testing Library (`happy-dom`) | The screens and components: what is shown, what is ticked, what is disabled and why |
 | End to end | Playwright | Not yet. It arrives with the first vertical that has a write path |
 | Acceptance | The rotten test repository (`SCENARIOS.md` of `orchestrarr-testbed`) | Find, fix, merge, deploy and roll back on a real application |

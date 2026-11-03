@@ -1,6 +1,6 @@
 # Orchestrarr — Functional and Technical Specification
 
-> **Status**: draft v0.9. Built: intake and decision cards, the dependency pull requests from the forge, the control-plane skeleton in Core, the approval of a card (queue, audit trail and global stop, in memory), and the sign-in through the identity provider. **Nothing runs**: no launcher takes the approvals.
+> **Status**: draft v0.10. Built: intake and decision cards, the dependency pull requests from the forge, the control-plane skeleton in Core, the approval of a card (queue, audit trail and global stop, kept in a SQLite file or in memory), and the sign-in through the identity provider. **Nothing runs**: no launcher takes the approvals.
 > **Related documents**: [security-model.md](security-model.md) (how an order is secured, with diagrams) · [VISION.md](VISION.md) (pitch, safety principles, first interview questions) · [environment-file.md](environment-file.md) (standalone description format) · [adr/](adr/) (architecture decisions)
 > **Last updated**: 2026-11-03
 > **Audience**: the project owner and contributors.
@@ -102,6 +102,7 @@ In practice the operator rarely reads code: they check that the AI did not drift
 | 🟡 D-55 | **One launcher and one Vault role set per environment.** Vault answers only to the workload identity of the launcher of that environment, which reaches only that environment's roles: a compromised launcher yields one environment; the order is addressed to the launcher of its environment. The control plane never issues a credential (D-45). [ADR 0012](adr/0012-one-launcher-and-one-vault-role-per-environment.md). *Chosen by the maintainer.* |
 | 🟡 D-56 | **The person chooses a tier of the operator account when approving, and the signed order carries it** (read-only, deploy, maintenance), mapped by each machine to a local account of its own; the operator account of D-34 stays the highest tier. Refines D-34 and D-42, tempers D-39. Safe default, to change if wanted. ADR 0012. |
 | 🟡 D-57 | **For production the plan is validated before it is applied**: the agent proposes the diff, the person validates it, then it is applied. Who validates stays open (Q-21). Safe default. ADR 0012. |
+| 🟡 D-58 | **The approvals, the audit trail and the global stop are kept in a SQLite file** (`Storage:Provider=Sqlite`, the image's default), the database itself enforcing the uniqueness of a decision and the append-only trail. **Unknown means engaged**: a stop whose state cannot be read counts as engaged, and one that cannot be released for certain stays engaged. [ADR 0013](adr/0013-approvals-the-trail-and-the-stop-are-kept-in-a-sqlite-file.md). |
 
 ---
 
@@ -180,7 +181,7 @@ Screens in *arr style: **Queue** (running and waiting), **Decisions** (cards awa
 | F-ENV-03 | **Act on a machine**: a declared action, approved as a step of the card, with the output kept in the audit trail and a check that it worked (D-32) |
 | F-BKP-01 | **Backups that fail or are missing are findings** (read from Portarr, which already follows the backups) and become work items like any other (UC-07) |
 | F-SAF-01 | Global stop, dry-run mode, budgets (cost, time, concurrency). Built: the global stop; the rest comes with the launcher |
-| F-SAF-02 | Full audit trail of prompts, tool calls, decisions and approvals. Built: approvals, refusals and the global stop, in memory (Activity screen); the rest and a persistent store come with the workshop |
+| F-SAF-02 | Full audit trail of prompts, tool calls, decisions and approvals. Built: approvals, refusals and the global stop, in memory or in a SQLite file, append-only (Activity screen); the rest comes with the workshop |
 | F-APP-01 | Powers per application and environment, off until enabled (D-10). Built for the steps of a repository (`Powers:Grants`, D-53); per environment comes with deploy |
 | F-MEM-01 | Read runbooks from Mnemarr before acting, write outcomes back |
 
@@ -211,6 +212,7 @@ The principles of [VISION.md §5](VISION.md) apply, as amended by [ADR 0001](adr
 | 2b | **Control-plane skeleton**: signed launch orders, the issuer that authorizes whoever orders, the launcher checks, refusal codes (D-41, D-45 to D-47, D-51; ADR 0006, 0007) | built in Core, reviewed by the five agents, **the ports of the kill switch, the audit sink and the granted powers are wired in the host by the approval vertical (row 2c, in memory)**; the issuer, the launcher, the signer, the nonce ledger and the environment classifier are not: no store the launcher pulls from, no Vault adapter, no lease, concurrency or budget check, no order endpoint. It starts nothing and grants no power |
 | 2c | **Approve a decision card**: the tick becomes a recorded approval per pull request and commit (F-CRD-01), with the queue, the audit trail (F-SAF-02) and the global stop (F-SAF-01), in memory (D-52, D-53; ADR 0010) | built, reviewed by the five agents. No launcher takes the approvals yet: nothing runs. Before production: a persistent trail and a stop that starts engaged (the sign-in is row 2d) |
 | 2d | **Sign in through the identity provider** (D-40, D-54, Q-12; ADR 0011): the session cookie, the operator group, the reads of the API behind it, the origin check, the interface that signs in by itself | built, with a local Keycloak for the demonstration (`samples/keycloak`). The approvals and the trail are still in memory; the step-up is read, not asked for; a session is not revoked before it ends (ADR 0011). A single replica: the session is a cookie, and its keys are the host's |
+| 2e | **Keep what must survive a restart**: the approvals, the audit trail and the global stop in a SQLite file; the stop starts engaged when it cannot be read (D-58; ADR 0010, 0013) | built. The lifecycle of an approval (taken, done, expired, superseded) comes with the launcher that takes it |
 | 3 | Validate and merge: next, with the launcher and the workshop (D-24, D-25; ADR 0004, 0007, 0010); uses 2b, 2c and 2d | not started |
 | 4 | Deploy, smoke test and roll back (F-RUN-03), with the regression report (F-RUN-04) | after 3 |
 | 5 | Backups and actions on machines: find the backups that fail (F-BKP-01), diagnose and act through a configured connection (F-ENV-01 to F-ENV-03) | **not started**: the maintainer wants the repair vertical to be correct first. Needs Q-16 and Q-17 |
@@ -266,6 +268,7 @@ User interface, deferred: the light theme (its accent text color is ready, nothi
 
 | Date | Change |
 |---|---|
+| 2026-11-03 | v0.10: the approvals, the audit trail and the global stop are kept in a SQLite file, and an unreadable stop counts as engaged (D-58; ADR 0013). |
 | 2026-11-03 | v0.9: one launcher and one Vault role set per environment, tiers of the operator account, the plan validated for production (D-55 to D-57; ADR 0012); the order is secured as shown in security-model.md. |
 | 2026-11-03 | v0.8: people sign in through the identity provider, in the host (D-54, a proposed resolution of Q-12 for people; ADR 0011). |
 | 2026-11-03 | v0.7 (amended): approving a decision card records an approval per pull request and commit, with the queue, the trail and the global stop; powers granted in the configuration (D-52, D-53; ADR 0010; roadmap row 2c). |
