@@ -2,7 +2,7 @@
 
 > Act. A self-hosted orchestrator agent that coordinates worker agents to fix, update and verify, in the spirit of the *arr suite.
 
-**Status: first verticals, read-only.** Orchestrarr reads Portarr's findings and the dependency pull requests from GitHub, and shows them as decision cards. It holds **no write power yet**: nothing merges, deploys or writes to a repository, **Approving a card records a decision** (pull request, commit, steps, approver) in an in-memory queue and audit trail, with a global stop; no launcher takes the approvals, so nothing runs. Approving is off (`Approvals:Mode=Disabled`) unless the sandbox operator is configured. The roadmap is in [docs/SPEC.md](docs/SPEC.md) §8; the founding vision in [docs/VISION.md](docs/VISION.md).
+**Status: first verticals, read-only.** Orchestrarr reads Portarr's findings and the dependency pull requests from GitHub, and shows them as decision cards. It holds **no write power yet**: nothing merges, deploys or writes to a repository. **Approving a card records a decision** (pull request, commit, steps, approver) in an in-memory queue and audit trail, with a global stop; no launcher takes the approvals, so nothing runs. Approving is off (`Approvals:Mode=Disabled`) unless the sandbox operator is configured. The roadmap is in [docs/SPEC.md](docs/SPEC.md) §8; the founding vision in [docs/VISION.md](docs/VISION.md).
 
 Orchestrarr reads the findings of [Portarr](https://github.com/MafLabs38/portarr) (vulnerable dependencies, outdated images, broken applications), plans the work, delegates it to worker agents, verifies that nothing regressed, and proposes the result as a pull request for a human to approve. Safety and approval gates are core concerns: no direct push, sandboxed workers, least privilege, bounded budgets, full audit trail. It works with Mnemarr, the companion long-term memory.
 
@@ -62,7 +62,7 @@ Under `/api/v1` (anything else there is a 404). Two routes record something, and
 | `GET /api/v1/safety` | The global stop: `{ "killSwitchEngaged" }` |
 | `PUT /api/v1/safety/kill-switch` | The global stop: `{ "engaged": true }`. Engaged, nothing is approved |
 
-Approval answers: `201` recorded; `401` `notSignedIn`; `403` `approvalsDisabled`, `hostNotAllowed`, `notAPerson`, `notAnOperator`; `404` `unknownWorkItem`; `409` `pullRequestsNotRead`, `planChanged`, `alreadyApproved`; `422` `nothingTicked`, `stepNotOffered`, `stepNotGranted`, `stepNotSupported`, `mergeNeedsValidation`, `noPullRequests`; `423` `killSwitchEngaged`; `503` `storeFull`, `auditUnavailable`. A draft pull request is never approved.
+Approval answers: `201` recorded; `401` `notSignedIn`; `403` `approvalsDisabled`, `hostNotAllowed`, `notAPerson`, `notAnOperator`; `404` `unknownWorkItem`; `409` `pullRequestsNotRead`, `planChanged`, `alreadyApproved`; `422` `nothingTicked`, `stepNotOffered`, `stepNotGranted`, `stepNotSupported`, `mergeNeedsValidation`, `noPullRequests`; `423` `killSwitchEngaged`; `503` `storeFull`, `auditUnavailable`. A draft pull request is never approved. The global stop answers `401` `notSignedIn` and `403` `approvalsDisabled`, `hostNotAllowed`, `notAnOperator`.
 
 ### Configuration
 

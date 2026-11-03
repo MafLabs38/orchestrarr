@@ -3,11 +3,13 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Orchestrarr.Core.Approvals;
 using Orchestrarr.Core.Launch;
+using Orchestrarr.Host.Approvals;
 
 namespace Orchestrarr.Host.Test;
 
@@ -19,6 +21,14 @@ public sealed class ApprovalsDisabledApiFactory : WebApplicationFactory<Program>
         builder.UseEnvironment("Testing");
         builder.UseSetting(FleetSourceFactory.SampleFileKey, Path.Combine(AppContext.BaseDirectory, "portarr-maintenance.sample.json"));
     }
+}
+
+/// <summary>An identity that the test chooses: nobody, or somebody who is not an operator.</summary>
+internal sealed class FixedApprover(Approver? approver) : IApproverAccessor
+{
+    public ApprovalsMode Mode => ApprovalsMode.Development;
+
+    public Approver? Current(HttpContext context) => approver;
 }
 
 public sealed class ApprovalsApiTests
@@ -36,6 +46,21 @@ public sealed class ApprovalsApiTests
 
     private static Task<HttpResponseMessage> Stop(HttpClient client, bool engaged) =>
         client.PutAsJsonAsync("/api/v1/safety/kill-switch", new { engaged }, Ct);
+
+    private static void Replace<T>(IServiceCollection services, T instance)
+        where T : class
+    {
+        services.RemoveAll<T>();
+        services.AddSingleton(instance);
+    }
+
+    // A trail that holds nothing: every write is refused
+    private static void FullTrail(IServiceCollection services)
+    {
+        var full = new InMemoryAuditLog(capacity: 0);
+        Replace<IAuditLog>(services, full);
+        Replace<IAuditSink>(services, full);
+    }
 
     private static async Task<string> ErrorOf(HttpResponseMessage response) => (await Json(response)).GetProperty("error").GetString()!;
 
@@ -142,8 +167,8 @@ public sealed class ApprovalsApiTests
     [Fact]
     public async Task A_full_queue_and_an_unwritable_trail_are_a_503()
     {
-        using var queue = new ForgeApiFactory { Settings = new Dictionary<string, string?> { ["Approvals:QueueCapacity"] = "0" } };
-        using var trail = new ForgeApiFactory { Settings = new Dictionary<string, string?> { ["Approvals:AuditCapacity"] = "0" } };
+        using var queue = new ForgeApiFactory { ServiceOverrides = services => Replace<IApprovalStore>(services, new InMemoryApprovalStore(capacity: 0)) };
+        using var trail = new ForgeApiFactory { ServiceOverrides = FullTrail };
 
         var full = await Approve(queue.CreateClient());
         var unwritable = await Approve(trail.CreateClient());
@@ -188,6 +213,8 @@ public sealed class ApprovalsApiTests
     [InlineData("""{"workItemId":null,"steps":null,"pullRequests":null}""", "unknownWorkItem")]
     [InlineData("""{"workItemId":"repository:example/shop","steps":null,"pullRequests":null}""", "nothingTicked")]
     [InlineData("""{"workItemId":"repository:evil\nforged","steps":["validate"]}""", "unknownWorkItem")]
+    [InlineData("""{"workItemId":"repository:example/shop","steps":["validate"],"pullRequests":[null]}""", "planChanged")]
+    [InlineData("""{"workItemId":"repository:example/shop","steps":["validate"],"pullRequests":[{"number":7}]}""", "planChanged")]
     public async Task A_body_with_missing_or_odd_fields_is_refused_with_a_code_and_records_nothing(string body, string code)
     {
         using var factory = new ForgeApiFactory();
@@ -248,7 +275,7 @@ public sealed class ApprovalsApiTests
     [Fact]
     public async Task The_stop_works_even_when_the_trail_cannot_be_written()
     {
-        using var factory = new ForgeApiFactory { Settings = new Dictionary<string, string?> { ["Approvals:AuditCapacity"] = "0" } };
+        using var factory = new ForgeApiFactory { ServiceOverrides = FullTrail };
         var client = factory.CreateClient();
 
         var response = await Stop(client, true);
@@ -271,13 +298,15 @@ public sealed class ApprovalsApiTests
             .Should().OnlyContain(s => s.GetProperty("granted").GetBoolean());
     }
 
-    [Fact]
-    public async Task A_grant_of_the_configuration_makes_exactly_its_steps_granted()
+    [Theory]
+    [InlineData("example/shop")]
+    [InlineData("*")]
+    public async Task A_grant_of_the_configuration_makes_exactly_its_steps_granted(string repository)
     {
         using var factory = new ForgeApiFactory
         {
             EnvironmentName = "Testing",
-            Settings = new Dictionary<string, string?> { ["Powers:Grants:0:Repository"] = "example/shop", ["Powers:Grants:0:Steps:0"] = "validate" },
+            Settings = new Dictionary<string, string?> { ["Powers:Grants:0:Repository"] = repository, ["Powers:Grants:0:Steps:0"] = "validate" },
         };
 
         var plan = (await Json(await factory.CreateClient().GetAsync($"/api/v1/work-items/{Shop}", Ct))).GetProperty("plan").EnumerateArray().ToList();
@@ -304,21 +333,91 @@ public sealed class ApprovalsApiTests
         start.Should().Throw<Exception>().Which.ToString().Should().Contain("Powers:Grants");
     }
 
-    [Fact]
-    public async Task A_grant_on_every_repository_may_validate_outside_the_sandbox()
+    // --- who may call
+
+    [Theory]
+    [InlineData("Approvals:QueueCapacity", "0")]
+    [InlineData("Approvals:QueueCapacity", "-1")]
+    [InlineData("Approvals:AuditCapacity", "0")]
+    public void A_capacity_of_zero_or_less_stops_the_host_from_starting(string key, string value)
     {
-        using var factory = new ForgeApiFactory
-        {
-            EnvironmentName = "Testing",
-            Settings = new Dictionary<string, string?> { ["Powers:Grants:0:Repository"] = "*", ["Powers:Grants:0:Steps:0"] = "validate" },
-        };
+        using var factory = new ForgeApiFactory { Settings = new Dictionary<string, string?> { [key] = value } };
 
-        var plan = (await Json(await factory.CreateClient().GetAsync($"/api/v1/work-items/{Shop}", Ct))).GetProperty("plan").EnumerateArray();
+        var start = () => factory.CreateClient();
 
-        plan.Should().Contain(s => s.GetProperty("kind").GetString() == "validate" && s.GetProperty("granted").GetBoolean());
+        start.Should().Throw<InvalidOperationException>().WithMessage("*greater than zero*");
     }
 
-    // --- who may call
+    [Theory]
+    [InlineData("Kestrel:Endpoints:Web:Url", "http://0.0.0.0:7878")]
+    [InlineData("Kestrel:Endpoints:Web:Url", "http://loopback:7878")]
+    [InlineData("HTTP_PORTS", "8080")]
+    [InlineData("ASPNETCORE_HTTP_PORTS", "8080")]
+    [InlineData("HTTPS_PORTS", "8443")]
+    [InlineData("ASPNETCORE_URLS", "http://+:8080")]
+    [InlineData("DOTNET_URLS", "http://*:8080")]
+    public void Every_other_way_to_open_an_address_is_checked_too(string key, string value)
+    {
+        using var factory = new ForgeApiFactory { Settings = new Dictionary<string, string?> { [key] = value } };
+
+        var start = () => factory.CreateClient();
+
+        start.Should().Throw<InvalidOperationException>().WithMessage("*loopback*");
+    }
+
+    [Theory]
+    [InlineData("http://127.0.0.1:7878", true)]
+    [InlineData("http://localhost:7878", true)]
+    [InlineData("http://LOCALHOST:7878", true)]
+    [InlineData("http://[::1]:7878", true)]
+    [InlineData("http://127.0.0.2:7878", true)]
+    [InlineData("http://loopback:7878", false)]
+    [InlineData("http://localhost.:7878", false)]
+    [InlineData("http://0.0.0.0:7878", false)]
+    [InlineData("http://[::]:7878", false)]
+    [InlineData("http://+:7878", false)]
+    [InlineData("http://*:7878", false)]
+    [InlineData("http://10.0.0.20:7878", false)]
+    [InlineData("not an address", false)]
+    public void Only_localhost_and_the_loopback_addresses_are_the_loopback(string address, bool expected)
+    {
+        SandboxGuard.IsLoopbackOnly([address]).Should().Be(expected);
+    }
+
+    [Fact]
+    public async Task When_nobody_is_signed_in_nothing_is_recorded_and_the_stop_is_unchanged()
+    {
+        using var factory = new ForgeApiFactory { ServiceOverrides = services => Replace<IApproverAccessor>(services, new FixedApprover(null)) };
+        var client = factory.CreateClient();
+
+        var approve = await Approve(client);
+        var stop = await Stop(client, true);
+
+        approve.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await ErrorOf(approve)).Should().Be("notSignedIn");
+        stop.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await Json(await client.GetAsync("/api/v1/safety", Ct))).GetProperty("killSwitchEngaged").GetBoolean().Should().BeFalse();
+        (await Json(await client.GetAsync("/api/v1/approvals", Ct))).EnumerateArray().Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task Somebody_who_is_not_a_person_with_the_operator_role_can_neither_approve_nor_release_the_stop(bool person, bool isOperator)
+    {
+        var signedIn = new Approver("someone", person, isOperator, StepUpAt: null);
+        using var factory = new ForgeApiFactory { ServiceOverrides = services => Replace<IApproverAccessor>(services, new FixedApprover(signedIn)) };
+        var client = factory.CreateClient();
+
+        var approve = await Approve(client);
+        var stop = await Stop(client, true);
+
+        approve.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        stop.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await ErrorOf(stop)).Should().Be("notAnOperator");
+        (await Json(await client.GetAsync("/api/v1/safety", Ct))).GetProperty("killSwitchEngaged").GetBoolean().Should().BeFalse();
+        (await Json(await client.GetAsync("/api/v1/approvals", Ct))).EnumerateArray().Should().BeEmpty();
+    }
 
     [Fact]
     public async Task Without_the_sandbox_operator_nobody_can_approve_or_stop()
@@ -353,7 +452,10 @@ public sealed class ApprovalsApiTests
     [InlineData("http://+:8080")]
     [InlineData("http://0.0.0.0:8080")]
     [InlineData("http://*:8080")]
-    [InlineData("http://127.0.0.1:7878;http://192.168.1.10:7878")]
+    [InlineData("http://127.0.0.1:7878;http://10.0.0.20:7878")]
+    [InlineData("http://loopback:7878")]
+    [InlineData("http://localhost.example:7878")]
+    [InlineData("http://127.0.0.1.example:7878")]
     [InlineData("http://vault.example:8080")]
     public void The_sandbox_operator_is_refused_when_the_host_listens_beyond_the_loopback(string urls)
     {
@@ -378,7 +480,7 @@ public sealed class ApprovalsApiTests
     [InlineData("evil.example", HttpStatusCode.Forbidden)]
     [InlineData("rebound.attacker.example:7878", HttpStatusCode.Forbidden)]
     [InlineData("127.0.0.1:7878", HttpStatusCode.Created)]
-    [InlineData("192.168.1.144:5178", HttpStatusCode.Created)]
+    [InlineData("10.0.0.10:5178", HttpStatusCode.Created)]
     [InlineData("localhost:7878", HttpStatusCode.Created)]
     [InlineData("[::1]:7878", HttpStatusCode.Created)]
     public async Task The_routes_that_record_something_answer_only_to_a_direct_address_not_to_a_name(string host, HttpStatusCode expected)

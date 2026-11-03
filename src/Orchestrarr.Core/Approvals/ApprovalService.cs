@@ -15,7 +15,7 @@ public sealed class ApprovalService(
     IApprovalStore store,
     IKillSwitch killSwitch,
     IAuditSink audit,
-    TimeProvider time)
+    TimeProvider time) : IDisposable
 {
     // What this vertical records. The other steps are shown and can be granted, but run with later verticals.
     private static readonly StepKind[] Supported = [StepKind.Validate, StepKind.MergePullRequests];
@@ -87,7 +87,7 @@ public sealed class ApprovalService(
         {
             return ([], ApprovalRefusal.NoPullRequests);
         }
-        return SameAsSeen(approvals, seen) ? (approvals, null) : ([], ApprovalRefusal.PlanChanged);
+        return seen.All(pullRequest => pullRequest is not null) && SameAsSeen(approvals, seen) ? (approvals, null) : ([], ApprovalRefusal.PlanChanged);
     }
 
     private static bool SameAsSeen(List<Approval> approvals, IReadOnlyList<SeenPullRequest> seen) =>
@@ -140,15 +140,18 @@ public sealed class ApprovalService(
                 return ApprovalResult.Refused(ApprovalRefusal.StoreFull);
             }
 
-            // The trace first: no trace, no approval. The room was checked, so what is traced is what is stored.
-            foreach (var approval in fresh)
+            // The stop may have been engaged while the pull requests were read: read it again, last, before anything is written.
+            if (await killSwitch.IsEngagedAsync(cancellationToken))
             {
-                var entry = new AuditEntry(approval.ApprovedAt, ApprovalAuditEvents.Recorded, approval.ApproverSubject, approval.Id.ToString("D"),
-                    $"{approval.Repository}#{approval.PullRequest}@{approval.HeadSha} steps={string.Join(',', approval.Steps)}");
-                if (!await audit.TryRecordAsync(entry, cancellationToken))
-                {
-                    return ApprovalResult.Refused(ApprovalRefusal.AuditUnavailable);
-                }
+                return ApprovalResult.Refused(ApprovalRefusal.KillSwitchEngaged);
+            }
+
+            // The trace first, all of it or none: no trace, no approval. The room of the queue was checked, so what is traced is what is stored.
+            var entries = fresh.Select(approval => new AuditEntry(approval.ApprovedAt, ApprovalAuditEvents.Recorded, approval.ApproverSubject, approval.Id.ToString("D"),
+                $"{approval.Repository}#{approval.PullRequest}@{approval.HeadSha} steps={string.Join(',', approval.Steps)}")).ToList();
+            if (!await audit.TryRecordRangeAsync(entries, cancellationToken))
+            {
+                return ApprovalResult.Refused(ApprovalRefusal.AuditUnavailable);
             }
             return store.TryAddRange(fresh) ? new ApprovalResult(fresh, null) : ApprovalResult.Refused(ApprovalRefusal.StoreFull);
         }
@@ -157,6 +160,8 @@ public sealed class ApprovalService(
             _gate.Release();
         }
     }
+
+    public void Dispose() => _gate.Dispose();
 
     private async Task RecordRefusalAsync(Approver approver, string workItemId, ApprovalRefusal refusal, CancellationToken cancellationToken)
     {

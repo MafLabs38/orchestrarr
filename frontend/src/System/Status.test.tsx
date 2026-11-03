@@ -128,4 +128,28 @@ describe('Status', () => {
 
     expect(await screen.findByText('The global stop could not be changed.')).toBeInTheDocument();
   });
+
+  it('releases the global stop with a PUT when it is engaged', async () => {
+    const fetchMock = vi.fn((_input: string, init?: RequestInit) =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify(
+            init?.method === 'PUT' ? { killSwitchEngaged: false } : status({}, { killSwitchEngaged: true }),
+          ),
+          { status: 200 },
+        ),
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(<Status />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Release the global stop' }));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/v1/safety/kill-switch',
+        expect.objectContaining({ method: 'PUT', body: '{"engaged":false}' }),
+      ),
+    );
+  });
 });

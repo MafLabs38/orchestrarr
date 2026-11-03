@@ -584,11 +584,13 @@ public sealed class LaunchTests
 
         public List<AuditEntry> Entries { get; } = [];
 
-        public ValueTask<bool> TryRecordAsync(AuditEntry entry, CancellationToken cancellationToken)
+        public ValueTask<bool> TryRecordAsync(AuditEntry entry, CancellationToken cancellationToken) => TryRecordRangeAsync([entry], cancellationToken);
+
+        public ValueTask<bool> TryRecordRangeAsync(IReadOnlyList<AuditEntry> entries, CancellationToken cancellationToken)
         {
             if (Available)
             {
-                Entries.Add(entry);
+                Entries.AddRange(entries);
             }
             return ValueTask.FromResult(Available);
         }

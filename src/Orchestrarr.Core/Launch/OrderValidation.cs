@@ -19,22 +19,21 @@ internal static partial class OrderValidation
         string? environment,
         IReadOnlyList<StepKind> steps,
         string approverSubject,
-        string audience)
-    {
-        return WorkItem().IsMatch(workItemId ?? string.Empty)
-            && Repository().IsMatch(repository ?? string.Empty)
-            && Sha().IsMatch(headSha ?? string.Empty)
-            && (environment is null || Environment().IsMatch(environment))
-            && Identity().IsMatch(approverSubject ?? string.Empty)
-            && Identity().IsMatch(audience ?? string.Empty)
-            && HasValidSteps(steps);
-    }
+        string audience) =>
+        HasValidFields(workItemId, repository, headSha, environment, steps, approverSubject) && Identity().IsMatch(audience ?? string.Empty);
+
+    // The fields that an order and an approval share
+    private static bool HasValidFields(string workItemId, string repository, string headSha, string? environment, IReadOnlyList<StepKind> steps, string approverSubject) =>
+        WorkItem().IsMatch(workItemId ?? string.Empty)
+        && Repository().IsMatch(repository ?? string.Empty)
+        && Sha().IsMatch(headSha ?? string.Empty)
+        && (environment is null || Environment().IsMatch(environment))
+        && Identity().IsMatch(approverSubject ?? string.Empty)
+        && HasValidSteps(steps);
 
     /// <summary>The shape of an approval (no environment, no audience): the same fields, the same patterns as an order's.</summary>
     public static bool IsValidApproval(string workItemId, string repository, string headSha, IReadOnlyList<StepKind> steps, string approverSubject) =>
-        IsValid(workItemId, repository, headSha, environment: null, steps, approverSubject, audience: ApprovalAudience);
-
-    private const string ApprovalAudience = "approvals";
+        HasValidFields(workItemId, repository, headSha, environment: null, steps, approverSubject);
 
     public static bool IsValidWorkItem(string? workItemId) => WorkItem().IsMatch(workItemId ?? string.Empty);
 

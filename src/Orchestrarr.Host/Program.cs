@@ -22,6 +22,7 @@ builder.Services.AddSingleton(provider => FleetSourceFactory.Create(builder.Conf
 builder.Services.AddSingleton(provider => PullRequestSourceFactory.Create(builder.Configuration, builder.Environment.ContentRootPath, provider.GetRequiredService<TimeProvider>()));
 // Approving: recording the operator's decision, with its trail and the global stop. Nothing here runs anything yet.
 var approvals = builder.Configuration.GetSection(ApprovalsOptions.SectionName).Get<ApprovalsOptions>() ?? new ApprovalsOptions();
+approvals.Validate();
 SandboxGuard.Check(approvals, builder.Environment, builder.Configuration);
 builder.Services.AddSingleton(approvals);
 
@@ -45,6 +46,7 @@ builder.Services.AddSingleton(builder.Configuration.GetSection(WorkItemCatalogOp
 builder.Services.AddSingleton<WorkItemCatalog>();
 
 var app = builder.Build();
+SandboxGuard.StopIfListeningBeyondLoopback(app, approvals);
 
 var api = app.MapGroup("/api/v1");
 

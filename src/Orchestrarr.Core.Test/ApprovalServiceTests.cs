@@ -102,6 +102,14 @@ public sealed class ApprovalServiceTests
     }
 
     [Fact]
+    public async Task When_every_commit_is_malformed_there_is_nothing_to_approve()
+    {
+        var service = await Service(PullRequest(1, "not-a-commit"), PullRequest(2, string.Empty));
+
+        (await Approve(service, seen: [])).Refusal.Should().Be(ApprovalRefusal.NoPullRequests);
+    }
+
+    [Fact]
     public async Task The_same_decision_cannot_be_approved_twice_but_a_new_commit_can()
     {
         var first = await Approve(await Service(PullRequest(1, HeadA)));
@@ -153,6 +161,14 @@ public sealed class ApprovalServiceTests
     }
 
     [Fact]
+    public async Task A_displayed_list_with_a_null_in_it_is_a_changed_plan_not_a_crash()
+    {
+        var service = await Service(PullRequest(1, HeadA));
+
+        (await Approve(service, seen: [new SeenPullRequest(1, HeadA), null!])).Refusal.Should().Be(ApprovalRefusal.PlanChanged);
+    }
+
+    [Fact]
     public async Task The_order_in_which_the_pull_requests_were_displayed_does_not_matter()
     {
         var service = await Service(PullRequest(1, HeadA), PullRequest(2, HeadB));
@@ -198,6 +214,22 @@ public sealed class ApprovalServiceTests
 
         (await Approve(service)).Refusal.Should().Be(ApprovalRefusal.KillSwitchEngaged);
         _store.List().Should().BeEmpty();
+        _audit.List().Should().ContainSingle().Which.Detail.Should().StartWith(nameof(ApprovalRefusal.KillSwitchEngaged));
+
+        _killSwitch.Set(false);
+        (await Approve(service)).Recorded.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_stop_engaged_while_the_approval_is_in_flight_records_nothing_and_traces_no_approval()
+    {
+        var service = await Service(new StopsWhenAsked(_store, _killSwitch));
+
+        var result = await Approve(service);
+
+        result.Refusal.Should().Be(ApprovalRefusal.KillSwitchEngaged);
+        _store.List().Should().BeEmpty();
+        _audit.List().Should().NotContain(e => e.Event == ApprovalAuditEvents.Recorded);
     }
 
     [Fact]
@@ -257,7 +289,7 @@ public sealed class ApprovalServiceTests
     }
 
     [Fact]
-    public async Task A_list_that_could_not_be_read_or_only_an_old_read_is_refused()
+    public async Task A_list_that_could_not_be_read_is_refused()
     {
         _forge.Fail = true;
         (await Approve(await Service())).Refusal.Should().Be(ApprovalRefusal.PullRequestsNotRead);
@@ -330,6 +362,35 @@ public sealed class ApprovalServiceTests
         await Approve(await Service(), approver: new Approver("mallory\nforged", IsPerson: true, IsOperator: false, StepUpAt: null));
 
         _audit.List().Should().ContainSingle().Which.Subject.Should().Be("unverified");
+    }
+
+    [Fact]
+    public async Task A_trail_that_cannot_hold_them_all_refuses_and_keeps_none_of_them()
+    {
+        var narrow = new InMemoryAuditLog(capacity: 1);
+        var service = await Service(audit: narrow);
+
+        var result = await Approve(service);
+
+        result.Refusal.Should().Be(ApprovalRefusal.AuditUnavailable);
+        narrow.List().Should().BeEmpty();
+        _store.List().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task The_trail_takes_a_batch_whole_or_not_at_all_and_knows_the_refusals_by_name()
+    {
+        var log = new InMemoryAuditLog(capacity: 4);
+        var token = TestContext.Current.CancellationToken;
+        AuditEntry Entry(string name) => new(Now, name, "x", null, null);
+
+        (await log.TryRecordRangeAsync([Entry("a"), Entry("b"), Entry("c")], token)).Should().BeTrue();
+        (await log.TryRecordRangeAsync([Entry("d"), Entry("e")], token)).Should().BeFalse();
+        log.List().Should().HaveCount(3);
+        AuditEvents.IsRefusal(ApprovalAuditEvents.Refused).Should().BeTrue();
+        AuditEvents.IsRefusal(AuditEvents.IssueRefused).Should().BeTrue();
+        AuditEvents.IsRefusal(AuditEvents.LaunchRefused).Should().BeTrue();
+        AuditEvents.IsRefusal(ApprovalAuditEvents.Recorded).Should().BeFalse();
     }
 
     [Fact]
@@ -441,5 +502,26 @@ public sealed class ApprovalServiceTests
     private sealed class UnavailableAudit : IAuditSink
     {
         public ValueTask<bool> TryRecordAsync(AuditEntry entry, CancellationToken cancellationToken) => ValueTask.FromResult(false);
+
+        public ValueTask<bool> TryRecordRangeAsync(IReadOnlyList<AuditEntry> entries, CancellationToken cancellationToken) => ValueTask.FromResult(false);
+    }
+
+    // A store that engages the global stop the first time it is asked for room: the stop arrives while an approval is in flight
+    private sealed class StopsWhenAsked(IApprovalStore inner, InMemoryKillSwitch killSwitch) : IApprovalStore
+    {
+        public int Free
+        {
+            get
+            {
+                killSwitch.Set(true);
+                return inner.Free;
+            }
+        }
+
+        public bool Contains(Approval approval) => inner.Contains(approval);
+
+        public bool TryAddRange(IReadOnlyList<Approval> approvals) => inner.TryAddRange(approvals);
+
+        public IReadOnlyList<Approval> List() => inner.List();
     }
 }
