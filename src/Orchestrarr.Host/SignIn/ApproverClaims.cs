@@ -9,10 +9,13 @@ namespace Orchestrarr.Host.SignIn;
 /// <summary>Who a signed-in person is for the approvals: read from the claims the identity provider put in the session, and from nothing else.</summary>
 internal static class ApproverClaims
 {
+    public const string PreferredUsername = "preferred_username";
+    public const string FullName = "name";
+
     private const int DisplayNameLength = 100;
 
-    // The largest second DateTimeOffset.FromUnixTimeSeconds accepts (year 9999): beyond it the moment is not a moment
-    private const long MaxUnixSeconds = 253_402_300_799;
+    // Beyond the latest moment there is, a number of seconds is not a moment
+    private static readonly long MaxUnixSeconds = DateTimeOffset.MaxValue.ToUnixTimeSeconds();
 
     /// <summary>
     /// The approver of this session, or null when nobody is signed in or the identity is not one the order can carry. The subject is the
@@ -33,13 +36,27 @@ internal static class ApproverClaims
     /// </summary>
     public static string? DisplayName(ClaimsPrincipal user)
     {
-        var name = new[] { "preferred_username", "name" }.Select(type => user.FindFirst(type)?.Value).FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
-        if (name is null)
+        var name = user.FindFirst(PreferredUsername)?.Value;
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            name = user.FindFirst(FullName)?.Value;
+        }
+        if (string.IsNullOrWhiteSpace(name))
         {
             return null;
         }
-        return name.Length > DisplayNameLength ? name[..DisplayNameLength] : name;
+        // Cut before a half of a pair of characters, never in the middle of one
+        var length = name.Length > DisplayNameLength && char.IsHighSurrogate(name[DisplayNameLength - 1]) ? DisplayNameLength - 1 : DisplayNameLength;
+        return name.Length > length ? name[..length] : name;
     }
+
+    /// <summary>
+    /// What the API asks of whoever calls it: a session with an identity the order can carry, and the reader group when there is one. An
+    /// operator always reads.
+    /// </summary>
+    public static bool CanRead(ClaimsPrincipal user, SignInSettings settings) =>
+        From(user, settings) is { } approver
+        && (settings.ReaderGroup is null || approver.IsOperator || IsMember(user, settings.GroupsClaim, settings.ReaderGroup));
 
     /// <summary>Whether the person belongs to the group, as the claim writes it: a group is compared exactly, so that a group of the same name elsewhere in a tree does not count.</summary>
     public static bool IsMember(ClaimsPrincipal user, string groupsClaim, string group) =>
@@ -58,6 +75,7 @@ internal static class ApproverClaims
         }
         catch (JsonException)
         {
+            // A claim that cannot be read means "not a member": the doubt never makes anybody an operator
             return [];
         }
     }
@@ -67,7 +85,7 @@ internal static class ApproverClaims
         settings.StepUpAcr is { Length: > 0 } acr
         && user.FindFirst(JwtRegisteredClaimNames.Acr)?.Value == acr
         && long.TryParse(user.FindFirst(JwtRegisteredClaimNames.AuthTime)?.Value, NumberStyles.None, CultureInfo.InvariantCulture, out var seconds)
-        && seconds is > 0 and <= MaxUnixSeconds
+        && seconds > 0 && seconds <= MaxUnixSeconds
             ? DateTimeOffset.FromUnixTimeSeconds(seconds)
             : null;
 }

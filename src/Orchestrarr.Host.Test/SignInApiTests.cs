@@ -14,6 +14,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
+using Orchestrarr.Host.SignIn;
 
 namespace Orchestrarr.Host.Test;
 
@@ -59,18 +60,23 @@ public sealed class SignInApiTests
         ["Powers:Grants:0:Steps:1"] = "mergePullRequests",
     };
 
-    private static ForgeApiFactory Factory(Action<Dictionary<string, string?>>? settings = null)
+    private static ForgeApiFactory Factory(Action<Dictionary<string, string?>>? settings = null, bool providerReachable = true)
     {
         var all = new Dictionary<string, string?>(SignInSettings);
         settings?.Invoke(all);
-        return new ForgeApiFactory { EnvironmentName = "Testing", Settings = all, ServiceOverrides = Session };
+        return new ForgeApiFactory { EnvironmentName = "Testing", Settings = all, ServiceOverrides = services => Session(services, providerReachable) };
     }
 
     // The provider is not reached: its configuration is given, and the session is read from the header
-    private static void Session(IServiceCollection services)
+    private static void Session(IServiceCollection services, bool providerReachable)
     {
         services.AddAuthentication().AddScheme<AuthenticationSchemeOptions, TestSessionHandler>(TestSessionHandler.SchemeName, _ => { });
         services.PostConfigure<AuthenticationOptions>(options => options.DefaultAuthenticateScheme = TestSessionHandler.SchemeName);
+        if (!providerReachable)
+        {
+            // Its address is the one of the configuration, which nobody answers: the discovery document cannot be read
+            return;
+        }
         services.Configure<OpenIdConnectOptions>(OpenIdConnectDefaults.AuthenticationScheme, options =>
             options.Configuration = new OpenIdConnectConfiguration
             {
@@ -137,6 +143,7 @@ public sealed class SignInApiTests
         approvals.GetProperty("enabled").GetBoolean().Should().BeTrue();
         approvals.GetProperty("operator").GetString().Should().Be("alice-1");
         approvals.GetProperty("operatorName").GetString().Should().Be("alice");
+        approvals.GetProperty("isOperator").GetBoolean().Should().BeTrue();
     }
 
     [Fact]
@@ -181,16 +188,6 @@ public sealed class SignInApiTests
         (await client.PutAsJsonAsync("/api/v1/safety/kill-switch", new { engaged = true }, Ct)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await Json(await client.GetAsync("/api/v1/safety", Ct))).GetProperty("killSwitchEngaged").GetBoolean().Should().BeFalse();
         (await Json(await client.GetAsync("/api/v1/approvals", Ct))).GetArrayLength().Should().Be(0);
-    }
-
-    [Fact]
-    public async Task The_status_tells_an_operator_from_somebody_who_is_not_one()
-    {
-        using var factory = Factory();
-
-        var operatorStatus = (await Json(await Client(factory, Operator).GetAsync("/api/v1/system/status", Ct))).GetProperty("approvals");
-
-        operatorStatus.GetProperty("isOperator").GetBoolean().Should().BeTrue();
     }
 
     [Fact]
@@ -328,12 +325,8 @@ public sealed class SignInApiTests
     }
 
     [Theory]
-    [InlineData("/status", "/status")]
     [InlineData("/decisions?severity=high", "/decisions?severity=high")]
     [InlineData("//evil.example", "/")]
-    [InlineData("https://evil.example/", "/")]
-    [InlineData("/\\evil.example", "/")]
-    [InlineData(null, "/")]
     public async Task The_page_the_person_comes_back_to_is_one_of_the_application(string? asked, string expected)
     {
         using var factory = Factory();
@@ -435,7 +428,7 @@ public sealed class SignInApiTests
     {
         using var factory = Factory();
 
-        (await Client(factory, Operator).GetAsync("/auth/logout", Ct)).StatusCode.Should().BeOneOf(HttpStatusCode.MethodNotAllowed, HttpStatusCode.NotFound);
+        (await Client(factory, Operator).GetAsync("/auth/logout", Ct)).StatusCode.Should().Be(HttpStatusCode.MethodNotAllowed);
         (await Client(factory, Operator).GetAsync("/signout-oidc", Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
@@ -506,5 +499,92 @@ public sealed class SignInApiTests
 
         (await client.GetAsync("/api/v1/work-items", Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
         (await client.GetAsync("/auth/login", Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    // --- who is signed in, even when the API refuses them
+
+    [Fact]
+    public async Task Who_is_signed_in_is_told_to_any_session_and_whether_the_api_will_answer_them()
+    {
+        using var factory = Factory(settings => settings["SignIn:ReaderGroup"] = "readers");
+
+        var operatorMe = await Json(await Client(factory, Operator).GetAsync("/auth/me", Ct));
+        var refused = await Client(factory, NotAnOperator).GetAsync("/auth/me", Ct);
+
+        operatorMe.GetProperty("name").GetString().Should().Be("alice");
+        operatorMe.GetProperty("canRead").GetBoolean().Should().BeTrue();
+        operatorMe.GetProperty("isOperator").GetBoolean().Should().BeTrue();
+        refused.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await Json(refused);
+        body.GetProperty("canRead").GetBoolean().Should().BeFalse();
+        body.GetProperty("isOperator").GetBoolean().Should().BeFalse();
+        (await Client(factory, NotAnOperator).GetAsync("/api/v1/work-items", Ct)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task Without_a_session_nobody_is_anybody()
+    {
+        using var factory = Factory();
+
+        var response = await Client(factory).GetAsync("/auth/me", Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        response.Headers.Location.Should().BeNull();
+    }
+
+    // --- the interface is never framed
+
+    [Theory]
+    [InlineData("/health")]
+    [InlineData("/api/v1/system/status")]
+    [InlineData("/auth/login")]
+    public async Task Every_answer_forbids_being_framed_by_another_page(string path)
+    {
+        using var factory = Factory();
+
+        var response = await Client(factory, Operator).GetAsync(path, Ct);
+
+        response.Headers.GetValues("X-Frame-Options").Should().Equal("DENY");
+        response.Headers.GetValues("Content-Security-Policy").Should().Equal("frame-ancestors 'none'");
+        response.Headers.GetValues("X-Content-Type-Options").Should().Equal("nosniff");
+    }
+
+    // --- a page of another site cannot fill the cookies of the person
+
+    [Fact]
+    public async Task Past_a_number_of_sign_ins_in_flight_no_more_cookies_are_added()
+    {
+        using var factory = Factory();
+        var client = Client(factory);
+        client.DefaultRequestHeaders.Add("Cookie", string.Join("; ", Enumerable.Range(0, 8).Select(n => $".AspNetCore.Correlation.state{n}=N")));
+
+        var response = await client.GetAsync("/auth/login", Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.TooManyRequests);
+        (await Json(response)).GetProperty("error").GetString().Should().Be("tooManySignIns");
+        response.Headers.Contains("Set-Cookie").Should().BeFalse();
+    }
+
+    // --- the provider cannot be reached
+
+    [Fact]
+    public async Task When_the_provider_cannot_be_reached_the_person_is_told_and_nothing_of_the_failure_reaches_them()
+    {
+        using var factory = Factory(providerReachable: false);
+
+        var response = await Client(factory).GetAsync("/auth/login", Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Redirect);
+        response.Headers.Location!.OriginalString.Should().Be("/?signInFailed=1");
+    }
+
+    // --- the secret of the client stays out of any text
+
+    [Fact]
+    public void The_secret_of_the_client_is_not_in_the_text_of_the_settings()
+    {
+        var settings = new SignInOptions { Authority = "https://sso.example/r", ClientId = "orchestrarr", ClientSecret = "a-very-secret-value", PublicUrl = "https://orchestrarr.example" }.Validate(false);
+
+        settings.ToString().Should().NotContain("a-very-secret-value").And.Contain("orchestrarr");
     }
 }

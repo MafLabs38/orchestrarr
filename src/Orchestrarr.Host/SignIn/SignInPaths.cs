@@ -8,7 +8,7 @@ internal static class SignInPaths
     public const string Callback = "/auth/callback";
     public const string SignedOut = "/auth/signed-out";
     public const string Home = "/";
-    public const string Api = "/api";
+    public const string Me = "/auth/me";
 
     /// <summary>Where a sign-in that failed sends the browser: the interface says so.</summary>
     public const string Failed = "/?signInFailed=1";

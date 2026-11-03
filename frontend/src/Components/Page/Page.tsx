@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 
 import translate from 'Utilities/translate';
 
+import AccountRefused from './AccountRefused';
 import styles from './Page.module.css';
 import PageHeader from './PageHeader';
 import PageSidebar from './PageSidebar';
@@ -18,6 +19,7 @@ export default function Page({ children }: Readonly<{ children: ReactNode }>) {
         <PageSidebar />
         <main id="main" className={styles.main}>
           <SignInFailed />
+          <AccountRefused />
           {children}
         </main>
       </div>

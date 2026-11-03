@@ -10,5 +10,5 @@ public sealed class OidcApprover(SignInSettings settings) : IApproverAccessor
 
     public Approver? Current(HttpContext context) => ApproverClaims.From(context.User, settings);
 
-    public string? DisplayName(HttpContext context) => context.User.Identity?.IsAuthenticated == true ? ApproverClaims.DisplayName(context.User) : null;
+    public string? DisplayName(HttpContext context) => Current(context) is null ? null : ApproverClaims.DisplayName(context.User);
 }

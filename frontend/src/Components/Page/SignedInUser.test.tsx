@@ -9,8 +9,9 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-// The status is read once for both: when the badge shows, the user has had its chance to show too
-function renderBeside() {
+// The status is read for the badge: when it shows, the session has been asked for too, and had its chance to show
+function renderBeside(session?: unknown) {
+  stubApi({ '/api/v1/system/status': status(), ...(session === undefined ? {} : { '/auth/me': session }) });
   renderWithProviders(
     <>
       <SignedInUser />
@@ -21,12 +22,8 @@ function renderBeside() {
 }
 
 describe('SignedInUser', () => {
-  it('says who is signed in by the name to show, and signs out with a form', async () => {
-    stubApi({
-      '/api/v1/system/status': status({}, { mode: 'openidconnect', operator: 'a1b2', operatorName: 'alice' }),
-    });
-
-    await renderBeside();
+  it('says who is signed in, and signs out with a form', async () => {
+    await renderBeside({ name: 'alice', canRead: true, isOperator: true });
 
     expect(await screen.findByText('Signed in as alice')).toBeInTheDocument();
     const button = screen.getByRole('button', { name: 'Sign out' });
@@ -36,22 +33,13 @@ describe('SignedInUser', () => {
     expect(form).toHaveAttribute('action', '/auth/logout');
   });
 
-  it('falls back on the identifier when there is no name', async () => {
-    stubApi({
-      '/api/v1/system/status': status({}, { mode: 'openidconnect', operator: 'a1b2', operatorName: null }),
-    });
+  it('offers the way out to an account that the API refuses', async () => {
+    await renderBeside({ name: 'carol', canRead: false, isOperator: false });
 
-    await renderBeside();
-
-    expect(await screen.findByText('Signed in as a1b2')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Sign out' })).toBeInTheDocument();
   });
 
-  it.each([
-    [{ mode: 'development' as const }],
-    [{ mode: 'openidconnect' as const, operator: null, operatorName: null, isOperator: false }],
-  ])('shows nothing where nobody has anything to sign out of', async (approvals) => {
-    stubApi({ '/api/v1/system/status': status({}, approvals) });
-
+  it('shows nothing where people do not sign in: the route is not there', async () => {
     await renderBeside();
 
     expect(screen.queryByRole('button', { name: 'Sign out' })).not.toBeInTheDocument();

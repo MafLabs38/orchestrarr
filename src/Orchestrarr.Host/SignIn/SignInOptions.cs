@@ -1,3 +1,6 @@
+using System.Diagnostics.CodeAnalysis;
+using System.Text;
+
 namespace Orchestrarr.Host.SignIn;
 
 /// <summary>
@@ -31,6 +34,15 @@ public sealed class SignInOptions
 
     /// <summary>A group whose members may read, without being operators. Unset: anybody who signed in may read.</summary>
     public string? ReaderGroup { get; set; }
+
+    /// <summary>
+    /// What the host asks of the provider. The groups must come back in the identity token: some providers only send them for a scope of their own
+    /// (add it here), or at the user-information endpoint (see <see cref="ClaimsFromUserInfo"/>).
+    /// </summary>
+    public List<string> Scopes { get; set; } = ["openid", "profile"];
+
+    /// <summary>Read the claims of the person at the provider's user-information endpoint too, during the sign-in. The access token is used for that call only and is not kept.</summary>
+    public bool ClaimsFromUserInfo { get; set; }
 
     /// <summary>The claim of the identity token that lists the groups of the person.</summary>
     public string GroupsClaim { get; set; } = "groups";
@@ -66,15 +78,19 @@ public sealed class SignInOptions
         {
             throw new InvalidOperationException("SignIn:OperatorGroup, SignIn:ReaderGroup and SignIn:GroupsClaim must be set, and a group has no space in it and is not just a slash.");
         }
+        if (!Scopes.Contains("openid") || Scopes.Any(scope => string.IsNullOrWhiteSpace(scope) || scope.Any(char.IsWhiteSpace)))
+        {
+            throw new InvalidOperationException("SignIn:Scopes must include openid, and a scope has no space in it.");
+        }
         if (SessionHours is < 1 or > 24)
         {
             throw new InvalidOperationException("SignIn:SessionHours must be between 1 and 24.");
         }
 
-        return new SignInSettings(authority, ClientId, ClientSecret, origin, OperatorGroup, ReaderGroup, GroupsClaim, StepUpAcr, TimeSpan.FromHours(SessionHours), KeysDirectory);
+        return new SignInSettings(authority, ClientId, ClientSecret, origin, OperatorGroup, ReaderGroup, GroupsClaim, StepUpAcr, TimeSpan.FromHours(SessionHours), KeysDirectory, [.. Scopes], ClaimsFromUserInfo);
     }
 
-    private static bool IsAbsolute(string? value, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out Uri? uri) => Uri.TryCreate(value, UriKind.Absolute, out uri);
+    private static bool IsAbsolute(string? value, [NotNullWhen(true)] out Uri? uri) => Uri.TryCreate(value, UriKind.Absolute, out uri);
 
     // https, or http for the loopback of a development machine
     private static bool AllowsScheme(Uri uri, bool allowCleartextOnLoopback) =>
@@ -94,8 +110,17 @@ public sealed record SignInSettings(
     string GroupsClaim,
     string? StepUpAcr,
     TimeSpan SessionLifetime,
-    string? KeysDirectory)
+    string? KeysDirectory,
+    IReadOnlyList<string> Scopes,
+    bool ClaimsFromUserInfo)
 {
+    // The secret of the client never reaches a log, an exception or a debugger through the text of this value
+    private bool PrintMembers(StringBuilder builder)
+    {
+        builder.Append($"Authority = {Authority}, ClientId = {ClientId}, Origin = {Origin}, OperatorGroup = {OperatorGroup}, ReaderGroup = {ReaderGroup}");
+        return true;
+    }
+
     /// <summary>The address the identity provider sends the browser back to.</summary>
     public Uri CallbackUrl => new(Origin, SignInPaths.Callback);
 

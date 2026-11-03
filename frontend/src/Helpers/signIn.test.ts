@@ -57,9 +57,6 @@ describe('signIn', () => {
     redirectToSignIn();
 
     expect(assign).not.toHaveBeenCalled();
-  });
-
-  it('reads the marker of a failed sign-in in the address', () => {
     expect(signInFailed('?signInFailed=1')).toBe(true);
     expect(signInFailed('?other=1')).toBe(false);
   });
@@ -89,13 +86,15 @@ describe('signIn', () => {
     expect(assign).toHaveBeenCalledWith('/auth/login?returnUrl=%2Fsystem%2Fstatus');
   });
 
-  it.each(requests)('is not what any other refusal of %s does', async (_name, request) => {
+  it.each([403, 500])('is not what a %i does, and it does not say the session held', async (code) => {
     const assign = stubLocation('/');
-    stubFetch(403);
+    redirectToSignIn();
+    stubFetch(code);
 
-    await expect(request()).rejects.toMatchObject({ status: 403 });
+    await expect(getJson('/api/v1/x')).rejects.toMatchObject({ status: code });
+    redirectToSignIn();
 
-    expect(assign).not.toHaveBeenCalled();
+    expect(assign).toHaveBeenCalledTimes(1);
   });
 
   it.each(requests)(

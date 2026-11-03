@@ -344,6 +344,17 @@ public sealed class SignInUnitTests
     }
 
     [Fact]
+    public void Clear_text_for_the_public_address_somewhere_else_than_the_loopback_is_refused_even_in_development()
+    {
+        var options = Valid();
+        options.PublicUrl = "http://orchestrarr.example";
+
+        var act = () => options.Validate(allowCleartextOnLoopback: true);
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*SignIn:PublicUrl*");
+    }
+
+    [Fact]
     public void An_ipv6_loopback_is_a_loopback()
     {
         var options = Valid();
@@ -410,7 +421,34 @@ public sealed class SignInUnitTests
 
         var act = () => options.Validate(allowCleartextOnLoopback: false);
 
-        act.Should().Throw<InvalidOperationException>();
+        act.Should().Throw<InvalidOperationException>().WithMessage("*SignIn:*");
+    }
+
+    public static TheoryData<string[]> BadScopes => new() { new[] { "profile" }, new[] { "openid", "pro file" }, new[] { "openid", " " } };
+
+    [Theory]
+    [MemberData(nameof(BadScopes))]
+    public void The_scopes_include_openid_and_a_scope_has_no_space_in_it(string[] scopes)
+    {
+        var options = Valid();
+        options.Scopes = [.. scopes];
+
+        var act = () => options.Validate(allowCleartextOnLoopback: false);
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*SignIn:Scopes*");
+    }
+
+    [Fact]
+    public void A_provider_that_gates_the_groups_behind_a_scope_or_the_user_information_is_configured_for_it()
+    {
+        var options = Valid();
+        options.Scopes = ["openid", "profile", "groups"];
+        options.ClaimsFromUserInfo = true;
+
+        var settings = options.Validate(allowCleartextOnLoopback: false);
+
+        settings.Scopes.Should().Equal("openid", "profile", "groups");
+        settings.ClaimsFromUserInfo.Should().BeTrue();
     }
 
     [Theory]

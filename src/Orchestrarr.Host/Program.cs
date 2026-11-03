@@ -41,11 +41,20 @@ builder.Services.AddSingleton<WorkItemCatalog>();
 var app = builder.Build();
 SandboxGuard.StopIfListeningBeyondLoopback(app, approvals);
 
+// The interface is never framed by another page: a click on it, with the session of the person, is the person's own
+app.Use(async (context, next) =>
+{
+    context.Response.Headers.XFrameOptions = "DENY";
+    context.Response.Headers.ContentSecurityPolicy = "frame-ancestors 'none'";
+    context.Response.Headers.XContentTypeOptions = "nosniff";
+    await next(context);
+});
+
 var api = app.MapGroup("/api/v1");
 if (signIn is not null)
 {
     // Everything the API says, reads included, is for a person who signed in: who approved what is not for anybody
-    app.UseSignIn(signIn, api);
+    app.ConfigureSignIn(signIn, api);
 }
 
 // For a probe of the deployment: it says the host is up and nothing else

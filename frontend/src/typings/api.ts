@@ -129,6 +129,13 @@ export interface SystemStatus {
 
 // Who may approve (the mode is "disabled", "development" or "openidconnect"), who the operator is (the identifier that counts, and the
 // name to show), and whether the global stop is engaged.
+// Who the session is, whatever it may do (GET /auth/me, only when people sign in): canRead false is an account the API refuses.
+export interface Session {
+  name: string | null;
+  canRead: boolean;
+  isOperator: boolean;
+}
+
 export type ApprovalMode = 'disabled' | 'development' | 'openidconnect';
 
 export interface ApprovalStatus {

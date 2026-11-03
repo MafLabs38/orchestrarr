@@ -74,7 +74,7 @@ internal static class ApprovalEndpoints
         return new(accessor.Mode.ToString().ToLowerInvariant(), accessor.Mode != ApprovalsMode.Disabled, approver?.Subject, accessor.DisplayName(context), approver is { IsPerson: true, IsOperator: true }, killSwitch.Engaged);
     }
 
-    // Who may call the two routes that record something: approving turned on, a local request, somebody signed in.
+    // Who may call the two routes that record something: approving turned on, a local request (the sandbox operator only), somebody signed in.
     private static (Approver? Approver, IResult? Refusal) Authorize(IApproverAccessor accessor, HttpContext context)
     {
         if (accessor.Mode == ApprovalsMode.Disabled)

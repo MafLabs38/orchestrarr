@@ -5,6 +5,11 @@ import { kinds } from 'Helpers/Props/kinds';
 import type { ApprovalStatus } from 'typings/api';
 import translate from 'Utilities/translate';
 
+// Why there is no button: approving is off, or the person is not an operator
+function whyNoButton(approvals: ApprovalStatus): string {
+  return translate(approvals.enabled ? 'KillSwitchOperatorsOnly' : 'KillSwitchUnavailable');
+}
+
 // The global stop (SPEC D-43): engaged, nothing is approved and nothing launches. Only an operator can engage or release it.
 export default function KillSwitch({ approvals }: Readonly<{ approvals: ApprovalStatus }>) {
   const killSwitch = useKillSwitch();
@@ -21,7 +26,7 @@ export default function KillSwitch({ approvals }: Readonly<{ approvals: Approval
           {approvals.killSwitchEngaged ? translate('KillSwitchRelease') : translate('KillSwitchEngage')}
         </Button>
       ) : (
-        <p>{translate(approvals.enabled ? 'KillSwitchOperatorsOnly' : 'KillSwitchUnavailable')}</p>
+        <p>{whyNoButton(approvals)}</p>
       )}
       {killSwitch.isError ? <Alert kind={kinds.DANGER}>{translate('KillSwitchFailed')}</Alert> : null}
     </section>

@@ -104,6 +104,8 @@ public sealed class ApprovalsApiTests
         approvals.GetProperty("mode").GetString().Should().Be("development");
         approvals.GetProperty("enabled").GetBoolean().Should().BeTrue();
         approvals.GetProperty("operator").GetString().Should().Be("dev-operator");
+        approvals.GetProperty("operatorName").GetString().Should().Be("dev-operator");
+        approvals.GetProperty("isOperator").GetBoolean().Should().BeTrue();
         approvals.GetProperty("killSwitchEngaged").GetBoolean().Should().BeFalse();
     }
 
@@ -550,6 +552,7 @@ public sealed class ApprovalsApiTests
         stop.StatusCode.Should().Be(HttpStatusCode.Forbidden);
         status.GetProperty("enabled").GetBoolean().Should().BeFalse();
         status.GetProperty("operator").ValueKind.Should().Be(JsonValueKind.Null);
+        status.GetProperty("isOperator").GetBoolean().Should().BeFalse();
         item.GetProperty("plan").EnumerateArray().Should().OnlyContain(s => !s.GetProperty("granted").GetBoolean());
     }
 
