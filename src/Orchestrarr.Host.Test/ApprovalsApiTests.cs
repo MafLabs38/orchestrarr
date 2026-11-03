@@ -42,6 +42,8 @@ internal sealed class FixedApprover(Approver? approver) : IApproverAccessor
     public ApprovalsMode Mode => ApprovalsMode.Development;
 
     public Approver? Current(HttpContext context) => approver;
+
+    public string? DisplayName(HttpContext context) => approver?.Subject;
 }
 
 public sealed class ApprovalsApiTests

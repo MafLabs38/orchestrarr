@@ -31,7 +31,7 @@
           "protocolMapper": "oidc-group-membership-mapper",
           "config": {
             "claim.name": "groups",
-            "full.path": "false",
+            "full.path": "true",
             "id.token.claim": "true",
             "access.token.claim": "false",
             "userinfo.token.claim": "false"

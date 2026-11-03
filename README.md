@@ -2,7 +2,7 @@
 
 > Act. A self-hosted orchestrator agent that coordinates worker agents to fix, update and verify, in the spirit of the *arr suite.
 
-**Status: first verticals, read-only.** Orchestrarr reads Portarr's findings and the dependency pull requests from GitHub, and shows them as decision cards. It holds **no write power yet**: nothing merges, deploys or writes to a repository. **Approving a card records a decision** (pull request, commit, steps, approver) in an in-memory queue and audit trail, with a global stop; no launcher takes the approvals, so nothing runs. Approving is off (`Approvals:Mode=Disabled`) unless the sandbox operator is configured. The roadmap is in [docs/SPEC.md](docs/SPEC.md) §8; the founding vision in [docs/VISION.md](docs/VISION.md).
+**Status: first verticals, read-only.** Orchestrarr reads Portarr's findings and the dependency pull requests from GitHub, and shows them as decision cards. It holds **no write power yet**: nothing merges, deploys or writes to a repository. **Approving a card records a decision** (pull request, commit, steps, approver) in an in-memory queue and audit trail, with a global stop; no launcher takes the approvals, so nothing runs. Approving is off (`Approvals:Mode=Disabled`) unless the sandbox operator (`Development`, loopback only) or the sign-in through an identity provider (`OpenIdConnect`, members of the operator group only) is configured. The roadmap is in [docs/SPEC.md](docs/SPEC.md) §8; the founding vision in [docs/VISION.md](docs/VISION.md).
 
 Orchestrarr reads the findings of [Portarr](https://github.com/MafLabs38/portarr) (vulnerable dependencies, outdated images, broken applications), plans the work, delegates it to worker agents, verifies that nothing regressed, and proposes the result as a pull request for a human to approve. Safety and approval gates are core concerns: no direct push, sandboxed workers, least privilege, bounded budgets, full audit trail. It works with Mnemarr, the companion long-term memory.
 
@@ -35,7 +35,7 @@ Needs the .NET 10 SDK and Node 22.
 # API, with the sample data of samples/ (http://127.0.0.1:7878)
 dotnet run --project src/Orchestrarr.Host
 
-# Interface with hot reload (http://127.0.0.1:5178, on the loopback only), proxying /api to the API
+# Interface with hot reload (http://127.0.0.1:5178, on the loopback only), proxying /api and /auth to the API
 cd frontend && yarn install && yarn dev
 
 # Tests and lint (see docs/TESTING.md)
@@ -49,8 +49,11 @@ cd frontend && yarn test && yarn lint && yarn stylelint && yarn format:check && 
 
 ```bash
 Approvals__Mode=OpenIdConnect SignIn__Authority=http://localhost:8081/realms/orchestrarr SignIn__ClientId=orchestrarr \
-  SignIn__ClientSecret=sandbox-only-client-secret SignIn__PublicUrl=http://localhost:5178 dotnet run --project src/Orchestrarr.Host
+  SignIn__ClientSecret=sandbox-only-client-secret SignIn__PublicUrl=http://localhost:5178 SignIn__OperatorGroup=/orchestrarr-operators \
+  dotnet run --project src/Orchestrarr.Host
 ```
+
+That secret is public, written in the sample realm for the sandbox: a real one goes through the environment or `dotnet user-secrets`, never a command line you keep. Keep `SignIn__PublicUrl=http://localhost:5178` as written (the sample realm only accepts that redirect address) and start the interface (`yarn dev`) as usual.
 
 To read a real Portarr instead of the sample, set `Portarr:BaseUrl` and give the key as `Portarr:ApiKey` through the environment (`Portarr__ApiKey`) or `dotnet user-secrets`: the key never goes in a file that is committed. Redirects are not followed, so the key only goes to that address; use https or a private network.
 
@@ -58,7 +61,7 @@ To read the dependency pull requests, give a GitHub token that can **only read**
 
 ### API
 
-Under `/api/v1` (anything else there is a 404). Two routes record something, and nothing here runs anything:
+Under `/api/v1` (anything else there is a 404, or a 401 without a session when the sign-in is on). The sign-in's own routes are under `/auth` (`login` and `logout` below, and `callback` and `signed-out`, which only the identity provider's redirects use); `GET /health` answers `{ "status": "ok" }` to a probe, with no session. Two routes record something, and nothing here runs anything:
 
 | Route | Gives |
 |---|---|
@@ -73,7 +76,7 @@ Under `/api/v1` (anything else there is a 404). Two routes record something, and
 | `GET /api/v1/safety` | The global stop: `{ "killSwitchEngaged" }` |
 | `PUT /api/v1/safety/kill-switch` | The global stop: `{ "engaged": true }`. Engaged, nothing is approved |
 
-Approval answers: `201` recorded; `401` `notSignedIn`; `403` `approvalsDisabled`, `hostNotAllowed`, `notAPerson`, `notAnOperator`; `404` `unknownWorkItem`; `409` `pullRequestsNotRead`, `planChanged`, `alreadyApproved`; `422` `nothingTicked`, `stepNotOffered`, `stepNotGranted`, `stepNotSupported`, `mergeNeedsValidation`, `noPullRequests`; `423` `killSwitchEngaged`; `503` `storeFull`, `auditUnavailable`. A draft pull request is never approved. The global stop answers `401` `notSignedIn` and `403` `approvalsDisabled`, `hostNotAllowed`, `notAnOperator`.
+Approval answers: `201` recorded; `401` `notSignedIn`; `403` `approvalsDisabled`, `hostNotAllowed`, `originNotAllowed`, `notAPerson`, `notAnOperator`; `404` `unknownWorkItem`; `409` `pullRequestsNotRead`, `planChanged`, `alreadyApproved`; `422` `nothingTicked`, `stepNotOffered`, `stepNotGranted`, `stepNotSupported`, `mergeNeedsValidation`, `noPullRequests`; `423` `killSwitchEngaged`; `503` `storeFull`, `auditUnavailable`. A draft pull request is never approved. The global stop answers `401` `notSignedIn` and `403` `approvalsDisabled`, `hostNotAllowed`, `originNotAllowed`, `notAnOperator`. With the sign-in on, a request without a session is a `401` with no body, on every route of the API (unknown ones included), and a session without an identity the order can carry, or outside the reader group, is a `403`; a change that does not come from the application's own origin (an `Origin` that is not `SignIn:PublicUrl`, or `Sec-Fetch-Site` saying another site) is a `403` `originNotAllowed`.
 
 ### Configuration
 
@@ -91,14 +94,17 @@ Approval answers: `201` recorded; `401` `notSignedIn`; `403` `approvalsDisabled`
 | `Powers:Grants` | none | What the operator grants: a list of `{ "Repository": "owner/name" or "*", "Steps": ["validate", "mergePullRequests"] }`. Off until listed. Checked at startup; outside Development a `*` grant may only cover `validate` |
 | `Approvals:Mode`, `Approvals:DevelopmentUser` | `Disabled`, `dev-operator` | `Disabled`: nobody can approve. `Development`: a fixed sandbox operator with no sign-in; **the host will not start** with it outside the Development environment or unless it listens on the loopback, and the routes that record something answer only to a local request (`localhost` or a loopback address, from a client on the loopback) |
 | `Approvals:Mode=OpenIdConnect`, `SignIn:Authority`, `SignIn:ClientId`, `SignIn:ClientSecret`, `SignIn:PublicUrl` | none | People sign in through the identity provider (authorization code flow with PKCE, a confidential client). The authority and the public address are https (http only on the loopback of a Development machine), the secret goes through the environment or `dotnet user-secrets`, never a file; the host does not start without them. The public address is where the browser reaches Orchestrarr (an origin): the redirect addresses and the origin accepted for a change are built from it |
-| `SignIn:OperatorGroup`, `SignIn:GroupsClaim` | `orchestrarr-operators`, `groups` | Members of the group (in that claim of the identity token) are operators; anybody else who signed in can read, not approve or stop |
-| `SignIn:StepUpAcr`, `SignIn:SessionHours`, `SignIn:KeysDirectory` | unset, 8, unset | The authentication context that counts as a second factor (read, not asked for yet); the length of a session (not extended by use); a folder for the keys that protect the session cookie, so that a restart or a second replica still reads it |
+| `SignIn:OperatorGroup`, `SignIn:ReaderGroup`, `SignIn:GroupsClaim` | `orchestrarr-operators`, unset, `groups` | Members of the operator group (in that claim of the identity token) are operators; anybody else who signed in can read, not approve or stop. A group is compared **exactly as the claim writes it**, so a provider that sends the full path of a group (Keycloak with *full path* on) is configured with it (`/orchestrarr-operators`), and a group of the same name elsewhere in a tree does not count. With a reader group, only its members and the operators read; **without one, anybody who signed in reads: every account of the provider's realm** |
+| `SignIn:StepUpAcr`, `SignIn:SessionHours`, `SignIn:KeysDirectory` | unset, 8, unset | The authentication context that counts as a second factor (read, not asked for yet); the length of a session in hours, 1 to 24 (not extended by use, and not revoked before: see ADR 0011); a folder for the keys that protect the session cookie, so that a restart or a second replica still reads it (a secret: without it the host warns, outside Development) |
+| `Approvals:Mode=OpenIdConnect`, no grant | | To sign in and read without approving anything, leave `Powers:Grants` empty: nothing is granted, so nothing can be approved |
 | `Approvals:QueueCapacity`, `Approvals:AuditCapacity` | 500, 2000 | How many approvals and trail entries are kept (in memory) before refusing |
 | `Fleet:SampleFile`, `Forge:SamplePullRequestsFile` | Development only | Sample data of `samples/`; a configured Portarr or token wins over them |
 
-`dotnet run` runs as Development: it enables the sandbox operator (`dev-operator`) and grants validate and merge on every repository, so the Approve button works. The image runs as Production, where approving is off, and it does not carry `appsettings.Development.json`. It listens on port 8080 as a non-root user: `docker run -p 8080:8080 -e Portarr__BaseUrl=... -e Portarr__ApiKey=... -e GitHub__Token=...`.
+**At the identity provider**, register a confidential client with the authorization code flow and PKCE (S256), the redirect address `<SignIn:PublicUrl>/auth/callback` and the post-logout address `<SignIn:PublicUrl>/`, the scopes `openid profile`, and a mapper that puts the groups in the **identity token** (claim `SignIn:GroupsClaim`). `samples/keycloak` is a worked example.
 
-> **Security.** With the default `Disabled` the API has **no authentication**: it reads and shows the state of your fleet to anybody who can reach it, and approving answers 403. Either turn the sign-in on (`Approvals:Mode=OpenIdConnect`: every route of the API then needs a session, and approving needs the operator group), or put the image behind an authenticating front (single sign-on, a private network) and do not publish its port. The sandbox operator (`Development`) is refused outside Development and off the loopback. Never start the image with `ASPNETCORE_ENVIRONMENT=Development`.
+`dotnet run` runs as Development: it enables the sandbox operator (`dev-operator`) and grants validate and merge on every repository, so the Approve button works. The image runs as Production, where approving is off unless you turn the sign-in on (`-e Approvals__Mode=OpenIdConnect -e SignIn__Authority=… -e SignIn__ClientId=… -e SignIn__ClientSecret=… -e SignIn__PublicUrl=https://…`, and keep the session keys in a volume with `SignIn__KeysDirectory`), and it does not carry `appsettings.Development.json`. It listens on port 8080 as a non-root user: `docker run -p 8080:8080 -e Portarr__BaseUrl=... -e Portarr__ApiKey=... -e GitHub__Token=...`.
+
+> **Security.** With the default `Disabled` the API has **no authentication**: it reads and shows the state of your fleet to anybody who can reach it, and approving answers 403. Either turn the sign-in on (`Approvals:Mode=OpenIdConnect`: every route of the API then needs a session, approving needs the operator group, and the files of the interface stay public since they say nothing about the fleet), or put the image behind an authenticating front (single sign-on, a private network) and do not publish its port. The sandbox operator (`Development`) is refused outside Development and off the loopback. Never start the image with `ASPNETCORE_ENVIRONMENT=Development`.
 
 ## License
 

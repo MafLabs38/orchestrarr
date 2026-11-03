@@ -93,6 +93,21 @@ describe('Status', () => {
     expect(screen.getByText('Only a signed-in operator can use the global stop.')).toBeInTheDocument();
   });
 
+  it('offers no global stop to somebody who is signed in but is not an operator, and says why', async () => {
+    stubApi({
+      '/api/v1/system/status': status(
+        {},
+        { mode: 'openidconnect', operator: 'bob-2', operatorName: 'bob', isOperator: false },
+      ),
+    });
+
+    renderWithProviders(<Status />);
+
+    expect(await screen.findByText('Signed in: bob')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /global stop/ })).not.toBeInTheDocument();
+    expect(screen.getByText('Only an operator can use the global stop.')).toBeInTheDocument();
+  });
+
   it('engages the global stop with a PUT', async () => {
     const fetchMock = vi.fn((_input: string, init?: RequestInit) =>
       Promise.resolve(

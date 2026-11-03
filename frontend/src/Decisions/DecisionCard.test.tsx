@@ -209,6 +209,15 @@ describe('DecisionCard approval', () => {
     expect(approveButton()).toBeDisabled();
   });
 
+  it('cannot be approved by somebody who is signed in but is not an operator, and says so', async () => {
+    stubApproving({ mode: 'openidconnect', operator: 'bob-2', operatorName: 'bob', isOperator: false });
+
+    renderWithProviders(<DecisionCard item={granted} />);
+
+    await waitFor(() => expect(approveButton()).toHaveAccessibleDescription(/not an operator/));
+    expect(approveButton()).toBeDisabled();
+  });
+
   it('cannot be approved while the global stop is engaged', async () => {
     stubApproving({ killSwitchEngaged: true });
 

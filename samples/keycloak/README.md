@@ -11,7 +11,7 @@ The realm `orchestrarr` has:
 | What | Value |
 |---|---|
 | Client | `orchestrarr`, confidential, secret `sandbox-only-client-secret`, authorization code flow with PKCE (S256), redirect `http://localhost:5178/auth/callback` |
-| Group | `orchestrarr-operators`, sent in the `groups` claim of the identity token |
+| Group | `/orchestrarr-operators` (full path), sent in the `groups` claim of the identity token |
 | `alice` / `alice` | a member of the group: an operator |
 | `bob` / `bob` | not a member: can read, cannot approve or stop |
 

@@ -1,4 +1,4 @@
-import { redirectToSignIn, signInHolds } from 'Helpers/signIn';
+import { noteSession } from 'Helpers/signIn';
 
 import { ApiError } from './useApiQuery';
 
@@ -28,12 +28,9 @@ export default async function sendJson<T>(method: 'POST' | 'PUT', path: string, 
     headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
+  noteSession(response);
   if (!response.ok) {
-    if (response.status === 401) {
-      redirectToSignIn();
-    }
     throw new ApiRefusal(response.status, await errorCode(response));
   }
-  signInHolds();
   return (await response.json()) as T;
 }

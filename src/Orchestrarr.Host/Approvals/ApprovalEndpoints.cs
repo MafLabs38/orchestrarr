@@ -68,8 +68,11 @@ internal static class ApprovalEndpoints
         });
     }
 
-    public static ApprovalStatus StatusOf(IApproverAccessor accessor, HttpContext context, IKillSwitchControl killSwitch) =>
-        new(accessor.Mode.ToString().ToLowerInvariant(), accessor.Mode != ApprovalsMode.Disabled, accessor.Current(context)?.Subject, accessor.DisplayName(context), killSwitch.Engaged);
+    public static ApprovalStatus StatusOf(IApproverAccessor accessor, HttpContext context, IKillSwitchControl killSwitch)
+    {
+        var approver = accessor.Current(context);
+        return new(accessor.Mode.ToString().ToLowerInvariant(), accessor.Mode != ApprovalsMode.Disabled, approver?.Subject, accessor.DisplayName(context), approver is { IsPerson: true, IsOperator: true }, killSwitch.Engaged);
+    }
 
     // Who may call the two routes that record something: approving turned on, a local request, somebody signed in.
     private static (Approver? Approver, IResult? Refusal) Authorize(IApproverAccessor accessor, HttpContext context)

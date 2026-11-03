@@ -75,6 +75,9 @@ function approvalHint(approvals: ApprovalStatus | undefined, plan: PlanStep[], p
   if (!approvals?.enabled) {
     return translate('ApprovalDisabledHint');
   }
+  if (!approvals.isOperator) {
+    return translate('ApprovalNotOperatorHint');
+  }
   if (approvals.killSwitchEngaged) {
     return translate('ApprovalStoppedHint');
   }
@@ -115,6 +118,7 @@ export default function DecisionCard({ item }: Readonly<{ item: WorkItem }>) {
   const approvable = item.plan.filter((step) => isChecked(step) && step.granted && isApprovable(step));
   const canApprove =
     approvals?.enabled === true &&
+    approvals.isOperator &&
     !approvals.killSwitchEngaged &&
     approvable.length > 0 &&
     pullRequestsRead &&

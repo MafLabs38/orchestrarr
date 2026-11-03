@@ -1,6 +1,6 @@
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 
-import { redirectToSignIn, signInHolds } from 'Helpers/signIn';
+import { noteSession } from 'Helpers/signIn';
 
 // How often the screens read again; the server keeps a read for about as long (WorkItems:CacheDuration)
 export const refreshIntervalMs = 30_000;
@@ -16,13 +16,10 @@ export class ApiError extends Error {
 
 export async function getJson<T>(path: string): Promise<T> {
   const response = await fetch(path, { headers: { Accept: 'application/json' } });
+  noteSession(response);
   if (!response.ok) {
-    if (response.status === 401) {
-      redirectToSignIn();
-    }
     throw new ApiError(response.status, `${response.status} ${response.statusText}`);
   }
-  signInHolds();
   return (await response.json()) as T;
 }
 

@@ -12,7 +12,7 @@ export default function KillSwitch({ approvals }: Readonly<{ approvals: Approval
   return (
     <section aria-label={translate('KillSwitch')}>
       {approvals.killSwitchEngaged ? <Alert kind={kinds.DANGER}>{translate('KillSwitchEngaged')}</Alert> : null}
-      {approvals.enabled ? (
+      {approvals.enabled && approvals.isOperator ? (
         <Button
           kind={approvals.killSwitchEngaged ? kinds.DEFAULT : kinds.DANGER}
           disabled={killSwitch.isPending}
@@ -21,7 +21,7 @@ export default function KillSwitch({ approvals }: Readonly<{ approvals: Approval
           {approvals.killSwitchEngaged ? translate('KillSwitchRelease') : translate('KillSwitchEngage')}
         </Button>
       ) : (
-        <p>{translate('KillSwitchUnavailable')}</p>
+        <p>{translate(approvals.enabled ? 'KillSwitchOperatorsOnly' : 'KillSwitchUnavailable')}</p>
       )}
       {killSwitch.isError ? <Alert kind={kinds.DANGER}>{translate('KillSwitchFailed')}</Alert> : null}
     </section>

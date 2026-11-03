@@ -129,11 +129,15 @@ export interface SystemStatus {
 
 // Who may approve (the mode is "disabled", "development" or "openidconnect"), who the operator is (the identifier that counts, and the
 // name to show), and whether the global stop is engaged.
+export type ApprovalMode = 'disabled' | 'development' | 'openidconnect';
+
 export interface ApprovalStatus {
-  mode: string;
+  mode: ApprovalMode;
   enabled: boolean;
   operator: string | null;
   operatorName: string | null;
+  // Only an operator is offered approving and the global stop
+  isOperator: boolean;
   killSwitchEngaged: boolean;
 }
 
@@ -170,6 +174,7 @@ export type ApprovalError =
   | 'nothingTicked'
   | 'planChanged'
   | 'hostNotAllowed'
+  | 'originNotAllowed'
   | 'stepNotOffered'
   | 'stepNotGranted'
   | 'stepNotSupported'

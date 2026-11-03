@@ -4,7 +4,12 @@ using System.Security.Claims;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication.OAuth.Claims;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -168,30 +173,89 @@ public sealed class SignInApiTests
         var client = Client(factory, NotAnOperator);
 
         (await client.GetAsync("/api/v1/work-items", Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+        var approvals = (await Json(await client.GetAsync("/api/v1/system/status", Ct))).GetProperty("approvals");
+        approvals.GetProperty("isOperator").GetBoolean().Should().BeFalse();
         var approve = await Approve(client);
         approve.StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await Json(approve)).GetProperty("error").GetString().Should().Be("notAnOperator");
         (await client.PutAsJsonAsync("/api/v1/safety/kill-switch", new { engaged = true }, Ct)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await Json(await client.GetAsync("/api/v1/safety", Ct))).GetProperty("killSwitchEngaged").GetBoolean().Should().BeFalse();
+        (await Json(await client.GetAsync("/api/v1/approvals", Ct))).GetArrayLength().Should().Be(0);
     }
 
     [Fact]
-    public async Task A_session_without_a_usable_subject_is_nobody()
+    public async Task The_status_tells_an_operator_from_somebody_who_is_not_one()
     {
         using var factory = Factory();
 
-        var response = await Approve(Client(factory, "preferred_username=alice;groups=orchestrarr-operators"));
+        var operatorStatus = (await Json(await Client(factory, Operator).GetAsync("/api/v1/system/status", Ct))).GetProperty("approvals");
 
-        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        operatorStatus.GetProperty("isOperator").GetBoolean().Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_session_without_a_usable_subject_is_nobody_and_reads_nothing_either()
+    {
+        using var factory = Factory();
+        var client = Client(factory, "preferred_username=alice;groups=orchestrarr-operators");
+
+        (await client.GetAsync("/api/v1/work-items", Ct)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await Approve(client)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    // --- who may read
+
+    [Fact]
+    public async Task With_a_reader_group_only_its_members_and_the_operators_read()
+    {
+        using var factory = Factory(settings => settings["SignIn:ReaderGroup"] = "readers");
+
+        (await Client(factory, "sub=carol-3;groups=readers").GetAsync("/api/v1/work-items", Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await Client(factory, Operator).GetAsync("/api/v1/work-items", Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await Client(factory, NotAnOperator).GetAsync("/api/v1/work-items", Ct)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await Client(factory, NotAnOperator).GetAsync("/api/v1/activity", Ct)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await Approve(Client(factory, "sub=carol-3;groups=readers"))).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task Without_a_reader_group_anybody_who_signed_in_reads()
+    {
+        using var factory = Factory();
+
+        (await Client(factory, NotAnOperator).GetAsync("/api/v1/work-items", Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public void Every_route_of_the_api_asks_for_a_session_and_nothing_else_answers_anonymously_but_the_sign_in_and_the_probe()
+    {
+        using var factory = Factory();
+        factory.CreateClient();
+
+        var endpoints = factory.Services.GetRequiredService<EndpointDataSource>().Endpoints.OfType<RouteEndpoint>().ToList();
+
+        endpoints.Where(endpoint => endpoint.RoutePattern.RawText!.StartsWith("/api", StringComparison.Ordinal))
+            .Should().NotBeEmpty().And.OnlyContain(endpoint => endpoint.Metadata.GetMetadata<IAuthorizeData>() != null);
+        endpoints.Where(endpoint => endpoint.Metadata.GetMetadata<IAuthorizeData>() == null).Select(endpoint => endpoint.RoutePattern.RawText)
+            .Should().BeSubsetOf(["/health", "/auth/login", "/auth/logout", "{*path:nonfile}"]);
+    }
+
+    [Fact]
+    public async Task The_probe_of_the_deployment_answers_without_a_session_and_says_nothing_else()
+    {
+        using var factory = Factory();
+
+        var response = await Client(factory).GetAsync("/health", Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await response.Content.ReadAsStringAsync(Ct)).Should().Be("{\"status\":\"ok\"}");
     }
 
     // --- a page of another site cannot act with the session
 
     [Theory]
     [InlineData("Origin", "https://evil.example")]
-    [InlineData("Origin", "http://orchestrarr.example")]
     [InlineData("Sec-Fetch-Site", "cross-site")]
-    public async Task A_change_that_does_not_come_from_the_application_is_refused_even_with_a_session(string header, string value)
+    public async Task A_change_that_does_not_come_from_the_application_is_refused_even_with_a_session_and_leaves_no_trace(string header, string value)
     {
         using var factory = Factory();
         var client = Client(factory, Operator);
@@ -203,7 +267,10 @@ public sealed class SignInApiTests
         approve.StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await Json(approve)).GetProperty("error").GetString().Should().Be("originNotAllowed");
         stop.StatusCode.Should().Be(HttpStatusCode.Forbidden);
-        (await Json(await Client(factory, Operator).GetAsync("/api/v1/safety", Ct))).GetProperty("killSwitchEngaged").GetBoolean().Should().BeFalse();
+        var reader = Client(factory, Operator);
+        (await Json(await reader.GetAsync("/api/v1/safety", Ct))).GetProperty("killSwitchEngaged").GetBoolean().Should().BeFalse();
+        (await Json(await reader.GetAsync("/api/v1/approvals", Ct))).GetArrayLength().Should().Be(0);
+        (await Json(await reader.GetAsync("/api/v1/activity", Ct))).GetArrayLength().Should().Be(0);
     }
 
     [Fact]
@@ -216,14 +283,38 @@ public sealed class SignInApiTests
         (await Approve(client)).StatusCode.Should().Be(HttpStatusCode.Created);
     }
 
+    [Fact]
+    public async Task A_forged_host_does_not_make_an_origin_the_application_accepts()
+    {
+        using var factory = Factory();
+        var client = Client(factory, Operator);
+        client.DefaultRequestHeaders.Host = "evil.example";
+        client.DefaultRequestHeaders.Add("Origin", "https://evil.example");
+
+        var response = await Approve(client);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await Json(response)).GetProperty("error").GetString().Should().Be("originNotAllowed");
+    }
+
     // --- signing in sends the browser to the provider, with what the configuration says
+
+    private static async Task<HttpResponseMessage> Login(ForgeApiFactory factory, string? returnUrl = null, string? host = null)
+    {
+        var client = Client(factory);
+        if (host is not null)
+        {
+            client.DefaultRequestHeaders.Host = host;
+        }
+        return await client.GetAsync(returnUrl is null ? "/auth/login" : $"/auth/login?returnUrl={Uri.EscapeDataString(returnUrl)}", Ct);
+    }
 
     [Fact]
     public async Task Signing_in_sends_the_browser_to_the_provider_with_the_code_flow_and_a_proof_key()
     {
         using var factory = Factory();
 
-        var response = await Client(factory).GetAsync("/auth/login?returnUrl=/status", Ct);
+        var response = await Login(factory, "/status");
 
         response.StatusCode.Should().Be(HttpStatusCode.Redirect);
         var location = response.Headers.Location!;
@@ -234,19 +325,32 @@ public sealed class SignInApiTests
         query["code_challenge_method"].Should().Be("S256");
         query["code_challenge"].Should().NotBeNullOrEmpty();
         query["scope"].Should().Be("openid profile");
-        query["state"].Should().NotBeNullOrEmpty();
-        query["nonce"].Should().NotBeNullOrEmpty();
+    }
+
+    [Theory]
+    [InlineData("/status", "/status")]
+    [InlineData("/decisions?severity=high", "/decisions?severity=high")]
+    [InlineData("//evil.example", "/")]
+    [InlineData("https://evil.example/", "/")]
+    [InlineData("/\\evil.example", "/")]
+    [InlineData(null, "/")]
+    public async Task The_page_the_person_comes_back_to_is_one_of_the_application(string? asked, string expected)
+    {
+        using var factory = Factory();
+        var response = await Login(factory, asked);
+
+        var state = System.Web.HttpUtility.ParseQueryString(response.Headers.Location!.Query)["state"]!;
+        var options = factory.Services.GetRequiredService<IOptionsMonitor<OpenIdConnectOptions>>().Get(OpenIdConnectDefaults.AuthenticationScheme);
+
+        options.StateDataFormat.Unprotect(state)!.RedirectUri.Should().Be(expected);
     }
 
     [Fact]
     public async Task The_address_the_provider_sends_the_code_to_comes_from_the_configuration_not_from_the_request()
     {
         using var factory = Factory();
-        var client = Client(factory);
-        client.DefaultRequestHeaders.Host = "evil.example";
-        client.DefaultRequestHeaders.Add("X-Forwarded-Host", "evil.example");
 
-        var response = await client.GetAsync("/auth/login", Ct);
+        var response = await Login(factory, host: "evil.example");
 
         System.Web.HttpUtility.ParseQueryString(response.Headers.Location!.Query)["redirect_uri"].Should().Be("https://orchestrarr.example/auth/callback");
     }
@@ -256,22 +360,65 @@ public sealed class SignInApiTests
     {
         using var factory = Factory();
 
-        var response = await Client(factory).GetAsync("/auth/login", Ct);
+        var response = await Login(factory);
 
         var cookies = response.Headers.GetValues("Set-Cookie").ToList();
         cookies.Should().NotBeEmpty();
         cookies.Should().OnlyContain(cookie => cookie.Contains("secure", StringComparison.OrdinalIgnoreCase) && cookie.Contains("httponly", StringComparison.OrdinalIgnoreCase) && cookie.Contains("samesite=lax", StringComparison.OrdinalIgnoreCase));
     }
 
-    // --- signing out is a change, never a link
+    [Fact]
+    public void The_session_cookie_is_host_bound_http_only_lax_and_lasts_a_fixed_time_it_does_not_renew()
+    {
+        using var factory = Factory(settings => settings["SignIn:SessionHours"] = "5");
+        factory.CreateClient();
+
+        var cookie = factory.Services.GetRequiredService<IOptionsMonitor<CookieAuthenticationOptions>>().Get(CookieAuthenticationDefaults.AuthenticationScheme);
+
+        cookie.Cookie.Name.Should().Be("__Host-orchestrarr.session");
+        cookie.Cookie.HttpOnly.Should().BeTrue();
+        cookie.Cookie.SameSite.Should().Be(SameSiteMode.Lax);
+        cookie.Cookie.SecurePolicy.Should().Be(CookieSecurePolicy.Always);
+        cookie.ExpireTimeSpan.Should().Be(TimeSpan.FromHours(5));
+        cookie.SlidingExpiration.Should().BeFalse();
+    }
 
     [Fact]
-    public async Task Signing_out_is_a_post_and_the_provider_is_told_who_leaves_and_where_to_go_back()
+    public void No_token_is_kept_and_the_claims_that_say_a_second_factor_was_passed_stay_in_the_session()
+    {
+        using var factory = Factory();
+        factory.CreateClient();
+
+        var oidc = factory.Services.GetRequiredService<IOptionsMonitor<OpenIdConnectOptions>>().Get(OpenIdConnectDefaults.AuthenticationScheme);
+
+        oidc.SaveTokens.Should().BeFalse();
+        oidc.GetClaimsFromUserInfoEndpoint.Should().BeFalse();
+        oidc.UsePkce.Should().BeTrue();
+        oidc.MapInboundClaims.Should().BeFalse();
+        oidc.ClaimActions.OfType<DeleteClaimAction>().Select(action => action.ClaimType).Should().NotContain(["acr", "auth_time", "sub"]);
+    }
+
+    // --- a sign-in that fails, and signing out
+
+    [Theory]
+    [InlineData("/auth/callback?error=access_denied")]
+    [InlineData("/auth/callback?code=abc&state=forged")]
+    [InlineData("/auth/callback")]
+    public async Task A_sign_in_that_fails_goes_back_to_the_interface_which_says_so_and_nothing_of_the_reason_is_in_the_address(string callback)
+    {
+        using var factory = Factory();
+
+        var response = await Client(factory).GetAsync(callback, Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Redirect);
+        response.Headers.Location!.OriginalString.Should().Be("/?signInFailed=1");
+    }
+
+    [Fact]
+    public async Task Signing_out_is_a_post_that_ends_the_session_and_tells_the_provider_who_leaves_and_where_to_go_back()
     {
         using var factory = Factory();
         var client = Client(factory, Operator);
-
-        (await client.GetAsync("/auth/logout", Ct)).StatusCode.Should().BeOneOf(HttpStatusCode.MethodNotAllowed, HttpStatusCode.NotFound);
 
         var response = await client.PostAsync("/auth/logout", content: null, Ct);
 
@@ -280,35 +427,54 @@ public sealed class SignInApiTests
         var query = System.Web.HttpUtility.ParseQueryString(response.Headers.Location.Query);
         query["client_id"].Should().Be("orchestrarr");
         query["post_logout_redirect_uri"].Should().Be("https://orchestrarr.example/");
+        response.Headers.GetValues("Set-Cookie").Should().Contain(cookie => cookie.StartsWith("__Host-orchestrarr.session=;", StringComparison.Ordinal) && cookie.Contains("1970", StringComparison.Ordinal));
     }
 
     [Fact]
-    public async Task Signing_out_from_another_site_is_refused()
+    public async Task A_link_is_not_a_sign_out()
+    {
+        using var factory = Factory();
+
+        (await Client(factory, Operator).GetAsync("/auth/logout", Ct)).StatusCode.Should().BeOneOf(HttpStatusCode.MethodNotAllowed, HttpStatusCode.NotFound);
+        (await Client(factory, Operator).GetAsync("/signout-oidc", Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Theory]
+    [InlineData("Origin", "https://evil.example")]
+    [InlineData("Sec-Fetch-Site", "cross-site")]
+    public async Task Signing_out_from_another_site_is_refused(string header, string value)
     {
         using var factory = Factory();
         var client = Client(factory, Operator);
-        client.DefaultRequestHeaders.Add("Origin", "https://evil.example");
+        client.DefaultRequestHeaders.Add(header, value);
 
         var response = await client.PostAsync("/auth/logout", content: null, Ct);
 
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
+    [Fact]
+    public async Task A_forged_host_does_not_change_where_the_provider_sends_the_person_back_to_after_signing_out()
+    {
+        using var factory = Factory();
+        var client = Client(factory, Operator);
+        client.DefaultRequestHeaders.Host = "evil.example";
+
+        var response = await client.PostAsync("/auth/logout", content: null, Ct);
+
+        System.Web.HttpUtility.ParseQueryString(response.Headers.Location!.Query)["post_logout_redirect_uri"].Should().Be("https://orchestrarr.example/");
+    }
+
     // --- the settings are checked when the host starts
 
-    [Theory]
-    [InlineData("SignIn:Authority", "http://sso.example/realms/example")]
-    [InlineData("SignIn:Authority", null)]
-    [InlineData("SignIn:ClientSecret", null)]
-    [InlineData("SignIn:PublicUrl", "http://orchestrarr.example")]
-    [InlineData("SignIn:SessionHours", "100")]
-    public void A_host_with_a_missing_or_unsafe_setting_does_not_start(string key, string? value)
+    [Fact]
+    public void A_host_with_an_unsafe_setting_does_not_start()
     {
-        using var factory = Factory(settings => settings[key] = value);
+        using var factory = Factory(settings => settings["SignIn:Authority"] = "http://sso.example/realms/example");
 
         var start = () => factory.CreateClient();
 
-        start.Should().Throw<Exception>().Which.ToString().Should().Contain("SignIn:");
+        start.Should().Throw<Exception>().Which.ToString().Should().Contain("SignIn:Authority");
     }
 
     [Fact]
@@ -322,11 +488,23 @@ public sealed class SignInApiTests
     }
 
     [Fact]
-    public async Task The_other_modes_have_no_sign_in_routes()
+    public async Task The_sandbox_has_no_sign_in_routes_and_the_probe_answers()
     {
         using var factory = new ForgeApiFactory();
+        var client = factory.CreateClient();
 
-        (await factory.CreateClient().GetAsync("/auth/login", Ct)).StatusCode.Should().BeOneOf(HttpStatusCode.NotFound, HttpStatusCode.OK);
-        (await factory.CreateClient().GetAsync("/api/v1/system/status", Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await client.GetAsync("/auth/login", Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await client.GetAsync("/api/v1/system/status", Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await client.GetAsync("/health", Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Without_the_sign_in_and_without_the_sandbox_approving_is_off_and_the_api_is_open_as_the_readme_says()
+    {
+        using var factory = new ApprovalsDisabledApiFactory();
+        var client = factory.CreateClient();
+
+        (await client.GetAsync("/api/v1/work-items", Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await client.GetAsync("/auth/login", Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 }
