@@ -66,7 +66,7 @@ Branches `main` (stable releases) and `develop` (integration) are protected by G
 3. git push origin feature/<issue>-<short-description>
 4. gh pr create --base develop
 5. CI green + review -> squash merge into develop
-6. When develop is stable -> release PR develop -> main
+6. When develop is stable -> release PR develop -> main, merged with a **merge commit, never squashed** (semantic-release reads its commits, [ADR 0009](docs/adr/0009-releases-are-decided-by-semantic-release-from-main.md)); the pipeline then tags the version and the cluster's GitOps deploys it
 ```
 
 Prefixes: `feature/`, `fix/`, `chore/`, `docs/`. Conventional Commits: `feat(worker): ...`, `fix(queue): ...`, `docs(spec): ...`, `chore(ci): ...`.

@@ -13,6 +13,10 @@ Orchestrarr reads the findings of [Portarr](https://github.com/MafLabs38/portarr
 | [docs/VISION.md](docs/VISION.md) | Why, what it must do, relation to Portarr, safety model, open questions |
 | [CLAUDE.md](CLAUDE.md) | Rules for AI assistants working in this repository |
 
+## Releases
+
+A release is a pull request `develop → main`, merged with a **merge commit** (`main` refuses squash: semantic-release reads the commits of the pull request, [ADR 0009](docs/adr/0009-releases-are-decided-by-semantic-release-from-main.md)). The pipeline then picks the version from the Conventional Commits (`feat` minor, `fix` patch, below 1.0 a breaking change is a minor), tags it, publishes the GitHub release and the image `ghcr.io/maflabs38/orchestrarr:<version>`. The title of every pull request into `develop` is a Conventional Commit and decides the version. The cluster's GitOps repository follows the newest version tag.
+
 ## Repository settings
 
 The GitHub repository, its branches, rulesets and labels are declared as code in `repos/orchestrarr.yaml` of `MafLabs38/github-template`: change a setting with a pull request there, never in the GitHub settings. `ci.yml`, `codeql.yml` and `mutation.yml` are the pipeline (see [docs/TESTING.md](docs/TESTING.md)). CodeQL runs but does not gate merges: the ruleset waits for CodeQL results, so a skipped CodeQL would block every merge.

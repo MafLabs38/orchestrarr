@@ -32,7 +32,7 @@ Rules: a test protects a behavior someone relies on, runs in milliseconds, and f
 - **Light lane** (a pull request into `develop`): lint, backend and frontend tests with coverage, security scans.
 - **Full lane** adds SonarQube. It runs on every push to `develop` and `main`, on every pull request into `main`, on a pull request labelled `full-ci` (add the label before pushing) and on demand.
 - **Skipping.** A **draft** pull request, or one labelled **`skip-quality`**, stays on the light lane and CodeQL does not run on it: the long checks run when it is marked ready, or never when skipped on purpose. Build and tests always run.
-- Only `develop` and `main` publish an image; a pull request never does.
+- Only `develop` and `main` publish an image; a pull request never does. A push to `main` also runs semantic-release, which tags the version and the image with it ([ADR 0009](adr/0009-releases-are-decided-by-semantic-release-from-main.md)); `main` takes merge commits only.
 
 ## 4. Thresholds
 

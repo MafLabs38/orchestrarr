@@ -1,0 +1,15 @@
+{
+  "name": "orchestrarr",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Self-hosted orchestrator agent that coordinates worker agents to keep a fleet of applications healthy, in the spirit of the *arr suite",
+  "license": "GPL-3.0-or-later",
+  "packageManager": "yarn@1.22.22",
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@semantic-release/exec": "7.1.0",
+    "semantic-release": "25.0.9"
+  }
+}
