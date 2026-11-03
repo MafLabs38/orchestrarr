@@ -1,0 +1,30 @@
+# 0012 — One launcher and one Vault role per environment; the badge has a tier
+
+- **Status**: proposed (the maintainer chose the first point on 2026-11-03; the others are the safest defaults, to be changed if wanted)
+- **Date**: 2026-11-03
+
+## Context
+
+[ADR 0006](0006-a-launch-is-a-signed-order-and-credentials-are-short-lived.md) and [ADR 0007](0007-a-dedicated-vault-and-a-small-control-plane.md) say that a launch is a signed order, that the launcher only verifies it, and that Vault issues credentials for one run and one environment. They leave one question open: **how does Vault know that a request for credentials comes from a real launch**, since the open-source edition of Vault cannot check the signature of an order by itself. They also record a dedicated operator account per environment with the rights its projects need ([SPEC D-34](../SPEC.md)), accepted as high, in which the agent is omnipotent (D-39). The maintainer does not want a standing agent on the production machines and prefers to isolate **by environment, by nature**: working directly with production elements makes no sense. [How an order is secured](../security-model.md) shows the chain.
+
+## Decision (proposed)
+
+1. **One Vault role per environment, and one launcher identity per environment.** Vault answers only to the identity of a launcher, a workload identity (a Kubernetes service account, or an AppRole bound to its pod), never to a person and never to the agent. Each environment has its own Vault roles (SSH signing, cluster token, GitHub App token) and its own launcher identity, whose policy reaches **only the roles of that environment**. The launcher of production cannot obtain what the launcher of a test environment can, and the reverse. A compromised launcher yields one environment, not the whole fleet. *Chosen by the maintainer.*
+2. **The control plane never issues a credential.** A single-use secret minted by the control plane when it signs would bind credentials to one order, but it would make the signer able to issue, which SPEC D-45 forbids. It is rejected. The binding of a credential to an order is left to the launcher, which only starts on an order it verified, and to the audit trail, which records the order identifier in the certificate and in every trace.
+3. **The badge has a tier** (proposed default): a run asks for a *principal* (read-only, deploy, maintenance), the machine maps each principal to a local account of its own, and the agent holds only that account for the run. The operator account of D-34 stays available as the highest tier, for rare cases. It refines D-34 and D-42, and tempers D-39: the agent is omnipotent within its tier, not within the whole operator account.
+4. **Production: the plan is validated before it is applied** (proposed default): the agent proposes the diff, the person validates it, then it is applied. SPEC D-34 already records a plan written before acting and an explicit approval for what cannot be undone; this makes the validation of the plan the rule for production. Who validates, one person with a step-up or two, stays open (SPEC Q-21).
+5. **Time limits are generous and configurable.** Running out of time is a state of its own ("budget exhausted"), not a failure of the work, and a long step can be extended. The launcher cuts a run by killing the workshop, dropping its network and revoking its leases; a certificate is checked only when a connection opens, so it is not a clock. Cutting a connection does not undo a command already started, which is why a deployment has an automatic rollback (D-08) and an action must be safe to repeat.
+6. **The global stop revokes the leases**, as ADR 0006 and D-43 already say, not only the button of the interface.
+
+## Consequences
+
+- Each target machine prepares, once, what the agent will use: trust in the public key of the Vault SSH authority, and one small local account per tier, mapped from the principal. Nothing resident runs there between two runs.
+- Environments are isolated by construction: a launcher, a set of Vault roles and a set of accounts per environment. A new environment is a new launcher identity and new roles, not a change to an existing one.
+- The control plane signs and records; the launcher verifies and requests; Vault issues; the machines refuse what the authority did not sign: no component can both sign and execute (D-45).
+- A launcher per environment is more to run than a single one. For a homelab it can be one small process per environment class (production, others), not one per machine.
+
+## Not decided here
+
+- How the control plane knows, when a run starts, that the person is still an operator ([ADR 0010](0010-approving-records-a-decision-and-the-sandbox-operator.md) says it asks again): a refresh token kept on the server, the admin interface of the identity provider, or a server-side session store that can revoke.
+- Who validates the plan for production (SPEC Q-21).
+- How a budget is extended while a run is going, and by whom (SPEC Q-09 covers the ceilings).
