@@ -94,6 +94,7 @@ In practice the operator rarely reads code: they check that the AI did not drift
 | 🟡 D-47 | **Whoever gives an order is authorized twice and is always a person**: the API checks the identity provider's token (operator role, step-up on production) before signing, the launcher checks the signature and the powers again. A service client cannot hold the operator role. |
 | 🟡 D-48 | **The dedicated Vault runs on the production cluster, like every production element**, deployed by the cluster's GitOps repository and configured by its own infrastructure repository. It starts sealed and is unsealed deliberately; the credential issued to a run for the cluster excludes the Vault's namespace. [ADR 0007](adr/0007-a-dedicated-vault-and-a-small-control-plane.md). |
 | 🟡 D-50 | **Releases are decided by semantic-release on `main`, which takes merge commits only**: the version comes from the Conventional Commits, the image is tagged with it, and the cluster's GitOps deploys the newest version tag. A squash of the release pull request would hide the commits, so the repository forbids it. [ADR 0009](adr/0009-releases-are-decided-by-semantic-release-from-main.md). |
+| 🟡 D-51 | **The parameters of an order, as the skeleton enforces them** (all configuration): an order lives 5 minutes, the launcher refuses more than 10 whatever the order says, a clock tolerance of 30 seconds applies to the issue time only, a second factor is fresh for 5 minutes. The server decides what production is from the environment description (an unknown environment is production) and signs the second factor's time into the order, so the launcher checks it again. An order is for one launcher (its audience). The signed form is length-prefixed (ADR 0006, canonical form v2). Missing, unreachable or unknown always means refused. |
 
 ---
 
@@ -142,6 +143,7 @@ One container, API first; the UI consumes the REST API (*arr pattern). Pluggable
 | Deployer | Redeploys and rolls back one application, chosen from what the environment description shows (runtime kind, deployment source) | ❓ Q-03 |
 | Verifier | Smoke test after deployment | ❓ Q-06 (Portarr health checks are the candidate) |
 | Memory | Runbooks read before acting, outcomes written back | Mnemarr |
+| Launch (Core) | The **issuer** (control-plane side: authorizes, builds, signs) and the **launcher** (verifies, cannot sign: it has no signer), joined only by the signed order. Ports: signer, verifier (asymmetric), nonce ledger, kill switch, audit sink, granted powers, environment classifier. Faked in tests; no real implementation yet | ❓ Q-23 for the Vault adapter |
 | Notifier | Tells the operator | Portarr sends (D-03); Orchestrarr shows status in its UI |
 
 Today one interface (`IFleetSource`) gives both the findings and the environment, because Portarr's maintenance report carries both. It will be split into a findings source and an environment description when the structure-file provider (F-INT-03) needs it; the host, not a provider, chooses which source is used.
@@ -184,6 +186,7 @@ The principles of [VISION.md §5](VISION.md) apply, as amended by [ADR 0001](adr
 - Branch rulesets on the forge stay the last line of defence.
 - Rollback is a precondition of automatic deployment (D-08, D-10).
 - Findings, changelogs and repository content are untrusted data, never instructions.
+- **Orders fail closed** (D-43, D-51). The issuer refuses (`IssueRefusal`): kill switch, not a person, not an operator, invalid request, production without a fresh second factor, signer unavailable, audit unavailable. The launcher refuses (`LaunchRefusal`), in this order: kill switch, verifier unavailable, bad signature, malformed fields, wrong audience, not yet valid, expired, lifetime too long, production without the second factor, outside the granted powers, replayed; the kill switch is read again before accepting. The order's id is recorded last, so an order refused earlier can be retried, and it stays spent when the audit then fails. Nothing is signed before its trace (`order.signing`), and nothing an unverified order claims reaches the trail.
 
 ---
 
@@ -193,7 +196,8 @@ The principles of [VISION.md §5](VISION.md) apply, as amended by [ADR 0001](adr
 |---|---|---|
 | 1 | **Intake from Portarr and read-only decision cards** (F-INT-01, F-INT-02, F-CRD-01), before any write power exists | built, reviewed in the sandbox by the four review agents. The *verdict* half of F-CRD-01 and the eligibility of *deploy* (a known check and rollback, D-10) come with later verticals, so deploy is shown as a preview. Reading Portarr every 30 seconds is the interim answer to VISION question 8 (poll or webhook) |
 | 2 | **Read the dependency pull requests and their checks from the forge** (F-INT-04); Portarr only gives their number | built, reviewed. Read-only, GitHub; the next vertical validates and merges them |
-| 3 | Validate and merge: needs the agent runtime (Q-07) | blocked on Q-07 |
+| 2b | **Control-plane skeleton**: signed launch orders, the issuer that authorizes whoever orders, the launcher checks, refusal codes (D-41, D-45 to D-47, D-51; ADR 0006, 0007) | built in Core, reviewed by the five agents, **not wired into the host**: no store the launcher pulls from, no Vault adapter, no lease, concurrency or budget check, no endpoint. It starts nothing and grants no power |
+| 3 | Validate and merge: needs the agent runtime (Q-07); uses 2b | blocked on Q-07 |
 | 4 | Deploy, smoke test and roll back (F-RUN-03), with the regression report (F-RUN-04) | after 3 |
 | 5 | Backups and actions on machines: find the backups that fail (F-BKP-01), diagnose and act through a configured connection (F-ENV-01 to F-ENV-03) | **not started**: the maintainer wants the repair vertical to be correct first. Needs Q-16 and Q-17 |
 
@@ -249,6 +253,7 @@ User interface, deferred: the light theme (its accent text color is ready, nothi
 | Date | Change |
 |---|---|
 | 2026-11-01 | v0.1: first interview. Decisions D-01 to D-09 and D-14 frozen; D-10 to D-13 proposed. |
+| 2026-11-03 | v0.7 (amended): the control-plane skeleton in Core, reviewed by the five agents: order, issuer, launcher, fail-closed rules, canonical form v2 (D-51; roadmap row 2b). |
 | 2026-11-03 | v0.7 (amended): releases by semantic-release from `main`, merge commits only, deployed by GitOps (D-50, ADR 0009). |
 | 2026-11-03 | v0.7: the second vertical: the pull requests read from the forge (D-36 to D-38, ADR 0005), the screens as a list of applications, Q-18 (what a dependency pull request is). |
 | 2026-11-03 | v0.6 (amended): the dedicated Vault runs on the production cluster (D-48, Q-22 resolved, Q-23 opened; ADR 0007). |

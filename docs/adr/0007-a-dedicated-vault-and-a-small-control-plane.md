@@ -50,6 +50,10 @@ On the production cluster, like every production element (SPEC D-48): a one-node
 
 The cost is accepted and written down: the root of trust lives in the cluster the agent may act on, on a single node. Two answers: the credential issued to a run for the cluster **excludes the Vault's namespace** (no `exec`, `port-forward`, `secrets` or logs there), and a sealed Vault protects its data at rest whatever happens to the cluster. A cluster administrator could still read the memory of an unsealed Vault, which is why the administrator role is never given to a run.
 
+### The life of an order
+
+An order is built when the run is about to start, from the approval that was recorded (bound to the repository, the pull request and the head commit, D-37), not when the operator ticks. Its five minutes cover the hand-over to the launcher; a run that waits in a queue for longer is issued again from its approval, and a head commit that moved since is refused.
+
 ## Not decided here
 
 - How clients reach the Vault and over what (SPEC Q-23): TLS, and a way in for a launcher outside the cluster.
