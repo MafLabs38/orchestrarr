@@ -20,6 +20,7 @@ public sealed record LauncherOptions
 /// sign (it has no signer). It answers with the verified, normalized order: that is what is to be run, not the object it was handed.
 /// This class decides whether to start; starting the run itself, the pull from the store, the concurrency and the budget come with the
 /// vertical that acts.
+/// Each dependency is a parameter of its own, not grouped: a test reads the list to check that no signer is among them.
 /// </summary>
 public sealed class Launcher(
     IOrderVerifier verifier,

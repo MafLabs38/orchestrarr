@@ -21,11 +21,12 @@ export function useApprove() {
       steps: StepKind[];
       pullRequests: { number: number; headSha: string }[];
     }) => sendJson<{ approvals: Approval[] }>('POST', approvalsPath, request),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: [approvalsPath] });
-      void queryClient.invalidateQueries({ queryKey: [activityPath] });
-      void queryClient.invalidateQueries({ queryKey: [systemStatusPath] });
-    },
+    onSettled: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: [approvalsPath] }),
+        queryClient.invalidateQueries({ queryKey: [activityPath] }),
+        queryClient.invalidateQueries({ queryKey: [systemStatusPath] }),
+      ]),
   });
 }
 
@@ -34,9 +35,10 @@ export function useKillSwitch() {
   return useMutation({
     mutationFn: (engaged: boolean) =>
       sendJson<{ killSwitchEngaged: boolean }>('PUT', '/api/v1/safety/kill-switch', { engaged }),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: [systemStatusPath] });
-      void queryClient.invalidateQueries({ queryKey: [activityPath] });
-    },
+    onSettled: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: [systemStatusPath] }),
+        queryClient.invalidateQueries({ queryKey: [activityPath] }),
+      ]),
   });
 }

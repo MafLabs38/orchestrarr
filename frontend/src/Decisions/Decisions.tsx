@@ -64,6 +64,7 @@ function Report({ report }: Readonly<{ report: WorkItemReport }>) {
   const defaultOpen = report.items.length <= openByDefaultUpTo;
   const isOpen = (id: string) => opened[id] ?? defaultOpen;
   const shown = report.items.filter((item) => filter === 'all' || item.severity === filter);
+  const toggle = (id: string) => setOpened((current) => ({ ...current, [id]: !(current[id] ?? defaultOpen) }));
   const setAll = (open: boolean) => setOpened(Object.fromEntries(shown.map((item) => [item.id, open])));
   const count = (severity: Severity) => report.items.filter((item) => item.severity === severity).length;
 
@@ -115,7 +116,7 @@ function Report({ report }: Readonly<{ report: WorkItemReport }>) {
                       key={item.id}
                       item={item}
                       expanded={isOpen(item.id)}
-                      onToggle={() => setOpened((current) => ({ ...current, [item.id]: !isOpen(item.id) }))}
+                      onToggle={() => toggle(item.id)}
                     />
                   ))}
                 </ul>
