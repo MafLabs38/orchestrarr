@@ -7,7 +7,7 @@
 
 The agent that acts on an environment is omnipotent there, on purpose: it runs with high rights on production virtual machines, as the maintainer's other automations do, and it never runs on the maintainer's own machine (ADR 0004, revision). Limiting what it can do would defeat its purpose.
 
-So the security of the product sits elsewhere: **in who can cause a launch, and in what a launch is bound to.** An omnipotent agent that anyone, or anything, can start is the real danger. Keycloak (identity) and Vault (secrets, service accounts) exist in the maintainer's infrastructure; Vault is currently sealed and unhealthy on its host, which makes its health a prerequisite.
+So the security of the product sits elsewhere: **in who can cause a launch, and in what a launch is bound to.** An omnipotent agent that anyone, or anything, can start is the real danger. Keycloak (identity) and Vault (secrets, service accounts) exist in the maintainer's infrastructure; The Vaults that exist serve other purposes and one is unhealthy: ADR 0007 provisions a dedicated one.
 
 ## Decision (proposed)
 
@@ -35,7 +35,7 @@ So the security of the product sits elsewhere: **in who can cause a launch, and 
 
 ## Not decided here
 
-- Whether Vault or a lighter SSH certificate authority issues the credentials, which depends on a healthy and unsealed Vault (SPEC Q-20).
+- The authority that issues the credentials is a new Vault dedicated to this purpose ([ADR 0007](0007-a-dedicated-vault-and-a-small-control-plane.md), SPEC Q-20).
 - Whether production needs one approver with a step-up, or two people (SPEC Q-21).
 
 ## Consequences
