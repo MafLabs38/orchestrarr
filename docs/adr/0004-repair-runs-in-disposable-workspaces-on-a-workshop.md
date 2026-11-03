@@ -1,6 +1,6 @@
 # 0004 — Repairs run in disposable workspaces on a workshop host
 
-- **Status**: accepted for points 1 to 10 and 12 (confirmed by the maintainer on 2026-11-03); point 11 is proposed
+- **Status**: accepted for points 1 to 4, 6 to 10 and 12 (confirmed by the maintainer on 2026-11-03); point 5 is **under revision** (see the end); point 11 is proposed
 - **Date**: 2026-11-03
 - **Settles**: SPEC Q-07 (agent runtime), Q-08 (where workers run), most of Q-09 (budgets)
 
@@ -33,3 +33,13 @@ Two things are easy to mix up and must stay apart: **where the work is done** (t
 - If Orchestrarr runs elsewhere than on the workshop host (for example in the production cluster), a small runner on the workshop host takes the jobs by polling, so that the workshop exposes no inbound port. This is not needed while Orchestrarr runs on the development host.
 - A GitHub App is a prerequisite of any run that writes.
 - Third-party image updates need no workspace when the deployment definition is not in a repository Orchestrarr must edit.
+
+## Revision proposed (2026-11-03): two kinds of work, two kinds of isolation
+
+Point 5 says nothing runs on the host. The maintainer observed that a container cannot act on what it must act on (Docker, Kubernetes, a machine), and that an infrastructure-as-code project must be operated as one (Terraform and its own pipeline), a container as a container, an application on bare metal as bare metal. The proposal keeps the isolation where it costs nothing and removes it where it defeats the purpose:
+
+- **Repairing the code** (edit, build, unit tests): the disposable workspace of points 3 and 4 stays. It runs under a dedicated operating-system account with no secret of the maintainer within reach; a container is one way to get that, not a requirement.
+- **Acting on an environment** (deploy, test end to end, repair a backup): the agent works **on the environment, as Claude Code would**: it reads the repository, understands how that project is operated, and does what the project itself says. No rule per type of project is written into Orchestrarr (SPEC D-33). Instead of a container, the safety comes from a dedicated operator account per environment, a plan written before acting, an explicit approval for what cannot be undone, budgets and a kill switch (D-34), and a journal kept in the environment and mirrored to Orchestrarr (D-35).
+- The credentials of point 7 hold: the worker that edits code never holds deploy credentials; the agent that acts on an environment holds that environment's operator account only.
+
+Not decided: where the agent process runs when it acts on an environment (on the environment, or on the workshop through a session opened on it): SPEC Q-19.
