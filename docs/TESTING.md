@@ -12,7 +12,7 @@
 | End to end | Playwright | Not yet. It arrives with the first vertical that has a write path |
 | Acceptance | The rotten test repository (`SCENARIOS.md` of `orchestrarr-testbed`) | Find, fix, merge, deploy and roll back on a real application |
 
-Rules: a test protects a behavior someone relies on, runs in milliseconds, and fails for one reason. Time is a `FakeTimeProvider`, never a sleep. **Safety behaviours are tested like features**: while no launcher exists, the tests prove that no route runs anything and that the two that record something answer only to the sandbox operator; a step that cannot be done is unavailable and unticked; a power that is off is not offered.
+Rules: a test protects a behavior someone relies on, runs in milliseconds, and fails for one reason. Time is a `FakeTimeProvider`, never a sleep. **Safety behaviours are tested like features**: while no launcher exists, the tests prove that no route runs anything and that the two that record something answer only to an operator (the sandbox operator on the loopback, or a person of the operator group who signed in, from the application's own origin); a step that cannot be done is unavailable and unticked; a power that is off is not offered.
 
 ## 2. Other automated checks
 

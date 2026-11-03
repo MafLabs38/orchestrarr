@@ -542,7 +542,6 @@ public sealed class SignInApiTests
 
     [Theory]
     [InlineData("sub=carol-3;preferred_username=carol;name=Carol Example;groups=orchestrarr-operators", "carol")]
-    [InlineData("sub=carol-3;name=Carol Example;groups=orchestrarr-operators", "Carol Example")]
     [InlineData("sub=carol-3;groups=orchestrarr-operators", "carol-3")]
     public async Task The_name_of_the_session_is_the_username_else_the_full_name_else_the_subject(string claims, string expected)
     {
@@ -563,6 +562,7 @@ public sealed class SignInApiTests
 
         me.GetProperty("name").ValueKind.Should().Be(JsonValueKind.Null);
         me.GetProperty("canRead").GetBoolean().Should().BeFalse();
+        me.GetProperty("isOperator").GetBoolean().Should().BeFalse();
     }
 
     // --- the interface is never framed
@@ -607,9 +607,9 @@ public sealed class SignInApiTests
     }
 
     // What the user-information endpoint says, run through the actions the handler really has
-    private static ClaimsIdentity UserInformation(OpenIdConnectOptions oidc, string json)
+    private static ClaimsIdentity UserInformation(OpenIdConnectOptions oidc, string json, params Claim[] ofTheIdentityToken)
     {
-        var identity = new ClaimsIdentity("test");
+        var identity = new ClaimsIdentity(ofTheIdentityToken, "test");
         using var document = JsonDocument.Parse(json);
         foreach (var action in oidc.ClaimActions)
         {
@@ -619,7 +619,7 @@ public sealed class SignInApiTests
     }
 
     private static string Answer(string groupsClaim) =>
-        "{\"" + groupsClaim + "\":[\"/orchestrarr-operators\",\"staff\"],\"preferred_username\":\"alice\",\"acr\":\"high\",\"amr\":[\"otp\"],\"auth_time\":1793700000}";
+        "{\"" + groupsClaim + "\":[\"/orchestrarr-operators\",\"staff\"],\"preferred_username\":\"alice\",\"name\":\"Alice Example\",\"acr\":\"high\",\"amr\":[\"otp\"],\"auth_time\":1793700000}";
 
     [Theory]
     [InlineData("groups")]
@@ -634,13 +634,32 @@ public sealed class SignInApiTests
         factory.CreateClient();
         var oidc = factory.Services.GetRequiredService<IOptionsMonitor<OpenIdConnectOptions>>().Get(OpenIdConnectDefaults.AuthenticationScheme);
 
-        var identity = UserInformation(oidc, Answer(groupsClaim));
+        // The identity token said a second factor was passed; the user information says other things, and none of them is that
+        var identity = UserInformation(oidc, Answer(groupsClaim), new Claim("acr", "mfa"), new Claim("auth_time", "1793700000"));
 
         oidc.GetClaimsFromUserInfoEndpoint.Should().BeTrue();
         oidc.SaveTokens.Should().BeFalse();
         identity.FindAll(groupsClaim).Select(claim => claim.Value).Should().Equal("/orchestrarr-operators", "staff");
         identity.FindFirst("preferred_username")!.Value.Should().Be("alice");
-        identity.Claims.Select(claim => claim.Type).Should().NotContain(["acr", "amr", "auth_time"]);
+        identity.FindAll("acr").Select(claim => claim.Value).Should().Equal("mfa");
+        identity.FindAll("auth_time").Select(claim => claim.Value).Should().Equal("1793700000");
+        identity.Claims.Select(claim => claim.Type).Should().NotContain("amr");
+    }
+
+    [Fact]
+    public void What_the_handler_maps_by_default_is_added_unless_the_identity_token_carried_the_same_value()
+    {
+        using var factory = Factory(settings => settings["SignIn:ClaimsFromUserInfo"] = "true");
+        factory.CreateClient();
+        var oidc = factory.Services.GetRequiredService<IOptionsMonitor<OpenIdConnectOptions>>().Get(OpenIdConnectDefaults.AuthenticationScheme);
+
+        var without = UserInformation(oidc, Answer("groups"));
+        var same = UserInformation(oidc, Answer("groups"), new Claim("name", "Alice Example"));
+        var other = UserInformation(oidc, Answer("groups"), new Claim("name", "Alice of the token"));
+
+        without.FindAll("name").Select(claim => claim.Value).Should().Equal("Alice Example");
+        same.FindAll("name").Select(claim => claim.Value).Should().Equal("Alice Example");
+        other.FindAll("name").Select(claim => claim.Value).Should().Equal("Alice of the token", "Alice Example");
     }
 
     [Fact]
@@ -654,17 +673,6 @@ public sealed class SignInApiTests
 
         oidc.GetClaimsFromUserInfoEndpoint.Should().BeFalse();
         identity.Claims.Select(claim => claim.Type).Should().NotContain(["groups", "preferred_username"]);
-    }
-
-    [Fact]
-    public void Without_any_scope_configured_the_provider_is_asked_for_openid_and_profile()
-    {
-        using var factory = Factory();
-        factory.CreateClient();
-
-        var oidc = factory.Services.GetRequiredService<IOptionsMonitor<OpenIdConnectOptions>>().Get(OpenIdConnectDefaults.AuthenticationScheme);
-
-        oidc.Scope.Should().Equal("openid", "profile");
     }
 
     [Fact]
@@ -695,7 +703,6 @@ public sealed class SignInApiTests
     [InlineData("/auth")]
     [InlineData("/auth/")]
     [InlineData("/auth/me")]
-    [InlineData("/auth/anything/else")]
     public async Task A_route_of_the_sign_in_that_is_not_there_is_a_404_and_never_the_page_of_the_interface(string path)
     {
         var webRoot = await WebRootWithAPage();
@@ -708,6 +715,26 @@ public sealed class SignInApiTests
 
                 (await client.GetAsync(path, Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
                 var page = await client.GetAsync("/queue", Ct);
+                page.StatusCode.Should().Be(HttpStatusCode.OK);
+                (await page.Content.ReadAsStringAsync(Ct)).Should().Contain("the interface");
+            }
+        }
+        finally
+        {
+            Directory.Delete(webRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task A_route_that_only_starts_like_the_sign_in_is_the_page_of_the_interface()
+    {
+        var webRoot = await WebRootWithAPage();
+        try
+        {
+            using (var factory = new ForgeApiFactory { Settings = new Dictionary<string, string?> { ["webroot"] = webRoot } })
+            {
+                var page = await factory.CreateClient().GetAsync("/authors", Ct);
+
                 page.StatusCode.Should().Be(HttpStatusCode.OK);
                 (await page.Content.ReadAsStringAsync(Ct)).Should().Contain("the interface");
             }

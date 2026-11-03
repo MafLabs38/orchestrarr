@@ -46,7 +46,7 @@ public sealed class SignInOptions
     /// <summary>
     /// Read the groups (and the username) of the person at the provider's user-information endpoint too, during the sign-in. The access token is used for that
     /// call only and is not kept. What the handler maps by default also applies (<c>sub</c>, <c>name</c>, <c>given_name</c>, <c>family_name</c>, <c>profile</c>,
-    /// <c>email</c>, each only when the identity token did not carry it), and the authentication context is never taken from there.
+    /// <c>email</c>, added unless the identity token carried the same value (when they differ, both are kept and the identity token's comes first)), and the authentication context is never taken from there.
     /// </summary>
     public bool ClaimsFromUserInfo { get; set; }
 

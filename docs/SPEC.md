@@ -263,7 +263,6 @@ User interface, deferred: the light theme (its accent text color is ready, nothi
 | Date | Change |
 |---|---|
 | 2026-11-03 | v0.8: people sign in through the identity provider, in the host (D-54, Q-12 resolved for people; ADR 0011). |
-| 2026-11-01 | v0.1: first interview. Decisions D-01 to D-09 and D-14 frozen; D-10 to D-13 proposed. |
 | 2026-11-03 | v0.7 (amended): approving a decision card records an approval per pull request and commit, with the queue, the trail and the global stop; powers granted in the configuration (D-52, D-53; ADR 0010; roadmap row 2c). |
 | 2026-11-03 | v0.7 (amended): the control-plane skeleton in Core, reviewed by the five agents: order, issuer, launcher, fail-closed rules, canonical form v2 (D-51; roadmap row 2b). |
 | 2026-11-03 | v0.7 (amended): releases by semantic-release from `main`, merge commits only, deployed by GitOps (D-50, ADR 0009). |
@@ -278,3 +277,4 @@ User interface, deferred: the light theme (its accent text color is ready, nothi
 | 2026-11-03 | v0.4: the first vertical is built; its review made three decisions explicit (D-21 the unit of work, D-22 data and codes not sentences, D-23 available versus granted); Q-12 says the API has no authentication yet; roadmap and interface notes. |
 | 2026-11-01 | v0.3: Orchestrarr may approve its own pull requests (D-19, Q-14 resolved); environment file format proposed ([environment-file.md](environment-file.md), D-20, Q-15); Q-03 narrowed to the missing deployment source. |
 | 2026-11-01 | v0.2: merge and deploy on tick (D-15, ADR 0001), everything ticked by default (D-16), deployment observed not declared, Portarr as environment provider with a standalone structure file (D-17, D-18, ADR 0002). Q-01, Q-02 resolved; Q-03 reformulated; Q-14, Q-15 added. |
+| 2026-11-01 | v0.1: first interview. Decisions D-01 to D-09 and D-14 frozen; D-10 to D-13 proposed. |
