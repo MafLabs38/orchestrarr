@@ -7,12 +7,12 @@
 | Level | Tool | What it proves |
 |---|---|---|
 | Backend unit | xUnit v3, AwesomeAssertions, NSubstitute, `FakeTimeProvider` | The domain (work items, plans, the cached catalog) and the providers (mapping a source's report to the fleet model) |
-| API | `WebApplicationFactory` | The REST contract: routes, JSON shape, 404, that nothing can act yet |
+| API | `WebApplicationFactory` | The REST contract: routes, JSON shape, 404, that no route runs anything and the two that record something are off unless the sandbox operator is configured |
 | Frontend | Vitest, Testing Library (`happy-dom`) | The screens and components: what is shown, what is ticked, what is disabled and why |
 | End to end | Playwright | Not yet. It arrives with the first vertical that has a write path |
 | Acceptance | The rotten test repository (`SCENARIOS.md` of `orchestrarr-testbed`) | Find, fix, merge, deploy and roll back on a real application |
 
-Rules: a test protects a behavior someone relies on, runs in milliseconds, and fails for one reason. Time is a `FakeTimeProvider`, never a sleep. **Safety behaviours are tested like features**: a read-only vertical proves it has no route that acts; a step that cannot be done is unavailable and unticked; a power that is off is not offered.
+Rules: a test protects a behavior someone relies on, runs in milliseconds, and fails for one reason. Time is a `FakeTimeProvider`, never a sleep. **Safety behaviours are tested like features**: while no launcher exists, the tests prove that no route runs anything and that the two that record something answer only to the sandbox operator; a step that cannot be done is unavailable and unticked; a power that is off is not offered.
 
 ## 2. Other automated checks
 

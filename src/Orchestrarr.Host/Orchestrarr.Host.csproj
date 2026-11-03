@@ -8,6 +8,10 @@
     <ProjectReference Include="..\Orchestrarr.Providers.Portarr\Orchestrarr.Providers.Portarr.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <!-- The sandbox's settings (a fixed operator, a grant on every repository) never travel in the image. -->
+    <Content Update="appsettings.Development.json" CopyToPublishDirectory="Never" />
+  </ItemGroup>
+  <ItemGroup>
     <InternalsVisibleTo Include="Orchestrarr.Host.Test" />
   </ItemGroup>
 </Project>

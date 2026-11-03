@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { useApprove } from 'Approvals/useApprovals';
@@ -71,16 +71,17 @@ function StepRow({ step, checked, onToggle }: Readonly<{ step: PlanStep; checked
 }
 
 // What to say under the button: why it cannot be pressed, or what pressing it does.
-function approvalHint(approvals: ApprovalStatus | undefined, plan: PlanStep[]): string {
+function approvalHint(approvals: ApprovalStatus | undefined, plan: PlanStep[], pullRequestsRead: boolean): string {
   if (!approvals?.enabled) {
     return translate('ApprovalDisabledHint');
   }
   if (approvals.killSwitchEngaged) {
     return translate('ApprovalStoppedHint');
   }
-  return plan.some((step) => step.available && step.granted && isApprovable(step))
-    ? translate('ApprovalWaitsHint')
-    : translate('ApprovalNothingGrantedHint');
+  if (!plan.some((step) => step.available && step.granted && isApprovable(step))) {
+    return translate('ApprovalNothingGrantedHint');
+  }
+  return pullRequestsRead ? translate('ApprovalWaitsHint') : translate('ApprovalPullRequestsNotReadHint');
 }
 
 // The detail of one work item, under its line in the list: what is wrong, the pull requests, and the plan as checkboxes, all ticked by
@@ -94,13 +95,31 @@ export default function DecisionCard({ item }: Readonly<{ item: WorkItem }>) {
 
   const isChecked = (step: PlanStep) => step.available && (choices[stepKey(step)] ?? step.ticked);
   const tickedCount = item.plan.filter(isChecked).length;
-  const toggle = (step: PlanStep) => setChoices((current) => ({ ...current, [stepKey(step)]: !isChecked(step) }));
+  const toggle = (step: PlanStep) => {
+    approve.reset(); // an approval that was recorded is for the ticks that were made then
+    setChoices((current) => ({ ...current, [stepKey(step)]: !isChecked(step) }));
+  };
+
+  // The approval covers the pull requests, and the commits, that this card displays: they are sent back, and the server refuses if they changed.
+  const seen = item.pullRequests.items
+    .filter((pullRequest) => !pullRequest.draft)
+    .map(({ number, headSha }) => ({ number, headSha }));
+  const seenKey = seen.map((pullRequest) => `${pullRequest.number}@${pullRequest.headSha}`).join();
+  const { reset } = approve;
+  useEffect(() => {
+    reset(); // what was said about an approval no longer holds once the pull requests, or their commits, are not the same
+  }, [seenKey, reset]);
+  const pullRequestsRead = item.pullRequests.status === 'read' && !item.pullRequests.stale && seen.length > 0;
 
   // Only what the server would accept is sent: ticked, possible, granted, and a step that approving records. The server decides the rest.
   const approvable = item.plan.filter((step) => isChecked(step) && step.granted && isApprovable(step));
   const canApprove =
-    approvals?.enabled === true && !approvals.killSwitchEngaged && approvable.length > 0 && !approve.isPending;
-  const hint = approvalHint(approvals, item.plan);
+    approvals?.enabled === true &&
+    !approvals.killSwitchEngaged &&
+    approvable.length > 0 &&
+    pullRequestsRead &&
+    !approve.isPending;
+  const hint = approvalHint(approvals, item.plan, pullRequestsRead);
 
   return (
     <section aria-label={item.title}>
@@ -133,7 +152,9 @@ export default function DecisionCard({ item }: Readonly<{ item: WorkItem }>) {
               kind={kinds.PRIMARY}
               disabled={!canApprove}
               aria-describedby={hintId}
-              onClick={() => approve.mutate({ workItemId: item.id, steps: approvable.map((step) => step.kind) })}
+              onClick={() =>
+                approve.mutate({ workItemId: item.id, steps: approvable.map((step) => step.kind), pullRequests: seen })
+              }
             >
               {translate('Approve')}
             </Button>

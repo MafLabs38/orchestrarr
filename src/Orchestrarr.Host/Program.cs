@@ -20,26 +20,25 @@ builder.Services.Configure<JsonOptions>(options =>
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton(provider => FleetSourceFactory.Create(builder.Configuration, builder.Environment.ContentRootPath, provider.GetRequiredService<TimeProvider>()));
 builder.Services.AddSingleton(provider => PullRequestSourceFactory.Create(builder.Configuration, builder.Environment.ContentRootPath, provider.GetRequiredService<TimeProvider>()));
-// The powers the operator listed in the configuration (SPEC D-10, D-11): none unless a grant is written
-builder.Services.AddSingleton<IPowerPolicy>(_ =>
-    new ConfiguredPowerPolicy((builder.Configuration.GetSection(PowersOptions.SectionName).Get<PowersOptions>() ?? new PowersOptions()).Grants
-        .Select(grant => new PowerGrant(grant.Repository, grant.Steps))));
-
 // Approving: recording the operator's decision, with its trail and the global stop. Nothing here runs anything yet.
 var approvals = builder.Configuration.GetSection(ApprovalsOptions.SectionName).Get<ApprovalsOptions>() ?? new ApprovalsOptions();
-if (approvals.Mode == ApprovalsMode.Development && !builder.Environment.IsDevelopment())
-{
-    // The sandbox operator has no sign-in: it must never be reachable outside the local sandbox.
-    throw new InvalidOperationException("Approvals:Mode=Development is only allowed in the Development environment.");
-}
+SandboxGuard.Check(approvals, builder.Environment, builder.Configuration);
 builder.Services.AddSingleton(approvals);
+
+// The powers the operator listed in the configuration (SPEC D-10, D-11): none unless a grant is written. Checked now, not at a request.
+var grants = (builder.Configuration.GetSection(PowersOptions.SectionName).Get<PowersOptions>() ?? new PowersOptions()).ToGrants(builder.Environment.IsDevelopment());
+builder.Services.AddSingleton<IPowerPolicy>(new ConfiguredPowerPolicy(grants));
+builder.Services.AddSingleton<IGrantedPowers, PolicyGrantedPowers>();
+
 builder.Services.AddSingleton<IApproverAccessor>(provider => approvals.Mode == ApprovalsMode.Development
     ? new DevelopmentApprover(approvals, provider.GetRequiredService<TimeProvider>())
     : new NoApprover());
-builder.Services.AddSingleton<IApprovalStore, InMemoryApprovalStore>();
+builder.Services.AddSingleton<IApprovalStore>(new InMemoryApprovalStore(approvals.QueueCapacity));
 builder.Services.AddSingleton<InMemoryKillSwitch>();
+builder.Services.AddSingleton<IKillSwitchControl>(provider => provider.GetRequiredService<InMemoryKillSwitch>());
 builder.Services.AddSingleton<IKillSwitch>(provider => provider.GetRequiredService<InMemoryKillSwitch>());
-builder.Services.AddSingleton<InMemoryAuditLog>();
+builder.Services.AddSingleton<InMemoryAuditLog>(new InMemoryAuditLog(approvals.AuditCapacity));
+builder.Services.AddSingleton<IAuditLog>(provider => provider.GetRequiredService<InMemoryAuditLog>());
 builder.Services.AddSingleton<IAuditSink>(provider => provider.GetRequiredService<InMemoryAuditLog>());
 builder.Services.AddSingleton<ApprovalService>();
 builder.Services.AddSingleton(builder.Configuration.GetSection(WorkItemCatalogOptions.SectionName).Get<WorkItemCatalogOptions>() ?? new WorkItemCatalogOptions());
@@ -58,7 +57,7 @@ api.MapGet("/work-items/{**id}", async (WorkItemCatalog catalog, string id, Canc
 
 api.MapApprovalEndpoints();
 
-api.MapGet("/system/status", (WorkItemCatalog catalog, IApproverAccessor accessor, InMemoryKillSwitch killSwitch, HttpContext context) =>
+api.MapGet("/system/status", (WorkItemCatalog catalog, IApproverAccessor accessor, IKillSwitchControl killSwitch, HttpContext context) =>
 {
     // The status never reads the fleet: it says what the last read found, and nothing before the first one
     var report = catalog.Peek();
@@ -80,12 +79,8 @@ if (app.Environment.WebRootFileProvider.GetDirectoryContents("/").Exists)
 await app.RunAsync();
 
 /// <summary>Entry point, public for the integration tests.</summary>
-public partial class Program
-{
-    protected Program()
-    {
-    }
-}
+[System.Diagnostics.CodeAnalysis.SuppressMessage("Major Code Smell", "S1118:Utility classes should not have public constructors", Justification = "The generated entry point must stay instantiable: WebApplicationFactory<Program> in the integration tests.")]
+public partial class Program;
 
 namespace Orchestrarr.Host
 {

@@ -4,6 +4,10 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Orchestrarr.Core.Approvals;
+using Orchestrarr.Core.Launch;
 
 namespace Orchestrarr.Host.Test;
 
@@ -17,26 +21,25 @@ public sealed class ApprovalsDisabledApiFactory : WebApplicationFactory<Program>
     }
 }
 
-/// <summary>The sandbox operator asked for outside Development: the host must refuse to start.</summary>
-public sealed class SandboxOperatorInProductionFactory : WebApplicationFactory<Program>
-{
-    protected override void ConfigureWebHost(IWebHostBuilder builder)
-    {
-        builder.UseEnvironment("Production");
-        builder.UseSetting("Approvals:Mode", "Development");
-    }
-}
-
 public sealed class ApprovalsApiTests
 {
     private const string Shop = "repository:example/shop";
     private static readonly string Head = new('c', 40);
     private static readonly CancellationToken Ct = TestContext.Current.CancellationToken;
 
-    private static Task<HttpResponseMessage> Approve(HttpClient client, string workItemId = Shop, params string[] steps) =>
-        client.PostAsJsonAsync("/api/v1/approvals", new { workItemId, steps = steps.Length == 0 ? ["validate", "mergePullRequests"] : steps }, Ct);
+    private static object Seen(string? head = null) => new[] { new { number = 7, headSha = head ?? Head } };
+
+    private static Task<HttpResponseMessage> Approve(HttpClient client, string workItemId = Shop, string[]? steps = null, object? seen = null) =>
+        client.PostAsJsonAsync("/api/v1/approvals", new { workItemId, steps = steps ?? ["validate", "mergePullRequests"], pullRequests = seen ?? Seen() }, Ct);
 
     private static async Task<JsonElement> Json(HttpResponseMessage response) => await response.Content.ReadFromJsonAsync<JsonElement>(Ct);
+
+    private static Task<HttpResponseMessage> Stop(HttpClient client, bool engaged) =>
+        client.PutAsJsonAsync("/api/v1/safety/kill-switch", new { engaged }, Ct);
+
+    private static async Task<string> ErrorOf(HttpResponseMessage response) => (await Json(response)).GetProperty("error").GetString()!;
+
+    // --- the contract
 
     [Fact]
     public async Task The_status_says_who_may_approve_and_whether_the_stop_is_engaged()
@@ -79,7 +82,7 @@ public sealed class ApprovalsApiTests
         using var factory = new ForgeApiFactory();
         var client = factory.CreateClient();
         var body = new StringContent(
-            $$"""{"workItemId":"{{Shop}}","steps":["validate"],"headSha":"{{new string('f', 40)}}","repository":"evil/repo","approver":"mallory","pullRequest":1}""",
+            $$"""{"workItemId":"{{Shop}}","steps":["validate"],"pullRequests":[{"number":7,"headSha":"{{Head}}"}],"headSha":"{{new string('f', 40)}}","repository":"evil/repo","approver":"mallory"}""",
             Encoding.UTF8, "application/json");
 
         var approval = (await Json(await client.PostAsync("/api/v1/approvals", body, Ct))).GetProperty("approvals")[0];
@@ -87,6 +90,23 @@ public sealed class ApprovalsApiTests
         approval.GetProperty("headSha").GetString().Should().Be(Head);
         approval.GetProperty("repository").GetString().Should().Be("example/shop");
         approval.GetProperty("approver").GetString().Should().Be("dev-operator");
+    }
+
+    [Fact]
+    public async Task What_the_operator_saw_must_be_what_is_there()
+    {
+        using var factory = new ForgeApiFactory();
+        var client = factory.CreateClient();
+
+        var pushed = await Approve(client, seen: Seen(new string('f', 40)));
+        var nothingSeen = await Approve(client, seen: Array.Empty<object>());
+        var noPullRequestsAtAll = await client.PostAsJsonAsync("/api/v1/approvals", new { workItemId = Shop, steps = new[] { "validate" } }, Ct);
+
+        pushed.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await ErrorOf(pushed)).Should().Be("planChanged");
+        (await ErrorOf(nothingSeen)).Should().Be("planChanged");
+        (await ErrorOf(noPullRequestsAtAll)).Should().Be("planChanged");
+        (await Json(await client.GetAsync("/api/v1/approvals", Ct))).EnumerateArray().Should().BeEmpty();
     }
 
     [Fact]
@@ -99,18 +119,19 @@ public sealed class ApprovalsApiTests
         var again = await Approve(client);
 
         again.StatusCode.Should().Be(HttpStatusCode.Conflict);
-        (await Json(again)).GetProperty("error").GetString().Should().Be("alreadyApproved");
+        (await ErrorOf(again)).Should().Be("alreadyApproved");
     }
 
     [Theory]
     [InlineData("repository:example/nothing", "validate", HttpStatusCode.NotFound, "unknownWorkItem")]
     [InlineData(Shop, "mergePullRequests", HttpStatusCode.UnprocessableEntity, "mergeNeedsValidation")]
     [InlineData(Shop, "deploy", HttpStatusCode.UnprocessableEntity, "stepNotOffered")]
+    [InlineData(Shop, "", HttpStatusCode.UnprocessableEntity, "nothingTicked")]
     public async Task A_refusal_is_a_status_and_a_code_never_a_sentence(string id, string step, HttpStatusCode status, string code)
     {
         using var factory = new ForgeApiFactory();
 
-        var response = await Approve(factory.CreateClient(), id, step);
+        var response = await Approve(factory.CreateClient(), id, step.Length == 0 ? [] : [step]);
 
         var body = await Json(response);
         response.StatusCode.Should().Be(status);
@@ -119,47 +140,125 @@ public sealed class ApprovalsApiTests
     }
 
     [Fact]
-    public async Task Nothing_ticked_is_refused()
+    public async Task A_full_queue_and_an_unwritable_trail_are_a_503()
     {
-        using var factory = new ForgeApiFactory();
+        using var queue = new ForgeApiFactory { Settings = new Dictionary<string, string?> { ["Approvals:QueueCapacity"] = "0" } };
+        using var trail = new ForgeApiFactory { Settings = new Dictionary<string, string?> { ["Approvals:AuditCapacity"] = "0" } };
 
-        var response = await factory.CreateClient().PostAsJsonAsync("/api/v1/approvals", new { workItemId = Shop, steps = Array.Empty<string>() }, Ct);
+        var full = await Approve(queue.CreateClient());
+        var unwritable = await Approve(trail.CreateClient());
 
-        (await Json(response)).GetProperty("error").GetString().Should().Be("nothingTicked");
+        full.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        (await ErrorOf(full)).Should().Be("storeFull");
+        unwritable.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        (await ErrorOf(unwritable)).Should().Be("auditUnavailable");
     }
 
     [Fact]
-    public async Task A_body_that_is_not_json_is_refused_before_anything_is_decided()
+    public async Task A_pull_request_list_that_is_not_read_is_a_conflict()
+    {
+        using var factory = new ForgeApiFactory { Failure = () => new HttpRequestException("down") };
+
+        var response = await Approve(factory.CreateClient());
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await ErrorOf(response)).Should().Be("pullRequestsNotRead");
+    }
+
+    // --- what a client may send
+
+    [Theory]
+    [InlineData("{")]
+    [InlineData("[]")]
+    [InlineData("""{"workItemId":"x","steps":["bogus"],"pullRequests":[]}""")]
+    [InlineData("""{"workItemId":"x","steps":[99],"pullRequests":[{"number":"seven","headSha":1}]}""")]
+    public async Task A_body_that_cannot_be_read_is_a_400_and_records_nothing(string body)
     {
         using var factory = new ForgeApiFactory();
-
         var client = factory.CreateClient();
-        var response = await client.PostAsync("/api/v1/approvals", new StringContent($"workItemId={Shop}&steps=validate", Encoding.UTF8, "application/x-www-form-urlencoded"), Ct);
 
-        // Refused before anything is decided: a 415, or the 404 that the fallback of the API gives when the content type does not match.
-        response.StatusCode.Should().BeOneOf(HttpStatusCode.UnsupportedMediaType, HttpStatusCode.NotFound);
+        var response = await client.PostAsync("/api/v1/approvals", new StringContent(body, Encoding.UTF8, "application/json"), Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await Json(await client.GetAsync("/api/v1/approvals", Ct))).EnumerateArray().Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("{}", "unknownWorkItem")]
+    [InlineData("""{"workItemId":null,"steps":null,"pullRequests":null}""", "unknownWorkItem")]
+    [InlineData("""{"workItemId":"repository:example/shop","steps":null,"pullRequests":null}""", "nothingTicked")]
+    [InlineData("""{"workItemId":"repository:evil\nforged","steps":["validate"]}""", "unknownWorkItem")]
+    public async Task A_body_with_missing_or_odd_fields_is_refused_with_a_code_and_records_nothing(string body, string code)
+    {
+        using var factory = new ForgeApiFactory();
+        var client = factory.CreateClient();
+
+        var response = await client.PostAsync("/api/v1/approvals", new StringContent(body, Encoding.UTF8, "application/json"), Ct);
+
+        (await ErrorOf(response)).Should().Be(code);
         (await Json(await client.GetAsync("/api/v1/approvals", Ct))).EnumerateArray().Should().BeEmpty();
     }
 
     [Fact]
-    public async Task The_kill_switch_stops_approving_is_traced_and_can_be_released()
+    public async Task A_body_that_is_not_json_is_not_even_routed_to_the_approval()
     {
         using var factory = new ForgeApiFactory();
         var client = factory.CreateClient();
 
-        (await client.PutAsJsonAsync("/api/v1/safety/kill-switch", new { engaged = true }, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+        var response = await client.PostAsync("/api/v1/approvals", new StringContent($"workItemId={Shop}&steps=validate", Encoding.UTF8, "application/x-www-form-urlencoded"), Ct);
+
+        // The route only consumes JSON, so a cross-site form falls to the 404 of the fallback of the API: nothing is decided
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await Json(await client.GetAsync("/api/v1/approvals", Ct))).EnumerateArray().Should().BeEmpty();
+    }
+
+    // --- the global stop
+
+    [Fact]
+    public async Task The_kill_switch_stops_approving_and_says_so_in_the_status()
+    {
+        using var factory = new ForgeApiFactory();
+        var client = factory.CreateClient();
+
+        (await Stop(client, true)).StatusCode.Should().Be(HttpStatusCode.OK);
         var refused = await Approve(client);
         var status = (await Json(await client.GetAsync("/api/v1/system/status", Ct))).GetProperty("approvals");
-        await client.PutAsJsonAsync("/api/v1/safety/kill-switch", new { engaged = false }, Ct);
-        var allowed = await Approve(client);
 
         refused.StatusCode.Should().Be(HttpStatusCode.Locked);
-        (await Json(refused)).GetProperty("error").GetString().Should().Be("killSwitchEngaged");
+        (await ErrorOf(refused)).Should().Be("killSwitchEngaged");
         status.GetProperty("killSwitchEngaged").GetBoolean().Should().BeTrue();
+        (await Json(await client.GetAsync("/api/v1/safety", Ct))).GetProperty("killSwitchEngaged").GetBoolean().Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Releasing_the_kill_switch_allows_approving_again_and_both_changes_are_traced()
+    {
+        using var factory = new ForgeApiFactory();
+        var client = factory.CreateClient();
+        await Stop(client, true);
+        await Stop(client, false);
+
+        var allowed = await Approve(client);
+
         allowed.StatusCode.Should().Be(HttpStatusCode.Created);
         (await Json(await client.GetAsync("/api/v1/activity", Ct))).EnumerateArray().Select(e => e.GetProperty("event").GetString())
-            .Should().Contain(["killswitch.engaged", "killswitch.released", "approval.refused", "approval.recorded"]);
+            .Should().Contain(["killswitch.engaged", "killswitch.released", "approval.recorded"]);
     }
+
+    [Fact]
+    public async Task The_stop_works_even_when_the_trail_cannot_be_written()
+    {
+        using var factory = new ForgeApiFactory { Settings = new Dictionary<string, string?> { ["Approvals:AuditCapacity"] = "0" } };
+        var client = factory.CreateClient();
+
+        var response = await Stop(client, true);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await Json(response)).GetProperty("killSwitchEngaged").GetBoolean().Should().BeTrue();
+        (await Json(await client.GetAsync("/api/v1/activity", Ct))).EnumerateArray().Should().BeEmpty();
+    }
+
+    // --- the powers
 
     [Fact]
     public async Task The_plan_says_which_steps_are_granted()
@@ -173,18 +272,67 @@ public sealed class ApprovalsApiTests
     }
 
     [Fact]
+    public async Task A_grant_of_the_configuration_makes_exactly_its_steps_granted()
+    {
+        using var factory = new ForgeApiFactory
+        {
+            EnvironmentName = "Testing",
+            Settings = new Dictionary<string, string?> { ["Powers:Grants:0:Repository"] = "example/shop", ["Powers:Grants:0:Steps:0"] = "validate" },
+        };
+
+        var plan = (await Json(await factory.CreateClient().GetAsync($"/api/v1/work-items/{Shop}", Ct))).GetProperty("plan").EnumerateArray().ToList();
+
+        plan.Single(s => s.GetProperty("kind").GetString() == "validate").GetProperty("granted").GetBoolean().Should().BeTrue();
+        plan.Single(s => s.GetProperty("kind").GetString() == "mergePullRequests").GetProperty("granted").GetBoolean().Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("example/shop", "bogus")]
+    [InlineData("not-a-repository", "validate")]
+    [InlineData("", "validate")]
+    [InlineData("*", "mergePullRequests")]
+    public void A_grant_that_makes_no_sense_or_is_too_wide_stops_the_host_from_starting(string repository, string step)
+    {
+        using var factory = new ForgeApiFactory
+        {
+            EnvironmentName = "Testing",
+            Settings = new Dictionary<string, string?> { ["Powers:Grants:0:Repository"] = repository, ["Powers:Grants:0:Steps:0"] = step },
+        };
+
+        var start = () => factory.CreateClient();
+
+        start.Should().Throw<Exception>().Which.ToString().Should().Contain("Powers:Grants");
+    }
+
+    [Fact]
+    public async Task A_grant_on_every_repository_may_validate_outside_the_sandbox()
+    {
+        using var factory = new ForgeApiFactory
+        {
+            EnvironmentName = "Testing",
+            Settings = new Dictionary<string, string?> { ["Powers:Grants:0:Repository"] = "*", ["Powers:Grants:0:Steps:0"] = "validate" },
+        };
+
+        var plan = (await Json(await factory.CreateClient().GetAsync($"/api/v1/work-items/{Shop}", Ct))).GetProperty("plan").EnumerateArray();
+
+        plan.Should().Contain(s => s.GetProperty("kind").GetString() == "validate" && s.GetProperty("granted").GetBoolean());
+    }
+
+    // --- who may call
+
+    [Fact]
     public async Task Without_the_sandbox_operator_nobody_can_approve_or_stop()
     {
         using var factory = new ApprovalsDisabledApiFactory();
         var client = factory.CreateClient();
 
         var approve = await Approve(client);
-        var stop = await client.PutAsJsonAsync("/api/v1/safety/kill-switch", new { engaged = true }, Ct);
+        var stop = await Stop(client, true);
         var status = (await Json(await client.GetAsync("/api/v1/system/status", Ct))).GetProperty("approvals");
         var item = await Json(await client.GetAsync($"/api/v1/work-items/{Shop}", Ct));
 
         approve.StatusCode.Should().Be(HttpStatusCode.Forbidden);
-        (await Json(approve)).GetProperty("error").GetString().Should().Be("approvalsDisabled");
+        (await ErrorOf(approve)).Should().Be("approvalsDisabled");
         stop.StatusCode.Should().Be(HttpStatusCode.Forbidden);
         status.GetProperty("enabled").GetBoolean().Should().BeFalse();
         status.GetProperty("operator").ValueKind.Should().Be(JsonValueKind.Null);
@@ -194,23 +342,67 @@ public sealed class ApprovalsApiTests
     [Fact]
     public void The_sandbox_operator_is_refused_outside_the_development_environment()
     {
-        using var factory = new SandboxOperatorInProductionFactory();
+        using var factory = new ForgeApiFactory { EnvironmentName = "Production", Settings = new Dictionary<string, string?> { ["Approvals:Mode"] = "Development" } };
 
         var start = () => factory.CreateClient();
 
         start.Should().Throw<InvalidOperationException>().WithMessage("*only allowed in the Development environment*");
     }
 
-    [Fact]
-    public async Task Every_route_that_changes_something_is_one_of_the_two_that_the_operator_uses()
+    [Theory]
+    [InlineData("http://+:8080")]
+    [InlineData("http://0.0.0.0:8080")]
+    [InlineData("http://*:8080")]
+    [InlineData("http://127.0.0.1:7878;http://192.168.1.10:7878")]
+    [InlineData("http://vault.example:8080")]
+    public void The_sandbox_operator_is_refused_when_the_host_listens_beyond_the_loopback(string urls)
+    {
+        using var factory = new ForgeApiFactory { Settings = new Dictionary<string, string?> { ["urls"] = urls } };
+
+        var start = () => factory.CreateClient();
+
+        start.Should().Throw<InvalidOperationException>().WithMessage("*loopback*");
+    }
+
+    [Theory]
+    [InlineData("http://127.0.0.1:7878")]
+    [InlineData("http://localhost:7878;http://[::1]:7878")]
+    public async Task The_sandbox_operator_is_allowed_on_the_loopback(string urls)
+    {
+        using var factory = new ForgeApiFactory { Settings = new Dictionary<string, string?> { ["urls"] = urls } };
+
+        (await factory.CreateClient().GetAsync("/api/v1/system/status", Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Theory]
+    [InlineData("evil.example", HttpStatusCode.Forbidden)]
+    [InlineData("rebound.attacker.example:7878", HttpStatusCode.Forbidden)]
+    [InlineData("127.0.0.1:7878", HttpStatusCode.Created)]
+    [InlineData("192.168.1.144:5178", HttpStatusCode.Created)]
+    [InlineData("localhost:7878", HttpStatusCode.Created)]
+    [InlineData("[::1]:7878", HttpStatusCode.Created)]
+    public async Task The_routes_that_record_something_answer_only_to_a_direct_address_not_to_a_name(string host, HttpStatusCode expected)
     {
         using var factory = new ForgeApiFactory();
         var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Host = host;
 
-        foreach (var path in new[] { "/api/v1/work-items", "/api/v1/activity", "/api/v1/approvals" })
+        var response = await Approve(client);
+        var stop = await Stop(client, false);
+
+        response.StatusCode.Should().Be(expected);
+        stop.StatusCode.Should().Be(expected == HttpStatusCode.Created ? HttpStatusCode.OK : HttpStatusCode.Forbidden);
+        if (expected == HttpStatusCode.Forbidden)
         {
-            (await client.DeleteAsync(path, Ct)).StatusCode.Should().BeOneOf(HttpStatusCode.NotFound, HttpStatusCode.MethodNotAllowed);
+            (await ErrorOf(response)).Should().Be("hostNotAllowed");
         }
-        (await client.PostAsJsonAsync("/api/v1/work-items", new { }, Ct)).StatusCode.Should().BeOneOf(HttpStatusCode.NotFound, HttpStatusCode.MethodNotAllowed);
+    }
+
+    [Fact]
+    public async Task The_sandbox_settings_do_not_travel_in_the_published_image()
+    {
+        var project = await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "Orchestrarr.Host", "Orchestrarr.Host.csproj"), Ct);
+
+        project.Should().Contain("appsettings.Development.json").And.Contain("CopyToPublishDirectory=\"Never\"");
     }
 }

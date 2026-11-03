@@ -165,6 +165,8 @@ export type ApprovalError =
   | 'unknownWorkItem'
   | 'pullRequestsNotRead'
   | 'nothingTicked'
+  | 'planChanged'
+  | 'hostNotAllowed'
   | 'stepNotOffered'
   | 'stepNotGranted'
   | 'stepNotSupported'

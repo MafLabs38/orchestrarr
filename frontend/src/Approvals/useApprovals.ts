@@ -16,8 +16,11 @@ export function useApprovals() {
 export function useApprove() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (request: { workItemId: string; steps: StepKind[] }) =>
-      sendJson<{ approvals: Approval[] }>('POST', approvalsPath, request),
+    mutationFn: (request: {
+      workItemId: string;
+      steps: StepKind[];
+      pullRequests: { number: number; headSha: string }[];
+    }) => sendJson<{ approvals: Approval[] }>('POST', approvalsPath, request),
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: [approvalsPath] });
       void queryClient.invalidateQueries({ queryKey: [activityPath] });

@@ -3,19 +3,12 @@ using Orchestrarr.Core.WorkItems;
 
 namespace Orchestrarr.Core.Approvals;
 
-public static class ApprovalAuditEvents
-{
-    public const string Recorded = "approval.recorded";
-    public const string Refused = "approval.refused";
-    public const string KillSwitchEngaged = "killswitch.engaged";
-    public const string KillSwitchReleased = "killswitch.released";
-}
-
 /// <summary>
-/// Records the operator's approval of a decision card (SPEC F-CRD-01, D-37). The server rebuilds everything from the current work item:
-/// what the client sends is only the work item and the steps it ticked, never a commit, a repository or a granted power. Nothing here
-/// runs anything; an approval waits for the launcher. It fails closed: the kill switch, an unreadable pull request list, an unrecordable
-/// trace each refuse.
+/// Records the operator's approval of a decision card (SPEC F-CRD-01, D-37, D-52). The server rebuilds everything from the current work
+/// item; what the client sends is the work item, the steps it ticked and the pull requests (number and commit) it displayed, which must be
+/// exactly the ones there now: an approval covers what the operator saw, never a commit that arrived after. Nothing here runs anything; an
+/// approval waits for the launcher. It fails closed: the kill switch, an unreadable or changed pull request list, an unrecordable trace each
+/// refuse. A draft pull request is never approved.
 /// </summary>
 public sealed class ApprovalService(
     WorkItemCatalog catalog,
@@ -29,73 +22,77 @@ public sealed class ApprovalService(
 
     private readonly SemaphoreSlim _gate = new(1, 1);
 
-    public async Task<ApprovalResult> ApproveAsync(Approver approver, string workItemId, IReadOnlyList<StepKind> ticked, CancellationToken cancellationToken)
+    public async Task<ApprovalResult> ApproveAsync(
+        Approver approver,
+        string workItemId,
+        IReadOnlyList<StepKind> ticked,
+        IReadOnlyList<SeenPullRequest> seen,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(approver);
         ArgumentNullException.ThrowIfNull(ticked);
+        ArgumentNullException.ThrowIfNull(seen);
 
-        // One approval at a time: the checks for a duplicate and the recording are one step.
-        await _gate.WaitAsync(cancellationToken);
-        try
+        // Everything that reads or checks comes first, without the gate: a slow read of the forge must not block the other approvals.
+        var (candidates, refusal) = await CandidatesAsync(approver, workItemId, ticked, seen, cancellationToken);
+        var result = refusal is null
+            ? await RecordAsync(candidates, cancellationToken)
+            : ApprovalResult.Refused(refusal.Value);
+        if (!result.Recorded)
         {
-            var result = await DecideAsync(approver, workItemId, ticked, cancellationToken);
-            if (!result.Recorded)
-            {
-                await RecordRefusalAsync(approver, workItemId, result.Refusal!.Value, cancellationToken);
-            }
-            return result;
+            await RecordRefusalAsync(approver, workItemId, result.Refusal!.Value, cancellationToken);
         }
-        finally
-        {
-            _gate.Release();
-        }
+        return result;
     }
 
-    private async Task<ApprovalResult> DecideAsync(Approver approver, string workItemId, IReadOnlyList<StepKind> ticked, CancellationToken cancellationToken)
+    private async Task<(IReadOnlyList<Approval> Candidates, ApprovalRefusal? Refusal)> CandidatesAsync(
+        Approver approver, string workItemId, IReadOnlyList<StepKind> ticked, IReadOnlyList<SeenPullRequest> seen, CancellationToken cancellationToken)
     {
         if (await killSwitch.IsEngagedAsync(cancellationToken))
         {
-            return ApprovalResult.Refused(ApprovalRefusal.KillSwitchEngaged);
+            return ([], ApprovalRefusal.KillSwitchEngaged);
         }
         if (!approver.IsPerson)
         {
-            return ApprovalResult.Refused(ApprovalRefusal.NotAPerson);
+            return ([], ApprovalRefusal.NotAPerson);
         }
         if (!approver.IsOperator)
         {
-            return ApprovalResult.Refused(ApprovalRefusal.NotAnOperator);
+            return ([], ApprovalRefusal.NotAnOperator);
         }
 
         var item = await catalog.FindAsync(workItemId, cancellationToken);
         if (item?.RepositoryFullName is null)
         {
-            return ApprovalResult.Refused(ApprovalRefusal.UnknownWorkItem);
+            return ([], ApprovalRefusal.UnknownWorkItem);
         }
-
-        var stepsRefusal = CheckSteps(item, ticked);
-        if (stepsRefusal is not null)
+        if (CheckSteps(item, ticked) is { } stepsRefusal)
         {
-            return ApprovalResult.Refused(stepsRefusal.Value);
+            return ([], stepsRefusal);
         }
         // What is approved must be what the operator sees now: a list that is still being read, failed, or only an old read is refused.
         if (item.PullRequests is not { Status: PullRequestsStatus.Read, Stale: false })
         {
-            return ApprovalResult.Refused(ApprovalRefusal.PullRequestsNotRead);
+            return ([], ApprovalRefusal.PullRequestsNotRead);
         }
 
         var steps = ticked.Distinct().Order().ToArray();
         var now = time.GetUtcNow();
         var approvals = item.PullRequests.Items
             .Where(pullRequest => !pullRequest.Draft)
-            .Select(pullRequest => new Approval(Guid.NewGuid(), item.Id, item.RepositoryFullName, pullRequest.Number, pullRequest.HeadSha, steps, approver.Subject, now))
+            .Select(pullRequest => new Approval(Guid.NewGuid(), item.Id, item.RepositoryFullName, pullRequest.Number, pullRequest.HeadSha, steps, approver.Subject, now, approver.StepUpAt))
             .Where(IsRecordable)
             .ToList();
         if (approvals.Count == 0)
         {
-            return ApprovalResult.Refused(ApprovalRefusal.NoPullRequests);
+            return ([], ApprovalRefusal.NoPullRequests);
         }
-        return await RecordAsync(approvals, now, cancellationToken);
+        return SameAsSeen(approvals, seen) ? (approvals, null) : ([], ApprovalRefusal.PlanChanged);
     }
+
+    private static bool SameAsSeen(List<Approval> approvals, IReadOnlyList<SeenPullRequest> seen) =>
+        seen.Count == approvals.Count
+        && seen.Select(pullRequest => (pullRequest.Number, pullRequest.HeadSha)).Order().SequenceEqual(approvals.Select(approval => (approval.PullRequest, approval.HeadSha)).Order());
 
     private static ApprovalRefusal? CheckSteps(WorkItem item, IReadOnlyList<StepKind> ticked)
     {
@@ -124,45 +121,42 @@ public sealed class ApprovalService(
 
     // The fields come from the forge and the fleet, which are untrusted: what does not fit the shapes of an order is not recorded or traced.
     private static bool IsRecordable(Approval approval) =>
-        OrderValidation.IsValid(approval.WorkItemId, approval.Repository, approval.HeadSha, null, approval.Steps, approval.ApproverSubject, "approvals")
-        && approval.PullRequest > 0;
+        approval.PullRequest > 0
+        && OrderValidation.IsValidApproval(approval.WorkItemId, approval.Repository, approval.HeadSha, approval.Steps, approval.ApproverSubject);
 
-    private async Task<ApprovalResult> RecordAsync(List<Approval> approvals, DateTimeOffset now, CancellationToken cancellationToken)
+    // Under the gate: the check for a decision already there, the trace and the recording are one step, all or nothing.
+    private async Task<ApprovalResult> RecordAsync(IReadOnlyList<Approval> candidates, CancellationToken cancellationToken)
     {
-        var fresh = approvals.Where(approval => !Exists(approval)).ToList();
-        if (fresh.Count == 0)
+        await _gate.WaitAsync(cancellationToken);
+        try
         {
-            return ApprovalResult.Refused(ApprovalRefusal.AlreadyApproved);
-        }
-
-        // The trace first: no trace, no approval.
-        foreach (var approval in fresh)
-        {
-            var entry = new AuditEntry(now, ApprovalAuditEvents.Recorded, approval.ApproverSubject, approval.Id.ToString("D"),
-                $"{approval.Repository}#{approval.PullRequest}@{approval.HeadSha} steps={string.Join(',', approval.Steps)}");
-            if (!await audit.TryRecordAsync(entry, cancellationToken))
+            var fresh = candidates.Where(approval => !store.Contains(approval)).ToList();
+            if (fresh.Count == 0)
             {
-                return ApprovalResult.Refused(ApprovalRefusal.AuditUnavailable);
+                return ApprovalResult.Refused(ApprovalRefusal.AlreadyApproved);
             }
-        }
-
-        var added = new List<Approval>();
-        foreach (var approval in fresh)
-        {
-            if (store.TryAdd(approval) == ApprovalStoreResult.Full)
+            if (store.Free < fresh.Count)
             {
-                return added.Count == 0 ? ApprovalResult.Refused(ApprovalRefusal.StoreFull) : new ApprovalResult(added, null);
+                return ApprovalResult.Refused(ApprovalRefusal.StoreFull);
             }
-            added.Add(approval);
+
+            // The trace first: no trace, no approval. The room was checked, so what is traced is what is stored.
+            foreach (var approval in fresh)
+            {
+                var entry = new AuditEntry(approval.ApprovedAt, ApprovalAuditEvents.Recorded, approval.ApproverSubject, approval.Id.ToString("D"),
+                    $"{approval.Repository}#{approval.PullRequest}@{approval.HeadSha} steps={string.Join(',', approval.Steps)}");
+                if (!await audit.TryRecordAsync(entry, cancellationToken))
+                {
+                    return ApprovalResult.Refused(ApprovalRefusal.AuditUnavailable);
+                }
+            }
+            return store.TryAddRange(fresh) ? new ApprovalResult(fresh, null) : ApprovalResult.Refused(ApprovalRefusal.StoreFull);
         }
-        return new ApprovalResult(added, null);
+        finally
+        {
+            _gate.Release();
+        }
     }
-
-    private bool Exists(Approval candidate) =>
-        store.List().Any(existing => existing.Repository == candidate.Repository
-            && existing.PullRequest == candidate.PullRequest
-            && existing.HeadSha == candidate.HeadSha
-            && existing.Steps.Order().SequenceEqual(candidate.Steps.Order()));
 
     private async Task RecordRefusalAsync(Approver approver, string workItemId, ApprovalRefusal refusal, CancellationToken cancellationToken)
     {

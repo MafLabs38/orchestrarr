@@ -160,6 +160,9 @@ const approvalsPath = '/api/v1/approvals';
 // The steps the operator granted: building and testing a pull request, and merging the ones that pass.
 const granted: WorkItem = {
   ...item,
+  pullRequests: pullRequestsRead({
+    items: [pullRequest(1), pullRequest(2, { headSha: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' })],
+  }),
   plan: [
     step({ kind: 'validate', granted: true }),
     step({ kind: 'mergePullRequests', granted: true }),
@@ -251,7 +254,14 @@ describe('DecisionCard approval', () => {
 
     await waitFor(() =>
       expect(posted(fetchMock)).toEqual([
-        { workItemId: 'repository:example/shop', steps: ['validate', 'mergePullRequests'] },
+        {
+          workItemId: 'repository:example/shop',
+          steps: ['validate', 'mergePullRequests'],
+          pullRequests: [
+            { number: 1, headSha: 'abcdef0123456789abcdef0123456789abcdef01' },
+            { number: 2, headSha: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' },
+          ],
+        },
       ]),
     );
   });
@@ -265,7 +275,9 @@ describe('DecisionCard approval', () => {
     await userEvent.click(approveButton());
 
     await waitFor(() =>
-      expect(posted(fetchMock)).toEqual([{ workItemId: 'repository:example/shop', steps: ['validate'] }]),
+      expect(posted(fetchMock)).toEqual([
+        expect.objectContaining({ workItemId: 'repository:example/shop', steps: ['validate'] }),
+      ]),
     );
   });
 
@@ -321,5 +333,112 @@ describe('DecisionCard approval', () => {
     await userEvent.click(approveButton());
 
     expect(await screen.findByRole('alert')).toHaveTextContent('The approval was refused.');
+  });
+
+  it('sends only the pull requests it displays: a draft is not approved', async () => {
+    const withDraft: WorkItem = {
+      ...granted,
+      pullRequests: pullRequestsRead({ items: [pullRequest(1), pullRequest(2, { draft: true })] }),
+    };
+    const fetchMock = stubApproving();
+    renderWithProviders(<DecisionCard item={withDraft} />);
+    await waitFor(() => expect(approveButton()).toBeEnabled());
+
+    await userEvent.click(approveButton());
+
+    await waitFor(() =>
+      expect(posted(fetchMock)).toEqual([
+        expect.objectContaining({ pullRequests: [{ number: 1, headSha: 'abcdef0123456789abcdef0123456789abcdef01' }] }),
+      ]),
+    );
+  });
+
+  it.each([
+    ['still being read', pullRequestsRead({ status: 'pending', items: [] })],
+    ['an old list', pullRequestsRead({ status: 'failed', items: [pullRequest(1)], stale: true, error: 'unreachable' })],
+    ['none', pullRequestsRead({ status: 'read', items: [] })],
+    ['not connected', pullRequestsRead({ status: 'notConnected', items: [] })],
+  ])('cannot be approved on a list of pull requests that is %s', async (_name, pullRequests) => {
+    stubApproving();
+    renderWithProviders(<DecisionCard item={{ ...granted, pullRequests }} />);
+
+    await waitFor(() => expect(approveButton()).toHaveAccessibleDescription(/not read yet/));
+    expect(approveButton()).toBeDisabled();
+  });
+
+  it('posts once when the button is pressed twice while the answer is awaited', async () => {
+    const awaited: { answer?: (response: Response) => void } = {};
+    const fetchMock = vi.fn((input: string, init?: RequestInit) => {
+      if (input === statusPath) {
+        return Promise.resolve(new Response(JSON.stringify(status()), { status: 200 }));
+      }
+      if (input === approvalsPath && init?.method === 'POST') {
+        return new Promise<Response>((resolve) => {
+          awaited.answer = resolve;
+        });
+      }
+      return Promise.resolve(new Response('[]', { status: 200 }));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(<DecisionCard item={granted} />);
+    await waitFor(() => expect(approveButton()).toBeEnabled());
+
+    await userEvent.click(approveButton());
+    await userEvent.click(approveButton());
+
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1);
+    awaited.answer?.(new Response(JSON.stringify(approved), { status: 201 }));
+    expect(await screen.findByText(/1 approval recorded/)).toBeInTheDocument();
+  });
+
+  it('reads the queue, the trail and the status again once something is recorded', async () => {
+    const fetchMock = stubApproving();
+    renderWithProviders(<DecisionCard item={granted} />);
+    await waitFor(() => expect(approveButton()).toBeEnabled());
+    const before = fetchMock.mock.calls.filter(([input]) => input === statusPath).length;
+
+    await userEvent.click(approveButton());
+
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.filter(([input]) => input === statusPath).length).toBeGreaterThan(before),
+    );
+  });
+
+  it('forgets that it was recorded as soon as a step is ticked or unticked', async () => {
+    stubApproving();
+    renderWithProviders(<DecisionCard item={granted} />);
+    await waitFor(() => expect(approveButton()).toBeEnabled());
+    await userEvent.click(approveButton());
+    expect(await screen.findByText(/1 approval recorded/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Merge the pull requests that pass' }));
+
+    expect(screen.queryByText(/approval recorded/)).not.toBeInTheDocument();
+  });
+
+  it('forgets that it was recorded when the pull requests, or their commits, change under the card', async () => {
+    stubApproving();
+    const { rerender } = renderWithProviders(<DecisionCard item={granted} />);
+    await waitFor(() => expect(approveButton()).toBeEnabled());
+    await userEvent.click(approveButton());
+    expect(await screen.findByText(/1 approval recorded/)).toBeInTheDocument();
+
+    rerender(
+      <DecisionCard
+        item={{ ...granted, pullRequests: pullRequestsRead({ items: [pullRequest(1, { headSha: 'f'.repeat(40) })] }) }}
+      />,
+    );
+
+    await waitFor(() => expect(screen.queryByText(/approval recorded/)).not.toBeInTheDocument());
+  });
+
+  it('says in words that the pull requests changed', async () => {
+    stubApproving({}, { status: 409, body: { error: 'planChanged' } });
+    renderWithProviders(<DecisionCard item={granted} />);
+    await waitFor(() => expect(approveButton()).toBeEnabled());
+
+    await userEvent.click(approveButton());
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('The pull requests changed since you looked at them');
   });
 });

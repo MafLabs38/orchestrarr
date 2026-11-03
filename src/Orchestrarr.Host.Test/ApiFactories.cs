@@ -65,13 +65,31 @@ public sealed class ForgeApiFactory : WebApplicationFactory<Program>
 {
     public Func<Exception>? Failure { get; init; }
 
+    /// <summary>Other settings of the host (the grants, the capacities, the listening addresses…).</summary>
+    public IReadOnlyDictionary<string, string?> Settings { get; init; } = new Dictionary<string, string?>();
+
+    /// <summary>The environment of the host; Development, the sandbox's, when not set.</summary>
+    public string? EnvironmentName { get; init; }
+
+    /// <summary>Services that replace the host's own.</summary>
+    public Action<IServiceCollection>? ServiceOverrides { get; init; }
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
+        if (EnvironmentName is not null)
+        {
+            builder.UseEnvironment(EnvironmentName);
+        }
         builder.UseSetting(FleetSourceFactory.SampleFileKey, Path.Combine(AppContext.BaseDirectory, "portarr-maintenance.sample.json"));
+        foreach (var (key, value) in Settings)
+        {
+            builder.UseSetting(key, value);
+        }
         builder.ConfigureTestServices(services =>
         {
             services.RemoveAll<IPullRequestSource>();
             services.AddSingleton<IPullRequestSource>(new FakeForge(Failure));
+            ServiceOverrides?.Invoke(services);
         });
     }
 

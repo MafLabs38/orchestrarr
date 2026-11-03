@@ -30,6 +30,12 @@ internal static partial class OrderValidation
             && HasValidSteps(steps);
     }
 
+    /// <summary>The shape of an approval (no environment, no audience): the same fields, the same patterns as an order's.</summary>
+    public static bool IsValidApproval(string workItemId, string repository, string headSha, IReadOnlyList<StepKind> steps, string approverSubject) =>
+        IsValid(workItemId, repository, headSha, environment: null, steps, approverSubject, audience: ApprovalAudience);
+
+    private const string ApprovalAudience = "approvals";
+
     public static bool IsValidWorkItem(string? workItemId) => WorkItem().IsMatch(workItemId ?? string.Empty);
 
     /// <summary>The subject of an approver, as the identity provider gives it.</summary>

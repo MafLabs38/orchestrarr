@@ -121,6 +121,8 @@ const approvalErrors = {
   unknownWorkItem: 'ApprovalErrorUnknownWorkItem',
   pullRequestsNotRead: 'ApprovalErrorPullRequestsNotRead',
   nothingTicked: 'ApprovalErrorNothingTicked',
+  planChanged: 'ApprovalErrorPlanChanged',
+  hostNotAllowed: 'ApprovalErrorHostNotAllowed',
   stepNotOffered: 'ApprovalErrorStepNotOffered',
   stepNotGranted: 'ApprovalErrorStepNotGranted',
   stepNotSupported: 'ApprovalErrorStepNotSupported',
