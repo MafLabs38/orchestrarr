@@ -51,7 +51,7 @@ flowchart TB
   cp -->|"4 when the run starts: still an operator?<br/>plan unchanged? (how: open, section 6)"| kc
   cp -->|"5 asks Vault to sign the order"| vault
   cp -->|"6 stores the order"| store
-  launcher -->|"7 pulls, through the API (which reads the store)"| cp
+  launcher -->|"7 pulls, through the API (proposed, ADR 0014)"| cp
   launcher -->|"8 authenticates with the identity<br/>of its own environment"| vault
   vault -->|"9 short-lived credentials from the roles<br/>of this environment only"| launcher
   launcher -->|"10 starts with only these"| shop
@@ -106,7 +106,7 @@ An agent is never recognised by what it says. It is recognised by **what it hold
 |---|---|---|---|
 | Someone calls the API without being signed in | A session is required for every route | The host | 🟢 |
 | A signed-in person who is not an operator approves | The operator group is checked | The host | 🟢 |
-| A forged or replayed order | The signature, the expiry and a one-time number are checked | The launcher | 🟢 library code, 🔵 not running |
+| A forged or replayed order | The signature, the expiry and a one-time number are checked | The launcher | 🟢 library code (the reference and the oracle of the vectors; the launcher that will run is the Rust binary, ADR 0014), 🔵 not running |
 | The two implementations of the launch rules disagree (an order passes in one, not in the other) | Both are held to the same conformance vectors, and a change to the rules is one pull request that changes both and the files ([ADR 0014](adr/0014-the-launcher-is-a-rust-binary-held-to-the-control-plane-by-shared-vectors.md)) | The test suites of both | 🔵 decided, not built |
 | A process asks Vault for credentials | Vault answers only to the workload identity of the launcher of that environment, and only from that environment's roles (a launcher of another environment gets nothing) | Vault | 🔵 |
 | An agent started outside the workshop | It holds no certificate, so the machines refuse it | The target machines | 🔵 |
@@ -195,5 +195,6 @@ Still open:
 | Sign-in with the identity provider, operator group, origin check ([ADR 0011](adr/0011-people-sign-in-through-the-identity-provider.md)) | 🟢 |
 | Vault dedicated to this purpose | 🔵 manifests in the GitOps repository, not initialised |
 | Launcher that runs, order store, workshop, certificates, revoking the tokens of a run | 🔵 not built |
-| The launcher as a Rust binary, held to the control plane's rules by shared conformance vectors, pulling its orders through the control plane's API; first a dry run | 🔵 decided in [ADR 0014](adr/0014-the-launcher-is-a-rust-binary-held-to-the-control-plane-by-shared-vectors.md), not built |
+| The launcher as a Rust binary, held to the control plane's rules by shared conformance vectors | 🔵 decided ([ADR 0014](adr/0014-the-launcher-is-a-rust-binary-held-to-the-control-plane-by-shared-vectors.md), D-59), not built |
+| The launcher pulling its orders through the control plane's API, with its own grants, its own list of production environments and an in-memory ledger; first a dry run | 🔵 proposed (ADR 0014 point 7, D-60), not built |
 | One launcher and one Vault role set per environment, tiers of the operator account, validation of the plan for production | 🔵 proposed in ADR 0012 |
