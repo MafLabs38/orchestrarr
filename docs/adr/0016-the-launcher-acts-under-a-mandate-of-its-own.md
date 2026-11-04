@@ -1,6 +1,6 @@
 # 0016 — The launcher acts under a mandate of its own: a signed token per launcher, and the launcher of the home environment serves orders with no environment
 
-- **Status**: accepted by the maintainer on 2026-11-04, points 1 to 3 except the clauses marked proposed, listed in SPEC D-64 (on condition that the launcher pulls through the control plane's API, D-60, proposed: if the maintainer changes that, points 1 and 3 are revisited; nothing is built: the launcher is row 3a of the [SPEC](../SPEC.md) roadmap; the signed stop statement and the machine routes stay proposals, [ADR 0015](0015-where-the-launcher-gets-what-its-checks-read.md) and SPEC Q-27)
+- **Status**: accepted by the maintainer on 2026-11-04 (it amends the "approve" half of D-19, a consequence of [ADR 0001](0001-merge-and-deploy-on-operator-approval.md), which stays accepted otherwise), points 1 to 3 except the clauses marked proposed, listed in SPEC D-64 (on condition that the launcher pulls through the control plane's API, D-60, proposed: if the maintainer changes that, points 1 and 3 are revisited; nothing is built: the launcher is row 3a of the [SPEC](../SPEC.md) roadmap; the signed stop statement and the machine routes stay proposals, [ADR 0015](0015-where-the-launcher-gets-what-its-checks-read.md) and SPEC Q-27)
 - **Date**: 2026-11-04
 
 ## Context
@@ -48,6 +48,7 @@ The principle the maintainer set: **the action is always delegated to a launcher
 
 ## Not decided here
 
+- A merge on a repository that deploys itself, and the base branch that the approval binds (SPEC Q-29), before row 3b.
 - Who starts a workshop run, and what validating means for a launcher (SPEC Q-28), which every approval needs, so before the dry run. If the validation and the merge go to different launchers, they are two orders, one per launcher (an order has one environment and one audience).
 - Whether the token is bound to the launcher's key (a sender-constrained token) so that a captured token is useless; a bearer token that lives minutes is the default.
 - The rotation of a launcher's key (a maximum lifetime of 90 days by default and an API that refuses the token of a disabled client are proposed, SPEC D-64) (how often, and how the identity provider learns the new public key), and where the key is kept where the launcher runs: settled with row 3a (SPEC Q-27).
