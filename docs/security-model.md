@@ -1,6 +1,6 @@
 # How an order is secured, from the person to the machine
 
-> **Status**: draft. It explains the mechanism proposed in [ADR 0006](adr/0006-a-launch-is-a-signed-order-and-credentials-are-short-lived.md) and [ADR 0007](adr/0007-a-dedicated-vault-and-a-small-control-plane.md) and settled by [ADR 0012](adr/0012-one-launcher-and-one-vault-role-per-environment.md) (all **proposed**, SPEC D-39 to D-57). Nothing that runs an agent is built yet.
+> **Status**: draft. It explains the mechanism proposed in [ADR 0006](adr/0006-a-launch-is-a-signed-order-and-credentials-are-short-lived.md) and [ADR 0007](adr/0007-a-dedicated-vault-and-a-small-control-plane.md) and settled by [ADR 0012](adr/0012-one-launcher-and-one-vault-role-per-environment.md) (all **proposed**, SPEC D-39 to D-57). Nothing that runs an agent is built yet. The launcher's language and its conformance vectors are decided in [ADR 0014](adr/0014-the-launcher-is-a-rust-binary-held-to-the-control-plane-by-shared-vectors.md) (D-59); how it gets its orders, the stop and the time is a proposal, [ADR 0015](adr/0015-where-the-launcher-gets-what-its-checks-read.md) (D-60).
 >
 > **Defaults you can change**: ADR 0012 proposes, as the safe default, that a run gets a **tier** of the operator account (read-only, deploy, maintenance) instead of the whole account that SPEC D-34 and D-39 describe, and that the plan is validated before it is applied in production. The maintainer chose one launcher and one Vault role per environment.
 >
@@ -87,7 +87,7 @@ sequenceDiagram
   C->>K: is this person still an operator?
   C->>C: kill switch off? power granted? commit unchanged? fresh second factor for production?
   C->>V: sign the order (the key never leaves Vault)
-  L->>C: pull the signed order (the launcher has no inbound port)
+  L->>C: pull the signed order through the API (proposed, ADR 0015; the launcher has no inbound port)
   L->>L: signature valid? not expired? never used? within the granted powers?
   L->>V: authenticate as the launcher of this environment (its own workload identity)
   V-->>L: credentials from the roles of this environment, limited to this repository
