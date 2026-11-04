@@ -22,7 +22,7 @@ Same as Portarr, so the three products share conventions:
 - **Frontend**: React, TypeScript (strict), Vite, TanStack Query, CSS Modules
 - **Launcher**: Rust, a separate static binary (`launcher/`, **not built yet**), held to the control plane by shared conformance vectors in `contract/launch/` ([ADR 0014](docs/adr/0014-the-launcher-is-a-rust-binary-held-to-the-control-plane-by-shared-vectors.md)). The control plane stays .NET
 - **Tests**: xUnit v3 + NSubstitute + AwesomeAssertions, Vitest + Testing Library, Playwright (planned; see [docs/TESTING.md](docs/TESTING.md)); `cargo test` for the launcher, once it exists
-- **Quality**: analyzers as errors and `dotnet format`, `rustfmt` and `clippy` as errors for the launcher once it exists, ESLint (SonarJS), Stylelint, Prettier, SonarQube, CodeQL, gitleaks, Trivy, Stryker, the five review agents. Same as Portarr, plus the fifth agent (`spec-reviewer`, [ADR 0008](docs/adr/0008-a-fifth-agent-keeps-the-documentation-true.md))
+- **Quality**: analyzers as errors and `dotnet format`, `rustfmt`, `clippy` as errors and a dependency audit for the launcher once it exists, ESLint (SonarJS), Stylelint, Prettier, SonarQube, CodeQL, gitleaks, Trivy, Stryker, the five review agents. Same as Portarr, plus the fifth agent (`spec-reviewer`, [ADR 0008](docs/adr/0008-a-fifth-agent-keeps-the-documentation-true.md))
 - **CI/CD**: GitHub Actions, a single container image on GHCR (amd64 now, multi-arch when a target needs it)
 - Agent runtime (Claude Code headless, Agent SDK, Managed Agents…) and where workers run: **undecided**, see the open questions.
 
