@@ -2,7 +2,7 @@
 
 > Self-hosted orchestrator agent that coordinates worker agents to keep a fleet of applications healthy, in the spirit of the *arr suite.
 
-**Project stage: first verticals, read-only.** The safety model is accepted ([ADR 0001](docs/adr/0001-merge-and-deploy-on-operator-approval.md)) and the first vertical reads findings and shows decision cards. Orchestrarr holds **no write power yet**: do not pick an agent runtime (SPEC Q-07) or grant a power that merges, deploys or writes to a repository before the maintainer has decided it.
+**Project stage: first verticals, read-only.** The safety model is accepted ([ADR 0001](docs/adr/0001-merge-and-deploy-on-operator-approval.md)) and the first vertical reads findings and shows decision cards. Orchestrarr holds **no write power yet**: do not grant a power that merges, deploys or writes to a repository before the maintainer has decided it. The agent runtime is decided (Claude Code, non-interactive, in a container, on a workshop host: SPEC D-24, D-25, ADR 0004).
 
 This file is read automatically by Claude Code. It applies to every task in this repository.
 
@@ -24,7 +24,7 @@ Same as Portarr, so the three products share conventions:
 - **Tests**: xUnit v3 + NSubstitute + AwesomeAssertions, Vitest + Testing Library, Playwright (planned; see [docs/TESTING.md](docs/TESTING.md)); `cargo test` for the launcher, once it exists
 - **Quality**: analyzers as errors and `dotnet format`, `rustfmt`, `clippy` as errors and a dependency audit for the launcher once it exists, ESLint (SonarJS), Stylelint, Prettier, SonarQube, CodeQL, gitleaks, Trivy, Stryker, the five review agents. Same as Portarr, plus the fifth agent (`spec-reviewer`, [ADR 0008](docs/adr/0008-a-fifth-agent-keeps-the-documentation-true.md))
 - **CI/CD**: GitHub Actions, a container image on GHCR for the control plane (amd64 now, multi-arch when a target needs it); the launcher, when built, has an image of its own ([ADR 0014](docs/adr/0014-the-launcher-is-a-rust-binary-held-to-the-control-plane-by-shared-vectors.md))
-- Agent runtime (Claude Code headless, Agent SDK, Managed Agents…) and where workers run: **undecided**, see the open questions.
+- Agent runtime: Claude Code, non-interactive, in a container on a workshop host (decided, SPEC D-24, D-25, ADR 0004); nothing runs yet.
 
 ## Non-negotiable rules
 

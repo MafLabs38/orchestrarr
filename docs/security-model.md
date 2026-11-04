@@ -38,9 +38,9 @@ Contents: [the chain](#1-the-whole-chain) · [a run step by step](#2-one-run-ste
 flowchart TB
   person["You, the operator"]
   kc["Identity provider<br/>who you are, your group,<br/>a second factor for production"]:::built
-  cp["Control plane (the API)<br/>records your approval (built),<br/>signs the order when the run starts"]:::decided
+  cp["Control plane (the API)<br/>records your approval (built),<br/>signs the order when the run starts<br/>(at delivery: proposed, ADR 0015)"]:::decided
   vault["Vault<br/>non-exportable signing key,<br/>one role set per environment,<br/>SSH authority"]:::decided
-  store[("Order store")]:::decided
+  store[("Order store<br/>(behind the API)")]:::decided
   launcher["Launcher of this environment<br/>verifies the order (a small Rust binary),<br/>no inbound port"]:::decided
   shop["Workshop: the agent<br/>isolated, no standing access,<br/>a deadline"]:::decided
   target["Target machines<br/>trust only the Vault authority,<br/>a dedicated operator account (D-34)"]:::decided
@@ -196,5 +196,5 @@ Still open:
 | Vault dedicated to this purpose | 🔵 manifests in the GitOps repository, not initialised |
 | Launcher that runs, order store, workshop, certificates, revoking the tokens of a run | 🔵 not built |
 | The launcher as a Rust binary, held to the control plane's rules by shared conformance vectors | 🔵 decided ([ADR 0014](adr/0014-the-launcher-is-a-rust-binary-held-to-the-control-plane-by-shared-vectors.md), D-59), not built |
-| The launcher pulling its orders through the control plane's API, with its own grants, its own list of production environments and an in-memory ledger; first a dry run | 🔵 proposed (ADR 0014 point 7, D-60), not built |
+| The launcher pulling its orders through the control plane's API, with its own grants, its own list of production environments and an in-memory ledger; first a dry run | 🔵 proposed (ADR 0015, D-60), not built |
 | One launcher and one Vault role set per environment, tiers of the operator account, validation of the plan for production | 🔵 proposed in ADR 0012 |
