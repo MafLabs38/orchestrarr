@@ -6,5 +6,5 @@
 .git
 frontend/reports
 src/Orchestrarr.Host/wwwroot
-# test key of the launch conformance vectors: never in an image (ADR 0014)
+# test key of the launch conformance vectors: never in an image (ADR 0014); covers the root directory only
 contract/

@@ -29,7 +29,7 @@ Contents: [the chain](#1-the-whole-chain) · [a run step by step](#2-one-run-ste
 | Mark | Meaning |
 |---|---|
 | 🟢 | In `develop` today |
-| 🔵 | Described in a proposed ADR (0006, 0007, 0012), not built |
+| 🔵 | Described in a proposed ADR (0006, 0007, 0012, 0015) or decided but not built (0014), not built |
 | 🟣 | An idea under discussion, in no ADR yet: **not a commitment** until an ADR accepts it |
 
 ## 1. The whole chain
