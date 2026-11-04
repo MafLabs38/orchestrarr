@@ -48,7 +48,7 @@ The principle the maintainer set: **the action is always delegated to a launcher
 
 ## Not decided here
 
-- A merge on a repository that deploys itself, and the base branch that the approval binds (SPEC Q-29), before row 3b.
+- A merge on a repository that deploys itself, and the base branch that the approval binds (SPEC Q-29), before row 3b. Until it is answered, as a safe default (SPEC D-64), no repository deployed by continuous deployment or GitOps is on the home launcher's forge allow-list, so that its blast radius stays the home environment and the forge.
 - Who starts a workshop run, and what validating means for a launcher (SPEC Q-28), which every approval needs, so before the dry run. If the validation and the merge go to different launchers, they are two orders, one per launcher (an order has one environment and one audience).
 - Whether the token is bound to the launcher's key (a sender-constrained token) so that a captured token is useless; a bearer token that lives minutes is the default.
 - The rotation of a launcher's key (a maximum lifetime of 90 days by default and an API that refuses the token of a disabled client are proposed, SPEC D-64) (how often, and how the identity provider learns the new public key), and where the key is kept where the launcher runs: settled with row 3a (SPEC Q-27).
