@@ -48,3 +48,5 @@ Nothing removes an approval, and the trail is append-only, so the queue (10,000)
 - Paging further back than the newest entries.
 - **Nothing yet takes an approval, and the migration that adds the lifecycle must not make the old ones work.** Every approval recorded before the lifecycle exists is history, not a waiting order: the migration marks them so (never `waiting`), because a commit approved months ago has long moved on, and a launcher must act on what an operator approved *for the current commit* (ADR 0001).
 - The unique key of a decision allows each pull request, commit and steps to be approved once, ever: the lifecycle of an approval (a stepwise migration, a unique key limited to the waiting state) comes with the launcher. The launcher pulls its orders through the control plane's API and never opens this file ([ADR 0015](0015-where-the-launcher-gets-what-its-checks-read.md), SPEC D-60, proposed default; ADR 0007, D-46).
+
+*(2026-11-04: how the launcher gets its orders and the stop is proposed in [ADR 0015](0015-where-the-launcher-gets-what-its-checks-read.md); the unique key and the lifecycle of an approval above are what that proposal needs first.)*

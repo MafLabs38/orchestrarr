@@ -6,3 +6,4 @@
 .git
 frontend/reports
 src/Orchestrarr.Host/wwwroot
+contract/
