@@ -49,7 +49,7 @@ Writing the launcher in a second language means **two implementations of the sam
    - The audience has **no default**: the Rust launcher refuses to start without one, with the literal `launcher` or with a deny-listed test value. Core's `LauncherOptions` loses its default audience (`"launcher"`) in row 3a; the oracle then takes the audience from the configuration of each vector.
    - That two launchers do not share an audience cannot be checked by a launcher, which knows only its own configuration: it is checked where every audience is visible, in the issuer's map from environment to audience (the host refuses to start with a duplicate) and in the infrastructure repository that delivers the launchers' configuration.
    - An order's environment **must be one the launcher serves**, otherwise it is refused as `EnvironmentNotServed`, by a check that runs right after the audience check; the environment wildcard of a grant ranges over the served environments only.
-   - An order with **no environment** (a merge only, which acts on a repository, not on an environment) is served only by a launcher configured to serve such orders; who runs them is SPEC Q-26.
+   - An order with **no environment** (a merge only, which acts on a repository, not on an environment) is served only by a launcher configured to serve such orders; the launcher of the home environment runs them (SPEC D-63, [ADR 0016](0016-the-launcher-acts-under-a-mandate-of-its-own.md)).
 7. **Where the launcher gets what its checks read, how time and delivery keep an in-memory ledger sound, and a first slice that is a dry run** are a **proposal of their own, [ADR 0015](0015-where-the-launcher-gets-what-its-checks-read.md)** (status: proposed), so that what is accepted here stays separable from what is not.
 
 ## Alternatives considered
@@ -76,10 +76,9 @@ Writing the launcher in a second language means **two implementations of the sam
 ## Not decided here
 
 - When the order is signed relative to the approval, and what happens when a production step-up has gone stale or the order has expired before the launcher pulls it (the issuer's trigger and the re-issue): settled with row 3a, with the open question of [the security model](../security-model.md) on the refresh of the operator's session.
-- Who runs an order with no environment, a merge only (SPEC Q-26).
 - Mutation testing of the Rust launcher (the .NET lane uses Stryker); it follows when the launcher exists.
 - The launcher stops being a few hundred lines once it carries an HTTP client, JSON and Ed25519; the bound is the handful of crates, listed in the pull request that writes it.
-- How the launcher authenticates to the control plane's API (SPEC Q-25).
+- The rotation of a launcher's key (SPEC Q-27); how it authenticates to the API is settled, [ADR 0016](0016-the-launcher-acts-under-a-mandate-of-its-own.md).
 - The Rust crates beyond the standard library (the signature check, the HTTP client, the JSON of the vectors) and the C# Ed25519 library: chosen with row 3a, kept to a handful and listed in the pull request.
 - Where the launcher runs (SPEC Q-27).
 

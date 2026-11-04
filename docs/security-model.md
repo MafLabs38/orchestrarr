@@ -1,6 +1,6 @@
 # How an order is secured, from the person to the machine
 
-> **Status**: draft. It explains the mechanism proposed in [ADR 0006](adr/0006-a-launch-is-a-signed-order-and-credentials-are-short-lived.md) and [ADR 0007](adr/0007-a-dedicated-vault-and-a-small-control-plane.md) and settled by [ADR 0012](adr/0012-one-launcher-and-one-vault-role-per-environment.md) (all **proposed**, SPEC D-39 to D-57). Nothing that runs an agent is built yet. The launcher's language and its conformance vectors are decided in [ADR 0014](adr/0014-the-launcher-is-a-rust-binary-held-to-the-control-plane-by-shared-vectors.md) (D-59); how it gets its orders, the stop and the time is a proposal, [ADR 0015](adr/0015-where-the-launcher-gets-what-its-checks-read.md) (D-60).
+> **Status**: draft. It explains the mechanism proposed in [ADR 0006](adr/0006-a-launch-is-a-signed-order-and-credentials-are-short-lived.md) and [ADR 0007](adr/0007-a-dedicated-vault-and-a-small-control-plane.md) and settled by [ADR 0012](adr/0012-one-launcher-and-one-vault-role-per-environment.md) (all **proposed**, SPEC D-39 to D-57). Nothing that runs an agent is built yet. The launcher's language and its conformance vectors are decided in [ADR 0014](adr/0014-the-launcher-is-a-rust-binary-held-to-the-control-plane-by-shared-vectors.md) (D-59); how it gets its orders, the stop and the time is a proposal, [ADR 0015](adr/0015-where-the-launcher-gets-what-its-checks-read.md) (D-60); how it authenticates to the control plane, with a signed token of its own, and who runs an order with no environment are decided in [ADR 0016](adr/0016-the-launcher-acts-under-a-mandate-of-its-own.md) (D-62, D-63).
 >
 > **Defaults you can change**: ADR 0012 proposes, as the safe default, that a run gets a **tier** of the operator account (read-only, deploy, maintenance) instead of the whole account that SPEC D-34 and D-39 describe, and that the plan is validated before it is applied in production. The maintainer chose one launcher and one Vault role per environment.
 >
@@ -29,7 +29,7 @@ Contents: [the chain](#1-the-whole-chain) · [a run step by step](#2-one-run-ste
 | Mark | Meaning |
 |---|---|
 | 🟢 | In `develop` today |
-| 🔵 | Described in a proposed ADR (0006, 0007, 0012, 0015) or decided but not built (0014), not built |
+| 🔵 | Described in a proposed ADR (0006, 0007, 0012, 0015) or decided but not built (0014, 0016), not built |
 | 🟣 | An idea under discussion, in no ADR yet: **not a commitment** until an ADR accepts it |
 
 ## 1. The whole chain
@@ -197,4 +197,5 @@ Still open:
 | Launcher that runs, order store, workshop, certificates, revoking the tokens of a run | 🔵 not built |
 | The launcher as a Rust binary, held to the control plane's rules by shared conformance vectors | 🔵 decided ([ADR 0014](adr/0014-the-launcher-is-a-rust-binary-held-to-the-control-plane-by-shared-vectors.md), D-59), not built |
 | The launcher pulling its orders through the control plane's API, with its own grants, its own list of production environments and an in-memory ledger; first a dry run | 🔵 proposed (ADR 0015, D-60), not built |
+| The launcher authenticating to the API with a signed token of its own, one client per launcher, the key never leaving it (Vault takes no part) | 🔵 decided, not built (ADR 0016, D-62) |
 | One launcher and one Vault role set per environment, tiers of the operator account, validation of the plan for production | 🔵 proposed in ADR 0012 |
