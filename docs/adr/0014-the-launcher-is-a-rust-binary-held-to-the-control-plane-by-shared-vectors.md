@@ -1,6 +1,8 @@
 # 0014 — The launcher is a Rust binary, held to the control plane by shared conformance vectors
 
-- **Status**: points 1 to 4 accepted by the maintainer on 2026-11-04 (the language and the vectors), except the clause of point 1 on state on disk and the clauses of points 2 and 3 marked proposed; points 5 and 6 and point 7 ([ADR 0015](0015-where-the-launcher-gets-what-its-checks-read.md)) are proposed safe defaults
+- **Status**:
+  - **Accepted** by the maintainer on 2026-11-04: points 1 to 4 (the language and the vectors), except the clause of point 1 on state on disk and the clauses of points 2 and 3 marked proposed.
+  - **Proposed** safe defaults: the marked clauses, points 5 and 6, and point 7 ([ADR 0015](0015-where-the-launcher-gets-what-its-checks-read.md)).
 - **Date**: 2026-11-04
 
 ## Context
@@ -19,7 +21,7 @@ Writing the launcher in a second language means **two implementations of the sam
 1. **The launcher is a Rust binary**, in its own Cargo project (`launcher/`), built into its own image (a static binary built against musl, no shell, no dynamic library, no runtime). It opens no port. *(Proposed, with [ADR 0015](0015-where-the-launcher-gets-what-its-checks-read.md): it keeps no state on disk, which relies on the ledger conditions of that ADR.)* It is not a dependency of the host and the host is not a dependency of it. The footprint is a goal, not a number to defend: the reader's order of magnitude (about 1 MB, a few MB of memory) is the reference.
 2. **The contract between the two implementations is the signed order, written down once, in a language-neutral form**, and held by **shared conformance vectors**: data files, in `contract/launch/`, that both implementations must satisfy. The contract is:
    - the canonical form (`orchestrarr-order-v2`) and the signature scheme (the scheme itself is proposed, point 5);
-   - the checks the launcher makes, **in order**, with the refusal code of each (`LaunchRefusal`); the complete ordered list, the one that counts, is written once in `contract/launch/README.md`. Core's checks are the accepted base. Proposed additions (points 5 and 6, [ADR 0015](0015-where-the-launcher-gets-what-its-checks-read.md)), each with its place:
+   - the checks the launcher makes, **in order**, with the refusal code of each (`LaunchRefusal`); the complete ordered list, the one that counts, is written once in `contract/launch/README.md` (which does not exist yet: until then, Core's checks in `Launcher.cs` are the accepted base, and the placements below are relative to them). Proposed additions (points 5 and 6, [ADR 0015](0015-where-the-launcher-gets-what-its-checks-read.md)), each with its place:
      - `QuietPeriod`, right after the stop;
      - `ClockNotSynchronized`, right after `QuietPeriod`;
      - `EnvironmentNotServed`, right after `WrongAudience` (point 6);

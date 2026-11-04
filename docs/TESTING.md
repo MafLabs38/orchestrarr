@@ -24,7 +24,10 @@ Rules: a test protects a behavior someone relies on, runs in milliseconds, and f
 - the signature vectors run against the real verifier of each side (the decision vectors script it);
 - a scan of the built images fails if the published private test key is found in one; boundary vectors for every time-bound input (the claim's time to live, the stop statement's maximum age, the clock tolerance: exactly at, just below and just above, with `FakeTimeProvider` in C#); a start-up test that the published test key is refused for every configured verification key, the stop key included;
 - the vector tests run in milliseconds (no process, no real clock; the image scan is a lane of its own), and the generator test counts the cases it wrote and the suites assert that same count;
-- the dry-run test asserts that no implementation of the process, forge or deploy ports is registered at the composition root, and that none is called and that the trail records what would have started; the control plane refusing to deliver orders while its storage is `Memory` outside Development, a card offering a step that the launcher's published grants refuse (display only), the Rust launcher's start-up, the API's delivery and audit route have tests of their own ([ADR 0015](adr/0015-where-the-launcher-gets-what-its-checks-read.md), Consequences).
+- the dry-run test asserts that no implementation of the process, forge or deploy ports is registered at the composition root, and that none is called; the trail records what would have started;
+- the control plane refuses to deliver orders while its storage is `Memory` outside Development;
+- a card offering a step that the launcher's published grants refuse is shown as such (display only);
+- the Rust launcher's start-up, the API's delivery and the audit route have tests of their own ([ADR 0015](adr/0015-where-the-launcher-gets-what-its-checks-read.md), Consequences).
 
 ## 2. Other automated checks
 
