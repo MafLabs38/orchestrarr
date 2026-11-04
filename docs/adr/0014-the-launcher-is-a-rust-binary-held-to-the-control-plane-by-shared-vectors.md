@@ -2,7 +2,7 @@
 
 - **Status**:
   - **Accepted** by the maintainer on 2026-11-04: points 1 to 4 (the language and the vectors), except the clause of point 1 on state on disk and the clauses of points 2 and 3 marked proposed.
-  - **Proposed** safe defaults: the marked clauses, points 5 and 6, and point 7 ([ADR 0015](0015-where-the-launcher-gets-what-its-checks-read.md)).
+  - **Proposed** safe defaults: the marked clauses, points 5 and 6 (except the bullet of point 6 on orders with no environment, decided by [ADR 0016](0016-the-launcher-acts-under-a-mandate-of-its-own.md) and SPEC D-63, apart from its production classification, which stays proposed), and point 7 ([ADR 0015](0015-where-the-launcher-gets-what-its-checks-read.md)).
 - **Date**: 2026-11-04
 
 ## Context
@@ -49,7 +49,7 @@ Writing the launcher in a second language means **two implementations of the sam
    - The audience has **no default**: the Rust launcher refuses to start without one, with the literal `launcher` or with a deny-listed test value. Core's `LauncherOptions` loses its default audience (`"launcher"`) in row 3a; the oracle then takes the audience from the configuration of each vector.
    - That two launchers do not share an audience cannot be checked by a launcher, which knows only its own configuration: it is checked where every audience is visible, in the issuer's map from environment to audience (the host refuses to start with a duplicate) and in the infrastructure repository that delivers the launchers' configuration.
    - An order's environment **must be one the launcher serves**, otherwise it is refused as `EnvironmentNotServed`, by a check that runs right after the audience check; the environment wildcard of a grant ranges over the served environments only.
-   - An order with **no environment** (a merge only, which acts on a repository, not on an environment) is served only by a launcher configured to serve such orders; the launcher of the home environment runs them (SPEC D-63, [ADR 0016](0016-the-launcher-acts-under-a-mandate-of-its-own.md)).
+   - An order with **no environment** (a merge only, which acts on a repository, not on an environment) is served only by a launcher configured to serve such orders; the launcher of the home environment runs them (SPEC D-63, [ADR 0016](0016-the-launcher-acts-under-a-mandate-of-its-own.md)); whether such an order is production is decided per repository, an unlisted repository being production, with a vector for each case (proposed, ADR 0016).
 7. **Where the launcher gets what its checks read, how time and delivery keep an in-memory ledger sound, and a first slice that is a dry run** are a **proposal of their own, [ADR 0015](0015-where-the-launcher-gets-what-its-checks-read.md)** (status: proposed), so that what is accepted here stays separable from what is not.
 
 ## Alternatives considered

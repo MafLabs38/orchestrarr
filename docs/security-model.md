@@ -29,7 +29,7 @@ Contents: [the chain](#1-the-whole-chain) · [a run step by step](#2-one-run-ste
 | Mark | Meaning |
 |---|---|
 | 🟢 | In `develop` today |
-| 🔵 | Described in a proposed ADR (0006, 0007, 0012, 0015) or decided but not built (0014, 0016), not built |
+| 🔵 | Described in an ADR, proposed (0006, 0007, 0012, 0015) or decided (0014, 0016), not built |
 | 🟣 | An idea under discussion, in no ADR yet: **not a commitment** until an ADR accepts it |
 
 ## 1. The whole chain
@@ -197,5 +197,5 @@ Still open:
 | Launcher that runs, order store, workshop, certificates, revoking the tokens of a run | 🔵 not built |
 | The launcher as a Rust binary, held to the control plane's rules by shared conformance vectors | 🔵 decided ([ADR 0014](adr/0014-the-launcher-is-a-rust-binary-held-to-the-control-plane-by-shared-vectors.md), D-59), not built |
 | The launcher pulling its orders through the control plane's API, with its own grants, its own list of production environments and an in-memory ledger; first a dry run | 🔵 proposed (ADR 0015, D-60), not built |
-| The launcher authenticating to the API with a signed token of its own, one client per launcher, the key never leaving it (Vault takes no part) | 🔵 decided, not built (ADR 0016, D-62) |
+| The launcher authenticating to the API with a signed token of its own, one client per launcher, the key never leaving it (the token gives no access to Vault) | 🔵 decided, not built (ADR 0016, D-62) |
 | One launcher and one Vault role set per environment, tiers of the operator account, validation of the plan for production | 🔵 proposed in ADR 0012 |
