@@ -14,6 +14,7 @@
 | ✅ | **Frozen**: decided by the maintainer, does not change without a new ADR |
 | 🟡 | **Proposed**: drafted by the analyst, pending validation |
 | ❓ | **Open**: unanswered question, see §9 |
+| ✅ (conditional on D-xx) | **Frozen, on a condition**: chosen by the maintainer, valid while the proposed decision it names stands; if that one changes, this one is revisited |
 
 Identifiers: `D-xx` decision · `F-XXX-nn` feature · `UC-nn` use case · `Q-xx` question.
 
@@ -287,7 +288,7 @@ User interface, deferred: the light theme (its accent text color is ready, nothi
 
 | Date | Change |
 |---|---|
-| 2026-11-04 | v0.12: the launcher authenticates with a signed token of its own, one client per launcher, and its token gives no access to Vault (D-62, Q-25 resolved); the launcher of the home environment also serves the orders that have no environment, which amends D-55 (D-63, Q-26 resolved); [ADR 0016](adr/0016-the-launcher-acts-under-a-mandate-of-its-own.md); Q-27 keeps the machine routes and the rotation of the key; Q-28 opens who starts a workshop run. |
+| 2026-11-04 | v0.12: the launcher authenticates with a signed token of its own, one client per launcher, and its token gives no access to Vault (D-62, Q-25 resolved); the launcher of the home environment also serves the orders that have no environment, which amends D-55 (D-63, Q-26 resolved); [ADR 0016](adr/0016-the-launcher-acts-under-a-mandate-of-its-own.md); Q-27 keeps the machine routes and the rotation of the key; Q-28 opens who starts a workshop run; D-64 keeps what stays proposed from D-62 and D-63; D-19 now reads as the home launcher's forge role (note at the head of §2, Q-14); Q-10 and Q-12 are annotated. |
 | 2026-11-04 | v0.11: the launcher is a Rust binary held to the control plane by shared conformance vectors, and pulls its orders through the control plane's API, dry run first (D-59, D-60, D-61, with a proposed exception to D-17 for the launcher and a limit on the coding agent; Q-25 to Q-27; ADR 0014, and ADR 0015 as a proposal; D-10, D-43, D-46 and D-50 to D-53 annotated; the proposed amendments to D-11, D-17 and D-19 are listed at the head of the decisions (the amendment of D-55 was decided later, v0.12, D-63)); the roadmap's row 3 is split into 3a (launcher and vectors) and 3b (validate and merge). |
 | 2026-11-03 | v0.10: the approvals, the audit trail and the global stop are kept in a SQLite file; an unreadable stop, or a new database outside Development, counts as engaged; a release is saved and traced; Q-24 opened (D-58; ADR 0013). |
 | 2026-11-03 | v0.9: one launcher and one Vault role set per environment, tiers of the operator account, the plan validated for production (D-55 to D-57; ADR 0012); the order is secured as shown in security-model.md. |

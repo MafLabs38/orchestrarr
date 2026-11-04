@@ -48,6 +48,7 @@ The principle the maintainer set: **the action is always delegated to a launcher
 ## Not decided here
 
 - Who starts a workshop run, and what validating means for a launcher (SPEC Q-28).
+- Whether the token is bound to the launcher's key (a sender-constrained token) so that a captured token is useless; a bearer token that lives minutes is the default.
 - The rotation of a launcher's key (how often, and how the identity provider learns the new public key), and where the key is kept where the launcher runs: settled with row 3a (SPEC Q-27).
 - The machine routes themselves, the stop statement, and where the launcher runs ([ADR 0015](0015-where-the-launcher-gets-what-its-checks-read.md), SPEC Q-27).
-- Whether Vault authenticates the launcher with the same client as the API (point 2), the confirmation of the proposed defaults marked above (the production classification of an order with no environment, the registration of the public key), and which identity opens the pull request that a merge acts on (the workshop agent or the home launcher's App) and how a required review is met, settled before row 3b (D-19, Q-14).
+- Whether Vault authenticates the launcher with the same client as the API (point 2), the confirmation of the proposed defaults of SPEC D-64 (the production classification of an order with no environment, the grants and lists of the home launcher), and which identity opens the pull request that a merge acts on (the workshop agent or the home launcher's App) and how a required review is met, settled before row 3b (D-19, Q-14).
