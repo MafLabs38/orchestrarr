@@ -27,7 +27,7 @@ Rules: a test protects a behavior someone relies on, runs in milliseconds, and f
 - the dry-run test asserts that no implementation of the process, forge or deploy ports is registered at the composition root, and that none is called; the trail records what would have started;
 - the control plane refuses to deliver orders while its storage is `Memory` outside Development;
 - a card offering a step that the launcher's published grants refuse is shown as such (display only);
-- the Rust launcher's start-up, the API's delivery and the audit route have tests of their own ([ADR 0015](adr/0015-where-the-launcher-gets-what-its-checks-read.md), Consequences).
+- the Rust launcher's start-up, the API's delivery and the audit route have tests of their own ([ADR 0015](adr/0015-where-the-launcher-gets-what-its-checks-read.md), Consequences), and so do the launcher's token, the classification of an order with no environment and the two forge identities ([ADR 0016](adr/0016-the-launcher-acts-under-a-mandate-of-its-own.md), Consequences).
 
 ## 2. Other automated checks
 

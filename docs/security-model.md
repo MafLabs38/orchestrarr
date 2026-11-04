@@ -197,5 +197,6 @@ Still open:
 | Launcher that runs, order store, workshop, certificates, revoking the tokens of a run | 🔵 not built |
 | The launcher as a Rust binary, held to the control plane's rules by shared conformance vectors | 🔵 decided ([ADR 0014](adr/0014-the-launcher-is-a-rust-binary-held-to-the-control-plane-by-shared-vectors.md), D-59), not built |
 | The launcher pulling its orders through the control plane's API, with its own grants, its own list of production environments and an in-memory ledger; first a dry run | 🔵 proposed (ADR 0015, D-60), not built |
+| The launcher of the home environment also serving the orders with no environment (a merge), with its own grants and forge role, in a namespace of its own | 🔵 decided, not built (ADR 0016, D-63) |
 | The launcher authenticating to the API with a signed token of its own, one client per launcher, the key never leaving it (the token gives no access to Vault) | 🔵 decided, not built (ADR 0016, D-62) |
 | One launcher and one Vault role set per environment, tiers of the operator account, validation of the plan for production | 🔵 proposed in ADR 0012 |
