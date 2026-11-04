@@ -48,10 +48,10 @@ flowchart TB
   person -->|"1 signs in"| kc
   kc -->|"2 identity and group"| cp
   person -->|"3 approves the plan:<br/>a recorded decision, not an order yet"| cp
-  cp -->|"4 when the run starts: still an operator?<br/>plan unchanged? (how: open, section 6)"| kc
+  cp -->|"4 when the run starts (or at delivery: proposed, ADR 0015): still an operator?<br/>plan unchanged? (how: open, section 6)"| kc
   cp -->|"5 asks Vault to sign the order (when the run starts, or at delivery: proposed, ADR 0015)"| vault
   cp -->|"6 stores the order"| store
-  launcher -->|"7 pulls, through the API (proposed, ADR 0015)"| cp
+  launcher -->|"7 pulls, through the API, with its signed token<br/>(pull: proposed, ADR 0015; token: ADR 0016)"| cp
   launcher -->|"8 authenticates with the identity<br/>of its own environment"| vault
   vault -->|"9 short-lived credentials from the roles<br/>of this environment only"| launcher
   launcher -->|"10 starts with only these"| shop
