@@ -22,6 +22,7 @@ Rules: a test protects a behavior someone relies on, runs in milliseconds, and f
 - the generator fails before writing anything if the C# launcher disagrees with the outcome declared by hand for a case, and a changed expected outcome in a vector diff blocks the review;
 - each suite fails on a vector file it did not read, and every refusal code has at least one vector;
 - the signature vectors run against the real verifier of each side (the decision vectors script it);
+- a scan of the built images fails if the published private test key is found in one;
 - the lane runs in milliseconds (no process, no real clock), and the generator test counts the cases it wrote and the suites assert that same count;
 - the dry-run test asserts that no process, forge or deploy port is called and that the trail records what would have started; the Rust launcher's start-up, the API's delivery and audit route have tests of their own ([ADR 0015](adr/0015-where-the-launcher-gets-what-its-checks-read.md), Consequences).
 
@@ -30,7 +31,7 @@ Rules: a test protects a behavior someone relies on, runs in milliseconds, and f
 | Check | Tool | When |
 |---|---|---|
 | Backend lint | .NET analyzers and the Sonar C# analyzer (the SonarLint and SonarQube rules; warnings are errors), `dotnet format --verify-no-changes` | PR |
-| Launcher lint (once it exists) | `cargo fmt --check`, `cargo clippy` with warnings as errors, an audit of the dependencies | PR |
+| Launcher lint (once it exists) | `cargo fmt --check`, `cargo clippy` with warnings as errors, `cargo build --locked`, `cargo deny` (advisories, licences, sources) | PR |
 | Frontend lint | ESLint (strict, SonarJS, a11y, import order), Stylelint, Prettier, `tsc --noEmit` | PR |
 | Quality and coverage | SonarQube Quality Gate | full lane |
 | Static security analysis | CodeQL (C#, TypeScript, workflows), `security-and-quality` queries | PR (skippable) and weekly |
