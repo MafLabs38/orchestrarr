@@ -8,10 +8,6 @@
   border-bottom: var(--borderWidth) solid var(--hairline);
 }
 
-.logo {
-  color: var(--accent);
-}
-
 .name {
   font: 700 var(--fontSizeBrand) var(--displayFontFamily);
 }
