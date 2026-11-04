@@ -15,15 +15,16 @@ public sealed record ApproveResponse(IReadOnlyList<ApprovalDto> Approvals);
 
 public sealed record ErrorResponse(string Error);
 
-/// <summary>One entry of the trail. <c>Id</c> is its place from the oldest, which does not change as the trail grows.</summary>
-public sealed record ActivityDto(int Id, DateTimeOffset At, string Event, string Subject, string? Reference, string? Detail);
+/// <summary>One entry of the trail. <c>Id</c> is its number in the trail, counted from 1 in the order it was recorded: it never changes.</summary>
+public sealed record ActivityDto(long Id, DateTimeOffset At, string Event, string Subject, string? Reference, string? Detail);
 
 public sealed record KillSwitchRequest(bool Engaged);
 
-public sealed record SafetyDto(bool KillSwitchEngaged);
+/// <summary>The global stop: engaged or not, and whether an engagement is saved (false: held only in memory, it would not survive a restart).</summary>
+public sealed record SafetyDto(bool KillSwitchEngaged, bool Saved);
 
 /// <summary>
 /// What <c>GET /api/v1/system/status</c> says about approving: the mode, who is signed in (the identifier that counts, and the name to show), whether
-/// they are an operator (the interface offers approving and the stop to nobody else), and the global stop.
+/// they are an operator (the interface offers approving and the stop to nobody else), and the global stop (engaged, and whether it is saved).
 /// </summary>
-public sealed record ApprovalStatus(string Mode, bool Enabled, string? Operator, string? OperatorName, bool IsOperator, bool KillSwitchEngaged);
+public sealed record ApprovalStatus(string Mode, bool Enabled, string? Operator, string? OperatorName, bool IsOperator, bool KillSwitchEngaged, bool KillSwitchSaved);

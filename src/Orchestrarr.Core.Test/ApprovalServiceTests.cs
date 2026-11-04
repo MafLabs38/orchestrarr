@@ -46,10 +46,18 @@ public sealed class ApprovalServiceTests
     private async Task<ApprovalService> Service(IApprovalStore? store = null, IAuditSink? audit = null, params PullRequestInfo[] pullRequests)
     {
         _forge.Items = pullRequests.Length == 0 ? [PullRequest(1, HeadA), PullRequest(2, HeadB)] : pullRequests;
-        return new ApprovalService(await CatalogOf(_forge), store ?? _store, _killSwitch, audit ?? _audit, _time);
+        var chosenStore = store ?? _store;
+        var chosenAudit = audit ?? _audit;
+        return new ApprovalService(await CatalogOf(_forge), chosenStore, _killSwitch, chosenAudit, _time, new InMemoryApprovalLedger(_store, chosenAudit, _killSwitch));
     }
 
     private Task<ApprovalService> Service(params PullRequestInfo[] pullRequests) => Service(null, null, pullRequests);
+
+    private async Task<ApprovalService> ServiceWith(IApprovalLedger ledger, IApprovalStore? store = null)
+    {
+        _forge.Items = [PullRequest(1, HeadA), PullRequest(2, HeadB)];
+        return new ApprovalService(await CatalogOf(_forge), store ?? _store, _killSwitch, _audit, _time, ledger);
+    }
 
     // What the card displayed: the pull requests that are there, except the drafts (which are never approved).
     private IReadOnlyList<SeenPullRequest> Displayed() =>
@@ -221,13 +229,13 @@ public sealed class ApprovalServiceTests
     public async Task The_kill_switch_stops_approving()
     {
         var service = await Service();
-        _killSwitch.Set(true);
+        await ChangeStop(_killSwitch, engaged: true);
 
         (await Approve(service)).Refusal.Should().Be(ApprovalRefusal.KillSwitchEngaged);
         _store.List().Should().BeEmpty();
         _audit.List().Should().ContainSingle().Which.Detail.Should().StartWith(nameof(ApprovalRefusal.KillSwitchEngaged));
 
-        _killSwitch.Set(false);
+        await ChangeStop(_killSwitch, engaged: false);
         (await Approve(service)).Recorded.Should().BeTrue();
     }
 
@@ -324,7 +332,7 @@ public sealed class ApprovalServiceTests
     [Fact]
     public async Task Without_a_forge_nothing_can_be_approved()
     {
-        var service = new ApprovalService(await CatalogOf(new NoPullRequestSource()), _store, _killSwitch, _audit, _time);
+        var service = new ApprovalService(await CatalogOf(new NoPullRequestSource()), _store, _killSwitch, _audit, _time, new InMemoryApprovalLedger(_store, _audit, _killSwitch));
 
         var result = await Approve(service, seen: [new SeenPullRequest(1, HeadA)]);
 
@@ -458,8 +466,8 @@ public sealed class ApprovalServiceTests
     {
         var tiny = new InMemoryAuditLog(capacity: 1);
 
-        (await tiny.TryRecordAsync(new AuditEntry(Now, "a", "x", null, null), TestContext.Current.CancellationToken)).Should().BeTrue();
-        (await tiny.TryRecordAsync(new AuditEntry(Now, "b", "x", null, null), TestContext.Current.CancellationToken)).Should().BeFalse();
+        (await tiny.TryRecordAsync(new AuditEntry(Now, AuditEvents.KillSwitchEngaged, "x", null, null), TestContext.Current.CancellationToken)).Should().BeTrue();
+        (await tiny.TryRecordAsync(new AuditEntry(Now, AuditEvents.KillSwitchReleased, "x", null, null), TestContext.Current.CancellationToken)).Should().BeFalse();
         tiny.List().Should().ContainSingle();
     }
 
@@ -537,6 +545,9 @@ public sealed class ApprovalServiceTests
         public ValueTask<bool> TryRecordRangeAsync(IReadOnlyList<AuditEntry> entries, CancellationToken cancellationToken) => ValueTask.FromResult(false);
     }
 
+    private static ValueTask<KillSwitchChange> ChangeStop(InMemoryKillSwitch killSwitch, bool engaged) =>
+        killSwitch.ChangeAsync(engaged, new AuditEntry(Now, engaged ? AuditEvents.KillSwitchEngaged : AuditEvents.KillSwitchReleased, "alice-1", null, null), TestContext.Current.CancellationToken);
+
     // A store that engages the global stop the first time it is asked for room: the stop arrives while an approval is in flight
     private sealed class StopsWhenAsked(IApprovalStore inner, InMemoryKillSwitch killSwitch) : IApprovalStore
     {
@@ -544,15 +555,260 @@ public sealed class ApprovalServiceTests
         {
             get
             {
-                killSwitch.Set(true);
+                ChangeStop(killSwitch, engaged: true).AsTask().GetAwaiter().GetResult();
                 return inner.Free;
             }
         }
 
         public bool Contains(Approval approval) => inner.Contains(approval);
 
-        public bool TryAddRange(IReadOnlyList<Approval> approvals) => inner.TryAddRange(approvals);
+        public IReadOnlyList<Approval> List(int limit = int.MaxValue) => inner.List(limit);
+    }
 
-        public IReadOnlyList<Approval> List() => inner.List();
+    // --- where the approvals and their trace are written together
+
+    [Theory]
+    [InlineData(LedgerResult.AlreadyThere, ApprovalRefusal.AlreadyApproved)]
+    [InlineData(LedgerResult.StoreFull, ApprovalRefusal.StoreFull)]
+    [InlineData(LedgerResult.Stopped, ApprovalRefusal.KillSwitchEngaged)]
+    [InlineData(LedgerResult.Unavailable, ApprovalRefusal.AuditUnavailable)]
+    public async Task What_the_ledger_cannot_record_is_a_refusal_of_the_same_kind(LedgerResult answer, ApprovalRefusal expected)
+    {
+        var ledger = Substitute.For<IApprovalLedger>();
+        ledger.TryRecordAsync(Arg.Any<IReadOnlyList<Approval>>(), Arg.Any<IReadOnlyList<AuditEntry>>(), Arg.Any<CancellationToken>()).Returns(answer);
+
+        var result = await Approve(await ServiceWith(ledger));
+
+        result.Recorded.Should().BeFalse();
+        result.Refusal.Should().Be(expected);
+    }
+
+    [Fact]
+    public async Task The_approvals_and_their_trace_go_to_the_ledger_together_and_the_trace_names_each_approval()
+    {
+        var ledger = Substitute.For<IApprovalLedger>();
+        ledger.TryRecordAsync(Arg.Any<IReadOnlyList<Approval>>(), Arg.Any<IReadOnlyList<AuditEntry>>(), Arg.Any<CancellationToken>()).Returns(LedgerResult.Recorded);
+
+        var result = await Approve(await ServiceWith(ledger));
+
+        result.Recorded.Should().BeTrue();
+        await ledger.Received(1).TryRecordAsync(
+            Arg.Is<IReadOnlyList<Approval>>(approvals => approvals.Count == 2),
+            Arg.Is<IReadOnlyList<AuditEntry>>(entries => entries.Count == 2 && entries.All(entry => entry.Event == AuditEvents.ApprovalRecorded)),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task A_store_that_cannot_be_used_is_a_refusal_and_never_a_trace_of_something_that_was_not_kept()
+    {
+        var store = Substitute.For<IApprovalStore>();
+        store.Contains(Arg.Any<Approval>()).Returns(_ => throw new StorageUnavailableException());
+        var ledger = Substitute.For<IApprovalLedger>();
+
+        var result = await Approve(await ServiceWith(ledger, store));
+
+        result.Refusal.Should().Be(ApprovalRefusal.AuditUnavailable);
+        await ledger.DidNotReceiveWithAnyArgs().TryRecordAsync(default!, default!, TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task A_trail_that_stops_working_while_recording_is_a_refusal_for_the_in_memory_ledger_too()
+    {
+        var sink = Substitute.For<IAuditSink>();
+        sink.TryRecordRangeAsync(Arg.Any<IReadOnlyList<AuditEntry>>(), Arg.Any<CancellationToken>()).Returns<ValueTask<bool>>(_ => throw new StorageUnavailableException());
+        var ledger = new InMemoryApprovalLedger(_store, sink, _killSwitch);
+
+        var approval = new Approval(Guid.NewGuid(), ItemId, "example/app", 1, HeadA, [StepKind.Validate], "alice", Now);
+        var result = await ledger.TryRecordAsync([approval], [new AuditEntry(Now, AuditEvents.ApprovalRecorded, "alice-1", null, null)], TestContext.Current.CancellationToken);
+
+        result.Should().Be(LedgerResult.Unavailable);
+        _store.List().Should().BeEmpty("no trace, no approval");
+    }
+
+    [Fact]
+    public async Task The_in_memory_ledger_reads_the_stop_at_the_moment_of_writing()
+    {
+        using var stop = new InMemoryKillSwitch(startEngaged: true);
+        var ledger = new InMemoryApprovalLedger(_store, _audit, stop);
+        var approval = new Approval(Guid.NewGuid(), ItemId, "example/app", 1, HeadA, [StepKind.Validate], "alice", Now);
+
+        var result = await ledger.TryRecordAsync([approval], [new AuditEntry(Now, AuditEvents.ApprovalRecorded, "alice", null, null)], TestContext.Current.CancellationToken);
+
+        result.Should().Be(LedgerResult.Stopped);
+        _store.List().Should().BeEmpty();
+        _audit.List().Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Architecture_guard_the_approval_store_has_no_method_that_takes_approvals_so_that_nothing_is_approved_without_its_trace()
+    {
+        var writes = typeof(IApprovalStore).GetMethods()
+            .Where(method => method.Name != nameof(IApprovalStore.Contains) && method.GetParameters().Any(parameter => parameter.ParameterType.IsAssignableTo(typeof(IEnumerable<Approval>)) || parameter.ParameterType == typeof(Approval)))
+            .Select(method => method.Name);
+
+        writes.Should().BeEmpty("approvals are written through IApprovalLedger only, with their trace: a method of the store that takes approvals is a write door");
+    }
+
+    [Fact]
+    public async Task The_in_memory_ledger_refuses_a_decision_already_there_before_it_traces_anything()
+    {
+        var ledger = new InMemoryApprovalLedger(_store, _audit, _killSwitch);
+        var approval = new Approval(Guid.NewGuid(), ItemId, "example/app", 1, HeadA, [StepKind.Validate], "alice", Now);
+        var trace = new AuditEntry(Now, AuditEvents.ApprovalRecorded, "alice", null, null);
+        (await ledger.TryRecordAsync([approval], [trace], TestContext.Current.CancellationToken)).Should().Be(LedgerResult.Recorded);
+
+        var again = new Approval(Guid.NewGuid(), ItemId, "example/app", 1, HeadA, [StepKind.Validate], "bob", Now);
+        var result = await ledger.TryRecordAsync([again], [trace], TestContext.Current.CancellationToken);
+
+        result.Should().Be(LedgerResult.AlreadyThere);
+        _audit.List().Should().ContainSingle("the second attempt left no trace");
+        _store.List().Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task The_same_person_refused_for_the_same_reason_is_traced_once_in_a_while_so_that_a_loop_cannot_fill_the_trail()
+    {
+        var service = await Service();
+        var reader = new Approver("reader-1", IsPerson: true, IsOperator: false, StepUpAt: null);
+
+        for (var i = 0; i < 5; i++)
+        {
+            (await Approve(service, approver: reader)).Refusal.Should().Be(ApprovalRefusal.NotAnOperator);
+        }
+
+        _audit.List().Should().ContainSingle("the first refusal is traced, the repeats within ten minutes are not");
+    }
+
+    [Fact]
+    public async Task Another_reason_another_person_or_a_later_time_is_traced_again()
+    {
+        var service = await Service();
+        var reader = new Approver("reader-1", IsPerson: true, IsOperator: false, StepUpAt: null);
+        var other = new Approver("reader-2", IsPerson: true, IsOperator: false, StepUpAt: null);
+
+        await Approve(service, approver: reader);
+        await Approve(service, approver: other);
+        await Approve(service, steps: [], approver: Operator);
+        _time.Advance(TimeSpan.FromMinutes(11));
+        await Approve(service, approver: reader);
+
+        _audit.List().Select(entry => entry.Subject).Should().Equal("reader-1", "alice", "reader-2", "reader-1");
+    }
+
+    [Fact]
+    public async Task A_refusal_that_could_not_be_traced_is_traced_the_next_time_it_comes()
+    {
+        var sink = Substitute.For<IAuditSink>();
+        sink.TryRecordAsync(Arg.Any<AuditEntry>(), Arg.Any<CancellationToken>()).Returns(false, true);
+        var service = await Service(null, sink);
+        var reader = new Approver("reader-1", IsPerson: true, IsOperator: false, StepUpAt: null);
+
+        await Approve(service, approver: reader);
+        await Approve(service, approver: reader);
+        await Approve(service, approver: reader);
+
+        await sink.Received(2).TryRecordAsync(Arg.Any<AuditEntry>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task A_loop_of_refusals_while_the_stop_is_engaged_leaves_one_trace()
+    {
+        var service = await Service();
+        await ChangeStop(_killSwitch, engaged: true);
+
+        for (var i = 0; i < 6; i++)
+        {
+            (await Approve(service)).Refusal.Should().Be(ApprovalRefusal.KillSwitchEngaged);
+        }
+
+        _audit.List().Count(entry => entry.Event == AuditEvents.ApprovalRefused).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task A_refusal_whose_trace_throws_gives_its_slot_back_and_is_traced_the_next_time()
+    {
+        var sink = Substitute.For<IAuditSink>();
+        sink.TryRecordAsync(Arg.Any<AuditEntry>(), Arg.Any<CancellationToken>()).Returns(
+            _ => ValueTask.FromException<bool>(new StorageUnavailableException()),
+            _ => ValueTask.FromResult(true));
+        var service = await Service(null, sink);
+        var reader = new Approver("reader-1", IsPerson: true, IsOperator: false, StepUpAt: null);
+
+        var first = async () => await Approve(service, approver: reader);
+        await first.Should().ThrowAsync<StorageUnavailableException>();
+        (await Approve(service, approver: reader)).Refusal.Should().Be(ApprovalRefusal.NotAnOperator);
+
+        await sink.Received(2).TryRecordAsync(Arg.Any<AuditEntry>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task A_refusal_is_traced_even_when_the_client_has_gone()
+    {
+        var sink = Substitute.For<IAuditSink>();
+        sink.TryRecordAsync(Arg.Any<AuditEntry>(), Arg.Any<CancellationToken>()).Returns(true);
+        var service = await Service(null, sink);
+        using var gone = new CancellationTokenSource();
+        await gone.CancelAsync();
+        var reader = new Approver("reader-1", IsPerson: true, IsOperator: false, StepUpAt: null);
+
+        var result = await service.ApproveAsync(reader, ItemId, Both, Displayed(), gone.Token);
+
+        result.Refusal.Should().Be(ApprovalRefusal.NotAnOperator);
+        await sink.Received(1).TryRecordAsync(Arg.Any<AuditEntry>(), CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task An_engagement_counts_at_once_and_an_approval_already_inside_the_gate_is_recorded_before_it()
+    {
+        var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var sink = Substitute.For<IAuditSink>();
+        sink.TryRecordRangeAsync(Arg.Any<IReadOnlyList<AuditEntry>>(), Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            entered.SetResult();
+            return new ValueTask<bool>(release.Task);
+        });
+        sink.TryRecordAsync(Arg.Any<AuditEntry>(), Arg.Any<CancellationToken>()).Returns(true);
+        using var stop = new InMemoryKillSwitch(sink);
+        var ledger = new InMemoryApprovalLedger(_store, sink, stop);
+        var approval = new Approval(Guid.NewGuid(), ItemId, "example/app", 1, HeadA, [StepKind.Validate], "alice", Now);
+        var write = ledger.TryRecordAsync([approval], [new AuditEntry(Now, AuditEvents.ApprovalRecorded, "alice", null, null)], TestContext.Current.CancellationToken).AsTask();
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+        var engage = ChangeStop(stop, engaged: true).AsTask();
+
+        stop.Engaged.Should().BeTrue("an engagement counts before it gets the gate: the next approval is refused");
+        engage.IsCompleted.Should().BeFalse("it waits for the write that is already inside, which was decided before it");
+        release.SetResult(true);
+        (await write).Should().Be(LedgerResult.Recorded);
+        (await engage).Should().Be(KillSwitchChange.Applied);
+        var next = new Approval(Guid.NewGuid(), ItemId, "example/app", 2, HeadB, [StepKind.Validate], "alice", Now);
+        (await ledger.TryRecordAsync([next], [], TestContext.Current.CancellationToken)).Should().Be(LedgerResult.Stopped);
+    }
+
+    [Fact]
+    public async Task A_release_that_finishes_while_an_engagement_waits_cannot_undo_it()
+    {
+        var releaseTrace = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var inside = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var sink = Substitute.For<IAuditSink>();
+        sink.TryRecordAsync(Arg.Is<AuditEntry>(entry => entry.Event == AuditEvents.KillSwitchReleased), Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            inside.SetResult();
+            return new ValueTask<bool>(releaseTrace.Task);
+        });
+        sink.TryRecordAsync(Arg.Is<AuditEntry>(entry => entry.Event == AuditEvents.KillSwitchEngaged), Arg.Any<CancellationToken>()).Returns(true);
+        using var stop = new InMemoryKillSwitch(sink, startEngaged: true);
+        var release = ChangeStop(stop, engaged: false).AsTask();
+        await inside.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+
+        var engage = ChangeStop(stop, engaged: true).AsTask();
+        releaseTrace.SetResult(true);
+        await release;
+
+        stop.Engaged.Should().BeTrue("the engagement was asked for before the release finished, and is still on its way");
+        (await engage).Should().Be(KillSwitchChange.Applied);
+        stop.Engaged.Should().BeTrue();
+        stop.State().Should().Be(new KillSwitchState(Engaged: true, Saved: false));
     }
 }

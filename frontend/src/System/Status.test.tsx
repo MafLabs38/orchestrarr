@@ -2,6 +2,7 @@ import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { approvalsOff, renderWithProviders, status, stubApi } from 'testUtils';
+import type { StorageKind } from 'typings/api';
 
 import Status from './Status';
 
@@ -138,6 +139,77 @@ describe('Status', () => {
     expect(screen.getByRole('button', { name: 'Release the global stop' })).toBeInTheDocument();
   });
 
+  it('says where the approvals and the trail are kept', async () => {
+    stubApi({ '/api/v1/system/status': { ...status(), storage: { kind: 'sqlite' } } });
+
+    renderWithProviders(<Status />);
+
+    expect(await screen.findByText('Saved in a file: kept across restarts')).toBeInTheDocument();
+  });
+
+  it('warns that nothing is kept across a restart when everything is in memory', async () => {
+    stubApi({ '/api/v1/system/status': status() });
+
+    renderWithProviders(<Status />);
+
+    expect(await screen.findByText('In memory: lost at every restart')).toBeInTheDocument();
+  });
+
+  it('shows a kind of storage it does not know as the server names it', async () => {
+    stubApi({ '/api/v1/system/status': { ...status(), storage: { kind: 'postgres' as StorageKind } } });
+
+    renderWithProviders(<Status />);
+
+    expect(await screen.findByText('postgres')).toBeInTheDocument();
+  });
+
+  it('warns that an engaged stop that could not be saved would not survive a restart', async () => {
+    stubApi({
+      '/api/v1/system/status': {
+        ...status({}, { killSwitchEngaged: true, killSwitchSaved: false }),
+        storage: { kind: 'sqlite' },
+      },
+    });
+
+    renderWithProviders(<Status />);
+
+    expect(
+      await screen.findByText(/could not be saved or read: do not count on it across a restart/),
+    ).toBeInTheDocument();
+  });
+
+  it('does not warn about saving when the stop is saved', async () => {
+    stubApi({ '/api/v1/system/status': status({}, { killSwitchEngaged: true }) });
+
+    renderWithProviders(<Status />);
+
+    await screen.findByRole('button', { name: 'Release the global stop' });
+    expect(screen.queryByText(/do not count on it across a restart/)).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['auditUnavailable', /cannot be written to the audit trail/],
+    ['killSwitchUnavailable', /stays engaged/],
+    ['somethingNew', /could not be changed/],
+  ])('says why a release was refused (%s) and the stop stays engaged', async (code, text) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_input: string, init?: RequestInit) =>
+        Promise.resolve(
+          init?.method === 'PUT'
+            ? new Response(JSON.stringify({ error: code }), { status: 503 })
+            : new Response(JSON.stringify(status({}, { killSwitchEngaged: true })), { status: 200 }),
+        ),
+      ),
+    );
+    renderWithProviders(<Status />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Release the global stop' }));
+
+    expect(await screen.findByText(text)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Release the global stop' })).toBeInTheDocument();
+  });
+
   it('says when the global stop could not be changed', async () => {
     vi.stubGlobal(
       'fetch',
@@ -178,5 +250,14 @@ describe('Status', () => {
         expect.objectContaining({ method: 'PUT', body: '{"engaged":false}' }),
       ),
     );
+  });
+
+  it('does not warn about saving when everything is in memory by choice', async () => {
+    stubApi({ '/api/v1/system/status': status({}, { killSwitchEngaged: true, killSwitchSaved: false }) });
+
+    renderWithProviders(<Status />);
+
+    await screen.findByRole('button', { name: 'Release the global stop' });
+    expect(screen.queryByText(/do not count on it across a restart/)).not.toBeInTheDocument();
   });
 });

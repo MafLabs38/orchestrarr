@@ -18,7 +18,12 @@ RUN dotnet publish src/Orchestrarr.Host --configuration Release --output /app -p
 FROM mcr.microsoft.com/dotnet/aspnet:10.0@sha256:de0ee358cdd672f7017a003bed21e9ac9ed48a27c922a59b18175b6e82fa7fee AS runtime
 WORKDIR /app
 COPY --from=build /app ./
-ENV ASPNETCORE_URLS=http://+:8080
+ENV ASPNETCORE_URLS=http://+:8080 \
+    Storage__Provider=Sqlite \
+    Storage__Path=/config/orchestrarr.db
+# What must survive a restart (the approvals, the audit trail, the global stop) is in this volume
+RUN mkdir /config && chown $APP_UID /config && chmod 700 /config
+VOLUME ["/config"]
 EXPOSE 8080
 # The aspnet image ships a non-root user: the process never runs as root.
 USER $APP_UID

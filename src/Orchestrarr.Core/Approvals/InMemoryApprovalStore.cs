@@ -1,9 +1,9 @@
 namespace Orchestrarr.Core.Approvals;
 
-/// <summary>A bounded, in-memory store (ADR 0010). Restarting forgets it, which a sandbox accepts and production does not.</summary>
+/// <summary>A bounded, in-memory store, the sandbox's (ADR 0010): a restart forgets it. The one in the file is the persistent one (ADR 0013).</summary>
 public sealed class InMemoryApprovalStore(int capacity = InMemoryApprovalStore.DefaultCapacity) : IApprovalStore
 {
-    public const int DefaultCapacity = 500;
+    public const int DefaultCapacity = StoreLimits.MemoryQueue;
 
     private readonly int _capacity = capacity > 0 ? capacity : throw new ArgumentOutOfRangeException(nameof(capacity), "The capacity must be greater than zero.");
     private readonly object _lock = new();
@@ -29,6 +29,7 @@ public sealed class InMemoryApprovalStore(int capacity = InMemoryApprovalStore.D
         }
     }
 
+    /// <summary>Adds all of them or none: false when one is already there or they do not all fit. Only the in-memory ledger writes here.</summary>
     public bool TryAddRange(IReadOnlyList<Approval> approvals)
     {
         ArgumentNullException.ThrowIfNull(approvals);
@@ -44,11 +45,11 @@ public sealed class InMemoryApprovalStore(int capacity = InMemoryApprovalStore.D
         }
     }
 
-    public IReadOnlyList<Approval> List()
+    public IReadOnlyList<Approval> List(int limit = int.MaxValue)
     {
         lock (_lock)
         {
-            return [.. _approvals.OrderByDescending(approval => approval.ApprovedAt)];
+            return [.. _approvals.OrderByDescending(approval => approval.ApprovedAt).Take(limit)];
         }
     }
 

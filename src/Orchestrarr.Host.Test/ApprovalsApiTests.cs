@@ -31,9 +31,18 @@ internal sealed class FullQueue : IApprovalStore
 
     public bool Contains(Approval approval) => false;
 
-    public bool TryAddRange(IReadOnlyList<Approval> approvals) => false;
+    public IReadOnlyList<Approval> List(int limit = int.MaxValue) => [.. Array.Empty<Approval>().Take(limit)];
+}
 
-    public IReadOnlyList<Approval> List() => [];
+/// <summary>An identity chosen by the caller of the test, through a header: several people at once.</summary>
+internal sealed class HeaderApprover : IApproverAccessor
+{
+    public ApprovalsMode Mode => ApprovalsMode.Development;
+
+    public Approver? Current(HttpContext context) =>
+        context.Request.Headers.TryGetValue("X-Test-User", out var user) ? new Approver(user.ToString(), IsPerson: true, IsOperator: true, StepUpAt: null) : null;
+
+    public string? DisplayName(HttpContext context) => Current(context)?.Subject;
 }
 
 /// <summary>An identity that the test chooses: nobody, or somebody who is not an operator.</summary>
@@ -72,8 +81,7 @@ public sealed class ApprovalsApiTests
     // The global stop, already engaged: the case where letting the wrong caller release it would be the harm
     private static void EngagedStop(IServiceCollection services)
     {
-        var stop = new InMemoryKillSwitch();
-        stop.Set(true);
+        var stop = new InMemoryKillSwitch(startEngaged: true);
         Replace(services, stop);
         Replace<IKillSwitchControl>(services, stop);
         Replace<IKillSwitch>(services, stop);
@@ -399,6 +407,8 @@ public sealed class ApprovalsApiTests
     [InlineData("Approvals:QueueCapacity", "0")]
     [InlineData("Approvals:QueueCapacity", "-1")]
     [InlineData("Approvals:AuditCapacity", "0")]
+    [InlineData("Approvals:ApprovalsLimit", "0")]
+    [InlineData("Approvals:ApprovalsWindowMinutes", "0")]
     public void A_capacity_of_zero_or_less_stops_the_host_from_starting(string key, string value)
     {
         using var factory = new ForgeApiFactory { Settings = new Dictionary<string, string?> { [key] = value } };
@@ -406,6 +416,16 @@ public sealed class ApprovalsApiTests
         var start = () => factory.CreateClient();
 
         start.Should().Throw<InvalidOperationException>().WithMessage("*greater than zero*");
+    }
+
+    [Fact]
+    public void A_trail_of_one_place_stops_the_host_from_starting_because_that_place_is_the_stops()
+    {
+        using var factory = new ForgeApiFactory { Settings = new Dictionary<string, string?> { ["Approvals:AuditCapacity"] = "1" } };
+
+        var start = () => factory.CreateClient();
+
+        start.Should().Throw<InvalidOperationException>().WithMessage("*at least 2*");
     }
 
     [Theory]
@@ -695,5 +715,30 @@ public sealed class ApprovalsApiTests
         await app.StopAsync(Ct);
 
         stopped.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Approving_is_limited_per_person_and_a_person_held_back_does_not_hold_back_another()
+    {
+        using var factory = new ForgeApiFactory
+        {
+            Settings = new Dictionary<string, string?> { ["Approvals:ApprovalsLimit"] = "1", ["Approvals:ApprovalsWindowMinutes"] = "600" },
+            ServiceOverrides = services => Replace<IApproverAccessor>(services, new HeaderApprover()),
+        };
+        var client = factory.CreateClient();
+
+        async Task<HttpStatusCode> ApproveAs(string user)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/approvals")
+            {
+                Content = JsonContent.Create(new { workItemId = Shop, steps = new[] { "validate" }, pullRequests = new[] { new { number = 7, headSha = Head } } }),
+            };
+            request.Headers.Add("X-Test-User", user);
+            return (await client.SendAsync(request, Ct)).StatusCode;
+        }
+
+        (await ApproveAs("alice")).Should().Be(HttpStatusCode.Created);
+        (await ApproveAs("alice")).Should().Be(HttpStatusCode.TooManyRequests, "alice used her turn");
+        (await ApproveAs("bob")).Should().Be(HttpStatusCode.Conflict, "bob is not held back: the decision is already there, and that is the answer he gets");
     }
 }

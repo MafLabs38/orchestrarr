@@ -59,3 +59,11 @@ frontend/reports/
 
 # SonarLint binding: holds the address of the SonarQube server, never committed
 .sonarlint/
+
+# The SQLite file of a local run (approvals, trail, global stop) and its journal
+*.db
+*.db-wal
+*.db-shm
+data/
+
+*.db.lock

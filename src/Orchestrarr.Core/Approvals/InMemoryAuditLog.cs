@@ -3,21 +3,18 @@ using Orchestrarr.Core.Launch;
 namespace Orchestrarr.Core.Approvals;
 
 /// <summary>
-/// The audit trail in memory and bounded: the sandbox's store, not durable. Past its capacity it refuses, so that nothing happens without a
-/// trace; the persistent trail that SPEC D-43 and F-SAF-02 require comes with the workshop. Refusals have a smaller share than the rest: a
-/// client that is refused again and again cannot use the whole trail up and make every real decision (and every stop) untraceable.
+/// The audit trail in memory and bounded: the sandbox's store, not durable; the persistent, append-only trail is the one in the file (ADR 0013).
+/// Past its capacity it refuses, so that nothing happens without a trace, and refusals have only a share of it (<see cref="AuditCapacityPolicy"/>).
 /// </summary>
-public sealed class InMemoryAuditLog(int capacity = InMemoryAuditLog.DefaultCapacity) : IAuditLog
+public sealed class InMemoryAuditLog(int capacity = InMemoryAuditLog.DefaultCapacity, IEnumerable<AuditEntry>? initial = null) : IAuditLog
 {
-    public const int DefaultCapacity = 2000;
-
-    /// <summary>The share of the trail that refusals may use, in quarters.</summary>
-    private const int RefusalQuarters = 3;
+    public const int DefaultCapacity = StoreLimits.MemoryAudit;
 
     private readonly int _capacity = int.IsNegative(capacity) ? throw new ArgumentOutOfRangeException(nameof(capacity), "The capacity cannot be negative.") : capacity;
-    private readonly int _refusalLimit = (int)(capacity * (long)RefusalQuarters / 4);
     private readonly object _lock = new();
-    private readonly List<AuditEntry> _entries = [];
+    // What the trail holds from the start (the creation of the store); none of it is a refusal
+    private readonly List<AuditEntry> _entries = [.. initial ?? []];
+    private int _refusals;
 
     public ValueTask<bool> TryRecordAsync(AuditEntry entry, CancellationToken cancellationToken)
     {
@@ -30,21 +27,22 @@ public sealed class InMemoryAuditLog(int capacity = InMemoryAuditLog.DefaultCapa
         ArgumentNullException.ThrowIfNull(entries);
         lock (_lock)
         {
-            var refusals = entries.Count(entry => AuditEvents.IsRefusal(entry.Event));
-            var fits = _entries.Count + entries.Count <= _capacity && (refusals == 0 || _entries.Count + refusals <= _refusalLimit);
+            var fits = AuditCapacityPolicy.Fits(_capacity, _entries.Count, _refusals, entries);
             if (fits)
             {
+                var refusals = entries.Count(entry => AuditEvents.IsRefusal(entry.Event));
                 _entries.AddRange(entries);
+                _refusals += refusals;
             }
             return ValueTask.FromResult(fits);
         }
     }
 
-    public IReadOnlyList<AuditEntry> List()
+    public IReadOnlyList<AuditRow> Page(int limit)
     {
         lock (_lock)
         {
-            return [.. Enumerable.Reverse(_entries)];
+            return [.. _entries.Select((entry, index) => new AuditRow(index + 1, entry)).Reverse().Take(limit)];
         }
     }
 }

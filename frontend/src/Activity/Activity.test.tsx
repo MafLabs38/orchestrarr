@@ -32,6 +32,25 @@ afterEach(() => {
 });
 
 describe('Activity', () => {
+  it('says in words that the database was created and the stop starts engaged', async () => {
+    stubApi({
+      [path]: [
+        {
+          id: 1,
+          at: '2026-11-03T10:00:00Z',
+          event: 'instance.created',
+          subject: 'system',
+          reference: null,
+          detail: null,
+        },
+      ],
+    });
+
+    renderWithProviders(<Activity />);
+
+    expect(await screen.findByText('Database created: the global stop starts engaged')).toBeInTheDocument();
+  });
+
   it('shows the trail with the events in words, newest first, and who did it', async () => {
     stubApi({ [path]: entries });
 

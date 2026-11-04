@@ -8,5 +8,7 @@
     <Project Path="src/Orchestrarr.Providers.GitHub/Orchestrarr.Providers.GitHub.csproj" />
     <Project Path="src/Orchestrarr.Providers.Portarr.Test/Orchestrarr.Providers.Portarr.Test.csproj" />
     <Project Path="src/Orchestrarr.Providers.Portarr/Orchestrarr.Providers.Portarr.csproj" />
+    <Project Path="src/Orchestrarr.Storage.Test/Orchestrarr.Storage.Test.csproj" />
+    <Project Path="src/Orchestrarr.Storage/Orchestrarr.Storage.csproj" />
   </Folder>
 </Solution>

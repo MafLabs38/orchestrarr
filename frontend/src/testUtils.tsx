@@ -98,6 +98,7 @@ export function approvalStatus(overrides: Partial<ApprovalStatus> = {}): Approva
     operatorName: 'dev-operator',
     isOperator: true,
     killSwitchEngaged: false,
+    killSwitchSaved: true,
     ...overrides,
   };
 }
@@ -128,6 +129,7 @@ export function status(
     },
     forge: { kind: 'github', configured: true },
     approvals: approvalStatus(approvals),
+    storage: { kind: 'memory' },
   };
 }
 

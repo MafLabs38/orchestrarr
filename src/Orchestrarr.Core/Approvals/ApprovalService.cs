@@ -15,12 +15,14 @@ public sealed class ApprovalService(
     IApprovalStore store,
     IKillSwitch killSwitch,
     IAuditSink audit,
-    TimeProvider time) : IDisposable
+    TimeProvider time,
+    IApprovalLedger ledger) : IDisposable
 {
     // What this vertical records. The other steps are shown and can be granted, but run with later verticals.
     private static readonly StepKind[] Supported = [StepKind.Validate, StepKind.MergePullRequests];
 
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly RefusalTraceThrottle _refusals = new(time);
 
     public async Task<ApprovalResult> ApproveAsync(
         Approver approver,
@@ -40,7 +42,7 @@ public sealed class ApprovalService(
             : ApprovalResult.Refused(refusal.Value);
         if (!result.Recorded)
         {
-            await RecordRefusalAsync(approver, workItemId, result.Refusal!.Value, cancellationToken);
+            await RecordRefusalAsync(approver, workItemId, result.Refusal!.Value);
         }
         return result;
     }
@@ -135,6 +137,7 @@ public sealed class ApprovalService(
         await _gate.WaitAsync(cancellationToken);
         try
         {
+            // These checks are a cheap fast path, in front of the ledger: the ledger checks the same again inside its write, and has the last word
             var fresh = candidates.Where(approval => !store.Contains(approval)).ToList();
             if (fresh.Count == 0)
             {
@@ -151,14 +154,22 @@ public sealed class ApprovalService(
                 return ApprovalResult.Refused(ApprovalRefusal.KillSwitchEngaged);
             }
 
-            // The trace first, all of it or none: no trace, no approval. The room of the queue was checked, so what is traced is what is stored.
+            // The trace and the approvals are written together, all or nothing: no trace without its approval, no approval without its trace.
             var entries = fresh.Select(approval => new AuditEntry(approval.ApprovedAt, AuditEvents.ApprovalRecorded, approval.ApproverSubject, approval.Id.ToString("D"),
                 $"{approval.Repository}#{approval.PullRequest}@{approval.HeadSha} steps={string.Join(',', approval.Steps)}")).ToList();
-            if (!await audit.TryRecordRangeAsync(entries, cancellationToken))
+            return await ledger.TryRecordAsync(fresh, entries, cancellationToken) switch
             {
-                return ApprovalResult.Refused(ApprovalRefusal.AuditUnavailable);
-            }
-            return store.TryAddRange(fresh) ? new ApprovalResult(fresh, null) : ApprovalResult.Refused(ApprovalRefusal.StoreFull);
+                LedgerResult.Recorded => new ApprovalResult(fresh, null),
+                LedgerResult.AlreadyThere => ApprovalResult.Refused(ApprovalRefusal.AlreadyApproved),
+                LedgerResult.StoreFull => ApprovalResult.Refused(ApprovalRefusal.StoreFull),
+                LedgerResult.Stopped => ApprovalResult.Refused(ApprovalRefusal.KillSwitchEngaged),
+                _ => ApprovalResult.Refused(ApprovalRefusal.AuditUnavailable),
+            };
+        }
+        catch (StorageUnavailableException)
+        {
+            // A store that cannot be used is a refusal, never an error that leaves a trace behind
+            return ApprovalResult.Refused(ApprovalRefusal.AuditUnavailable);
         }
         finally
         {
@@ -168,12 +179,29 @@ public sealed class ApprovalService(
 
     public void Dispose() => _gate.Dispose();
 
-    private async Task RecordRefusalAsync(Approver approver, string workItemId, ApprovalRefusal refusal, CancellationToken cancellationToken)
+    private async Task RecordRefusalAsync(Approver approver, string workItemId, ApprovalRefusal refusal)
     {
         // A refusal is worth a trace, but it does not depend on one: it already fails closed. The work item id comes from the client, so
         // it is recorded only if it has the shape of one.
         var subject = OrderValidation.IsValidSubject(approver.Subject) ? approver.Subject : AuditEvents.Unverified;
+        if (!_refusals.TryClaim(subject, refusal))
+        {
+            return;
+        }
         var detail = OrderValidation.IsValidWorkItem(workItemId) ? $"{refusal} {workItemId}" : refusal.ToString();
-        await audit.TryRecordAsync(new AuditEntry(time.GetUtcNow(), AuditEvents.ApprovalRefused, subject, null, detail), cancellationToken);
+        // A refusal is short and bounded, and does not depend on the client staying connected: an abandoned request must not leave its slot claimed
+        // without a trace. Whatever the outcome, a slot whose trace was not written is given back.
+        var traced = false;
+        try
+        {
+            traced = await audit.TryRecordAsync(new AuditEntry(time.GetUtcNow(), AuditEvents.ApprovalRefused, subject, null, detail), CancellationToken.None);
+        }
+        finally
+        {
+            if (!traced)
+            {
+                _refusals.Release(subject, refusal);
+            }
+        }
     }
 }
