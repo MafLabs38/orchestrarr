@@ -21,8 +21,8 @@ Writing the launcher in a second language means **two implementations of the sam
    - the canonical form (`orchestrarr-order-v2`) and the signature scheme (point 5);
    - the checks the launcher makes, **in order**, with the refusal code of each (`LaunchRefusal`), including what Core does not have yet, all of it proposed (points 5 to 7): **four new refusal codes**, `QuietPeriod` (right after the stop), `ClockNotSynchronized` (right after it), `EnvironmentNotServed` (right after `WrongAudience`, point 6) and `IssuedBeforeStart` (right after `NotYetValid`); the full ordered list is written once in `contract/launch/README.md`;
    - the defaults of the options: lifetime ceiling, clock tolerance, age of the second factor;
-   - **the grants and how they match**: the format of a grant and the rule that decides whether an order's steps, repository and environment are inside the grants (step × repository × environment, the wildcard, nothing granted means denied);
-   - **what production is**: the launcher's own list of production environments, an environment it does not know being production;
+   - **the grants and how they match** (that the launcher holds its own copy is proposed, [ADR 0015](0015-where-the-launcher-gets-what-its-checks-read.md)): the format of a grant and the rule that decides whether an order's steps, repository and environment are inside the grants (step × repository × environment, the wildcard, nothing granted means denied);
+   - **what production is** (the launcher's own list is proposed, ADR 0015): the launcher's own list of production environments, an environment it does not know being production;
    - **the audience and the served environments**: configuration of each launcher, with the rules of point 6;
    - the audit entries (event name, subject, detail) that a decision writes, and what an unverified order is never allowed to write;
    - what a decision spends: an order refused before the last check does not burn its id; an order that passed every check but the final read of the stop stays spent.
