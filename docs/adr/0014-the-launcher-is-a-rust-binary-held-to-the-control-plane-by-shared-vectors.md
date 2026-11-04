@@ -1,6 +1,6 @@
 # 0014 — The launcher is a Rust binary, held to the control plane by shared conformance vectors
 
-- **Status**: accepted for points 1 to 4, the language and the vectors (the maintainer chose on 2026-11-04), except the clause of point 1 that the launcher keeps no state on disk (proposed, with ADR 0015); points 5 and 6 are safe defaults and point 7 is a separate proposal, [ADR 0015](0015-where-the-launcher-gets-what-its-checks-read.md)
+- **Status**: points 1 to 4 accepted by the maintainer on 2026-11-04 (the language and the vectors), except the clause of point 1 on state on disk; points 5 and 6 and point 7 ([ADR 0015](0015-where-the-launcher-gets-what-its-checks-read.md)) are proposed safe defaults
 - **Date**: 2026-11-04
 
 ## Context
