@@ -67,3 +67,6 @@ frontend/reports/
 data/
 
 *.db.lock
+
+# Images the maintainer drops here to be turned into assets: never committed
+import-image/
