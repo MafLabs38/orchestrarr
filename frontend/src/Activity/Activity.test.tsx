@@ -5,7 +5,7 @@ import type { ActivityEntry } from 'typings/api';
 
 import Activity from './Activity';
 
-const path = '/api/v1/activity';
+const path = '/api/v1/audit';
 
 const entries: ActivityEntry[] = [
   {

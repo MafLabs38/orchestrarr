@@ -117,7 +117,7 @@ public sealed class SignInApiTests
     [InlineData("/api/v1/work-items")]
     [InlineData("/api/v1/system/status")]
     [InlineData("/api/v1/approvals")]
-    [InlineData("/api/v1/activity")]
+    [InlineData("/api/v1/audit")]
     [InlineData("/api/v1/safety")]
     [InlineData("/api/v1/unknown")]
     public async Task Without_a_session_every_route_of_the_api_is_a_401_and_not_a_redirect(string path)
@@ -166,7 +166,7 @@ public sealed class SignInApiTests
 
         response.StatusCode.Should().Be(HttpStatusCode.Created);
         (await Json(response)).GetProperty("approvals").EnumerateArray().Single().GetProperty("approver").GetString().Should().Be("alice-1");
-        var activity = (await Json(await client.GetAsync("/api/v1/activity", Ct))).EnumerateArray().Single();
+        var activity = (await Json(await client.GetAsync("/api/v1/audit", Ct))).EnumerateArray().Single();
         activity.GetProperty("subject").GetString().Should().Be("alice-1");
     }
 
@@ -220,7 +220,7 @@ public sealed class SignInApiTests
         (await Client(factory, "sub=carol-3;groups=readers").GetAsync("/api/v1/work-items", Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
         (await Client(factory, Operator).GetAsync("/api/v1/work-items", Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
         (await Client(factory, NotAnOperator).GetAsync("/api/v1/work-items", Ct)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
-        (await Client(factory, NotAnOperator).GetAsync("/api/v1/activity", Ct)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await Client(factory, NotAnOperator).GetAsync("/api/v1/audit", Ct)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await Approve(Client(factory, "sub=carol-3;groups=readers"))).StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
@@ -277,7 +277,7 @@ public sealed class SignInApiTests
         var reader = Client(factory, Operator);
         (await Json(await reader.GetAsync("/api/v1/safety", Ct))).GetProperty("killSwitchEngaged").GetBoolean().Should().BeFalse();
         (await Json(await reader.GetAsync("/api/v1/approvals", Ct))).GetArrayLength().Should().Be(0);
-        (await Json(await reader.GetAsync("/api/v1/activity", Ct))).GetArrayLength().Should().Be(0);
+        (await Json(await reader.GetAsync("/api/v1/audit", Ct))).GetArrayLength().Should().Be(0);
     }
 
     [Fact]
