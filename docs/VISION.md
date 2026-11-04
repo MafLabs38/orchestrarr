@@ -7,7 +7,7 @@
 
 **Orchestrarr** is a self-hosted **orchestrator agent with real powers**. It coordinates **worker agents** to fix vulnerable dependencies, update containers and repair applications, then **verifies that nothing regressed** before proposing the change to a human. It reads the findings of [Portarr](https://github.com/MafLabs38/portarr) (Maintenance, Data, Infrastructure) and acts on them; Portarr itself never acts.
 
-It is a standalone, API-first application in the spirit of the *arr suite: one container, pluggable providers, a queue/history/activity interface.
+It is a standalone, API-first application in the spirit of the *arr suite: one container for the control plane, pluggable providers, a queue/history/activity interface.
 
 ## 2. Why
 

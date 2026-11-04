@@ -33,7 +33,7 @@ The product is split as Kubernetes splits its own, and for the same reason: the 
 | Part | Role | Holds | Listens |
 |---|---|---|---|
 | **API and store** (Orchestrarr's host) | Authenticates people, records decisions, builds and signs orders, keeps the audit trail | The right to sign (transit), no credential that acts | Yes, behind the identity provider |
-| **Launcher** | The only thing able to start an agent run: verifies an order, requests credentials, starts the run, ends it | The right to verify and to request credentials, no right to sign | **No.** It opens no port: it **pulls** signed orders from the store |
+| **Launcher** | The only thing able to start an agent run: verifies an order, requests credentials, starts the run, ends it | The right to verify and to request credentials, no right to sign | **No.** It opens no port: it **pulls** signed orders from the store *(2026-11-04: through the control plane's API, never from the store directly, ADR 0014 point 7)* |
 | **Agent run** | Acts on one environment, as Claude Code would | Credentials of one run and one environment | No |
 
 The design rules:
