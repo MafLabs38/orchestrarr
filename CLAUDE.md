@@ -23,14 +23,14 @@ Same as Portarr, so the three products share conventions:
 - **Launcher**: Rust, a separate static binary (`launcher/`, **not built yet**), held to the control plane by shared conformance vectors in `contract/launch/` ([ADR 0014](docs/adr/0014-the-launcher-is-a-rust-binary-held-to-the-control-plane-by-shared-vectors.md)). The control plane stays .NET
 - **Tests**: xUnit v3 + NSubstitute + AwesomeAssertions, Vitest + Testing Library, Playwright (planned; see [docs/TESTING.md](docs/TESTING.md)); `cargo test` for the launcher, once it exists
 - **Quality**: analyzers as errors and `dotnet format`, `rustfmt`, `clippy` as errors and a dependency audit for the launcher once it exists, ESLint (SonarJS), Stylelint, Prettier, SonarQube, CodeQL, gitleaks, Trivy, Stryker, the five review agents. Same as Portarr, plus the fifth agent (`spec-reviewer`, [ADR 0008](docs/adr/0008-a-fifth-agent-keeps-the-documentation-true.md))
-- **CI/CD**: GitHub Actions, a single container image on GHCR (amd64 now, multi-arch when a target needs it)
+- **CI/CD**: GitHub Actions, a container image on GHCR for the control plane (amd64 now, multi-arch when a target needs it); the launcher, when built, has an image of its own ([ADR 0014](docs/adr/0014-the-launcher-is-a-rust-binary-held-to-the-control-plane-by-shared-vectors.md))
 - Agent runtime (Claude Code headless, Agent SDK, Managed Agents…) and where workers run: **undecided**, see the open questions.
 
 ## Non-negotiable rules
 
 1. **English only** for code, comments, documentation, commits, issues and PRs. The chat with the maintainer is in French; nothing French is committed except clearly marked quotes in `docs/VISION.md`.
 2. **Public repo, generic product.** Never commit real infrastructure values (domain names, IPs, host names, personal project names, repository names of a personal setup, tokens), in code, tests, fixtures, docs or commit messages. Use examples (`homelab.example`, `server-1`, `10.0.0.10`).
-3. ***arr patterns first.** A single container, API first (the UI consumes the REST API), providers for agent runtimes and sources of findings, Sonarr-like screens (queue, history, activity). The UI follows the same design rules as Portarr; read Portarr's `docs/DESIGN.md` before writing any UI code.
+3. ***arr patterns first.** A single container for the control plane, API first (the UI consumes the REST API), providers for agent runtimes and sources of findings, Sonarr-like screens (queue, history, activity). The UI follows the same design rules as Portarr; read Portarr's `docs/DESIGN.md` before writing any UI code.
 4. **The constellation** (below): Orchestrarr acts; it does not observe the fleet itself (it reads Portarr's findings) and does not keep long-term knowledge itself (it uses Mnemarr). Integrate through APIs and MCP.
 5. **Safety is a core concern, not a feature.** Fixed principles until the spec says otherwise:
    - **No direct push** to a protected branch; every change goes through a pull request.

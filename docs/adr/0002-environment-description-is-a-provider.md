@@ -19,3 +19,5 @@ Orchestrarr is a satellite of Portarr. Portarr's job is to describe environments
 - No application profile to maintain by hand in Orchestrarr, only the powers the operator grants (ADR 0001).
 - The structure file format is designed once, as the contract of the provider, and tested against Portarr's own data.
 - Orchestrarr stays useful without Portarr, but has less to work with.
+
+*(2026-11-04: one exception, for the launcher only, which classifies production from its own configuration so that its authorization stays independent of the control plane, [ADR 0014](0014-the-launcher-is-a-rust-binary-held-to-the-control-plane-by-shared-vectors.md) point 7.)*

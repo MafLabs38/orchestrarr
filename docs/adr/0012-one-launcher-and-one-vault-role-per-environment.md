@@ -28,3 +28,5 @@
 - How the control plane knows, when a run starts, that the person is still an operator ([ADR 0010](0010-approving-records-a-decision-and-the-sandbox-operator.md) says it asks again): a refresh token kept on the server, the admin interface of the identity provider, or a server-side session store that can revoke.
 - Who validates the plan for production (SPEC Q-21).
 - How a budget is extended while a run is going, and by whom (SPEC Q-09 covers the ceilings).
+
+*(2026-11-04: [ADR 0014](0014-the-launcher-is-a-rust-binary-held-to-the-control-plane-by-shared-vectors.md) makes the launcher a Rust binary, gives each launcher its own grants and list of production environments, so that a power acts in two places and the effective power is their intersection, and sets the audience and the served environments of each launcher. An order with no environment is an open question, SPEC Q-26.)*
