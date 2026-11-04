@@ -44,7 +44,9 @@ internal static class ApprovalEndpoints
                 : Results.Json(new ApproveResponse([.. result.Approvals.Select(ToDto)]), statusCode: StatusCodes.Status201Created);
         }).RequireRateLimiting(ApprovalsServiceCollectionExtensions.ApprovingPolicy);
 
-        api.MapGet("/activity", (IAuditLog audit, int? limit) => WhenReadable(() =>
+        // Named "audit", not "activity" (the screen keeps its name): content blockers in browsers refuse a request to a path called "activity", and
+        // the screen then shows "Failed to fetch" while the server never sees the request.
+        api.MapGet("/audit", (IAuditLog audit, int? limit) => WhenReadable(() =>
             Results.Ok(audit.Page(PageSize(limit)).Select(row => new ActivityDto(row.Id, row.Entry.At, row.Entry.Event, row.Entry.Subject, row.Entry.OrderId, row.Entry.Detail)).ToList())));
 
         api.MapGet("/safety", (IKillSwitchControl killSwitch) => Results.Ok(SafetyOf(killSwitch)));

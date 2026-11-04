@@ -6,7 +6,7 @@ import { systemStatusPath } from 'System/useSystemStatus';
 import type { Approval, StepKind } from 'typings/api';
 
 export const approvalsPath = '/api/v1/approvals';
-export const activityPath = '/api/v1/activity';
+export const auditPath = '/api/v1/audit';
 
 export function useApprovals() {
   return useApiQuery<Approval[]>(approvalsPath, { refetchInterval: refreshIntervalMs });
@@ -24,7 +24,7 @@ export function useApprove() {
     onSettled: () =>
       Promise.all([
         queryClient.invalidateQueries({ queryKey: [approvalsPath] }),
-        queryClient.invalidateQueries({ queryKey: [activityPath] }),
+        queryClient.invalidateQueries({ queryKey: [auditPath] }),
         queryClient.invalidateQueries({ queryKey: [systemStatusPath] }),
       ]),
   });
@@ -38,7 +38,7 @@ export function useKillSwitch() {
     onSettled: () =>
       Promise.all([
         queryClient.invalidateQueries({ queryKey: [systemStatusPath] }),
-        queryClient.invalidateQueries({ queryKey: [activityPath] }),
+        queryClient.invalidateQueries({ queryKey: [auditPath] }),
       ]),
   });
 }

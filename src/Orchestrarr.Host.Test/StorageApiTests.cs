@@ -50,7 +50,7 @@ public sealed class StorageApiTests : IDisposable
 
         (await Json(await client.GetAsync("/api/v1/system/status", Ct))).GetProperty("storage").GetProperty("kind").GetString().Should().Be("sqlite");
         var approvals = await Json(await client.GetAsync("/api/v1/approvals", Ct));
-        var activity = await Json(await client.GetAsync("/api/v1/activity", Ct));
+        var activity = await Json(await client.GetAsync("/api/v1/audit", Ct));
         approvals.EnumerateArray().Should().ContainSingle().Which.GetProperty("headSha").GetString().Should().Be(Head);
         activity.EnumerateArray().Should().ContainSingle().Which.GetProperty("event").GetString().Should().Be("approval.recorded");
         (await Approve(client)).StatusCode.Should().Be(HttpStatusCode.Conflict);
@@ -92,7 +92,7 @@ public sealed class StorageApiTests : IDisposable
         approve.StatusCode.Should().Be(HttpStatusCode.Locked);
         safety.GetProperty("killSwitchEngaged").GetBoolean().Should().BeTrue();
         var queue = await client.GetAsync("/api/v1/approvals", Ct);
-        var trail = await client.GetAsync("/api/v1/activity", Ct);
+        var trail = await client.GetAsync("/api/v1/audit", Ct);
         queue.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable, "an unreadable queue is an error, never an empty list");
         trail.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable, "an unreadable trail is an error, never an empty list");
         (await Json(queue)).GetProperty("error").GetString().Should().Be("storageUnavailable");
@@ -222,9 +222,9 @@ public sealed class StorageApiTests : IDisposable
             (await client.PutAsJsonAsync("/api/v1/safety/kill-switch", new { engaged }, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
         }
 
-        var two = (await Json(await client.GetAsync("/api/v1/activity?limit=2", Ct))).EnumerateArray().ToList();
-        var floor = (await Json(await client.GetAsync("/api/v1/activity?limit=0", Ct))).EnumerateArray().ToList();
-        var all = (await Json(await client.GetAsync("/api/v1/activity", Ct))).EnumerateArray().ToList();
+        var two = (await Json(await client.GetAsync("/api/v1/audit?limit=2", Ct))).EnumerateArray().ToList();
+        var floor = (await Json(await client.GetAsync("/api/v1/audit?limit=0", Ct))).EnumerateArray().ToList();
+        var all = (await Json(await client.GetAsync("/api/v1/audit", Ct))).EnumerateArray().ToList();
 
         two.Select(entry => entry.GetProperty("event").GetString()).Should().Equal("killswitch.released", "killswitch.engaged");
         two.Select(entry => entry.GetProperty("id").GetInt64()).Should().Equal(4, 3);
@@ -249,7 +249,7 @@ public sealed class StorageApiTests : IDisposable
         third.StatusCode.Should().Be(HttpStatusCode.TooManyRequests);
         (await Json(third)).GetProperty("error").GetString().Should().Be("tooManyRequests");
         engage.StatusCode.Should().Be(HttpStatusCode.OK, "the global stop is never limited");
-        (await Json(await client.GetAsync("/api/v1/activity", Ct))).EnumerateArray().Should().HaveCount(3, "the third attempt left nothing in the trail: two entries for the first two, one for the stop");
+        (await Json(await client.GetAsync("/api/v1/audit", Ct))).EnumerateArray().Should().HaveCount(3, "the third attempt left nothing in the trail: two entries for the first two, one for the stop");
     }
 
     [Fact]
@@ -259,7 +259,7 @@ public sealed class StorageApiTests : IDisposable
         var client = factory.CreateClient();
 
         (await Json(await client.GetAsync("/api/v1/safety", Ct))).GetProperty("killSwitchEngaged").GetBoolean().Should().BeTrue();
-        (await Json(await client.GetAsync("/api/v1/activity", Ct))).EnumerateArray().Select(entry => entry.GetProperty("event").GetString()).Should().ContainSingle().Which.Should().Be("instance.created");
+        (await Json(await client.GetAsync("/api/v1/audit", Ct))).EnumerateArray().Select(entry => entry.GetProperty("event").GetString()).Should().ContainSingle().Which.Should().Be("instance.created");
     }
 
     [Theory]
@@ -315,6 +315,19 @@ public sealed class StorageApiTests : IDisposable
 
         start.Should().Throw<Exception>();
         File.Exists(DatabasePath).Should().BeFalse("the lock comes before the database is created, migrated or written");
+    }
+
+    [Fact]
+    public void No_route_of_the_api_is_named_like_something_a_content_blocker_refuses()
+    {
+        using var factory = new ForgeApiFactory();
+        factory.CreateClient();
+
+        var routes = factory.Services.GetRequiredService<Microsoft.AspNetCore.Routing.EndpointDataSource>().Endpoints
+            .OfType<Microsoft.AspNetCore.Routing.RouteEndpoint>().Select(endpoint => endpoint.RoutePattern.RawText ?? string.Empty).ToList();
+
+        routes.Should().Contain("/api/v1/audit");
+        routes.Should().NotContain(route => route.Contains("activity", StringComparison.OrdinalIgnoreCase), "a browser extension refused /api/v1/activity: the screen showed \"Failed to fetch\" and the server never saw the request");
     }
 
     private Dictionary<string, string?> SqliteSettings() => new() { ["Storage:Provider"] = "Sqlite", ["Storage:Path"] = DatabasePath };

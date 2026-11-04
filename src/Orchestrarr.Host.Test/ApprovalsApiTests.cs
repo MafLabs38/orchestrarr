@@ -134,7 +134,7 @@ public sealed class ApprovalsApiTests
         approval.GetProperty("steps").EnumerateArray().Select(s => s.GetString()).Should().Equal("validate", "mergePullRequests");
 
         (await Json(await client.GetAsync("/api/v1/approvals", Ct))).EnumerateArray().Should().ContainSingle();
-        var activity = (await Json(await client.GetAsync("/api/v1/activity", Ct))).EnumerateArray().Should().ContainSingle().Which;
+        var activity = (await Json(await client.GetAsync("/api/v1/audit", Ct))).EnumerateArray().Should().ContainSingle().Which;
         activity.GetProperty("event").GetString().Should().Be("approval.recorded");
         activity.GetProperty("subject").GetString().Should().Be("dev-operator");
     }
@@ -306,7 +306,7 @@ public sealed class ApprovalsApiTests
         var allowed = await Approve(client);
 
         allowed.StatusCode.Should().Be(HttpStatusCode.Created);
-        (await Json(await client.GetAsync("/api/v1/activity", Ct))).EnumerateArray().Select(e => e.GetProperty("event").GetString())
+        (await Json(await client.GetAsync("/api/v1/audit", Ct))).EnumerateArray().Select(e => e.GetProperty("event").GetString())
             .Should().Contain(["killswitch.engaged", "killswitch.released", "approval.recorded"]);
     }
 
@@ -320,7 +320,7 @@ public sealed class ApprovalsApiTests
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         (await Json(response)).GetProperty("killSwitchEngaged").GetBoolean().Should().BeTrue();
-        (await Json(await client.GetAsync("/api/v1/activity", Ct))).EnumerateArray().Should().BeEmpty();
+        (await Json(await client.GetAsync("/api/v1/audit", Ct))).EnumerateArray().Should().BeEmpty();
     }
 
     // --- the powers
@@ -395,9 +395,9 @@ public sealed class ApprovalsApiTests
         await Stop(client, false);
 
         static int[] Ids(JsonElement trail) => [.. trail.EnumerateArray().Select(entry => entry.GetProperty("id").GetInt32())];
-        var before = Ids(await Json(await client.GetAsync("/api/v1/activity", Ct)));
+        var before = Ids(await Json(await client.GetAsync("/api/v1/audit", Ct)));
         await Stop(client, true);
-        var after = Ids(await Json(await client.GetAsync("/api/v1/activity", Ct)));
+        var after = Ids(await Json(await client.GetAsync("/api/v1/audit", Ct)));
 
         before.Should().Equal(2, 1);
         after.Should().Equal(3, 2, 1);

@@ -1,4 +1,4 @@
-import { activityPath } from 'Approvals/useApprovals';
+import { auditPath } from 'Approvals/useApprovals';
 import Alert from 'Components/Alert';
 import CapabilityHint from 'Components/CapabilityHint';
 import PageContent from 'Components/Page/PageContent';
@@ -19,7 +19,7 @@ export default function Activity() {
     data: entries,
     error,
     isPending,
-  } = useApiQuery<ActivityEntry[]>(activityPath, { refetchInterval: refreshIntervalMs });
+  } = useApiQuery<ActivityEntry[]>(auditPath, { refetchInterval: refreshIntervalMs });
 
   return (
     <PageContent title={translate('Activity')}>
