@@ -88,7 +88,7 @@ Approval answers: `201` recorded; `401` `notSignedIn`; `403` `approvalsDisabled`
 |---|---|---|
 | `Portarr:BaseUrl`, `Portarr:ApiKey` | none | The Portarr to read. Without them nothing is read (the sample file is set only in Development) |
 | `Portarr:TimeoutSeconds`, `Portarr:MaxResponseBytes` | 20, 10 MiB | Bounds on a Portarr call |
-| `GitHub:Token` | none | Read-only token. Without it the pull requests are "not connected". When the launcher exists (row 3a), the host that delivers orders will require a GitHub App installation token with read permissions only, the one kind whose permissions it can check (ADR 0016) |
+| `GitHub:Token` | none | Read-only token. Without it the pull requests are "not connected". When the launcher exists (row 3a), the host that delivers orders will require a GitHub App of its own with read permissions only at the forge, whose installation permissions it can check (ADR 0016) |
 | `GitHub:BotLogins` | Dependabot and Renovate | Authors whose pull requests count as dependency updates |
 | `GitHub:ApiUrl`, `GitHub:WebUrl` | github.com | For GitHub Enterprise |
 | `GitHub:MaxPullRequests`, `GitHub:MaxPages` | 30, 5 | Bounds on a repository's list |
