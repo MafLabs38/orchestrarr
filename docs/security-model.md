@@ -41,7 +41,7 @@ flowchart TB
   cp["Control plane (the API)<br/>records your approval (built),<br/>signs the order when the run starts"]:::decided
   vault["Vault<br/>non-exportable signing key,<br/>one role set per environment,<br/>SSH authority"]:::decided
   store[("Order store")]:::decided
-  launcher["Launcher of this environment<br/>verifies the order (library code),<br/>no inbound port"]:::decided
+  launcher["Launcher of this environment<br/>verifies the order (a small Rust binary),<br/>no inbound port"]:::decided
   shop["Workshop: the agent<br/>isolated, no standing access,<br/>a deadline"]:::decided
   target["Target machines<br/>trust only the Vault authority,<br/>a dedicated operator account (D-34)"]:::decided
 
@@ -107,6 +107,7 @@ An agent is never recognised by what it says. It is recognised by **what it hold
 | Someone calls the API without being signed in | A session is required for every route | The host | 🟢 |
 | A signed-in person who is not an operator approves | The operator group is checked | The host | 🟢 |
 | A forged or replayed order | The signature, the expiry and a one-time number are checked | The launcher | 🟢 library code, 🔵 not running |
+| The two implementations of the launch rules disagree (an order passes in one, not in the other) | Both are held to the same conformance vectors, and a change to the rules is one pull request that changes both and the files ([ADR 0014](adr/0014-the-launcher-is-a-rust-binary-held-to-the-control-plane-by-shared-vectors.md)) | The test suites of both | 🔵 decided, not built |
 | A process asks Vault for credentials | Vault answers only to the workload identity of the launcher of that environment, and only from that environment's roles (a launcher of another environment gets nothing) | Vault | 🔵 |
 | An agent started outside the workshop | It holds no certificate, so the machines refuse it | The target machines | 🔵 |
 | A valid agent steps outside its environment | The certificate is valid for one environment and one run (SPEC D-42) | The target machines | 🔵 |
@@ -194,4 +195,5 @@ Still open:
 | Sign-in with the identity provider, operator group, origin check ([ADR 0011](adr/0011-people-sign-in-through-the-identity-provider.md)) | 🟢 |
 | Vault dedicated to this purpose | 🔵 manifests in the GitOps repository, not initialised |
 | Launcher that runs, order store, workshop, certificates, revoking the tokens of a run | 🔵 not built |
+| The launcher as a Rust binary, held to the control plane's rules by shared conformance vectors, pulling its orders through the control plane's API; first a dry run | 🔵 decided in [ADR 0014](adr/0014-the-launcher-is-a-rust-binary-held-to-the-control-plane-by-shared-vectors.md), not built |
 | One launcher and one Vault role set per environment, tiers of the operator account, validation of the plan for production | 🔵 proposed in ADR 0012 |
