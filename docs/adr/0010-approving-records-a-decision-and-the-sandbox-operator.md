@@ -18,7 +18,7 @@ The decision card has shown a disabled button since the first vertical. [ADR 000
 
 ## The order, issued from an approval (proposed, for the vertical that starts runs)
 
-The control plane issues the order **from a recorded approval**, when the run is about to start; the launcher still never signs. The issuer's authority is the recorded approval: it carries the approver's subject and when they last passed a second factor, and the issuer checks again with the identity provider that this person still holds the operator role. For a step on production, the order carries that second factor and the launcher checks it again (SPEC D-47), against the time of the approval. The order gains the pull request number (a new canonical form), since an approval is per pull request.
+The control plane issues the order **from a recorded approval**, when the run is about to start *(2026-11-04, proposed: when the order is delivered to the launcher, ADR 0015 §1)*; the launcher still never signs. The issuer's authority is the recorded approval: it carries the approver's subject and when they last passed a second factor, and the issuer checks again with the identity provider that this person still holds the operator role. For a step on production, the order carries that second factor and the launcher checks it again (SPEC D-47), against the time of the approval. The order gains the pull request number (a new canonical form), since an approval is per pull request.
 
 ## Conditions before a launcher exists
 

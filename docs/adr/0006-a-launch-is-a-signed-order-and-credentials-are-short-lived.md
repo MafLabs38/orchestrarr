@@ -44,7 +44,7 @@ The signature covers bytes, and the launcher acts on what those bytes say, so th
 
 ## Consequences
 
-- The launcher is a boundary of its own: first a module with an interface, later a separate process, then a separate host.
+- The launcher is a boundary of its own: first a module with an interface, later a separate process, then a separate host. *(2026-11-04: the separate process is a Rust binary whose rules, including the canonical form below, are held equal to the control plane's by shared conformance vectors, [ADR 0014](0014-the-launcher-is-a-rust-binary-held-to-the-control-plane-by-shared-vectors.md).)*
 - A healthy Vault, or an SSH authority, and a configuration of the secure shell on each machine (done as code, through the infrastructure repositories) are prerequisites of the first act on an environment.
 - The first verticals that act (validate and merge, then deploy) do not need all of it: they need the order, the approver's identity and the audit trail; the machines' side comes with the vertical that acts on machines.
 

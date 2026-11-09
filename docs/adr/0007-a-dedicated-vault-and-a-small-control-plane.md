@@ -33,7 +33,7 @@ The product is split as Kubernetes splits its own, and for the same reason: the 
 | Part | Role | Holds | Listens |
 |---|---|---|---|
 | **API and store** (Orchestrarr's host) | Authenticates people, records decisions, builds and signs orders, keeps the audit trail | The right to sign (transit), no credential that acts | Yes, behind the identity provider |
-| **Launcher** | The only thing able to start an agent run: verifies an order, requests credentials, starts the run, ends it | The right to verify and to request credentials, no right to sign | **No.** It opens no port: it **pulls** signed orders from the store |
+| **Launcher** | The only thing able to start an agent run: verifies an order, requests credentials, starts the run, ends it | The right to verify and to request credentials, no right to sign | **No.** It opens no port: it **pulls** signed orders from the store *(2026-11-04, proposed: through the control plane's API, never from the store directly, ADR 0015)* |
 | **Agent run** | Acts on one environment, as Claude Code would | Credentials of one run and one environment | No |
 
 The design rules:
@@ -41,7 +41,7 @@ The design rules:
 1. **An attacker cannot call the launcher**, because it has no inbound endpoint. It only reads orders, and only an order signed by the API's key, still valid and unused, makes it do anything.
 2. **Whoever gives an order is authorized twice.** The API checks the identity provider's token (operator role, and the step-up claim for production) before signing; the order carries the approver's identity; the launcher checks that the signature is valid, that the order is not expired or replayed, and that what it asks is inside the powers granted (SPEC D-10, D-11) and the budget.
 3. **Only a person approves.** A service client of the identity provider cannot hold the operator role, so a token stolen from a machine cannot produce an order. The agent has no path to the API's approval route.
-4. **The launcher is small and boring on purpose**: a deterministic loop, no model in it, no template engine, a few hundred lines that can be read in one sitting. It is a module with an interface first, then a separate process, then a separate host, as ADR 0006 planned.
+4. **The launcher is small and boring on purpose**: a deterministic loop, no model in it, no template engine, a few hundred lines that can be read in one sitting. It is a module with an interface first, then a separate process, then a separate host, as ADR 0006 planned. *(2026-11-04: the separate process is a Rust binary, held to the rules of the control plane by shared conformance vectors; the few-hundred-lines figure holds for the rules, not once the adapters exist, [ADR 0014](0014-the-launcher-is-a-rust-binary-held-to-the-control-plane-by-shared-vectors.md).)*
 5. **Fail closed** (SPEC D-43): no audit sink, a sealed Vault, an unreachable store or an engaged kill switch means no launch.
 
 ### Where it runs

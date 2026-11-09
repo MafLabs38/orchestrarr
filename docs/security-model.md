@@ -1,6 +1,6 @@
 # How an order is secured, from the person to the machine
 
-> **Status**: draft. It explains the mechanism proposed in [ADR 0006](adr/0006-a-launch-is-a-signed-order-and-credentials-are-short-lived.md) and [ADR 0007](adr/0007-a-dedicated-vault-and-a-small-control-plane.md) and settled by [ADR 0012](adr/0012-one-launcher-and-one-vault-role-per-environment.md) (all **proposed**, SPEC D-39 to D-57). Nothing that runs an agent is built yet.
+> **Status**: draft. It explains the mechanism proposed in [ADR 0006](adr/0006-a-launch-is-a-signed-order-and-credentials-are-short-lived.md) and [ADR 0007](adr/0007-a-dedicated-vault-and-a-small-control-plane.md) and settled by [ADR 0012](adr/0012-one-launcher-and-one-vault-role-per-environment.md) (these three are **proposed**, SPEC D-39 to D-57). Nothing that runs an agent is built yet. The launcher's language and its conformance vectors are decided in [ADR 0014](adr/0014-the-launcher-is-a-rust-binary-held-to-the-control-plane-by-shared-vectors.md) (D-59); how it gets its orders, the stop and the time is a proposal, [ADR 0015](adr/0015-where-the-launcher-gets-what-its-checks-read.md) (D-60); how it authenticates to the control plane, with a signed token of its own, and who runs an order with no environment are decided in [ADR 0016](adr/0016-the-launcher-acts-under-a-mandate-of-its-own.md) (D-62, D-63), on condition that the launcher pulls through the API (D-60, proposed).
 >
 > **Defaults you can change**: ADR 0012 proposes, as the safe default, that a run gets a **tier** of the operator account (read-only, deploy, maintenance) instead of the whole account that SPEC D-34 and D-39 describe, and that the plan is validated before it is applied in production. The maintainer chose one launcher and one Vault role per environment.
 >
@@ -29,7 +29,7 @@ Contents: [the chain](#1-the-whole-chain) · [a run step by step](#2-one-run-ste
 | Mark | Meaning |
 |---|---|
 | 🟢 | In `develop` today |
-| 🔵 | Described in a proposed ADR (0006, 0007, 0012), not built |
+| 🔵 | Described in an ADR, proposed (0006, 0007, 0012, 0015) or decided (0014, 0016), not built |
 | 🟣 | An idea under discussion, in no ADR yet: **not a commitment** until an ADR accepts it |
 
 ## 1. The whole chain
@@ -38,20 +38,20 @@ Contents: [the chain](#1-the-whole-chain) · [a run step by step](#2-one-run-ste
 flowchart TB
   person["You, the operator"]
   kc["Identity provider<br/>who you are, your group,<br/>a second factor for production"]:::built
-  cp["Control plane (the API)<br/>records your approval (built),<br/>signs the order when the run starts"]:::decided
+  cp["Control plane (the API)<br/>records your approval (built),<br/>signs the order when the run starts<br/>(at delivery: proposed, ADR 0015)"]:::decided
   vault["Vault<br/>non-exportable signing key,<br/>one role set per environment,<br/>SSH authority"]:::decided
-  store[("Order store")]:::decided
-  launcher["Launcher of this environment<br/>verifies the order (library code),<br/>no inbound port"]:::decided
+  store[("Order store<br/>(behind the API)")]:::decided
+  launcher["Launcher of this environment<br/>verifies the order (a small Rust binary),<br/>no inbound port"]:::decided
   shop["Workshop: the agent<br/>isolated, no standing access,<br/>a deadline"]:::decided
   target["Target machines<br/>trust only the Vault authority,<br/>a dedicated operator account (D-34)"]:::decided
 
   person -->|"1 signs in"| kc
   kc -->|"2 identity and group"| cp
   person -->|"3 approves the plan:<br/>a recorded decision, not an order yet"| cp
-  cp -->|"4 when the run starts: still an operator?<br/>plan unchanged? (how: open, section 6)"| kc
-  cp -->|"5 asks Vault to sign the order"| vault
+  cp -->|"4 when the run starts (or at delivery: proposed, ADR 0015): still an operator?<br/>plan unchanged? (how: open, section 6)"| kc
+  cp -->|"5 asks Vault to sign the order (when the run starts, or at delivery: proposed, ADR 0015)"| vault
   cp -->|"6 stores the order"| store
-  launcher -->|"7 pulls"| store
+  launcher -->|"7 pulls, through the API, with its signed token<br/>(pull: proposed, ADR 0015; token: ADR 0016)"| cp
   launcher -->|"8 authenticates with the identity<br/>of its own environment"| vault
   vault -->|"9 short-lived credentials from the roles<br/>of this environment only"| launcher
   launcher -->|"10 starts with only these"| shop
@@ -87,7 +87,7 @@ sequenceDiagram
   C->>K: is this person still an operator?
   C->>C: kill switch off? power granted? commit unchanged? fresh second factor for production?
   C->>V: sign the order (the key never leaves Vault)
-  L->>C: pull the signed order (the launcher has no inbound port)
+  L->>C: pull the signed order through the API (proposed, ADR 0015; the launcher has no inbound port)
   L->>L: signature valid? not expired? never used? within the granted powers?
   L->>V: authenticate as the launcher of this environment (its own workload identity)
   V-->>L: credentials from the roles of this environment, limited to this repository
@@ -106,7 +106,8 @@ An agent is never recognised by what it says. It is recognised by **what it hold
 |---|---|---|---|
 | Someone calls the API without being signed in | A session is required for every route | The host | 🟢 |
 | A signed-in person who is not an operator approves | The operator group is checked | The host | 🟢 |
-| A forged or replayed order | The signature, the expiry and a one-time number are checked | The launcher | 🟢 library code, 🔵 not running |
+| A forged or replayed order | The signature, the expiry and a one-time number are checked | The launcher | 🟢 library code (the reference and the oracle of the vectors; the launcher that will run is the Rust binary, ADR 0014), 🔵 not running |
+| The two implementations of the launch rules disagree (an order passes in one, not in the other) | Both are held to the same conformance vectors, and a change to the rules is one pull request that changes both and the files ([ADR 0014](adr/0014-the-launcher-is-a-rust-binary-held-to-the-control-plane-by-shared-vectors.md)) | The test suites of both | 🔵 decided, not built |
 | A process asks Vault for credentials | Vault answers only to the workload identity of the launcher of that environment, and only from that environment's roles (a launcher of another environment gets nothing) | Vault | 🔵 |
 | An agent started outside the workshop | It holds no certificate, so the machines refuse it | The target machines | 🔵 |
 | A valid agent steps outside its environment | The certificate is valid for one environment and one run (SPEC D-42) | The target machines | 🔵 |
@@ -194,4 +195,8 @@ Still open:
 | Sign-in with the identity provider, operator group, origin check ([ADR 0011](adr/0011-people-sign-in-through-the-identity-provider.md)) | 🟢 |
 | Vault dedicated to this purpose | 🔵 manifests in the GitOps repository, not initialised |
 | Launcher that runs, order store, workshop, certificates, revoking the tokens of a run | 🔵 not built |
+| The launcher as a Rust binary, held to the control plane's rules by shared conformance vectors | 🔵 decided ([ADR 0014](adr/0014-the-launcher-is-a-rust-binary-held-to-the-control-plane-by-shared-vectors.md), D-59), not built |
+| The launcher pulling its orders through the control plane's API, with its own grants, its own list of production environments and an in-memory ledger; first a dry run | 🔵 proposed (ADR 0015, D-60), not built |
+| The launcher of the home environment also serving the orders with no environment (a merge), with its own grants and forge role, in a namespace of its own | 🔵 decided, not built (ADR 0016, D-63) |
+| The launcher authenticating to the API with a signed token of its own, one client per launcher, the key never leaving it (the token gives no access to Vault) | 🔵 decided, not built (ADR 0016, D-62) |
 | One launcher and one Vault role set per environment, tiers of the operator account, validation of the plan for production | 🔵 proposed in ADR 0012 |

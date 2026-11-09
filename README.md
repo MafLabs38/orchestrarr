@@ -4,6 +4,8 @@
 
 **Status: first verticals, read-only.** Orchestrarr reads Portarr's findings and the dependency pull requests from GitHub, and shows them as decision cards. It holds **no write power yet**: nothing merges, deploys or writes to a repository. **Approving a card records a decision** (pull request, commit, steps, approver) in a queue and an audit trail, with a global stop, kept in memory or, with `Storage:Provider=Sqlite` (the image's default), in a file that survives a restart; no launcher takes the approvals, so nothing runs. Approving is off (`Approvals:Mode=Disabled`) unless the sandbox operator (`Development`, loopback only) or the sign-in through an identity provider (`OpenIdConnect`, members of the operator group only) is configured. The roadmap is in [docs/SPEC.md](docs/SPEC.md) §8; the founding vision in [docs/VISION.md](docs/VISION.md); how an order is secured, from the person to the machine, in [docs/security-model.md](docs/security-model.md).
 
+**Decided, not built:** the launcher that will take the approvals is a small Rust binary, held to the control plane's rules by shared conformance vectors ([ADR 0014](docs/adr/0014-the-launcher-is-a-rust-binary-held-to-the-control-plane-by-shared-vectors.md)); how it gets its orders is a proposal ([ADR 0015](docs/adr/0015-where-the-launcher-gets-what-its-checks-read.md)). It authenticates to the control plane with a signed token of its own, and the launcher of the home environment also runs the orders that have no environment, such as a merge (both on condition that it pulls through the control plane's API, proposed) ([ADR 0016](docs/adr/0016-the-launcher-acts-under-a-mandate-of-its-own.md)). Open before it can start: the machine routes (Q-27) and, because every approval holds a validation, who starts a workshop run (Q-28); before the first write power: how a required review is met (Q-14) and a merge on a repository that deploys itself (Q-29); see [docs/SPEC.md](docs/SPEC.md) §9.
+
 Orchestrarr reads the findings of [Portarr](https://github.com/MafLabs38/portarr) (vulnerable dependencies, outdated images, broken applications), plans the work, delegates it to worker agents, verifies that nothing regressed, and proposes the result as a pull request for a human to approve. Safety and approval gates are core concerns: no direct push, sandboxed workers, least privilege, bounded budgets, full audit trail. It works with Mnemarr, the companion long-term memory.
 
 ## Documentation
@@ -86,7 +88,7 @@ Approval answers: `201` recorded; `401` `notSignedIn`; `403` `approvalsDisabled`
 |---|---|---|
 | `Portarr:BaseUrl`, `Portarr:ApiKey` | none | The Portarr to read. Without them nothing is read (the sample file is set only in Development) |
 | `Portarr:TimeoutSeconds`, `Portarr:MaxResponseBytes` | 20, 10 MiB | Bounds on a Portarr call |
-| `GitHub:Token` | none | Read-only token. Without it the pull requests are "not connected" |
+| `GitHub:Token` | none | Read-only token. Without it the pull requests are "not connected". When the launcher exists (row 3a), the host that delivers orders will require a GitHub App of its own with read permissions only at the forge, whose installation permissions it can check (ADR 0016) |
 | `GitHub:BotLogins` | Dependabot and Renovate | Authors whose pull requests count as dependency updates |
 | `GitHub:ApiUrl`, `GitHub:WebUrl` | github.com | For GitHub Enterprise |
 | `GitHub:MaxPullRequests`, `GitHub:MaxPages` | 30, 5 | Bounds on a repository's list |

@@ -21,5 +21,5 @@ An orchestrator that only opens pull requests leaves the expensive part (merge, 
 
 - Orchestrarr holds credentials that can merge and deploy. They are scoped to one repository or one target, and live only for the duration of one approved step.
 - Powers are granted per application and per environment and are off until enabled; automatic deployment requires a known rollback method.
-- Orchestrarr's identity may approve and merge its own pull requests (SPEC D-19). The forge review is therefore not relied upon as a safety net: the operator's approval on the card, the verification and the rollback are. Rulesets still forbid direct pushes and force pushes to protected branches, and limit who can bypass them.
+- Orchestrarr's identity may approve and merge its own pull requests (SPEC D-19; *2026-11-04: once the launcher exists, the forge role of the home launcher only merges and never approves, D-63, and how a required review is met is reopened, Q-14*). The forge review is therefore not relied upon as a safety net: the operator's approval on the card, the verification and the rollback are. Rulesets still forbid direct pushes and force pushes to protected branches, and limit who can bypass them.
 - Changing this requires a new ADR that supersedes this one.
