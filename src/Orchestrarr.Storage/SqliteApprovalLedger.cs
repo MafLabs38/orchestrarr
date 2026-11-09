@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Orchestrarr.Core.Approvals;
 using Orchestrarr.Core.Launch;
+using Orchestrarr.Core.Tasks;
 
 namespace Orchestrarr.Storage;
 
@@ -17,7 +18,7 @@ public sealed class SqliteApprovalLedger(SqliteDatabase database, IKillSwitchCon
     private readonly int _auditCapacity = int.IsNegative(auditCapacity) ? throw new ArgumentOutOfRangeException(nameof(auditCapacity), "The capacity cannot be negative.") : auditCapacity;
     private readonly ILogger _logger = logger ?? NullLogger<SqliteApprovalLedger>.Instance;
 
-    public ValueTask<LedgerResult> TryRecordAsync(IReadOnlyList<Approval> approvals, IReadOnlyList<AuditEntry> entries, CancellationToken cancellationToken)
+    public ValueTask<LedgerResult> TryRecordAsync(IReadOnlyList<Approval> approvals, TaskBatch? batch, string? secondFactorCode, IReadOnlyList<AuditEntry> entries, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(approvals);
         ArgumentNullException.ThrowIfNull(entries);
@@ -29,7 +30,7 @@ public sealed class SqliteApprovalLedger(SqliteDatabase database, IKillSwitchCon
 
         try
         {
-            return ValueTask.FromResult(database.InWriteTransaction(connection => Write(connection, approvals, entries)));
+            return ValueTask.FromResult(database.InWriteTransaction(connection => Write(connection, approvals, batch, secondFactorCode, entries)));
         }
         catch (Exception failure) when (SqliteDatabase.IsUnavailable(failure))
         {
@@ -38,7 +39,7 @@ public sealed class SqliteApprovalLedger(SqliteDatabase database, IKillSwitchCon
         }
     }
 
-    private (bool Commit, LedgerResult Result) Write(SqliteConnection connection, IReadOnlyList<Approval> approvals, IReadOnlyList<AuditEntry> entries)
+    private (bool Commit, LedgerResult Result) Write(SqliteConnection connection, IReadOnlyList<Approval> approvals, TaskBatch? batch, string? secondFactorCode, IReadOnlyList<AuditEntry> entries)
     {
         // The stop is read inside the write: an engagement either commits before this transaction, and is seen here, or waits for it
         // (or is counted as in flight), so that an approval is never recorded after the stop
@@ -60,6 +61,15 @@ public sealed class SqliteApprovalLedger(SqliteDatabase database, IKillSwitchCon
             SqliteAuditLog.Insert(connection, entry);
         }
         // Another process may have recorded the same decision first: nothing of this one stays, trace included
-        return SqliteApprovalStore.InsertAll(connection, approvals) ? (true, LedgerResult.Recorded) : (false, LedgerResult.AlreadyThere);
+        if (!SqliteApprovalStore.InsertAll(connection, approvals))
+        {
+            return (false, LedgerResult.AlreadyThere);
+        }
+        // The batch enters the queue in the same transaction as the approvals it carries out and their trace
+        if (batch is not null)
+        {
+            SqliteBatchQueue.InsertBatch(connection, batch, secondFactorCode);
+        }
+        return (true, LedgerResult.Recorded);
     }
 }

@@ -28,7 +28,7 @@ public sealed class SqliteApprovalStore(SqliteDatabase database, int capacity = 
         {
             using var connection = database.Connect();
             using var command = connection.CreateCommand();
-            command.CommandText = "SELECT 1 FROM approvals WHERE repository = $repository AND pull_request = $pullRequest AND head_sha = $head AND steps = $steps LIMIT 1;";
+            command.CommandText = "SELECT 1 FROM approvals WHERE repository = $repository AND pull_request = $pullRequest AND head_sha = $head AND steps = $steps AND state IN ('Waiting', 'Taken') LIMIT 1;";
             Bind(command, approval);
             return command.ExecuteScalar() is not null;
         });
@@ -58,7 +58,7 @@ public sealed class SqliteApprovalStore(SqliteDatabase database, int capacity = 
     {
         using var connection = database.Connect();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT id, work_item_id, repository, pull_request, head_sha, steps, approver, approved_at, step_up_at FROM approvals ORDER BY approved_at DESC, rowid DESC LIMIT $limit;";
+        command.CommandText = "SELECT id, work_item_id, repository, pull_request, head_sha, steps, approver, approved_at, step_up_at, state, batch_id, ended_at FROM approvals ORDER BY approved_at DESC, rowid DESC LIMIT $limit;";
         command.Parameters.AddWithValue("$limit", limit);
         using var reader = command.ExecuteReader();
         var approvals = new List<Approval>();
@@ -73,7 +73,10 @@ public sealed class SqliteApprovalStore(SqliteDatabase database, int capacity = 
                 [.. reader.GetString(5).Split(',', StringSplitOptions.RemoveEmptyEntries).Select(Enum.Parse<StepKind>)],
                 reader.GetString(6),
                 SqliteDatabase.Parse(reader.GetString(7)),
-                reader.IsDBNull(8) ? null : SqliteDatabase.Parse(reader.GetString(8))));
+                reader.IsDBNull(8) ? null : SqliteDatabase.Parse(reader.GetString(8)),
+                Enum.Parse<ApprovalState>(reader.GetString(9)),
+                reader.IsDBNull(10) ? null : Guid.Parse(reader.GetString(10)),
+                reader.IsDBNull(11) ? null : SqliteDatabase.Parse(reader.GetString(11))));
         }
         return approvals;
     });
@@ -81,7 +84,8 @@ public sealed class SqliteApprovalStore(SqliteDatabase database, int capacity = 
     internal static int Count(SqliteConnection connection)
     {
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT COUNT(*) FROM approvals;";
+        // Only an approval that can still be carried out takes room in the queue: an ended one is history
+        command.CommandText = "SELECT COUNT(*) FROM approvals WHERE state IN ('Waiting', 'Taken');";
         return Convert.ToInt32(command.ExecuteScalar(), CultureInfo.InvariantCulture);
     }
 
@@ -90,13 +94,26 @@ public sealed class SqliteApprovalStore(SqliteDatabase database, int capacity = 
     internal static void Insert(SqliteConnection connection, Approval approval)
     {
         using var command = connection.CreateCommand();
-        command.CommandText = "INSERT INTO approvals (id, work_item_id, repository, pull_request, head_sha, steps, approver, approved_at, step_up_at) VALUES ($id, $workItem, $repository, $pullRequest, $head, $steps, $approver, $approvedAt, $stepUpAt);";
+        command.CommandText = "INSERT INTO approvals (id, work_item_id, repository, pull_request, head_sha, steps, approver, approved_at, step_up_at, state, batch_id) VALUES ($id, $workItem, $repository, $pullRequest, $head, $steps, $approver, $approvedAt, $stepUpAt, $state, $batch);";
         Bind(command, approval);
         command.Parameters.AddWithValue("$id", approval.Id.ToString("D"));
         command.Parameters.AddWithValue("$workItem", approval.WorkItemId);
         command.Parameters.AddWithValue("$approver", approval.ApproverSubject);
         command.Parameters.AddWithValue("$approvedAt", SqliteDatabase.Format(approval.ApprovedAt));
         command.Parameters.AddWithValue("$stepUpAt", approval.StepUpAt is { } at ? SqliteDatabase.Format(at) : DBNull.Value);
+        command.Parameters.AddWithValue("$state", approval.State.ToString());
+        command.Parameters.AddWithValue("$batch", approval.BatchId is { } batch ? batch.ToString("D") : DBNull.Value);
+        command.ExecuteNonQuery();
+    }
+
+    /// <summary>Moves the approvals of a batch to a new state, in the transaction of <paramref name="connection"/>.</summary>
+    internal static void SetStateOfBatch(SqliteConnection connection, Guid batchId, ApprovalState state, DateTimeOffset at)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "UPDATE approvals SET state = $state, ended_at = $endedAt WHERE batch_id = $batch;";
+        command.Parameters.AddWithValue("$state", state.ToString());
+        command.Parameters.AddWithValue("$endedAt", state is ApprovalState.Waiting or ApprovalState.Taken ? DBNull.Value : SqliteDatabase.Format(at));
+        command.Parameters.AddWithValue("$batch", batchId.ToString("D"));
         command.ExecuteNonQuery();
     }
 
