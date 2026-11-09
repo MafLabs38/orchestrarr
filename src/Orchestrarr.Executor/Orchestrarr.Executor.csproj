@@ -14,5 +14,6 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Orchestrarr.Executor.Test" />
+    <InternalsVisibleTo Include="Orchestrarr.Host.Test" />
   </ItemGroup>
 </Project>

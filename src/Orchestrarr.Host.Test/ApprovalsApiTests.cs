@@ -134,9 +134,10 @@ public sealed class ApprovalsApiTests
         approval.GetProperty("steps").EnumerateArray().Select(s => s.GetString()).Should().Equal("validate", "mergePullRequests");
 
         (await Json(await client.GetAsync("/api/v1/approvals", Ct))).EnumerateArray().Should().ContainSingle();
-        var activity = (await Json(await client.GetAsync("/api/v1/audit", Ct))).EnumerateArray().Should().ContainSingle().Which;
-        activity.GetProperty("event").GetString().Should().Be("approval.recorded");
-        activity.GetProperty("subject").GetString().Should().Be("dev-operator");
+        var trail = (await Json(await client.GetAsync("/api/v1/audit", Ct))).EnumerateArray().ToList();
+        trail.Select(entry => entry.GetProperty("event").GetString()).Should().BeEquivalentTo("approval.recorded", "batch.queued");
+        trail.Should().OnlyContain(entry => entry.GetProperty("subject").GetString() == "dev-operator");
+        approval.GetProperty("state").GetString().Should().Be("waiting");
     }
 
     [Fact]

@@ -38,7 +38,7 @@ internal static class ApprovalEndpoints
                 return refusal!;
             }
 
-            var result = await service.ApproveAsync(approver, request.WorkItemId ?? string.Empty, request.Steps ?? [], request.PullRequests ?? [], ct);
+            var result = await service.ApproveAsync(approver, request.WorkItemId ?? string.Empty, request.Steps ?? [], request.PullRequests ?? [], request.SecondFactorCode, ct);
             return result.Refusal is { } code
                 ? Error(JsonCode(code), Statuses.GetValueOrDefault(code, StatusCodes.Status422UnprocessableEntity))
                 : Results.Json(new ApproveResponse([.. result.Approvals.Select(ToDto)]), statusCode: StatusCodes.Status201Created);
@@ -98,11 +98,11 @@ internal static class ApprovalEndpoints
         return new SafetyDto(state.Engaged, state.Saved);
     }
 
-    public static ApprovalStatus StatusOf(IApproverAccessor accessor, HttpContext context, IKillSwitchControl killSwitch)
+    public static ApprovalStatus StatusOf(IApproverAccessor accessor, HttpContext context, IKillSwitchControl killSwitch, bool requiresSecondFactor)
     {
         var approver = accessor.Current(context);
         var state = killSwitch.State();
-        return new(accessor.Mode.ToString().ToLowerInvariant(), accessor.Mode != ApprovalsMode.Disabled, approver?.Subject, accessor.DisplayName(context), approver is { IsPerson: true, IsOperator: true }, state.Engaged, state.Saved);
+        return new(accessor.Mode.ToString().ToLowerInvariant(), accessor.Mode != ApprovalsMode.Disabled, approver?.Subject, accessor.DisplayName(context), approver is { IsPerson: true, IsOperator: true }, state.Engaged, state.Saved, requiresSecondFactor);
     }
 
     // Who may call the two routes that record something: approving turned on, a local request (the sandbox operator only), somebody signed in.
@@ -127,5 +127,5 @@ internal static class ApprovalEndpoints
     private static string JsonCode(ApprovalRefusal refusal) => JsonNamingPolicy.CamelCase.ConvertName(refusal.ToString());
 
     private static ApprovalDto ToDto(Approval approval) =>
-        new(approval.Id, approval.WorkItemId, approval.Repository, approval.PullRequest, approval.HeadSha, approval.Steps, approval.ApproverSubject, approval.ApprovedAt);
+        new(approval.Id, approval.WorkItemId, approval.Repository, approval.PullRequest, approval.HeadSha, approval.Steps, approval.ApproverSubject, approval.ApprovedAt, approval.State, approval.BatchId, approval.EndedAt);
 }

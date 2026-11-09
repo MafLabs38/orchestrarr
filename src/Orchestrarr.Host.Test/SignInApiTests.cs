@@ -109,7 +109,7 @@ public sealed class SignInApiTests
     private static async Task<JsonElement> Json(HttpResponseMessage response) => await response.Content.ReadFromJsonAsync<JsonElement>(Ct);
 
     private static Task<HttpResponseMessage> Approve(HttpClient client) =>
-        client.PostAsJsonAsync("/api/v1/approvals", new { workItemId = Shop, steps = new[] { "validate", "mergePullRequests" }, pullRequests = new[] { new { number = 7, headSha = Head } } }, Ct);
+        client.PostAsJsonAsync("/api/v1/approvals", new { workItemId = Shop, steps = new[] { "validate", "mergePullRequests" }, pullRequests = new[] { new { number = 7, headSha = Head } }, secondFactorCode = "123456" }, Ct);
 
     // --- nobody signed in: a status, never a page of the provider, and no data
 
@@ -165,9 +165,11 @@ public sealed class SignInApiTests
         var response = await Approve(client);
 
         response.StatusCode.Should().Be(HttpStatusCode.Created);
-        (await Json(response)).GetProperty("approvals").EnumerateArray().Single().GetProperty("approver").GetString().Should().Be("alice-1");
-        var activity = (await Json(await client.GetAsync("/api/v1/audit", Ct))).EnumerateArray().Single();
-        activity.GetProperty("subject").GetString().Should().Be("alice-1");
+        var approval = (await Json(response)).GetProperty("approvals").EnumerateArray().Single();
+        approval.GetProperty("approver").GetString().Should().Be("alice-1");
+        approval.GetProperty("state").GetString().Should().Be("waiting");
+        var trail = (await Json(await client.GetAsync("/api/v1/audit", Ct))).EnumerateArray().ToList();
+        trail.Should().HaveCount(2).And.OnlyContain(entry => entry.GetProperty("subject").GetString() == "alice-1");
     }
 
     [Fact]
