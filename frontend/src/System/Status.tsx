@@ -9,6 +9,7 @@ import { describeError } from 'Utilities/describe';
 import formatTime from 'Utilities/formatTime';
 import translate from 'Utilities/translate';
 
+import ExecutorList from './ExecutorList';
 import KillSwitch from './KillSwitch';
 import styles from './Status.module.css';
 import useSystemStatus from './useSystemStatus';
@@ -67,6 +68,16 @@ export default function Status() {
             </dd>
             <dt>{translate('Approvals')}</dt>
             <dd>{approvalsText(data.approvals)}</dd>
+            <dt>{translate('SecondFactor')}</dt>
+            <dd>
+              {data.approvals.requiresSecondFactor
+                ? translate('SecondFactorRequired')
+                : translate('SecondFactorNotRequired')}
+            </dd>
+            <dt>{translate('Executors')}</dt>
+            <dd>
+              <ExecutorList executors={data.executors} />
+            </dd>
             <dt>{translate('Storage')}</dt>
             <dd>{storageName(data.storage.kind)}</dd>
             <dt>{translate('KillSwitch')}</dt>

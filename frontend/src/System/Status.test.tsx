@@ -260,4 +260,68 @@ describe('Status', () => {
     await screen.findByRole('button', { name: 'Release the global stop' });
     expect(screen.queryByText(/do not count on it across a restart/)).not.toBeInTheDocument();
   });
+  it('says when no executor has asked for work, and what it accepts and holds when one has', async () => {
+    stubApi({ '/api/v1/system/status': status() });
+    const { unmount } = renderWithProviders(<Status />);
+    expect(await screen.findByText(/No executor has asked for work yet/)).toBeInTheDocument();
+    unmount();
+
+    stubApi({
+      '/api/v1/system/status': {
+        ...status({}, { requiresSecondFactor: true }),
+        executors: [
+          {
+            name: 'executor-1',
+            version: '1.2.3',
+            lastSeen: '2026-11-09T12:00:00Z',
+            connected: true,
+            kinds: ['validatePullRequest', 'mergePullRequest'],
+            repositories: ['example/*'],
+            delegations: [
+              {
+                id: 'd1',
+                subject: 'alice',
+                kind: 'mergePullRequest',
+                repository: 'example/*',
+                expiresAt: '2026-12-09T12:00:00Z',
+                dailyQuota: 5,
+              },
+            ],
+          },
+        ],
+      },
+    });
+    renderWithProviders(<Status />);
+
+    expect(await screen.findByText('executor-1')).toBeInTheDocument();
+    expect(screen.getByText('Connected')).toBeInTheDocument();
+    expect(screen.getByText('Accepts: Validate, Merge')).toBeInTheDocument();
+    expect(screen.getByText('Repositories: example/*')).toBeInTheDocument();
+    expect(screen.getByText(/Merge on example\/\* until 2026-12-09, 5 a day/)).toBeInTheDocument();
+    expect(screen.getByText('A code from your authenticator app, checked by the executor')).toBeInTheDocument();
+  });
+
+  it('says that an executor not seen for a while is not connected', async () => {
+    stubApi({
+      '/api/v1/system/status': {
+        ...status(),
+        executors: [
+          {
+            name: 'executor-1',
+            version: '1',
+            lastSeen: '2026-11-09T12:00:00Z',
+            connected: false,
+            kinds: [],
+            repositories: [],
+            delegations: [],
+          },
+        ],
+      },
+    });
+
+    renderWithProviders(<Status />);
+
+    expect(await screen.findByText('Not seen for a while')).toBeInTheDocument();
+    expect(screen.getAllByText(/none \(it refuses everything\)/)).toHaveLength(2);
+  });
 });

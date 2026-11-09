@@ -25,6 +25,11 @@ export default function PageSidebar() {
         label={translate('Queue')}
         badge={approvals?.length}
       />
+      <SidebarLink
+        to="/runs"
+        icon={<icons.RUNS size={iconSizes.LARGE} aria-hidden="true" />}
+        label={translate('Runs')}
+      />
       <div className={styles.group}>{translate('System')}</div>
       <SidebarLink
         to="/system/status"

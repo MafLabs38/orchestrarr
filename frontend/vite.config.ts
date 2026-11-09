@@ -16,6 +16,7 @@ export default defineConfig({
       Decisions: src('Decisions'),
       Helpers: src('Helpers'),
       System: src('System'),
+      Runs: src('Runs'),
       Utilities: src('Utilities'),
       typings: src('typings'),
       testUtils: src('testUtils.tsx'),

@@ -252,7 +252,56 @@ describe('DecisionCard approval', () => {
     renderWithProviders(<DecisionCard item={granted} />);
 
     await waitFor(() => expect(approveButton()).toBeEnabled());
-    expect(approveButton()).toHaveAccessibleDescription(/Nothing runs yet/);
+    expect(approveButton()).toHaveAccessibleDescription(/dry run that starts nothing/);
+  });
+
+  describe('with the code of the second factor', () => {
+    const codeField = () => screen.getByLabelText('Authenticator code');
+
+    it('asks for the code, and cannot be approved without six digits', async () => {
+      stubApproving({ requiresSecondFactor: true });
+      renderWithProviders(<DecisionCard item={granted} />);
+
+      await waitFor(() => expect(codeField()).toBeInTheDocument());
+      expect(approveButton()).toBeDisabled();
+      await userEvent.type(codeField(), '12345');
+      expect(approveButton()).toBeDisabled();
+      await userEvent.type(codeField(), '6');
+      expect(approveButton()).toBeEnabled();
+    });
+
+    it('does not ask for it when the server does not', async () => {
+      stubApproving();
+      renderWithProviders(<DecisionCard item={granted} />);
+
+      await waitFor(() => expect(approveButton()).toBeEnabled());
+      expect(screen.queryByLabelText('Authenticator code')).not.toBeInTheDocument();
+    });
+
+    it('sends the code with the approval, and does not keep it afterwards', async () => {
+      const fetchMock = stubApproving({ requiresSecondFactor: true });
+      renderWithProviders(<DecisionCard item={granted} />);
+      await waitFor(() => expect(codeField()).toBeInTheDocument());
+      await userEvent.type(codeField(), '123 456');
+
+      await userEvent.click(approveButton());
+
+      await waitFor(() =>
+        expect(posted(fetchMock)).toEqual([expect.objectContaining({ secondFactorCode: '123 456' })]),
+      );
+      await waitFor(() => expect(codeField()).toHaveValue(''));
+    });
+
+    it('says in words that the code is missing when the server insists', async () => {
+      stubApproving({ requiresSecondFactor: true }, { status: 422, body: { error: 'secondFactorRequired' } });
+      renderWithProviders(<DecisionCard item={granted} />);
+      await waitFor(() => expect(codeField()).toBeInTheDocument());
+      await userEvent.type(codeField(), '123456');
+
+      await userEvent.click(approveButton());
+
+      expect(await screen.findByText('Type the 6-digit code of your authenticator app.')).toBeInTheDocument();
+    });
   });
 
   it('sends only the work item and the steps that are ticked, granted and recorded today', async () => {

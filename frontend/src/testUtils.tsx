@@ -99,6 +99,7 @@ export function approvalStatus(overrides: Partial<ApprovalStatus> = {}): Approva
     isOperator: true,
     killSwitchEngaged: false,
     killSwitchSaved: true,
+    requiresSecondFactor: false,
     ...overrides,
   };
 }
@@ -130,6 +131,7 @@ export function status(
     forge: { kind: 'github', configured: true },
     approvals: approvalStatus(approvals),
     storage: { kind: 'memory' },
+    executors: [],
   };
 }
 

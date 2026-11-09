@@ -10,6 +10,7 @@ export {
   GitPullRequest as PULL_REQUEST,
   ListChecks as QUEUE,
   RefreshCw as REFRESH,
+  Route as RUNS,
   Server as STATUS,
   CircleCheck as SUCCESS,
   CircleQuestionMark as UNKNOWN,

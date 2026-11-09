@@ -87,3 +87,18 @@
   color: var(--inkSoft);
   font-size: var(--fontSizeMeta);
 }
+
+.code {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0 0;
+}
+
+.code input {
+  width: 8ch;
+  padding: 6px 8px;
+  font-family: var(--monoSpaceFontFamily);
+  letter-spacing: 0.15em;
+}

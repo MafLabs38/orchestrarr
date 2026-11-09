@@ -5,6 +5,8 @@ import Activity from 'Activity/Activity';
 import Queue from 'Approvals/Queue';
 import Page from 'Components/Page/Page';
 import Decisions from 'Decisions/Decisions';
+import RunDetail from 'Runs/RunDetail';
+import Runs from 'Runs/Runs';
 import Status from 'System/Status';
 
 import queryClient from './queryClient';
@@ -17,6 +19,8 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Decisions />} />
             <Route path="/queue" element={<Queue />} />
+            <Route path="/runs" element={<Runs />} />
+            <Route path="/runs/:id" element={<RunDetail />} />
             <Route path="/system/status" element={<Status />} />
             <Route path="/system/activity" element={<Activity />} />
           </Routes>

@@ -70,6 +70,53 @@ function StepRow({ step, checked, onToggle }: Readonly<{ step: PlanStep; checked
   );
 }
 
+// The code of the authenticator app, asked when the executor checks it: six digits, a space allowed in the middle.
+const isCodeShaped = (code: string) => /^\d{3} ?\d{3}$/.test(code.trim());
+
+function SecondFactorField({ value, onChange }: Readonly<{ value: string; onChange: (value: string) => void }>) {
+  const id = useId();
+  return (
+    <div className={styles.code}>
+      <label htmlFor={id}>{translate('SecondFactorCode')}</label>
+      <input
+        id={id}
+        type="text"
+        inputMode="numeric"
+        autoComplete="one-time-code"
+        maxLength={7}
+        value={value}
+        aria-describedby={`${id}-hint`}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      <span id={`${id}-hint`} className={styles.reason}>
+        {translate('SecondFactorHint')}
+      </span>
+    </div>
+  );
+}
+
+// What became of the last approval: how many were recorded, or the words for why the server refused.
+function ApprovalOutcome({ approve }: Readonly<{ approve: ReturnType<typeof useApprove> }>) {
+  if (approve.isSuccess) {
+    return (
+      <Alert kind={kinds.SUCCESS}>
+        {translate(approve.data.approvals.length === 1 ? 'ApprovalRecordedOne' : 'ApprovalRecordedOther', {
+          count: approve.data.approvals.length,
+        })}{' '}
+        <Link to="/queue">{translate('SeeQueue')}</Link>
+      </Alert>
+    );
+  }
+  if (approve.isError) {
+    return (
+      <Alert kind={kinds.DANGER}>
+        {describeApprovalError(approve.error instanceof ApiRefusal ? approve.error.code : null)}
+      </Alert>
+    );
+  }
+  return null;
+}
+
 // What to say under the button: why it cannot be pressed, or what pressing it does.
 function approvalHint(approvals: ApprovalStatus | undefined, plan: PlanStep[], pullRequestsRead: boolean): string {
   if (!approvals?.enabled) {
@@ -91,6 +138,7 @@ function approvalHint(approvals: ApprovalStatus | undefined, plan: PlanStep[], p
 // default (SPEC D-04, D-16). Only what the operator changed is kept, so a plan that changes under the card keeps their choices.
 export default function DecisionCard({ item }: Readonly<{ item: WorkItem }>) {
   const hintId = useId();
+  const [code, setCode] = useState('');
   const [choices, setChoices] = useState<Record<string, boolean>>({});
   const { data: status } = useSystemStatus();
   const approve = useApprove();
@@ -113,6 +161,8 @@ export default function DecisionCard({ item }: Readonly<{ item: WorkItem }>) {
     reset(); // what was said about an approval no longer holds once the pull requests, or their commits, are not the same
   }, [seenKey, reset]);
   const pullRequestsRead = item.pullRequests.status === 'read' && !item.pullRequests.stale && seen.length > 0;
+  const needsCode = approvals?.requiresSecondFactor === true;
+  const codeReady = !needsCode || isCodeShaped(code);
 
   // Only what the server would accept is sent: ticked, possible, granted, and a step that approving records. The server decides the rest.
   const approvable = item.plan.filter((step) => isChecked(step) && step.granted && isApprovable(step));
@@ -122,6 +172,7 @@ export default function DecisionCard({ item }: Readonly<{ item: WorkItem }>) {
     !approvals.killSwitchEngaged &&
     approvable.length > 0 &&
     pullRequestsRead &&
+    codeReady &&
     !approve.isPending;
   const hint = approvalHint(approvals, item.plan, pullRequestsRead);
 
@@ -151,13 +202,24 @@ export default function DecisionCard({ item }: Readonly<{ item: WorkItem }>) {
             ))}
           </fieldset>
 
+          {needsCode ? <SecondFactorField value={code} onChange={setCode} /> : null}
+
           <div className={styles.footer}>
             <Button
               kind={kinds.PRIMARY}
               disabled={!canApprove}
               aria-describedby={hintId}
               onClick={() =>
-                approve.mutate({ workItemId: item.id, steps: approvable.map((step) => step.kind), pullRequests: seen })
+                approve.mutate(
+                  {
+                    workItemId: item.id,
+                    steps: approvable.map((step) => step.kind),
+                    pullRequests: seen,
+                    secondFactorCode: needsCode ? code.trim() : undefined,
+                  },
+                  // A code is good once: it is not kept after it was sent
+                  { onSettled: () => setCode('') },
+                )
               }
             >
               {translate('Approve')}
@@ -167,19 +229,7 @@ export default function DecisionCard({ item }: Readonly<{ item: WorkItem }>) {
             </span>
           </div>
           <CapabilityHint id={hintId}>{hint}</CapabilityHint>
-          {approve.isSuccess ? (
-            <Alert kind={kinds.SUCCESS}>
-              {translate(approve.data.approvals.length === 1 ? 'ApprovalRecordedOne' : 'ApprovalRecordedOther', {
-                count: approve.data.approvals.length,
-              })}{' '}
-              <Link to="/queue">{translate('SeeQueue')}</Link>
-            </Alert>
-          ) : null}
-          {approve.isError ? (
-            <Alert kind={kinds.DANGER}>
-              {describeApprovalError(approve.error instanceof ApiRefusal ? approve.error.code : null)}
-            </Alert>
-          ) : null}
+          <ApprovalOutcome approve={approve} />
         </>
       )}
     </section>
