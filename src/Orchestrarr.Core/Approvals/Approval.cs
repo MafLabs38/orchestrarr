@@ -17,4 +17,24 @@ public sealed record Approval(
     IReadOnlyList<StepKind> Steps,
     string ApproverSubject,
     DateTimeOffset ApprovedAt,
-    DateTimeOffset? StepUpAt = null);
+    DateTimeOffset? StepUpAt = null,
+    ApprovalState State = ApprovalState.Waiting,
+    Guid? BatchId = null,
+    DateTimeOffset? EndedAt = null)
+{
+    /// <summary>Whether this approval can still be carried out. An ended one never counts as "already approved": the operator may approve again.</summary>
+    public bool IsOpen => State is ApprovalState.Waiting or ApprovalState.Taken;
+}
+
+/// <summary>
+/// Where an approval is in its life (ADR 0013, 0017). <c>DryRunDone</c> is a real end: the executor checked everything and wrote what it
+/// would have started, which spends the approval, so a real run needs a new approval.
+/// </summary>
+public enum ApprovalState
+{
+    Waiting,
+    Taken,
+    DryRunDone,
+    Refused,
+    Expired,
+}

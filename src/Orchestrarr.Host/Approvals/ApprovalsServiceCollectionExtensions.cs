@@ -41,8 +41,7 @@ internal static class ApprovalsServiceCollectionExtensions
             .AddApprovingRateLimit(options)
             .AddSingleton(options)
             .AddSingleton(storage)
-            .AddSingleton<IPowerPolicy>(new ConfiguredPowerPolicy(grants))
-            .AddSingleton<IGrantedPowers, PolicyGrantedPowers>();
+            .AddSingleton<IPowerPolicy>(new ConfiguredPowerPolicy(grants));
 
         // What must survive a restart is in one file, or, in the sandbox, in memory. The capacities default to what suits where it is kept.
         var capacities = storage.Persistent

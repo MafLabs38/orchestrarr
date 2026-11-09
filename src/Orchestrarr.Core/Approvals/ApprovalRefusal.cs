@@ -28,6 +28,9 @@ public enum ApprovalRefusal
     MergeNeedsValidation,
     NoPullRequests,
     AlreadyApproved,
+
+    /// <summary>The code of the second factor is missing or is not six digits. Whether it is right is for the executor to say.</summary>
+    SecondFactorRequired,
     StoreFull,
     /// <summary>The approval and its trace cannot be written (a full or unusable store or trail): nothing is approved.</summary>
     AuditUnavailable,
