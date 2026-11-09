@@ -5,6 +5,7 @@
   - **Decided later**: the bullet of point 6 on orders with no environment, by [ADR 0016](0016-the-launcher-acts-under-a-mandate-of-its-own.md) and SPEC D-63; only its production classification stays proposed.
   - **Proposed** safe defaults: the marked clauses, points 5 and 6, and point 7 ([ADR 0015](0015-where-the-launcher-gets-what-its-checks-read.md)).
 - **Date**: 2026-11-04
+- **Superseded in part** by [ADR 0017](0017-orders-are-typed-tasks-approved-with-a-second-factor-that-the-executor-checks.md) (2026-11-09): the launcher is replaced by an executor in .NET, and the order signed by the server by a task approved with a second factor that the executor checks.
 
 ## Context
 
