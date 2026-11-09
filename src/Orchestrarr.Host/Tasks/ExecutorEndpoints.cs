@@ -25,6 +25,16 @@ internal static class ExecutorEndpoints
             return;
         }
 
+        // The limit is set before the body is read: an endpoint filter runs after the binding, which is too late (Kestrel refuses to change it)
+        app.Use((context, next) =>
+        {
+            if (context.Request.Path.StartsWithSegments("/api/v1/executor", StringComparison.Ordinal))
+            {
+                context.Features.Get<IHttpMaxRequestBodySizeFeature>()?.MaxRequestBodySize = MaxBody;
+            }
+            return next(context);
+        });
+
         var group = app.MapGroup("/api/v1/executor");
         group.AddEndpointFilter((context, next) => Authenticate(context, next, settings));
 
@@ -46,7 +56,6 @@ internal static class ExecutorEndpoints
     private static ValueTask<object?> Authenticate(EndpointFilterInvocationContext context, EndpointFilterDelegate next, TasksSettings settings)
     {
         var http = context.HttpContext;
-        http.Features.Get<IHttpMaxRequestBodySizeFeature>()?.MaxRequestBodySize = MaxBody;
         var presented = http.Request.Headers.Authorization.ToString();
         if (presented.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
         {
