@@ -40,23 +40,15 @@ internal static class ProblemsEndpoints
 
             var report = await catalog.GetAsync(refresh: false, ct);
             var table = DecisionTable.Build(report.Items, applications, Acceptance(executors)).ToDictionary(row => row.Id, StringComparer.Ordinal);
-            var selection = new List<SelectedProblem>();
-            // What the operator saw is what is approved: the descriptions, the commit and how far the row went must still be the same
-            var sameDescriptions = string.Equals(request.DescriptionsVersion ?? string.Empty, applications.Version, StringComparison.Ordinal);
-            foreach (var chosen in request.Rows ?? [])
+            // What the operator saw is what is approved: the rule lives once, in Core
+            var resolution = DecisionSelection.Resolve(table, [.. (request.Rows ?? []).Select(row => new ChosenRow(row.Id, row.HeadSha, row.GoesUpTo, row.StopBeforeProduction))], request.DescriptionsVersion, applications.Version);
+            if (resolution.Refused)
             {
-                if (!sameDescriptions || chosen.Id is null || !table.TryGetValue(chosen.Id, out var row) || row.PullRequest is null || row.GoesUpTo == Ceiling.NoAction
-                    || !string.Equals(row.HeadSha, chosen.HeadSha, StringComparison.Ordinal) || chosen.GoesUpTo != row.GoesUpTo)
-                {
-                    await service.TraceRefusalAsync(approver, chosen.Id is not null && table.TryGetValue(chosen.Id, out var known) ? known.WorkItemId : string.Empty, ApprovalRefusal.PlanChanged);
-                    return ApprovalEndpoints.RefusalResult(ApprovalRefusal.PlanChanged);
-                }
-                var stops = chosen.StopBeforeProduction && row.CanStopBeforeProduction;
-                selection.Add(new SelectedProblem(row.WorkItemId, row.PullRequest.Value, row.HeadSha!, [.. DecisionTable.StepsOf(row.GoesUpTo)],
-                    $"goesUpTo={row.GoesUpTo} stopBeforeProduction={stops} descriptions={(applications.Version.Length == 0 ? "none" : applications.Version)}"));
+                await service.TraceRefusalAsync(approver, resolution.Mismatch?.WorkItemId ?? string.Empty, ApprovalRefusal.PlanChanged);
+                return ApprovalEndpoints.RefusalResult(ApprovalRefusal.PlanChanged);
             }
 
-            var result = await service.ApproveSelectionAsync(approver, selection, request.SecondFactorCode, ct);
+            var result = await service.ApproveSelectionAsync(approver, resolution.Selection, request.SecondFactorCode, ct);
             return result.Refusal is { } code
                 ? ApprovalEndpoints.RefusalResult(code)
                 : Results.Json(new ApproveResponse([.. result.Approvals.Select(ApprovalEndpoints.ToDto)]), statusCode: StatusCodes.Status201Created);
