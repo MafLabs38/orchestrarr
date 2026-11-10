@@ -23,8 +23,9 @@ public sealed class ExecutorRegistry(TimeProvider time)
             now - pair.Value.At <= ConnectedFor,
             pair.Value.Hello.Kinds,
             pair.Value.Hello.Repositories,
-            pair.Value.Hello.Delegations))];
+            pair.Value.Hello.Delegations,
+            pair.Value.Hello.SecondFactorRequired))];
     }
 }
 
-public sealed record ExecutorStatus(string Name, string Version, DateTimeOffset LastSeen, bool Connected, IReadOnlyList<TaskKind> Kinds, IReadOnlyList<string> Repositories, IReadOnlyList<DelegationInfo> Delegations);
+public sealed record ExecutorStatus(string Name, string Version, DateTimeOffset LastSeen, bool Connected, IReadOnlyList<TaskKind> Kinds, IReadOnlyList<string> Repositories, IReadOnlyList<DelegationInfo> Delegations, bool SecondFactorRequired);

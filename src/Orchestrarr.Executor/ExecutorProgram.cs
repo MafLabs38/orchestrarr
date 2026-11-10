@@ -110,7 +110,8 @@ public static class ExecutorProgram
             options.Rights,
             provider.GetRequiredService<IEnumerable<ITaskRunner>>(),
             provider.GetRequiredService<TimeProvider>(),
-            options.Name));
+            options.Name,
+            options.RequireSecondFactor));
         builder.Services.AddSingleton<IControlPlane>(_ => new ControlPlaneClient(new HttpClient(), options.ControlPlane));
         builder.Services.AddHostedService<ExecutorWorker>();
         using var host = builder.Build();

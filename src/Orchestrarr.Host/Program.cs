@@ -12,6 +12,7 @@ using Orchestrarr.Core.WorkItems;
 using Orchestrarr.Host;
 using Orchestrarr.Host.Approvals;
 using Orchestrarr.Host.Accounts;
+using Orchestrarr.Host.Settings;
 using Orchestrarr.Host.Storage;
 using Orchestrarr.Host.Tasks;
 using Orchestrarr.Storage;
@@ -41,7 +42,9 @@ if (builder.Environment.IsProduction() && !tasks.Options.RequireSecondFactor)
 {
     throw new InvalidOperationException("Tasks:RequireSecondFactor=false is for tests: in production the approvals carry the code of the authenticator.");
 }
-builder.Services.AddApprovals(approvals, grants, storage, tasks);
+// What the screen of options may lower, if anything: off unless the host is started with it, and never in production (ADR 0023)
+var optionsSettings = (builder.Configuration.GetSection(SecurityOptionsConfiguration.SectionName).Get<SecurityOptionsConfiguration>() ?? new SecurityOptionsConfiguration()).Validate(builder.Environment.IsProduction());
+builder.Services.AddApprovals(approvals, grants, storage, tasks, optionsSettings);
 // The accounts share the database of the approvals, so they come after it; the cookie's keys sit next to the database when there is one
 builder.Services.AddAccounts(auth, storage);
 builder.Services.AddOrchestrarrSecurity(auth, storage is SqliteStorage file ? Path.Combine(Path.GetDirectoryName(file.Path) ?? builder.Environment.ContentRootPath, "keys") : null);
@@ -71,6 +74,7 @@ app.UseOrchestrarrSecurity();
 var api = app.MapGroup("/api/v1");
 api.MapAuthEndpoints();
 api.MapAccountEndpoints();
+api.MapOptionsEndpoints();
 
 // Approving is limited per person, so that a loop of refusals cannot fill the trail. After the sign-in, which tells who is asking.
 app.UseRateLimiter();
@@ -90,12 +94,12 @@ api.MapRunEndpoints();
 // The routes of the executors carry their own token and no session: they are mapped outside the group that needs a person
 app.MapExecutorEndpoints(tasks);
 
-api.MapGet("/system/status", (WorkItemCatalog catalog, IApproverAccessor accessor, IKillSwitchControl killSwitch, TaskOptions taskOptions, ExecutorRegistry executors, HttpContext context) =>
+api.MapGet("/system/status", (WorkItemCatalog catalog, IApproverAccessor accessor, IKillSwitchControl killSwitch, ISecondFactorPolicy secondFactor, ExecutorRegistry executors, HttpContext context) =>
 {
     // The status never reads the fleet: it says what the last read found, and nothing before the first one
     var report = catalog.Peek();
     var version = typeof(Program).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0.0.0-dev";
-    return Results.Ok(new SystemStatus("Orchestrarr", version, new SourceStatus(catalog.SourceKind, catalog.SourceConfigured, report?.ReadAt, report?.Error, report?.Stale ?? false), new ForgeStatus(catalog.ForgeKind, catalog.ForgeConfigured), ApprovalEndpoints.StatusOf(accessor, context, killSwitch, taskOptions.RequireSecondFactor), new StorageStatus(storage.Kind), executors.Snapshot()));
+    return Results.Ok(new SystemStatus("Orchestrarr", version, new SourceStatus(catalog.SourceKind, catalog.SourceConfigured, report?.ReadAt, report?.Error, report?.Stale ?? false), new ForgeStatus(catalog.ForgeKind, catalog.ForgeConfigured), ApprovalEndpoints.StatusOf(accessor, context, killSwitch, secondFactor.Required), new StorageStatus(storage.Kind), executors.Snapshot()));
 }).RequireAuthorization(Permissions.FleetRead);
 
 // An unknown route of the API is a 404 for a person who signed in (a 401 for anybody else: the fallback policy), never the page of the interface

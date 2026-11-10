@@ -128,6 +128,7 @@ const events = {
   'account.password-changed': 'EventAccountPasswordChanged',
   'account.reset': 'EventAccountReset',
   'account.deleted': 'EventAccountDeleted',
+  'option.changed': 'EventOptionChanged',
 } as const;
 
 // The words of an event of the audit trail; one the interface does not know is shown as the server names it.

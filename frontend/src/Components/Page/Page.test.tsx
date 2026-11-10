@@ -1,6 +1,6 @@
 import { screen } from '@testing-library/react';
 
-import { renderWithProviders, stubApi, stubPendingApi } from 'testUtils';
+import { renderWithProviders, status, stubApi, stubPendingApi } from 'testUtils';
 
 import Page from './Page';
 
@@ -18,6 +18,20 @@ describe('Page', () => {
 
     expect(screen.queryByText('the decisions')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Sign in' })).not.toBeInTheDocument();
+  });
+
+  it('says on every page that the authenticator code is off, and says nothing when it is on', async () => {
+    stubApi({ '/api/v1/auth/me': session, '/api/v1/system/status': status({}, { requiresSecondFactor: false }) });
+
+    const off = renderWithProviders(<Page>the decisions</Page>);
+
+    expect(await screen.findByText(/The authenticator code is off/)).toBeInTheDocument();
+    off.unmount();
+    stubApi({ '/api/v1/auth/me': session, '/api/v1/system/status': status({}, { requiresSecondFactor: true }) });
+    renderWithProviders(<Page>the decisions</Page>);
+
+    expect(await screen.findByText('the decisions')).toBeInTheDocument();
+    expect(screen.queryByText(/The authenticator code is off/)).not.toBeInTheDocument();
   });
 
   it('shows the sign-in and none of the pages when nobody is signed in', async () => {

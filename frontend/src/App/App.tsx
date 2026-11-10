@@ -7,6 +7,7 @@ import Activity from 'Activity/Activity';
 import Queue from 'Approvals/Queue';
 import Page from 'Components/Page/Page';
 import Decisions from 'Decisions/Decisions';
+import Options from 'Options/Options';
 import RunDetail from 'Runs/RunDetail';
 import Runs from 'Runs/Runs';
 import Status from 'System/Status';
@@ -26,6 +27,7 @@ export default function App() {
             <Route path="/system/status" element={<Status />} />
             <Route path="/system/activity" element={<Activity />} />
             <Route path="/system/accounts" element={<Accounts />} />
+            <Route path="/system/options" element={<Options />} />
             <Route path="/account" element={<Account />} />
           </Routes>
         </Page>

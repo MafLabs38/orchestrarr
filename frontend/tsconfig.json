@@ -23,6 +23,7 @@
       "Approvals/*": ["./src/Approvals/*"],
       "Decisions/*": ["./src/Decisions/*"],
       "Helpers/*": ["./src/Helpers/*"],
+      "Options/*": ["./src/Options/*"],
       "Runs/*": ["./src/Runs/*"],
       "System/*": ["./src/System/*"],
       "Utilities/*": ["./src/Utilities/*"],

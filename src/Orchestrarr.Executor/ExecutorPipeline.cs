@@ -11,6 +11,12 @@ public interface ITaskRunner
 {
     TaskKind Kind { get; }
 
+    /// <summary>
+    /// True when the runner only says what it would have done and changes nothing. The default is false: a runner is taken for a real one until it
+    /// says otherwise, because the code of the second factor may be switched off only on an executor whose every runner is a dry run (ADR 0023).
+    /// </summary>
+    bool IsDryRun => false;
+
     ValueTask<TaskOutcome> RunAsync(TaskSpec task, RunTrace trace, CancellationToken cancellationToken);
 }
 
@@ -56,9 +62,25 @@ public sealed class ExecutorPipeline(
     RightsOptions rights,
     IEnumerable<ITaskRunner> runners,
     TimeProvider time,
-    string executorName)
+    string executorName,
+    bool requireSecondFactor = true)
 {
+    // Without the code of the second factor nothing stops a taken-over control plane from queueing a task, so it can be switched off only while no runner can change anything
+    private readonly bool _requireSecondFactor = Resolve(requireSecondFactor, runners);
+
     private readonly Dictionary<TaskKind, ITaskRunner> _runners = runners.ToDictionary(runner => runner.Kind);
+
+    /// <summary>Whether the code of the second factor is checked on this executor: false only by its own setting, and only with dry runs.</summary>
+    public bool SecondFactorRequired => _requireSecondFactor;
+
+    private static bool Resolve(bool require, IEnumerable<ITaskRunner> runners)
+    {
+        if (!require && runners.Any(runner => !runner.IsDryRun))
+        {
+            throw new InvalidOperationException("The code of the second factor can be switched off only on an executor whose every runner is a dry run.");
+        }
+        return require;
+    }
 
     // isStopped is read before the batch is accepted and again before each task: a stop engaged during a run ends it before the next task
     public async Task<PipelineResult> RunAsync(BatchDelivery delivery, Func<bool> isStopped, CancellationToken cancellationToken)
@@ -173,6 +195,12 @@ public sealed class ExecutorPipeline(
 
         if (batch.DelegationId is null)
         {
+            if (!_requireSecondFactor)
+            {
+                // Development only: the journal, the rights and the time were checked above, the code is not asked for
+                trace.Add(RunEvents.SecondFactorChecked, null, "not required on this executor (development: only dry runs)");
+                return null;
+            }
             return await CheckSecondFactorAsync(delivery, trace, cancellationToken);
         }
         if (!rights.AcceptDelegations)
@@ -241,6 +269,8 @@ public sealed class ExecutorPipeline(
 public sealed class DryRunTaskRunner(TaskKind kind) : ITaskRunner
 {
     public TaskKind Kind { get; } = kind;
+
+    public bool IsDryRun => true;
 
     public ValueTask<TaskOutcome> RunAsync(TaskSpec task, RunTrace trace, CancellationToken cancellationToken)
     {

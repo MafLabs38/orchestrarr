@@ -4,7 +4,7 @@ using System.Text.Json.Serialization;
 namespace Orchestrarr.Core.Tasks;
 
 /// <summary>What an executor tells the control plane each time it asks for work: who it is, and what it is willing to do. For the screen of its state.</summary>
-public sealed record ExecutorHello(string Name, string Version, IReadOnlyList<TaskKind> Kinds, IReadOnlyList<string> Repositories, IReadOnlyList<DelegationInfo> Delegations);
+public sealed record ExecutorHello(string Name, string Version, IReadOnlyList<TaskKind> Kinds, IReadOnlyList<string> Repositories, IReadOnlyList<DelegationInfo> Delegations, bool SecondFactorRequired = true);
 
 /// <summary>A standing delegation, as the executor reports it (it keeps the truth: the control plane only shows it).</summary>
 public sealed record DelegationInfo(Guid Id, string Subject, TaskKind Kind, string Repository, DateTimeOffset ExpiresAt, int DailyQuota);

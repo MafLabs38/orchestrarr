@@ -80,6 +80,7 @@ describe('Queue', () => {
           kinds: [],
           repositories: [],
           delegations: [],
+          secondFactorRequired: true,
         },
       ],
     };

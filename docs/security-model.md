@@ -191,6 +191,7 @@ Still open:
 |---|---|
 | Approval recorded per pull request and commit, audit trail, global stop (in a SQLite file, [ADR 0013](adr/0013-approvals-the-trail-and-the-stop-are-kept-in-a-sqlite-file.md)) | 🟢 |
 | Executor (.NET): typed tasks, second factor (TOTP) checked by the executor, rights list, double control against the journal, delegations, hash-chained trace and its timeline | 🟢 dry run, starts nothing |
+| Options for development (the authenticator code off): only where the host allows it (never in Production), administrator and password, traced; the executor keeps its own setting, dry runs only ([ADR 0023](adr/0023-options-lower-security-only-where-the-host-allows-it-and-the-executor-keeps-its-own-say.md)) | 🟢 |
 | Sign-in with local accounts, roles, server-side sessions, CSRF header ([ADR 0018](adr/0018-people-sign-in-with-local-accounts-and-permission-based-roles.md)) | 🟢 |
 | Vault dedicated to this purpose | 🔵 manifests in the GitOps repository, not initialised |
 | A real runner in the executor, workshop, certificates, revoking the tokens of a run | 🔵 not built |

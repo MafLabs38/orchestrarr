@@ -7,6 +7,7 @@ export {
   ScrollText as DECISIONS,
   ChevronDown as EXPANDED,
   Info as INFO,
+  SlidersHorizontal as OPTIONS,
   Clock as PENDING,
   GitPullRequest as PULL_REQUEST,
   ListChecks as QUEUE,

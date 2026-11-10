@@ -10,6 +10,7 @@ export default function useSession() {
 }
 
 export const accountsManage = 'accounts.manage';
+export const optionsManage = 'options.manage';
 
 export function can(session: Session | undefined, permission: string): boolean {
   return session?.permissions.includes(permission) === true;

@@ -43,6 +43,11 @@ export default function PageSidebar() {
         icon={<icons.ACTIVITY size={iconSizes.LARGE} aria-hidden="true" />}
         label={translate('Activity')}
       />
+      <SidebarLink
+        to="/system/options"
+        icon={<icons.OPTIONS size={iconSizes.LARGE} aria-hidden="true" />}
+        label={translate('Options')}
+      />
       {can(session, accountsManage) ? (
         <SidebarLink
           to="/system/accounts"
