@@ -57,8 +57,12 @@ public sealed class ExecutorWorkerTests : IDisposable
         await _controlPlane.DidNotReceive().CompleteAsync(Arg.Any<Guid>(), Arg.Any<BatchOutcome>(), Arg.Any<CancellationToken>());
     }
 
-    [Fact]
-    public async Task An_answer_that_cannot_be_read_does_not_stop_the_executor()
+    [Theory]
+    [InlineData(typeof(JsonException))]
+    [InlineData(typeof(HttpRequestException))]
+    [InlineData(typeof(InvalidOperationException))]
+    [InlineData(typeof(NullReferenceException))]
+    public async Task An_answer_that_cannot_be_read_or_a_control_plane_that_fails_does_not_stop_the_executor(Type failure)
     {
         var asked = new TaskCompletionSource();
         var calls = 0;
@@ -66,7 +70,7 @@ public sealed class ExecutorWorkerTests : IDisposable
         {
             if (++calls == 1)
             {
-                throw new JsonException("not a claim");
+                throw (Exception)Activator.CreateInstance(failure)!;
             }
             asked.TrySetResult();
             return Task.FromResult(new ClaimResult(ClaimStatus.Nothing));
@@ -79,10 +83,10 @@ public sealed class ExecutorWorkerTests : IDisposable
             _world.Time.Advance(TimeSpan.FromSeconds(10));
             await Task.Delay(10, Ct);
         }
-
-        asked.Task.IsCompleted.Should().BeTrue("the executor asked again after the unreadable answer");
-        worker.ExecuteTask!.IsFaulted.Should().BeFalse("a control plane must not be able to stop the executor, and so restart it with empty counters");
         await worker.StopAsync(Ct);
+
+        asked.Task.IsCompleted.Should().BeTrue("the executor asked again after the failure");
+        worker.ExecuteTask!.IsFaulted.Should().BeFalse("a control plane must not be able to stop the executor, and so restart it with empty counters");
     }
 
     [Fact]

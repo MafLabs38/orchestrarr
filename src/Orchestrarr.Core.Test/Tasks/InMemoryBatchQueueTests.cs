@@ -59,6 +59,36 @@ public sealed class InMemoryBatchQueueTests
         new(BatchState.Done, null, [.. batch.Tasks.Select(task => new TaskOutcome(task.Id, TaskResult.DryRun, null))]);
 
     [Fact]
+    public async Task Claims_made_at_once_hand_the_batch_to_one_executor_only()
+    {
+        await Queue();
+
+        var claims = await Task.WhenAll(Enumerable.Range(0, 8).Select(index => _queue.ClaimAsync($"executor-{index}", Ct).AsTask()));
+
+        claims.Count(claim => claim.Status == ClaimStatus.Claimed).Should().Be(1);
+        claims.Where(claim => claim.Status != ClaimStatus.Claimed).Should().OnlyContain(claim => claim.Status == ClaimStatus.Nothing);
+    }
+
+    [Fact]
+    public async Task A_batch_whose_hand_over_cannot_be_traced_waits_again_with_its_code()
+    {
+        var audit = Substitute.For<IAuditSink>();
+        audit.TryRecordAsync(Arg.Any<AuditEntry>(), Arg.Any<CancellationToken>()).Returns(new ValueTask<bool>(false), new ValueTask<bool>(true));
+        var queue = new InMemoryBatchQueue(_store, audit, _stop, _time, Options);
+        var ledger = new InMemoryApprovalLedger(_store, _audit, _stop, queue);
+        var approval = new Approval(Guid.NewGuid(), "repository:example/app", "example/app", 1, Head, [StepKind.Validate], "alice", _time.GetUtcNow(), null, ApprovalState.Waiting, null);
+        var batchId = Guid.NewGuid();
+        var batch = new TaskBatch(batchId, approval.WorkItemId, "alice", _time.GetUtcNow(), _time.GetUtcNow() + Options.BatchLifetime, [new TaskSpec(Guid.NewGuid(), 1, TaskKind.ValidatePullRequest, "example/app", 1, Head, approval.Id)]);
+        (await ledger.TryRecordAsync([approval with { BatchId = batchId }], batch, "654321", [], Ct)).Should().Be(LedgerResult.Recorded);
+
+        (await queue.ClaimAsync("executor-1", Ct)).Status.Should().Be(ClaimStatus.Unavailable);
+        var second = await queue.ClaimAsync("executor-1", Ct);
+
+        second.Status.Should().Be(ClaimStatus.Claimed);
+        second.Delivery!.SecondFactorCode.Should().Be("654321");
+    }
+
+    [Fact]
     public async Task A_batch_is_handed_to_one_executor_once_with_its_code()
     {
         var batch = await Queue();

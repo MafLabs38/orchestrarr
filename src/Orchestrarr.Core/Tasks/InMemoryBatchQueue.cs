@@ -29,15 +29,10 @@ public sealed class InMemoryBatchQueue(InMemoryApprovalStore approvals, IAuditSi
             return new ClaimResult(ClaimStatus.Stopped);
         }
         var now = time.GetUtcNow();
-        Entry? claimed = null;
-        List<Entry> expired = [];
+        List<Entry> expired;
         lock (_gate)
         {
-            foreach (var entry in _entries.Where(entry => IsDue(entry, now)))
-            {
-                expired.Add(entry);
-            }
-            claimed = _entries.Where(entry => entry.State == BatchState.Waiting && !expired.Contains(entry)).OrderBy(entry => entry.Batch.CreatedAt).FirstOrDefault();
+            expired = [.. _entries.Where(entry => IsDue(entry, now))];
         }
 
         foreach (var entry in expired)
@@ -54,26 +49,41 @@ public sealed class InMemoryBatchQueue(InMemoryApprovalStore approvals, IAuditSi
             }
             approvals.SetState(entry.Batch.Id, ApprovalState.Expired, now);
         }
+
+        // The batch is reserved in the same step that picks it, so that two claims at once never hand out the same one; the code leaves the
+        // queue with the batch (handed out once)
+        Entry? claimed;
+        string? code;
+        lock (_gate)
+        {
+            claimed = _entries.Where(entry => entry.State == BatchState.Waiting).OrderBy(entry => entry.Batch.CreatedAt).FirstOrDefault();
+            code = claimed?.Code;
+            if (claimed is not null)
+            {
+                claimed.Code = null;
+                claimed.State = BatchState.Delivered;
+                claimed.Executor = executor;
+                claimed.DeliveredAt = now;
+            }
+        }
         if (claimed is null)
         {
             return new ClaimResult(ClaimStatus.Nothing);
         }
         if (!await audit.TryRecordAsync(new AuditEntry(now, AuditEvents.BatchDelivered, executor, claimed.Batch.Id.ToString("D"), $"{claimed.Batch.Tasks.Count} tasks, digest {claimed.Batch.Digest()[..16]}"), cancellationToken))
         {
+            // Not delivered after all: it waits again, with its code
+            lock (_gate)
+            {
+                claimed.Code = code;
+                claimed.State = BatchState.Waiting;
+                claimed.Executor = null;
+                claimed.DeliveredAt = null;
+            }
             return new ClaimResult(ClaimStatus.Unavailable);
         }
-        BatchDelivery delivery;
-        lock (_gate)
-        {
-            // Handed out once: the code leaves the queue with the batch
-            delivery = new BatchDelivery(claimed.Batch, claimed.Code);
-            claimed.Code = null;
-            claimed.State = BatchState.Delivered;
-            claimed.Executor = executor;
-            claimed.DeliveredAt = now;
-        }
         approvals.SetState(claimed.Batch.Id, ApprovalState.Taken, now);
-        return new ClaimResult(ClaimStatus.Claimed, delivery);
+        return new ClaimResult(ClaimStatus.Claimed, new BatchDelivery(claimed.Batch, code));
     }
 
     public ValueTask<QueueResult> AppendEventsAsync(Guid batchId, string executor, IReadOnlyList<RunEvent> events, CancellationToken cancellationToken)
