@@ -20,6 +20,7 @@ export function useApprove() {
       workItemId: string;
       steps: StepKind[];
       pullRequests: { number: number; headSha: string }[];
+      secondFactorCode?: string;
     }) => sendJson<{ approvals: Approval[] }>('POST', approvalsPath, request),
     onSettled: () =>
       Promise.all([

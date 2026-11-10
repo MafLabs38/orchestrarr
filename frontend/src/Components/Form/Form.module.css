@@ -1,0 +1,29 @@
+/* The fields of the forms (the *arr Settings pattern, as in Portarr): the label above, a rounded field on a sunken background. */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.label {
+  color: var(--inkMuted);
+  font-weight: 700;
+}
+
+.input {
+  padding: 6px 12px;
+  border: var(--borderWidth) solid var(--hairline);
+  border-radius: var(--radiusMedium);
+  background-color: var(--paperSunken);
+  color: var(--ink);
+  font: inherit;
+}
+
+.input:focus-visible {
+  outline: var(--borderWidth) solid var(--accent);
+  outline-offset: 2px;
+}
+
+.input:disabled {
+  opacity: 0.6;
+}

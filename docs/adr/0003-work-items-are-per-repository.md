@@ -1,6 +1,6 @@
 # 0003 — Work items are per repository
 
-- **Status**: proposed (needs the maintainer's confirmation)
+- **Status**: proposed (never confirmed); superseded in part by [ADR 0019](0019-a-decision-is-a-problem-the-table-selects-and-one-code-validates.md): the unit of decision is a problem, a repository stays the way to group the execution
 - **Date**: 2026-11-03
 
 ## Context

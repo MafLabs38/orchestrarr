@@ -6,9 +6,9 @@ import { kinds } from 'Helpers/Props/kinds';
 import type { ApprovalStatus, StorageKind } from 'typings/api';
 import translate from 'Utilities/translate';
 
-// Why there is no button: approving is off, or the person is not an operator
-function whyNoButton(approvals: ApprovalStatus): string {
-  return translate(approvals.enabled ? 'KillSwitchOperatorsOnly' : 'KillSwitchNoOperator');
+// Why there is no button: the person is not an operator
+function whyNoButton(): string {
+  return translate('KillSwitchOperatorsOnly');
 }
 
 const releaseFailureKeys = {
@@ -40,7 +40,7 @@ export default function KillSwitch({
       {approvals.killSwitchEngaged && !approvals.killSwitchSaved && storageKind === 'sqlite' ? (
         <Alert kind={kinds.WARNING}>{translate('KillSwitchNotSaved')}</Alert>
       ) : null}
-      {approvals.enabled && approvals.isOperator ? (
+      {approvals.isOperator ? (
         <Button
           kind={approvals.killSwitchEngaged ? kinds.DEFAULT : kinds.DANGER}
           disabled={killSwitch.isPending}
@@ -49,7 +49,7 @@ export default function KillSwitch({
           {approvals.killSwitchEngaged ? translate('KillSwitchRelease') : translate('KillSwitchEngage')}
         </Button>
       ) : (
-        <p>{whyNoButton(approvals)}</p>
+        <p>{whyNoButton()}</p>
       )}
       {killSwitch.isError ? <Alert kind={kinds.DANGER}>{failureText(killSwitch.error)}</Alert> : null}
     </section>

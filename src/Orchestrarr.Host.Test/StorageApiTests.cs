@@ -52,7 +52,8 @@ public sealed class StorageApiTests : IDisposable
         var approvals = await Json(await client.GetAsync("/api/v1/approvals", Ct));
         var activity = await Json(await client.GetAsync("/api/v1/audit", Ct));
         approvals.EnumerateArray().Should().ContainSingle().Which.GetProperty("headSha").GetString().Should().Be(Head);
-        activity.EnumerateArray().Should().ContainSingle().Which.GetProperty("event").GetString().Should().Be("approval.recorded");
+        activity.EnumerateArray().Select(entry => entry.GetProperty("event").GetString()).Should().BeEquivalentTo("approval.recorded", "batch.queued");
+        (await Json(await client.GetAsync("/api/v1/runs", Ct))).EnumerateArray().Should().ContainSingle().Which.GetProperty("state").GetString().Should().Be("waiting");
         (await Approve(client)).StatusCode.Should().Be(HttpStatusCode.Conflict);
     }
 
@@ -249,7 +250,7 @@ public sealed class StorageApiTests : IDisposable
         third.StatusCode.Should().Be(HttpStatusCode.TooManyRequests);
         (await Json(third)).GetProperty("error").GetString().Should().Be("tooManyRequests");
         engage.StatusCode.Should().Be(HttpStatusCode.OK, "the global stop is never limited");
-        (await Json(await client.GetAsync("/api/v1/audit", Ct))).EnumerateArray().Should().HaveCount(3, "the third attempt left nothing in the trail: two entries for the first two, one for the stop");
+        (await Json(await client.GetAsync("/api/v1/audit", Ct))).EnumerateArray().Should().HaveCount(4, "the third attempt left nothing in the trail: the approval and its batch for the first, the refusal for the second, the stop");
     }
 
     [Fact]

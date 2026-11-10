@@ -9,6 +9,7 @@ import { describeError } from 'Utilities/describe';
 import formatTime from 'Utilities/formatTime';
 import translate from 'Utilities/translate';
 
+import ExecutorList from './ExecutorList';
 import KillSwitch from './KillSwitch';
 import styles from './Status.module.css';
 import useSystemStatus from './useSystemStatus';
@@ -34,13 +35,7 @@ function storageName(kind: string): string {
 }
 
 function approvalsText(approvals: ApprovalStatus): string {
-  if (!approvals.enabled) {
-    return translate('ApprovalsOff');
-  }
-  const operator = approvals.operatorName ?? approvals.operator ?? '';
-  return approvals.mode === 'openidconnect'
-    ? translate('ApprovalsSignedIn', { operator })
-    : translate('ApprovalsSandbox', { operator });
+  return translate('ApprovalsSignedIn', { operator: approvals.operatorName ?? approvals.operator ?? '' });
 }
 
 export default function Status() {
@@ -67,6 +62,16 @@ export default function Status() {
             </dd>
             <dt>{translate('Approvals')}</dt>
             <dd>{approvalsText(data.approvals)}</dd>
+            <dt>{translate('SecondFactor')}</dt>
+            <dd>
+              {data.approvals.requiresSecondFactor
+                ? translate('SecondFactorRequired')
+                : translate('SecondFactorNotRequired')}
+            </dd>
+            <dt>{translate('Executors')}</dt>
+            <dd>
+              <ExecutorList executors={data.executors} />
+            </dd>
             <dt>{translate('Storage')}</dt>
             <dd>{storageName(data.storage.kind)}</dd>
             <dt>{translate('KillSwitch')}</dt>

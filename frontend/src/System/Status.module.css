@@ -18,3 +18,18 @@
   font-family: var(--monoSpaceFontFamily);
   word-break: break-all;
 }
+
+.executors {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.executors li {
+  padding: 4px 0;
+}
+
+.meta {
+  color: var(--inkMuted);
+  font-size: var(--fontSizeMeta);
+}

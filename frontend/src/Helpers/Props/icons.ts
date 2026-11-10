@@ -1,5 +1,6 @@
 // The registry of pictograms: components import icons from here, never from lucide-react directly.
 export {
+  Users as ACCOUNTS,
   History as ACTIVITY,
   ChevronRight as COLLAPSED,
   CircleAlert as DANGER,
@@ -10,6 +11,7 @@ export {
   GitPullRequest as PULL_REQUEST,
   ListChecks as QUEUE,
   RefreshCw as REFRESH,
+  Route as RUNS,
   Server as STATUS,
   CircleCheck as SUCCESS,
   CircleQuestionMark as UNKNOWN,

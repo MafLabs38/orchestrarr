@@ -4,6 +4,7 @@ using Orchestrarr.Core.Approvals;
 using Orchestrarr.Core.Fleet;
 using Orchestrarr.Core.Forge;
 using Orchestrarr.Core.Launch;
+using Orchestrarr.Core.Tasks;
 using Orchestrarr.Core.WorkItems;
 using static Orchestrarr.Core.Test.FleetBuilders;
 
@@ -18,8 +19,12 @@ public sealed class ApprovalServiceTests
 
     private readonly FakeTimeProvider _time = new(Now);
     private readonly InMemoryApprovalStore _store = new();
+    private const string Code = "123456";
     private readonly InMemoryKillSwitch _killSwitch = new();
     private readonly InMemoryAuditLog _audit = new();
+    private static readonly TaskOptions Tasks = new();
+    private readonly NullApprovalJournal _journal = new();
+    private InMemoryBatchQueue _queue = null!;
     private readonly FakeForge _forge = new();
     private IPowerPolicy _powers = new ConfiguredPowerPolicy([new PowerGrant(PowerGrant.Wildcard, Both)]);
     private RepositoryState _repository = Repository(pullRequests: 2);
@@ -48,7 +53,8 @@ public sealed class ApprovalServiceTests
         _forge.Items = pullRequests.Length == 0 ? [PullRequest(1, HeadA), PullRequest(2, HeadB)] : pullRequests;
         var chosenStore = store ?? _store;
         var chosenAudit = audit ?? _audit;
-        return new ApprovalService(await CatalogOf(_forge), chosenStore, _killSwitch, chosenAudit, _time, new InMemoryApprovalLedger(_store, chosenAudit, _killSwitch));
+        _queue = new InMemoryBatchQueue(_store, chosenAudit, _killSwitch, _time, Tasks);
+        return new ApprovalService(await CatalogOf(_forge), chosenStore, _killSwitch, chosenAudit, _time, new InMemoryApprovalLedger(_store, chosenAudit, _killSwitch, _queue), _journal, Tasks);
     }
 
     private Task<ApprovalService> Service(params PullRequestInfo[] pullRequests) => Service(null, null, pullRequests);
@@ -56,7 +62,7 @@ public sealed class ApprovalServiceTests
     private async Task<ApprovalService> ServiceWith(IApprovalLedger ledger, IApprovalStore? store = null)
     {
         _forge.Items = [PullRequest(1, HeadA), PullRequest(2, HeadB)];
-        return new ApprovalService(await CatalogOf(_forge), store ?? _store, _killSwitch, _audit, _time, ledger);
+        return new ApprovalService(await CatalogOf(_forge), store ?? _store, _killSwitch, _audit, _time, ledger, _journal, Tasks);
     }
 
     // What the card displayed: the pull requests that are there, except the drafts (which are never approved).
@@ -64,7 +70,7 @@ public sealed class ApprovalServiceTests
         [.. _forge.Items.Where(pullRequest => !pullRequest.Draft).Select(pullRequest => new SeenPullRequest(pullRequest.Number, pullRequest.HeadSha))];
 
     private Task<ApprovalResult> Approve(ApprovalService service, StepKind[]? steps = null, Approver? approver = null, string id = ItemId, IReadOnlyList<SeenPullRequest>? seen = null) =>
-        service.ApproveAsync(approver ?? Operator, id, steps ?? Both, seen ?? Displayed(), TestContext.Current.CancellationToken);
+        service.ApproveAsync(approver ?? Operator, id, steps ?? Both, seen ?? Displayed(), Code, TestContext.Current.CancellationToken);
 
     // --- recording
 
@@ -138,6 +144,31 @@ public sealed class ApprovalServiceTests
         var result = await Approve(await Service(PullRequest(1, HeadA), PullRequest(2, HeadB)));
 
         result.Approvals.Should().ContainSingle().Which.PullRequest.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task A_card_with_more_pull_requests_than_a_batch_can_carry_is_refused_at_once()
+    {
+        var pullRequests = Enumerable.Range(1, 101).Select(number => PullRequest(number, HeadA)).ToArray();
+        var seen = pullRequests.Select(pullRequest => new SeenPullRequest(pullRequest.Number, HeadA)).ToArray();
+
+        var result = await Approve(await Service(pullRequests), seen: seen);
+
+        result.Refusal.Should().Be(ApprovalRefusal.TooManyPullRequests, "two tasks each makes more than the executor accepts in one batch");
+        _store.List().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task The_second_batch_holds_only_the_tasks_of_the_new_pull_requests()
+    {
+        await Approve(await Service(PullRequest(1, HeadA)));
+
+        var result = await Approve(await Service(PullRequest(1, HeadA), PullRequest(2, HeadB)));
+
+        var second = _queue.Runs(10).Single(batch => batch.BatchId == result.Approvals.Single().BatchId);
+        var tasks = _queue.Find(second.BatchId)!.Tasks;
+        tasks.Select(task => task.Spec.PullRequest).Should().OnlyContain(number => number == 2, "a pull request already in an open approval is not done twice");
+        tasks.Select(task => task.Spec.ApprovalId).Distinct().Should().BeEquivalentTo(result.Approvals.Select(approval => approval.Id));
     }
 
     [Fact]
@@ -332,7 +363,7 @@ public sealed class ApprovalServiceTests
     [Fact]
     public async Task Without_a_forge_nothing_can_be_approved()
     {
-        var service = new ApprovalService(await CatalogOf(new NoPullRequestSource()), _store, _killSwitch, _audit, _time, new InMemoryApprovalLedger(_store, _audit, _killSwitch));
+        var service = new ApprovalService(await CatalogOf(new NoPullRequestSource()), _store, _killSwitch, _audit, _time, new InMemoryApprovalLedger(_store, _audit, _killSwitch), _journal, Tasks);
 
         var result = await Approve(service, seen: [new SeenPullRequest(1, HeadA)]);
 
@@ -363,8 +394,10 @@ public sealed class ApprovalServiceTests
         entries[0].Event.Should().Be(AuditEvents.ApprovalRecorded);
         entries[0].Subject.Should().Be("alice");
         entries[0].Detail.Should().Contain("example/app#1").And.Contain(HeadA).And.Contain("Validate");
-        entries[1].Event.Should().Be(AuditEvents.ApprovalRefused);
-        entries[1].Detail.Should().StartWith(nameof(ApprovalRefusal.NothingTicked));
+        entries[1].Event.Should().Be(AuditEvents.BatchQueued);
+        entries[1].Subject.Should().Be("alice");
+        entries[2].Event.Should().Be(AuditEvents.ApprovalRefused);
+        entries[2].Detail.Should().StartWith(nameof(ApprovalRefusal.NothingTicked));
     }
 
     [Fact]
@@ -427,8 +460,7 @@ public sealed class ApprovalServiceTests
         (await log.TryRecordRangeAsync([Entry("d"), Entry("e")], token)).Should().BeFalse();
         log.List().Should().HaveCount(3);
         AuditEvents.IsRefusal(AuditEvents.ApprovalRefused).Should().BeTrue();
-        AuditEvents.IsRefusal(AuditEvents.IssueRefused).Should().BeTrue();
-        AuditEvents.IsRefusal(AuditEvents.LaunchRefused).Should().BeTrue();
+        AuditEvents.IsRefusal(AuditEvents.BatchRefused).Should().BeFalse("the executor's refusals are decisions of an authenticated component");
         AuditEvents.IsRefusal(AuditEvents.ApprovalRecorded).Should().BeFalse();
     }
 
@@ -509,21 +541,6 @@ public sealed class ApprovalServiceTests
         new ConfiguredPowerPolicy([]).IsGranted(StepKind.Validate, "example/app", null).Should().BeFalse();
     }
 
-    [Fact]
-    public async Task The_launcher_reads_the_same_grants_as_the_card()
-    {
-        var policy = new ConfiguredPowerPolicy([new PowerGrant("example/app", [StepKind.Validate])]);
-        var powers = new PolicyGrantedPowers(policy);
-        var order = new LaunchOrder(Guid.NewGuid(), ItemId, "example/app", HeadA, null, [StepKind.Validate], "alice", null, "launcher", Now, Now.AddMinutes(5));
-        var token = TestContext.Current.CancellationToken;
-
-        (await powers.AllowsAsync(order, token)).Should().BeTrue();
-        (await powers.AllowsAsync(order with { Steps = [StepKind.Validate, StepKind.MergePullRequests] }, token)).Should().BeFalse();
-        (await powers.AllowsAsync(order with { Repository = "example/other" }, token)).Should().BeFalse();
-        (await powers.AllowsAsync(order with { Environment = "server-1" }, token)).Should().BeFalse();
-        (await powers.AllowsAsync(order with { Steps = [] }, token)).Should().BeFalse();
-    }
-
     private sealed class FakeForge : IPullRequestSource
     {
         public IReadOnlyList<PullRequestInfo> Items { get; set; } = [];
@@ -575,7 +592,7 @@ public sealed class ApprovalServiceTests
     public async Task What_the_ledger_cannot_record_is_a_refusal_of_the_same_kind(LedgerResult answer, ApprovalRefusal expected)
     {
         var ledger = Substitute.For<IApprovalLedger>();
-        ledger.TryRecordAsync(Arg.Any<IReadOnlyList<Approval>>(), Arg.Any<IReadOnlyList<AuditEntry>>(), Arg.Any<CancellationToken>()).Returns(answer);
+        ledger.TryRecordAsync(Arg.Any<IReadOnlyList<Approval>>(), Arg.Any<TaskBatch?>(), Arg.Any<string?>(), Arg.Any<IReadOnlyList<AuditEntry>>(), Arg.Any<CancellationToken>()).Returns(answer);
 
         var result = await Approve(await ServiceWith(ledger));
 
@@ -587,14 +604,16 @@ public sealed class ApprovalServiceTests
     public async Task The_approvals_and_their_trace_go_to_the_ledger_together_and_the_trace_names_each_approval()
     {
         var ledger = Substitute.For<IApprovalLedger>();
-        ledger.TryRecordAsync(Arg.Any<IReadOnlyList<Approval>>(), Arg.Any<IReadOnlyList<AuditEntry>>(), Arg.Any<CancellationToken>()).Returns(LedgerResult.Recorded);
+        ledger.TryRecordAsync(Arg.Any<IReadOnlyList<Approval>>(), Arg.Any<TaskBatch?>(), Arg.Any<string?>(), Arg.Any<IReadOnlyList<AuditEntry>>(), Arg.Any<CancellationToken>()).Returns(LedgerResult.Recorded);
 
         var result = await Approve(await ServiceWith(ledger));
 
         result.Recorded.Should().BeTrue();
         await ledger.Received(1).TryRecordAsync(
             Arg.Is<IReadOnlyList<Approval>>(approvals => approvals.Count == 2),
-            Arg.Is<IReadOnlyList<AuditEntry>>(entries => entries.Count == 2 && entries.All(entry => entry.Event == AuditEvents.ApprovalRecorded)),
+            Arg.Is<TaskBatch?>(batch => batch != null && batch.Tasks.Count == 4),
+            Code,
+            Arg.Is<IReadOnlyList<AuditEntry>>(entries => entries.Count == 3 && entries.Count(entry => entry.Event == AuditEvents.ApprovalRecorded) == 2 && entries.Count(entry => entry.Event == AuditEvents.BatchQueued) == 1),
             Arg.Any<CancellationToken>());
     }
 
@@ -608,7 +627,7 @@ public sealed class ApprovalServiceTests
         var result = await Approve(await ServiceWith(ledger, store));
 
         result.Refusal.Should().Be(ApprovalRefusal.AuditUnavailable);
-        await ledger.DidNotReceiveWithAnyArgs().TryRecordAsync(default!, default!, TestContext.Current.CancellationToken);
+        await ledger.DidNotReceiveWithAnyArgs().TryRecordAsync(default!, default, default, default!, TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -751,7 +770,7 @@ public sealed class ApprovalServiceTests
         await gone.CancelAsync();
         var reader = new Approver("reader-1", IsPerson: true, IsOperator: false, StepUpAt: null);
 
-        var result = await service.ApproveAsync(reader, ItemId, Both, Displayed(), gone.Token);
+        var result = await service.ApproveAsync(reader, ItemId, Both, Displayed(), Code, gone.Token);
 
         result.Refusal.Should().Be(ApprovalRefusal.NotAnOperator);
         await sink.Received(1).TryRecordAsync(Arg.Any<AuditEntry>(), CancellationToken.None);
@@ -810,5 +829,142 @@ public sealed class ApprovalServiceTests
         (await engage).Should().Be(KillSwitchChange.Applied);
         stop.Engaged.Should().BeTrue();
         stop.State().Should().Be(new KillSwitchState(Engaged: true, Saved: false));
+    }
+
+    // --- the batch of typed tasks (ADR 0017)
+
+    [Fact]
+    public async Task An_approval_makes_one_batch_of_typed_tasks_in_order_each_pull_request_validated_then_merged()
+    {
+        var result = await Approve(await Service());
+
+        var batch = _queue.Runs(10).Should().ContainSingle().Subject;
+        var run = _queue.Find(batch.BatchId)!;
+        run.Tasks.Select(task => (task.Spec.Sequence, task.Spec.Kind, task.Spec.PullRequest, task.Spec.HeadSha)).Should().Equal(
+            (1, TaskKind.ValidatePullRequest, 1, HeadA),
+            (2, TaskKind.MergePullRequest, 1, HeadA),
+            (3, TaskKind.ValidatePullRequest, 2, HeadB),
+            (4, TaskKind.MergePullRequest, 2, HeadB));
+        run.Tasks.Select(task => task.Spec.ApprovalId).Distinct().Should().BeEquivalentTo(result.Approvals.Select(approval => approval.Id));
+        result.Approvals.Should().OnlyContain(approval => approval.BatchId == batch.BatchId && approval.State == ApprovalState.Waiting);
+        run.Summary.State.Should().Be(BatchState.Waiting);
+    }
+
+    [Fact]
+    public async Task Only_what_was_ticked_becomes_a_task()
+    {
+        await Approve(await Service(PullRequest(1, HeadA)), steps: [StepKind.Validate]);
+
+        _queue.Find(_queue.Runs(1)[0].BatchId)!.Tasks.Select(task => task.Spec.Kind).Should().Equal(TaskKind.ValidatePullRequest);
+    }
+
+    [Fact]
+    public async Task A_batch_lives_for_the_time_it_is_given()
+    {
+        await Approve(await Service());
+
+        var batch = _queue.Runs(1)[0];
+
+        _queue.Find(batch.BatchId)!.Summary.CreatedAt.Should().Be(Now);
+        (await _queue.ClaimAsync("executor-1", TestContext.Current.CancellationToken)).Delivery!.Batch.ExpiresAt.Should().Be(Now + Tasks.BatchLifetime);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("12345")]
+    [InlineData("1234567")]
+    [InlineData("12a456")]
+    public async Task Without_a_code_shaped_like_one_nothing_is_queued(string? code)
+    {
+        var service = await Service();
+
+        var result = await service.ApproveAsync(Operator, ItemId, Both, Displayed(), code, TestContext.Current.CancellationToken);
+
+        result.Refusal.Should().Be(ApprovalRefusal.SecondFactorRequired);
+        _store.List().Should().BeEmpty();
+        _queue.Runs(10).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Spaces_in_the_code_are_welcome_and_the_code_reaches_the_executor_once()
+    {
+        var service = await Service();
+
+        var result = await service.ApproveAsync(Operator, ItemId, Both, Displayed(), "123 456", TestContext.Current.CancellationToken);
+
+        result.Recorded.Should().BeTrue();
+        (await _queue.ClaimAsync("executor-1", TestContext.Current.CancellationToken)).Delivery!.SecondFactorCode.Should().Be("123 456");
+    }
+
+    [Fact]
+    public async Task A_sandbox_with_no_executor_may_do_without_the_code()
+    {
+        var forge = new FakeForge { Items = [PullRequest(1, HeadA)] };
+        var service = new ApprovalService(await CatalogOf(forge), _store, _killSwitch, _audit, _time, new InMemoryApprovalLedger(_store, _audit, _killSwitch), _journal, Tasks with { RequireSecondFactor = false });
+
+        var result = await service.ApproveAsync(Operator, ItemId, Both, [new SeenPullRequest(1, HeadA)], null, TestContext.Current.CancellationToken);
+
+        result.Recorded.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task An_approval_is_refused_when_the_journal_cannot_be_written_and_nothing_is_kept()
+    {
+        var journal = Substitute.For<IApprovalJournal>();
+        journal.TryAppendAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>()).Returns(false);
+        _forge.Items = [PullRequest(1, HeadA)];
+        var service = new ApprovalService(await CatalogOf(_forge), _store, _killSwitch, _audit, _time, new InMemoryApprovalLedger(_store, _audit, _killSwitch), journal, Tasks);
+
+        var result = await Approve(service, seen: [new SeenPullRequest(1, HeadA)]);
+
+        result.Refusal.Should().Be(ApprovalRefusal.AuditUnavailable);
+        _store.List().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task The_journal_receives_the_digest_of_the_batch_that_was_queued()
+    {
+        var journal = Substitute.For<IApprovalJournal>();
+        journal.TryAppendAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<DateTimeOffset>(), Arg.Any<CancellationToken>()).Returns(true);
+        _forge.Items = [PullRequest(1, HeadA)];
+        _queue = new InMemoryBatchQueue(_store, _audit, _killSwitch, _time, Tasks);
+        var service = new ApprovalService(await CatalogOf(_forge), _store, _killSwitch, _audit, _time, new InMemoryApprovalLedger(_store, _audit, _killSwitch, _queue), journal, Tasks);
+
+        await Approve(service, seen: [new SeenPullRequest(1, HeadA)]);
+
+        var delivered = (await _queue.ClaimAsync("executor-1", TestContext.Current.CancellationToken)).Delivery!.Batch;
+        await journal.Received(1).TryAppendAsync(delivered.Id, delivered.Digest(), "alice", Now, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task While_an_approval_is_open_the_same_decision_is_refused_and_when_it_ended_it_may_be_given_again()
+    {
+        var service = await Service(PullRequest(1, HeadA));
+        var seen = new[] { new SeenPullRequest(1, HeadA) };
+        var token = TestContext.Current.CancellationToken;
+        await Approve(service, seen: seen);
+
+        (await Approve(service, seen: seen)).Refusal.Should().Be(ApprovalRefusal.AlreadyApproved);
+
+        var delivery = (await _queue.ClaimAsync("executor-1", token)).Delivery!;
+        (await Approve(service, seen: seen)).Refusal.Should().Be(ApprovalRefusal.AlreadyApproved, "an approval that was taken is still open");
+        await _queue.CompleteAsync(delivery.Batch.Id, "executor-1", new BatchOutcome(BatchState.Done, null, [.. delivery.Batch.Tasks.Select(task => new TaskOutcome(task.Id, TaskResult.DryRun, null))]), token);
+
+        (await Approve(service, seen: seen)).Recorded.Should().BeTrue("a dry run spends the approval: the operator approves again for a real run");
+        _store.List().Should().HaveCount(2).And.Contain(approval => approval.State == ApprovalState.DryRunDone);
+    }
+
+    [Fact]
+    public void Only_the_approval_service_depends_on_the_ledger_so_that_it_is_the_one_entry_of_the_queue()
+    {
+        var holders = typeof(ApprovalService).Assembly.GetTypes()
+            .Where(type => type.IsClass && !type.IsAbstract && !typeof(IApprovalLedger).IsAssignableFrom(type))
+            .Where(type =>
+                type.GetConstructors(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance).Any(ctor => ctor.GetParameters().Any(parameter => parameter.ParameterType == typeof(IApprovalLedger)))
+                || type.GetFields(System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance).Any(field => field.FieldType == typeof(IApprovalLedger)))
+            .ToList();
+
+        holders.Should().ContainSingle().Which.Should().Be(typeof(ApprovalService));
     }
 }

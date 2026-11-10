@@ -1,6 +1,7 @@
 # How an order is secured, from the person to the machine
 
 > **Status**: draft. It explains the mechanism proposed in [ADR 0006](adr/0006-a-launch-is-a-signed-order-and-credentials-are-short-lived.md) and [ADR 0007](adr/0007-a-dedicated-vault-and-a-small-control-plane.md) and settled by [ADR 0012](adr/0012-one-launcher-and-one-vault-role-per-environment.md) (these three are **proposed**, SPEC D-39 to D-57). Nothing that runs an agent is built yet. The launcher's language and its conformance vectors are decided in [ADR 0014](adr/0014-the-launcher-is-a-rust-binary-held-to-the-control-plane-by-shared-vectors.md) (D-59); how it gets its orders, the stop and the time is a proposal, [ADR 0015](adr/0015-where-the-launcher-gets-what-its-checks-read.md) (D-60); how it authenticates to the control plane, with a signed token of its own, and who runs an order with no environment are decided in [ADR 0016](adr/0016-the-launcher-acts-under-a-mandate-of-its-own.md) (D-62, D-63), on condition that the launcher pulls through the API (D-60, proposed).
+> **Update of 2026-11-10 ([ADR 0017](adr/0017-orders-are-typed-tasks-approved-with-a-second-factor-that-the-executor-checks.md)).** The launcher of the diagrams below is now the **executor** (a .NET process per environment), and the server-signed order is replaced by a **batch of typed tasks approved with a one-time code that the executor checks itself**, against its own rights list and an approval journal kept apart from the queue. The executor is built as a dry run: it starts nothing. The Rust launcher, the conformance vectors and the signed-order library code of ADR 0014 to 0016 are gone. Read "launcher" and "signed order" below as the target design; the table of section 8 says what exists.
 >
 > **Defaults you can change**: ADR 0012 proposes, as the safe default, that a run gets a **tier** of the operator account (read-only, deploy, maintenance) instead of the whole account that SPEC D-34 and D-39 describe, and that the plan is validated before it is applied in production. The maintainer chose one launcher and one Vault role per environment.
 >
@@ -10,7 +11,7 @@ The security of an agent that can act does not live in its prompt. It lives in *
 
 Two systems cooperate, and neither trusts the other's word:
 
-- **The identity provider** (Keycloak in the reference setup) says **who the person is** and whether they may give orders (operator group, second factor for production).
+- **The sign-in** (a local account, [ADR 0018](adr/0018-people-sign-in-with-local-accounts-and-permission-based-roles.md)) says **who the person is** and whether their role lets them give orders (the permission to approve); the proof of an approval is the second factor, which the executor checks (ADR 0017).
 - **Vault** holds the **signing key of the orders** and issues the **short-lived credentials** that the machines accept. The agent never holds anything long-lived.
 
 The agent is not authenticated by the identity provider. It is **given a badge** for one run, and the machines check the badge. In this document, the **workshop** is the isolated place where the agent runs (SPEC D-25).
@@ -37,7 +38,7 @@ Contents: [the chain](#1-the-whole-chain) · [a run step by step](#2-one-run-ste
 ```mermaid
 flowchart TB
   person["You, the operator"]
-  kc["Identity provider<br/>who you are, your group,<br/>a second factor for production"]:::built
+  kc["Sign-in (local accounts)<br/>who you are, your role"]:::built
   cp["Control plane (the API)<br/>records your approval (built),<br/>signs the order when the run starts<br/>(at delivery: proposed, ADR 0015)"]:::decided
   vault["Vault<br/>non-exportable signing key,<br/>one role set per environment,<br/>SSH authority"]:::decided
   store[("Order store<br/>(behind the API)")]:::decided
@@ -65,7 +66,7 @@ flowchart TB
 
 The colours show the main state of each box; the sentence below gives the exact state.
 
-What is built (`🟢`): the sign-in with the identity provider ([ADR 0011](adr/0011-people-sign-in-through-the-identity-provider.md)), recording an approval, the audit trail and the global stop, and, as library code that no process runs yet, the signed order and the launcher's checks. Everything else on the chain is `🔵`.
+What is built (`🟢`): the sign-in with local accounts and roles ([ADR 0018](adr/0018-people-sign-in-with-local-accounts-and-permission-based-roles.md)), recording an approval, the audit trail and the global stop, and the executor as a dry run (typed tasks, the second factor, its rights list and the double control; it starts nothing). Everything else on the chain is `🔵`.
 
 ## 2. One run, step by step
 
@@ -73,18 +74,18 @@ What is built (`🟢`): the sign-in with the identity provider ([ADR 0011](adr/0
 sequenceDiagram
   autonumber
   actor P as You
-  participant K as Identity provider
+  participant K as Sign-in (accounts)
   participant C as Control plane
   participant V as Vault
   participant L as Launcher
   participant W as Workshop, the agent
   participant T as Target machine
 
-  P->>K: sign in (password, plus a second factor for production)
-  K-->>C: your identity and your group
+  P->>K: sign in (name and password)
+  K-->>C: your account and your role
   P->>C: approve this plan, at this commit (recorded, no order yet)
   Note over C,L: later, when the run is about to start
-  C->>K: is this person still an operator?
+  C->>K: is this person still an operator? (read from the database at every request)
   C->>C: kill switch off? power granted? commit unchanged? fresh second factor for production?
   C->>V: sign the order (the key never leaves Vault)
   L->>C: pull the signed order through the API (proposed, ADR 0015; the launcher has no inbound port)
@@ -105,9 +106,8 @@ An agent is never recognised by what it says. It is recognised by **what it hold
 | Attempt | What stops it | Who enforces it | State |
 |---|---|---|---|
 | Someone calls the API without being signed in | A session is required for every route | The host | 🟢 |
-| A signed-in person who is not an operator approves | The operator group is checked | The host | 🟢 |
-| A forged or replayed order | The signature, the expiry and a one-time number are checked | The launcher | 🟢 library code (the reference and the oracle of the vectors; the launcher that will run is the Rust binary, ADR 0014), 🔵 not running |
-| The two implementations of the launch rules disagree (an order passes in one, not in the other) | Both are held to the same conformance vectors, and a change to the rules is one pull request that changes both and the files ([ADR 0014](adr/0014-the-launcher-is-a-rust-binary-held-to-the-control-plane-by-shared-vectors.md)) | The test suites of both | 🔵 decided, not built |
+| A signed-in person who is not an operator approves | The permission `approvals.create` of the role is checked on the route, and the role is read from the database at every request | The host | 🟢 |
+| A task written in the queue without an operator (a rogue line, a control plane taken over) | The executor checks the one-time code with a secret the control plane never holds, one use per time step, with a lockout; the batch must also be in the approval journal; its rights list refuses whatever the task says | The executor | 🟢 dry run (ADR 0017); the journal still shares the control plane's host (see ADR 0017, what the first slice settled) |
 | A process asks Vault for credentials | Vault answers only to the workload identity of the launcher of that environment, and only from that environment's roles (a launcher of another environment gets nothing) | Vault | 🔵 |
 | An agent started outside the workshop | It holds no certificate, so the machines refuse it | The target machines | 🔵 |
 | A valid agent steps outside its environment | The certificate is valid for one environment and one run (SPEC D-42) | The target machines | 🔵 |
@@ -176,7 +176,7 @@ Settled by [ADR 0012](adr/0012-one-launcher-and-one-vault-role-per-environment.m
 
 Still open:
 
-- **How does the control plane know, at run start, that the person is still an operator?** ADR 0010 says it asks the identity provider again, but nobody's session is live then. Options: keep a refresh token on the server, ask the provider's admin interface, or keep a server-side session store that can revoke. It also closes the weakness of section 7. 🔵
+- **How does the control plane know, at run start, that the person is still an operator?** Answered by ADR 0018: the role is read from the database at every request and the sessions are kept by the server, so a disabled account or a changed role applies at once. (The earlier weakness of a session that is a snapshot no longer exists.) 🟢
 - **Who validates the plan for production**: one person with a step-up, or two (SPEC Q-21). Validating the plan itself is the default proposed by ADR 0012.
 - **How is a budget extended while a run is going, and by whom?** SPEC Q-09 covers the ceilings only. 🟣
 
@@ -184,19 +184,18 @@ Still open:
 
 - An agent that is misled can do **everything its badge opens**. The answer is small badges (section 4), short lifetimes and, for production, validation of the plan.
 - A process inside the workshop shares the credentials of its run. The credentials of a run should therefore be as narrow as the order.
-- A person's session is a snapshot of their groups: someone removed from the operator group keeps their rights until the session ends. It gives no power today, since nothing runs, and it must be closed before a launcher exists (by the check in step 4 of section 1, or by a session store that can revoke).
 
 ## 8. What exists today
 
 | Piece | State |
 |---|---|
 | Approval recorded per pull request and commit, audit trail, global stop (in a SQLite file, [ADR 0013](adr/0013-approvals-the-trail-and-the-stop-are-kept-in-a-sqlite-file.md)) | 🟢 |
-| Signed order, issuer, launcher checks, one-time number and refusal codes (library code, tested, not run by any process) | 🟢 |
-| Sign-in with the identity provider, operator group, origin check ([ADR 0011](adr/0011-people-sign-in-through-the-identity-provider.md)) | 🟢 |
+| Executor (.NET): typed tasks, second factor (TOTP) checked by the executor, rights list, double control against the journal, delegations, hash-chained trace and its timeline | 🟢 dry run, starts nothing |
+| Sign-in with local accounts, roles, server-side sessions, CSRF header ([ADR 0018](adr/0018-people-sign-in-with-local-accounts-and-permission-based-roles.md)) | 🟢 |
 | Vault dedicated to this purpose | 🔵 manifests in the GitOps repository, not initialised |
-| Launcher that runs, order store, workshop, certificates, revoking the tokens of a run | 🔵 not built |
-| The launcher as a Rust binary, held to the control plane's rules by shared conformance vectors | 🔵 decided ([ADR 0014](adr/0014-the-launcher-is-a-rust-binary-held-to-the-control-plane-by-shared-vectors.md), D-59), not built |
-| The launcher pulling its orders through the control plane's API, with its own grants, its own list of production environments and an in-memory ledger; first a dry run | 🔵 proposed (ADR 0015, D-60), not built |
-| The launcher of the home environment also serving the orders with no environment (a merge), with its own grants and forge role, in a namespace of its own | 🔵 decided, not built (ADR 0016, D-63) |
-| The launcher authenticating to the API with a signed token of its own, one client per launcher, the key never leaving it (the token gives no access to Vault) | 🔵 decided, not built (ADR 0016, D-62) |
+| A real runner in the executor, workshop, certificates, revoking the tokens of a run | 🔵 not built |
+| The Rust launcher and the conformance vectors of ADR 0014 | ⛔ superseded by the .NET executor (ADR 0017) |
+| The launcher pulling its orders through the control plane's API, with its own grants, its own list of production environments and an in-memory ledger; first a dry run | ⛔ superseded in part by the executor (ADR 0017): it pulls through the API with the bearer token of the host's `Tasks:Executors`; the signed client token and the home launcher are not built |
+| The launcher of the home environment also serving the orders with no environment (a merge), with its own grants and forge role, in a namespace of its own | ⛔ superseded in part by the executor (ADR 0017): it pulls through the API with the bearer token of the host's `Tasks:Executors`; the signed client token and the home launcher are not built |
+| The launcher authenticating to the API with a signed token of its own, one client per launcher, the key never leaving it (the token gives no access to Vault) | ⛔ superseded in part by the executor (ADR 0017): it pulls through the API with the bearer token of the host's `Tasks:Executors`; the signed client token and the home launcher are not built |
 | One launcher and one Vault role set per environment, tiers of the operator account, validation of the plan for production | 🔵 proposed in ADR 0012 |

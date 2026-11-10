@@ -1,0 +1,33 @@
+.page {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 16px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: min(380px, 100%);
+  padding: 24px;
+  border: var(--borderWidth) solid var(--hairline);
+  border-radius: var(--radiusLarge);
+  background: var(--paperCard);
+  box-shadow: var(--shadowCard);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.brand h1 {
+  margin: 0;
+  font-size: 1.4rem;
+}
+
+.card > button {
+  align-self: flex-start;
+}

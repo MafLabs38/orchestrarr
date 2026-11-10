@@ -1,14 +1,19 @@
 import type {
   AlertCounts,
   ApprovalError,
+  ApprovalState,
+  BatchState,
   ChecksState,
   Finding,
   MergeState,
   PlanStep,
   PullRequest,
+  RunRefusal,
   SourceError,
   StepKind,
   StepReason,
+  TaskKind,
+  TaskResult,
   UpdateKind,
 } from 'typings/api';
 
@@ -106,6 +111,23 @@ const events = {
   'killswitch.engaged': 'EventKillSwitchEngaged',
   'killswitch.released': 'EventKillSwitchReleased',
   'instance.created': 'EventInstanceCreated',
+  'batch.queued': 'EventBatchQueued',
+  'batch.delivered': 'EventBatchDelivered',
+  'batch.done': 'EventBatchDone',
+  'batch.refused': 'EventBatchRefused',
+  'batch.expired': 'EventBatchExpired',
+  'login.succeeded': 'EventLoginSucceeded',
+  'login.failed': 'EventLoginFailed',
+  'login.locked': 'EventLoginLocked',
+  'password.locked': 'EventPasswordLocked',
+  'password.verify-failed': 'EventPasswordVerifyFailed',
+  'account.created': 'EventAccountCreated',
+  'account.role-changed': 'EventAccountRoleChanged',
+  'account.enabled': 'EventAccountEnabled',
+  'account.disabled': 'EventAccountDisabled',
+  'account.password-changed': 'EventAccountPasswordChanged',
+  'account.reset': 'EventAccountReset',
+  'account.deleted': 'EventAccountDeleted',
 } as const;
 
 // The words of an event of the audit trail; one the interface does not know is shown as the server names it.
@@ -114,7 +136,6 @@ export function describeEvent(event: string): string {
 }
 
 const approvalErrors = {
-  approvalsDisabled: 'ApprovalErrorApprovalsDisabled',
   notSignedIn: 'ApprovalErrorNotSignedIn',
   notAnOperator: 'ApprovalErrorNotAnOperator',
   notAPerson: 'ApprovalErrorNotAPerson',
@@ -123,14 +144,14 @@ const approvalErrors = {
   pullRequestsNotRead: 'ApprovalErrorPullRequestsNotRead',
   nothingTicked: 'ApprovalErrorNothingTicked',
   planChanged: 'ApprovalErrorPlanChanged',
-  hostNotAllowed: 'ApprovalErrorHostNotAllowed',
-  originNotAllowed: 'ApprovalErrorOriginNotAllowed',
   stepNotOffered: 'ApprovalErrorStepNotOffered',
   stepNotGranted: 'ApprovalErrorStepNotGranted',
   stepNotSupported: 'ApprovalErrorStepNotSupported',
   mergeNeedsValidation: 'ApprovalErrorMergeNeedsValidation',
   noPullRequests: 'ApprovalErrorNoPullRequests',
   alreadyApproved: 'ApprovalErrorAlreadyApproved',
+  tooManyPullRequests: 'ApprovalErrorTooManyPullRequests',
+  secondFactorRequired: 'ApprovalErrorSecondFactorRequired',
   storeFull: 'ApprovalErrorStoreFull',
   auditUnavailable: 'ApprovalErrorAuditUnavailable',
   tooManyRequests: 'ApprovalErrorTooManyRequests',
@@ -212,4 +233,86 @@ export function describeChanges(pullRequest: PullRequest): string {
 export function updateKindOf(pullRequest: PullRequest): UpdateKind {
   const order: UpdateKind[] = ['major', 'minor', 'patch'];
   return order.find((kind) => pullRequest.changes.some((change) => change.kind === kind)) ?? 'unknown';
+}
+
+const approvalStates = {
+  waiting: 'ApprovalStateWaiting',
+  taken: 'ApprovalStateTaken',
+  dryRunDone: 'ApprovalStateDryRunDone',
+  refused: 'ApprovalStateRefused',
+  expired: 'ApprovalStateExpired',
+} as const satisfies Record<ApprovalState, string>;
+
+export function describeApprovalState(state: ApprovalState): string {
+  return translate(approvalStates[state]);
+}
+
+const batchStates = {
+  waiting: 'BatchWaiting',
+  delivered: 'BatchDelivered',
+  done: 'BatchDone',
+  refused: 'BatchRefused',
+  expired: 'BatchExpired',
+} as const satisfies Record<BatchState, string>;
+
+export function describeBatchState(state: BatchState): string {
+  return translate(batchStates[state]);
+}
+
+const refusals = {
+  stopped: 'RefusalStopped',
+  expired: 'RefusalExpired',
+  replayed: 'RefusalReplayed',
+  secondFactor: 'RefusalSecondFactor',
+  delegationInvalid: 'RefusalDelegationInvalid',
+  kindNotAllowed: 'RefusalKindNotAllowed',
+  repositoryNotAllowed: 'RefusalRepositoryNotAllowed',
+  journalMismatch: 'RefusalJournalMismatch',
+  malformed: 'RefusalMalformed',
+} as const satisfies Record<RunRefusal, string>;
+
+// Why the executor refused a batch, from its code; a code the interface does not know is shown as the server names it.
+export function describeRunRefusal(refusal: string): string {
+  return translate('RunRefusedBecause', {
+    reason: Object.hasOwn(refusals, refusal) ? translate(refusals[refusal as RunRefusal]) : refusal,
+  });
+}
+
+const taskKinds = {
+  validatePullRequest: 'TaskKindValidatePullRequest',
+  mergePullRequest: 'TaskKindMergePullRequest',
+} as const satisfies Record<TaskKind, string>;
+
+export function describeTaskKind(kind: TaskKind): string {
+  return translate(taskKinds[kind]);
+}
+
+const taskResults = {
+  dryRun: 'TaskResultDryRun',
+  refused: 'TaskResultRefused',
+  skipped: 'TaskResultSkipped',
+} as const satisfies Record<TaskResult, string>;
+
+export function describeTaskResult(result: TaskResult | null): string {
+  return result === null ? translate('TaskNotRunYet') : translate(taskResults[result]);
+}
+
+const runEvents = {
+  'run.claimed': 'RunEventClaimed',
+  'run.stopped': 'RunEventStopped',
+  'run.batch-checked': 'RunEventBatchChecked',
+  'run.second-factor': 'RunEventSecondFactor',
+  'run.delegation': 'RunEventDelegation',
+  'run.rights': 'RunEventRights',
+  'run.double-control': 'RunEventDoubleControl',
+  'task.dry-run': 'RunEventTaskDryRun',
+  'task.refused': 'RunEventTaskRefused',
+  'task.skipped': 'RunEventTaskSkipped',
+  'run.completed': 'RunEventCompleted',
+  'run.refused': 'RunEventRefused',
+} as const;
+
+// The words of a line of the trace of a run; one the interface does not know is shown as the executor names it.
+export function describeRunEvent(type: string): string {
+  return Object.hasOwn(runEvents, type) ? translate(runEvents[type as keyof typeof runEvents]) : type;
 }

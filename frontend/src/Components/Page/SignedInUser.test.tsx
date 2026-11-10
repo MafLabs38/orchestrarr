@@ -1,57 +1,58 @@
 import { screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
-import { renderWithProviders, status, stubApi } from 'testUtils';
+import { renderWithProviders } from 'testUtils';
 
 import SignedInUser from './SignedInUser';
-import SourceBadge from './SourceBadge';
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-// The session is asked for, and the status too (for the badge): once both have answered, an absence means something
-async function renderBeside(session?: unknown) {
-  const fetchMock = stubApi({
-    '/api/v1/system/status': status(),
-    ...(session === undefined ? {} : { '/auth/me': session }),
-  });
-  renderWithProviders(
-    <>
-      <SignedInUser />
-      <SourceBadge />
-    </>,
-  );
-  await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/auth/me', expect.anything()));
-  await screen.findByText('Sample data · Connected');
-}
+const session = { subject: 's-1', name: 'alice', role: 'Operator', permissions: ['fleet.read'] };
 
 describe('SignedInUser', () => {
-  it('says who is signed in, and signs out with a form', async () => {
-    await renderBeside({ name: 'alice', canRead: true, isOperator: true });
+  it('says who is signed in with their role, and links to their account', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(new Response(JSON.stringify(session), { status: 200 }))),
+    );
 
-    expect(await screen.findByText('Signed in as alice')).toBeInTheDocument();
-    const button = screen.getByRole('button', { name: 'Sign out' });
-    expect(button).toHaveAttribute('type', 'submit');
-    const form = button.closest('form');
-    expect(form).toHaveAttribute('method', 'post');
-    expect(form).toHaveAttribute('action', '/auth/logout');
+    renderWithProviders(<SignedInUser />);
+
+    const link = await screen.findByRole('link', { name: 'alice (Operator)' });
+    expect(link).toHaveAttribute('href', '/account');
   });
 
-  it('says an unknown account when the session has no name at all', async () => {
-    await renderBeside({ name: null, canRead: false, isOperator: false });
+  it('shows nothing while nobody is signed in', async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(new Response('{}', { status: 401 })));
+    vi.stubGlobal('fetch', fetchMock);
 
-    expect(await screen.findByText('Signed in as an unknown account')).toBeInTheDocument();
-  });
+    renderWithProviders(<SignedInUser />);
 
-  it('offers the way out to an account that the API refuses', async () => {
-    await renderBeside({ name: 'carol', canRead: false, isOperator: false });
-
-    expect(await screen.findByRole('button', { name: 'Sign out' })).toBeInTheDocument();
-  });
-
-  it('shows nothing where people do not sign in: the route is not there', async () => {
-    await renderBeside();
-
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     expect(screen.queryByRole('button', { name: 'Sign out' })).not.toBeInTheDocument();
+  });
+
+  it('signs out with a write that carries the header of the interface', async () => {
+    const fetchMock = vi.fn((_input: string, init?: RequestInit) =>
+      Promise.resolve(
+        init?.method === 'POST'
+          ? new Response(null, { status: 204 })
+          : new Response(JSON.stringify(session), { status: 200 }),
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(<SignedInUser />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Sign out' }));
+
+    await waitFor(() => {
+      const call = (fetchMock.mock.calls as unknown as [string, RequestInit][]).find(
+        ([path]) => path === '/api/v1/auth/logout',
+      );
+      expect(call?.[1].method).toBe('POST');
+      expect(call?.[1].headers).toMatchObject({ 'X-Orchestrarr-Request': 'web' });
+    });
   });
 });

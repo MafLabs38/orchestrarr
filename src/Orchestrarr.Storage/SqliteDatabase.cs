@@ -196,7 +196,7 @@ public sealed class SqliteDatabase : IDisposable
     // A new step is appended here, and SchemaVersion goes up with it.
     private delegate void Step(SqliteConnection connection, bool created, bool startEngagedWhenNew, TimeProvider time);
 
-    private static readonly Step[] Steps = [CreateVersion1];
+    private static readonly Step[] Steps = [CreateVersion1, CreateVersion2, CreateVersion3];
 
     private static int SchemaVersion => Steps.Length;
 
@@ -268,6 +268,109 @@ public sealed class SqliteDatabase : IDisposable
         {
             SqliteAuditLog.Insert(connection, AuditEvents.InstanceCreatedEntry(time.GetUtcNow(), "database"));
         }
+    }
+
+    // Version 1 to 2 (ADR 0017): an approval has a life (waiting, taken, ended) and belongs to a batch of tasks. The unique key of a decision now holds
+    // only while the approval is open, so a decision that ended may be approved again; SQLite cannot drop a table constraint, so the table is rebuilt.
+    private static void CreateVersion2(SqliteConnection connection, bool created, bool startEngagedWhenNew, TimeProvider time)
+    {
+        // A file whose version was reset by hand may already hold the new shape: every statement here leaves what is already there
+        if (Convert.ToInt32(Scalar(connection, "SELECT COUNT(*) FROM pragma_table_info('approvals') WHERE name = 'state';"), CultureInfo.InvariantCulture) == 0)
+        {
+            Run(connection, """
+                CREATE TABLE approvals_v2 (
+                  id TEXT NOT NULL PRIMARY KEY,
+                  work_item_id TEXT NOT NULL,
+                  repository TEXT NOT NULL,
+                  pull_request INTEGER NOT NULL,
+                  head_sha TEXT NOT NULL,
+                  steps TEXT NOT NULL,
+                  approver TEXT NOT NULL,
+                  approved_at TEXT NOT NULL,
+                  step_up_at TEXT NULL,
+                  state TEXT NOT NULL DEFAULT 'Waiting' CHECK (state IN ('Waiting', 'Taken', 'DryRunDone', 'Refused', 'Expired')),
+                  batch_id TEXT NULL,
+                  ended_at TEXT NULL
+                );
+                -- An approval of version 1 has no batch and no code: no executor can ever take it, so it ends here instead of waiting for good
+                -- (and blocking the same decision from being approved again).
+                INSERT INTO approvals_v2 (id, work_item_id, repository, pull_request, head_sha, steps, approver, approved_at, step_up_at, state, ended_at)
+                  SELECT id, work_item_id, repository, pull_request, head_sha, steps, approver, approved_at, step_up_at, 'Expired', strftime('%Y-%m-%dT%H:%M:%S.0000000Z', 'now') FROM approvals;
+                DROP TABLE approvals;
+                ALTER TABLE approvals_v2 RENAME TO approvals;
+                """);
+        }
+        Run(connection, """
+            CREATE UNIQUE INDEX IF NOT EXISTS approvals_open_decision ON approvals (repository, pull_request, head_sha, steps) WHERE state IN ('Waiting', 'Taken');
+            CREATE INDEX IF NOT EXISTS approvals_by_batch ON approvals (batch_id);
+            CREATE TABLE IF NOT EXISTS batches (
+              id TEXT NOT NULL PRIMARY KEY,
+              work_item_id TEXT NOT NULL,
+              approver TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              expires_at TEXT NOT NULL,
+              delegation_id TEXT NULL,
+              digest TEXT NOT NULL,
+              state TEXT NOT NULL CHECK (state IN ('Waiting', 'Delivered', 'Done', 'Refused', 'Expired')),
+              code TEXT NULL,
+              executor TEXT NULL,
+              delivered_at TEXT NULL,
+              ended_at TEXT NULL,
+              refusal TEXT NULL
+            );
+            CREATE INDEX IF NOT EXISTS batches_by_state ON batches (state, created_at);
+            CREATE TABLE IF NOT EXISTS tasks (
+              id TEXT NOT NULL PRIMARY KEY,
+              batch_id TEXT NOT NULL REFERENCES batches (id),
+              sequence INTEGER NOT NULL,
+              kind TEXT NOT NULL,
+              repository TEXT NOT NULL,
+              pull_request INTEGER NOT NULL,
+              head_sha TEXT NOT NULL,
+              approval_id TEXT NOT NULL,
+              result TEXT NULL,
+              reason TEXT NULL,
+              UNIQUE (batch_id, sequence)
+            );
+            CREATE TABLE IF NOT EXISTS run_events (
+              batch_id TEXT NOT NULL REFERENCES batches (id),
+              sequence INTEGER NOT NULL,
+              at TEXT NOT NULL,
+              type TEXT NOT NULL,
+              task_id TEXT NULL,
+              detail TEXT NULL,
+              previous_hash TEXT NOT NULL,
+              hash TEXT NOT NULL,
+              PRIMARY KEY (batch_id, sequence)
+            );
+            CREATE TRIGGER IF NOT EXISTS run_events_are_append_only_update BEFORE UPDATE ON run_events
+              BEGIN SELECT RAISE(ABORT, 'the trace of a run is append-only'); END;
+            CREATE TRIGGER IF NOT EXISTS run_events_are_append_only_delete BEFORE DELETE ON run_events
+              BEGIN SELECT RAISE(ABORT, 'the trace of a run is append-only'); END;
+            """);
+    }
+
+    // Version 2 to 3: the accounts of the people who sign in, and their sessions (ADR 0018). A session is kept by the hash of its id.
+    private static void CreateVersion3(SqliteConnection connection, bool created, bool startEngagedWhenNew, TimeProvider time)
+    {
+        Run(connection, """
+            CREATE TABLE IF NOT EXISTS accounts (
+              id TEXT NOT NULL PRIMARY KEY,
+              name TEXT NOT NULL,
+              role TEXT NOT NULL,
+              enabled INTEGER NOT NULL,
+              password_hash TEXT NOT NULL,
+              created_at TEXT NOT NULL
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS accounts_by_name ON accounts (name COLLATE NOCASE);
+            CREATE TABLE IF NOT EXISTS sessions (
+              id TEXT NOT NULL PRIMARY KEY,
+              account_id TEXT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+              created_at TEXT NOT NULL,
+              expires_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS sessions_by_account ON sessions (account_id);
+            """);
     }
 
     private static object? Scalar(SqliteConnection connection, string sql)

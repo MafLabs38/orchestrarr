@@ -1,4 +1,5 @@
 using Orchestrarr.Core.Launch;
+using Orchestrarr.Core.Tasks;
 
 namespace Orchestrarr.Core.Approvals;
 
@@ -6,9 +7,9 @@ namespace Orchestrarr.Core.Approvals;
 /// The ledger of the sandbox: one step at a time, it checks what can be checked (the stop, the decisions already there, the room) before it
 /// writes anything, then the trace, then the queue. It is the only writer of the queue, so what was checked cannot change before the write.
 /// </summary>
-public sealed class InMemoryApprovalLedger(InMemoryApprovalStore store, IAuditSink audit, InMemoryKillSwitch killSwitch) : IApprovalLedger
+public sealed class InMemoryApprovalLedger(InMemoryApprovalStore store, IAuditSink audit, InMemoryKillSwitch killSwitch, InMemoryBatchQueue? queue = null) : IApprovalLedger
 {
-    public async ValueTask<LedgerResult> TryRecordAsync(IReadOnlyList<Approval> approvals, IReadOnlyList<AuditEntry> entries, CancellationToken cancellationToken)
+    public async ValueTask<LedgerResult> TryRecordAsync(IReadOnlyList<Approval> approvals, TaskBatch? batch, string? secondFactorCode, IReadOnlyList<AuditEntry> entries, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(approvals);
         ArgumentNullException.ThrowIfNull(entries);
@@ -35,7 +36,16 @@ public sealed class InMemoryApprovalLedger(InMemoryApprovalStore store, IAuditSi
                 return LedgerResult.Unavailable;
             }
             // Checked above, under the gate, by the only writer: this cannot fail, and a trace is never left for an approval that was not kept
-            return store.TryAddRange(approvals) ? LedgerResult.Recorded : LedgerResult.Unavailable;
+            if (!store.TryAddRange(approvals))
+            {
+                return LedgerResult.Unavailable;
+            }
+            if (batch is not null)
+            {
+                // The batch enters the queue in the same step as the approvals it carries out
+                queue?.Add(batch, secondFactorCode);
+            }
+            return LedgerResult.Recorded;
         }
         catch (StorageUnavailableException)
         {

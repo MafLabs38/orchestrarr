@@ -1,6 +1,6 @@
 # 0013 — The approvals, the audit trail and the global stop are kept in a SQLite file
 
-- **Status**: proposed
+- **Status**: proposed. The lifecycle of an approval announced in the consequences is built by [ADR 0017](0017-orders-are-typed-tasks-approved-with-a-second-factor-that-the-executor-checks.md) (schema v2); the identity named in the consequence on subjects is the id of the local account ([ADR 0018](0018-people-sign-in-with-local-accounts-and-permission-based-roles.md)); the launcher it mentions is the executor of ADR 0017.
 - **Date**: 2026-11-03
 
 ## Context

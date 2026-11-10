@@ -1,0 +1,41 @@
+.list {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 8px 24px;
+  margin: 0 0 8px;
+}
+
+.list dt {
+  color: var(--inkMuted);
+  font-weight: 800;
+}
+
+.list dd {
+  margin: 0;
+}
+
+.mono {
+  font-family: var(--monoSpaceFontFamily);
+  word-break: break-all;
+}
+
+.hint {
+  margin: 0 0 24px;
+  color: var(--inkMuted);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 380px;
+}
+
+.form h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.form > button {
+  align-self: flex-start;
+}

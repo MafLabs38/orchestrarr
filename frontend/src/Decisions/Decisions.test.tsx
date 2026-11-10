@@ -2,10 +2,10 @@ import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import {
-  approvalsOff,
   finding,
   pullRequest,
   pullRequestsRead,
+  readerOnly,
   renderWithProviders,
   report,
   status,
@@ -95,7 +95,7 @@ describe('Decisions', () => {
     const fetchMock = stubApi({
       [path]: report({ items: [withPullRequests] }),
       [`${path}?refresh=true`]: report({ items: [withPullRequests] }),
-      '/api/v1/system/status': status({}, approvalsOff),
+      '/api/v1/system/status': status({}, readerOnly),
     });
 
     renderWithProviders(<Decisions />);

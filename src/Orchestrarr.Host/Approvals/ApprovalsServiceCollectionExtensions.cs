@@ -1,8 +1,10 @@
 using System.Threading.RateLimiting;
 using Orchestrarr.Core.Approvals;
 using Orchestrarr.Core.Launch;
+using Orchestrarr.Core.Tasks;
 using Orchestrarr.Core.WorkItems;
 using Orchestrarr.Host.Storage;
+using Orchestrarr.Host.Tasks;
 using Orchestrarr.Storage;
 
 namespace Orchestrarr.Host.Approvals;
@@ -20,29 +22,18 @@ internal static class ApprovalsServiceCollectionExtensions
     /// Approving a decision card: the grants, the queue, the trail, the global stop and the service, in a SQLite file or in memory. The same
     /// instance answers to each interface it implements, so that the routes and the service see one trail and one stop.
     /// </summary>
-    public static IServiceCollection AddApprovals(this IServiceCollection services, ApprovalsOptions options, IReadOnlyList<PowerGrant> grants, IStorageSettings storage)
+    public static IServiceCollection AddApprovals(this IServiceCollection services, ApprovalsOptions options, IReadOnlyList<PowerGrant> grants, IStorageSettings storage, TasksSettings tasks)
     {
-        // Signing in through the identity provider brings its own approver (AddSignIn, called before this): the host does not start without one
-        if (options.Mode == ApprovalsMode.OpenIdConnect)
-        {
-            if (!services.Any(descriptor => descriptor.ServiceType == typeof(IApproverAccessor)))
-            {
-                throw new InvalidOperationException("Approvals:Mode=OpenIdConnect needs the sign-in: AddSignIn comes before AddApprovals.");
-            }
-        }
-        else
-        {
-            services.AddSingleton<IApproverAccessor>(provider => options.Mode == ApprovalsMode.Development
-                ? new DevelopmentApprover(options, provider.GetRequiredService<TimeProvider>())
-                : new NoApprover());
-        }
-
         services
             .AddApprovingRateLimit(options)
             .AddSingleton(options)
             .AddSingleton(storage)
+            .AddSingleton(tasks)
+            .AddSingleton(tasks.Options)
+            .AddSingleton<ExecutorRegistry>()
+            .AddSingleton<IApprovalJournal>(_ => tasks.JournalPath is { } journal ? new FileApprovalJournal(journal) : new NullApprovalJournal())
             .AddSingleton<IPowerPolicy>(new ConfiguredPowerPolicy(grants))
-            .AddSingleton<IGrantedPowers, PolicyGrantedPowers>();
+            .AddHostedService<BatchExpirySweeper>();
 
         // What must survive a restart is in one file, or, in the sandbox, in memory. The capacities default to what suits where it is kept.
         var capacities = storage.Persistent
@@ -63,7 +54,9 @@ internal static class ApprovalsServiceCollectionExtensions
             provider.GetRequiredService<IKillSwitch>(),
             provider.GetRequiredService<IAuditSink>(),
             provider.GetRequiredService<TimeProvider>(),
-            provider.GetRequiredService<IApprovalLedger>()));
+            provider.GetRequiredService<IApprovalLedger>(),
+            provider.GetRequiredService<IApprovalJournal>(),
+            provider.GetRequiredService<TaskOptions>()));
     }
 
     private static IServiceCollection AddApprovingRateLimit(this IServiceCollection services, ApprovalsOptions options) =>
@@ -85,6 +78,7 @@ internal static class ApprovalsServiceCollectionExtensions
             .AddSingleton(provider => SqliteDatabase.OpenAsSoleWriter(file.Path, file.StartEngagedWhenNew, provider.GetRequiredService<TimeProvider>()))
             .AddHostedService<SqliteStartup>()
             .AddSingleton<IApprovalStore>(provider => new SqliteApprovalStore(provider.GetRequiredService<SqliteDatabase>(), queueCapacity))
+            .AddSingleton<IBatchQueue>(provider => new SqliteBatchQueue(provider.GetRequiredService<SqliteDatabase>(), provider.GetRequiredService<IKillSwitch>(), provider.GetRequiredService<TimeProvider>(), provider.GetRequiredService<TaskOptions>(), auditCapacity))
             .AddSingleton<IApprovalLedger>(provider => new SqliteApprovalLedger(provider.GetRequiredService<SqliteDatabase>(), provider.GetRequiredService<IKillSwitchControl>(), queueCapacity, auditCapacity, provider.GetService<ILogger<SqliteApprovalLedger>>()))
             .AddSingleton(provider => new SqliteKillSwitch(provider.GetRequiredService<SqliteDatabase>(), auditCapacity, provider.GetService<ILogger<SqliteKillSwitch>>()))
             .AddSingleton<IKillSwitchControl>(provider => provider.GetRequiredService<SqliteKillSwitch>())
@@ -98,7 +92,9 @@ internal static class ApprovalsServiceCollectionExtensions
         services
             .AddSingleton(_ => new InMemoryApprovalStore(capacities.Queue))
             .AddSingleton<IApprovalStore>(provider => provider.GetRequiredService<InMemoryApprovalStore>())
-            .AddSingleton<IApprovalLedger>(provider => new InMemoryApprovalLedger(provider.GetRequiredService<InMemoryApprovalStore>(), provider.GetRequiredService<IAuditSink>(), provider.GetRequiredService<InMemoryKillSwitch>()))
+            .AddSingleton<IApprovalLedger>(provider => new InMemoryApprovalLedger(provider.GetRequiredService<InMemoryApprovalStore>(), provider.GetRequiredService<IAuditSink>(), provider.GetRequiredService<InMemoryKillSwitch>(), provider.GetRequiredService<InMemoryBatchQueue>()))
+            .AddSingleton(provider => new InMemoryBatchQueue(provider.GetRequiredService<InMemoryApprovalStore>(), provider.GetRequiredService<IAuditSink>(), provider.GetRequiredService<IKillSwitch>(), provider.GetRequiredService<TimeProvider>(), provider.GetRequiredService<TaskOptions>()))
+            .AddSingleton<IBatchQueue>(provider => provider.GetRequiredService<InMemoryBatchQueue>())
             // A store that starts engaged is a new store, as far as anyone can tell: the trail says so, with the time of the host
             .AddSingleton(provider => new InMemoryAuditLog(
                 capacities.Audit,

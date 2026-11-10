@@ -1,20 +1,28 @@
+import { Link } from 'react-router-dom';
+
 import Alert from 'Components/Alert';
 import CapabilityHint from 'Components/CapabilityHint';
 import Label from 'Components/Label';
 import PageContent from 'Components/Page/PageContent';
 import PageContentBody from 'Components/Page/PageContentBody';
 import PageHeading from 'Components/Page/PageHeading';
-import * as icons from 'Helpers/Props/icons';
-import { kinds } from 'Helpers/Props/kinds';
-import { iconSizes } from 'Helpers/Props/sizes';
+import { type Kind, kinds } from 'Helpers/Props/kinds';
 import useSystemStatus from 'System/useSystemStatus';
-import type { Approval } from 'typings/api';
-import { describeStepKind } from 'Utilities/describe';
+import type { Approval, ApprovalState } from 'typings/api';
+import { describeApprovalState, describeStepKind } from 'Utilities/describe';
 import formatTime from 'Utilities/formatTime';
 import translate from 'Utilities/translate';
 
 import styles from './Queue.module.css';
 import { useApprovals } from './useApprovals';
+
+const stateKinds: Record<ApprovalState, Kind> = {
+  waiting: kinds.INFO,
+  taken: kinds.WARNING,
+  dryRunDone: kinds.SUCCESS,
+  refused: kinds.DANGER,
+  expired: kinds.DEFAULT,
+};
 
 function ApprovalRow({ approval }: Readonly<{ approval: Approval }>) {
   return (
@@ -23,10 +31,8 @@ function ApprovalRow({ approval }: Readonly<{ approval: Approval }>) {
         <span className={styles.repository}>{approval.repository}</span>
         <span className={styles.pullRequest}>#{approval.pullRequest}</span>
         <span className={styles.commit}>{translate('ShortCommit', { sha: approval.headSha.slice(0, 7) })}</span>
-        <Label kind={kinds.INFO}>
-          <icons.PENDING size={iconSizes.SMALL} aria-hidden="true" />
-          {translate('WaitingForLauncher')}
-        </Label>
+        <Label kind={stateKinds[approval.state]}>{describeApprovalState(approval.state)}</Label>
+        {approval.batchId ? <Link to={`/runs/${approval.batchId}`}>{translate('RunOpen')}</Link> : null}
       </div>
       <div className={styles.meta}>
         <span>{approval.steps.map((step) => describeStepKind(step)).join(' · ')}</span>
@@ -38,7 +44,7 @@ function ApprovalRow({ approval }: Readonly<{ approval: Approval }>) {
   );
 }
 
-// The decisions the operator approved, waiting for a launcher. Nothing runs yet: there is no launcher to take them.
+// The decisions the operator approved, and where each is: waiting for the executor, with it, or ended. A dry run starts nothing.
 export default function Queue() {
   const { data: approvals, error, isPending } = useApprovals();
   const { data: status } = useSystemStatus();
@@ -55,7 +61,9 @@ export default function Queue() {
         {approvals?.length === 0 ? <CapabilityHint>{translate('QueueEmpty')}</CapabilityHint> : null}
         {approvals && approvals.length > 0 ? (
           <>
-            <CapabilityHint>{translate('QueueNoLauncher')}</CapabilityHint>
+            {status && !status.executors.some((executor) => executor.connected) ? (
+              <CapabilityHint>{translate('QueueNoExecutor')}</CapabilityHint>
+            ) : null}
             <ul className={styles.list}>
               {approvals.map((approval) => (
                 <ApprovalRow key={approval.id} approval={approval} />

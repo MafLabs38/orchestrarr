@@ -1,3 +1,4 @@
+import useSession, { accountsManage, can } from 'Account/useSession';
 import { useApprovals } from 'Approvals/useApprovals';
 import useWorkItems from 'Decisions/useWorkItems';
 import * as icons from 'Helpers/Props/icons';
@@ -10,6 +11,7 @@ import SidebarLink from './SidebarLink';
 export default function PageSidebar() {
   const { data } = useWorkItems();
   const { data: approvals } = useApprovals();
+  const { data: session } = useSession();
   return (
     <nav className={styles.sidebar} aria-label={translate('MainNavigation')}>
       <SidebarLink
@@ -25,6 +27,11 @@ export default function PageSidebar() {
         label={translate('Queue')}
         badge={approvals?.length}
       />
+      <SidebarLink
+        to="/runs"
+        icon={<icons.RUNS size={iconSizes.LARGE} aria-hidden="true" />}
+        label={translate('Runs')}
+      />
       <div className={styles.group}>{translate('System')}</div>
       <SidebarLink
         to="/system/status"
@@ -36,6 +43,13 @@ export default function PageSidebar() {
         icon={<icons.ACTIVITY size={iconSizes.LARGE} aria-hidden="true" />}
         label={translate('Activity')}
       />
+      {can(session, accountsManage) ? (
+        <SidebarLink
+          to="/system/accounts"
+          icon={<icons.ACCOUNTS size={iconSizes.LARGE} aria-hidden="true" />}
+          label={translate('Accounts')}
+        />
+      ) : null}
     </nav>
   );
 }
