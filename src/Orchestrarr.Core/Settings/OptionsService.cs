@@ -35,12 +35,24 @@ public sealed class OptionsService(IOptionStore store, IAuditSink audit, TimePro
         }
 
         var now = time.GetUtcNow();
+        var entry = new AuditEntry(now, Changed, actor, null, $"{id}: {(value ? "on" : "off")}");
+        if (value)
+        {
+            // Turning on makes the product safer, so a full or unwritable trail never keeps it off: it is saved first, and traced as far as the trail allows
+            if (!store.TrySet(id, true, now, actor))
+            {
+                return OptionRefusal.Unavailable;
+            }
+            _ = await audit.TryRecordAsync(entry, cancellationToken);
+            return null;
+        }
+
         // The trace first: a relaxation nobody can see is not made
-        if (!await audit.TryRecordAsync(new AuditEntry(now, Changed, actor, null, $"{id}: {(value ? "on" : "off")}"), cancellationToken))
+        if (!await audit.TryRecordAsync(entry, cancellationToken))
         {
             return OptionRefusal.Unavailable;
         }
-        return store.TrySet(id, value, now, actor) ? null : OptionRefusal.Unavailable;
+        return store.TrySet(id, false, now, actor) ? null : OptionRefusal.Unavailable;
     }
 
     private OptionState State(string id)

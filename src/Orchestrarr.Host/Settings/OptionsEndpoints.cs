@@ -20,7 +20,7 @@ internal static class OptionsEndpoints
 
         options.MapGet("/", (OptionsService service) => Results.Ok(service.List())).RequireAuthorization(Permissions.FleetRead);
 
-        options.MapPut("/{id}", async (string id, SetOptionRequest request, HttpContext context, OptionsService service, SignInService signIn, CancellationToken ct) =>
+        options.MapPut("/{id}", (string id, SetOptionRequest request, HttpContext context, OptionsService service, SignInService signIn, CancellationToken ct) => AccountResults.Run(async () =>
         {
             if (request.Value is not { } value)
             {
@@ -31,10 +31,16 @@ internal static class OptionsEndpoints
                 return Results.Unauthorized();
             }
 
-            // Lowering security is checked before the password is asked for, so that a locked host says "locked" and not "wrong password"
-            if (!value && service.List().FirstOrDefault(option => option.Id == id) is { CanTurnOff: false } locked)
+            // An unknown option is refused before anything else; lowering security is checked before the password is asked for, so that a locked
+            // host says "locked" and not "wrong password"
+            var known = service.List().FirstOrDefault(option => option.Id == id);
+            if (known is null)
             {
-                return Refusal(locked.LockedReason == "configuration" ? OptionRefusal.SetByConfiguration : OptionRefusal.LockedByHost);
+                return Refusal(OptionRefusal.UnknownOption);
+            }
+            if (!value && !known.CanTurnOff)
+            {
+                return Refusal(known.LockedReason == "configuration" ? OptionRefusal.SetByConfiguration : OptionRefusal.LockedByHost);
             }
             if (!value)
             {
@@ -50,7 +56,7 @@ internal static class OptionsEndpoints
 
             var refusal = await service.SetAsync(id, value, context.User.FindFirst(ClaimTypes.NameIdentifier)!.Value, ct);
             return refusal is null ? Results.Ok(service.List()) : Refusal(refusal.Value);
-        }).RequireAuthorization(Permissions.OptionsManage);
+        })).RequireAuthorization(Permissions.OptionsManage);
     }
 
     private static IResult Refusal(OptionRefusal refusal) => refusal switch

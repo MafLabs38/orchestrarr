@@ -133,6 +133,7 @@ public sealed class OptionsApiTests : IClassFixture<AccountsApiFactory>, IClassF
         using var admin = await Admin(_relaxable);
 
         (await admin.PutAsJsonAsync("/api/v1/options/nothing.here", new { value = true }, Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await admin.PutAsJsonAsync("/api/v1/options/nothing.here", new { value = false, password = "x" }, Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound, "an unknown option never reaches the check of the password");
         (await admin.PutAsJsonAsync($"/api/v1/options/{Id}", new { password = "x" }, Ct)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
@@ -140,6 +141,7 @@ public sealed class OptionsApiTests : IClassFixture<AccountsApiFactory>, IClassF
     [InlineData("Production")]
     [InlineData("Staging")]
     [InlineData("Homelab")]
+    [InlineData("")]
     public void The_host_cannot_be_started_outside_development_and_testing_with_the_leave_to_lower_its_security(string environment)
     {
         var start = () => new SecurityOptionsConfiguration { AllowRelaxingSecurity = true }.Validate(environment);
@@ -151,6 +153,7 @@ public sealed class OptionsApiTests : IClassFixture<AccountsApiFactory>, IClassF
     [Theory]
     [InlineData("Development")]
     [InlineData("Testing")]
+    [InlineData("development")]
     public void A_development_or_test_host_can_have_the_leave(string environment) =>
         new SecurityOptionsConfiguration { AllowRelaxingSecurity = true }.Validate(environment).AllowRelaxingSecurity.Should().BeTrue();
 

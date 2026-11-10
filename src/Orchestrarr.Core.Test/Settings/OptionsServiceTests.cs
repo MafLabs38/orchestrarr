@@ -85,6 +85,28 @@ public sealed class OptionsServiceTests
     }
 
     [Fact]
+    public async Task Turning_it_back_on_is_never_refused_because_the_trail_is_full()
+    {
+        var service = Service();
+        (await service.SetAsync(OptionIds.RequireSecondFactor, false, "root", Ct)).Should().BeNull();
+        var full = Substitute.For<IAuditSink>();
+        full.TryRecordAsync(Arg.Any<AuditEntry>(), Arg.Any<CancellationToken>()).Returns(false);
+
+        (await Service(audit: full).SetAsync(OptionIds.RequireSecondFactor, true, "root", Ct)).Should().BeNull();
+
+        service.Required.Should().BeTrue("the code is back even though the trail could not say so");
+    }
+
+    [Fact]
+    public async Task Turning_it_on_that_cannot_be_saved_is_reported()
+    {
+        var store = Substitute.For<IOptionStore>();
+        store.TrySet(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<DateTimeOffset>(), Arg.Any<string>()).Returns(false);
+
+        (await Service(store: store).SetAsync(OptionIds.RequireSecondFactor, true, "root", Ct)).Should().Be(OptionRefusal.Unavailable);
+    }
+
+    [Fact]
     public async Task What_the_configuration_fixes_the_screen_cannot_change_in_either_direction()
     {
         var service = Service(configRequires: false);
