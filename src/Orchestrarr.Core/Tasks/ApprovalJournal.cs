@@ -75,10 +75,15 @@ public sealed class FileApprovalJournal(string path) : IApprovalJournal, IApprov
         {
             try
             {
-                var (entries, intact) = Read();
+                var (entries, intact, complete) = Read();
                 if (!intact)
                 {
                     return ValueTask.FromResult(false);
+                }
+                if (complete is not null)
+                {
+                    // The tail is a line cut short by a crash: it was never acknowledged (the approval was refused), so it is dropped
+                    File.WriteAllText(path, complete);
                 }
                 var previous = entries.Count == 0 ? JournalEntry.Genesis : entries[^1].Hash;
                 var entry = JournalEntry.Create(previous, entries.Count + 1L, at, batchId, digest, approverSubject);
@@ -99,7 +104,7 @@ public sealed class FileApprovalJournal(string path) : IApprovalJournal, IApprov
         {
             try
             {
-                var (entries, intact) = Read();
+                var (entries, intact, _) = Read();
                 if (!intact)
                 {
                     return ValueTask.FromResult(JournalCheck.ChainBroken);
@@ -118,7 +123,9 @@ public sealed class FileApprovalJournal(string path) : IApprovalJournal, IApprov
         }
     }
 
-    private (List<JournalEntry> Entries, bool Intact) Read()
+    // A line that does not end with a line feed is the line being written, or one cut short by a crash: it is not part of the chain yet, and
+    // it is not tampering. A complete line that does not parse or does not chain is. CompleteText is set only when there is such a tail.
+    private (List<JournalEntry> Entries, bool Intact, string? CompleteText) Read()
     {
         var entries = new List<JournalEntry>();
         if (Directory.Exists(path))
@@ -127,10 +134,12 @@ public sealed class FileApprovalJournal(string path) : IApprovalJournal, IApprov
         }
         if (!File.Exists(path))
         {
-            return (entries, true);
+            return (entries, true, null);
         }
+        var text = File.ReadAllText(path);
+        var end = text.LastIndexOf('\n') + 1;
         var previous = JournalEntry.Genesis;
-        foreach (var line in File.ReadLines(path).Where(line => line.Length > 0))
+        foreach (var line in text[..end].Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
             var entry = JsonSerializer.Deserialize<JournalEntry>(line, Json);
             if (entry is null
@@ -138,12 +147,12 @@ public sealed class FileApprovalJournal(string path) : IApprovalJournal, IApprov
                 || entry.PreviousHash != previous
                 || entry.Hash != JournalEntry.Compute(previous, entry.Sequence, entry.At, entry.BatchId, entry.Digest, entry.ApproverSubject))
             {
-                return (entries, false);
+                return (entries, false, null);
             }
             entries.Add(entry);
             previous = entry.Hash;
         }
-        return (entries, true);
+        return (entries, true, end < text.Length ? text[..end] : null);
     }
 
     private void EnsureFolder()

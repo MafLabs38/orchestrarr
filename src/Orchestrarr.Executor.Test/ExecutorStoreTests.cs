@@ -114,6 +114,23 @@ public sealed class ExecutorStoreTests : IDisposable
     }
 
     [Fact]
+    public void The_acts_of_the_operators_in_the_executors_file_cannot_be_changed_or_removed()
+    {
+        using var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = Path.Combine(_world.Folder, "executor.db"), Pooling = false }.ToString());
+        connection.Open();
+        _world.Store.RecordAct("enrolled", "alice", null, ExecutorFixture.Start);
+
+        using var update = connection.CreateCommand();
+        update.CommandText = "UPDATE operator_acts SET subject = 'x';";
+        var change = () => update.ExecuteNonQuery();
+        change.Should().Throw<SqliteException>().WithMessage("*append-only*");
+        using var delete = connection.CreateCommand();
+        delete.CommandText = "DELETE FROM operator_acts;";
+        var remove = () => delete.ExecuteNonQuery();
+        remove.Should().Throw<SqliteException>().WithMessage("*append-only*");
+    }
+
+    [Fact]
     [System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
     public void The_file_is_made_for_its_owner_only()
     {

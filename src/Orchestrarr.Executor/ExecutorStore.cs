@@ -109,6 +109,17 @@ public sealed class ExecutorStore : ISecondFactorSecrets, ISecondFactorUseLedger
               PRIMARY KEY (run_id, sequence)
             );
             CREATE INDEX IF NOT EXISTS run_events_by_batch ON run_events (batch_id);
+            CREATE TABLE IF NOT EXISTS operator_acts (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              at TEXT NOT NULL,
+              act TEXT NOT NULL,
+              subject TEXT NOT NULL,
+              detail TEXT NULL
+            );
+            CREATE TRIGGER IF NOT EXISTS operator_acts_are_append_only_update BEFORE UPDATE ON operator_acts
+              BEGIN SELECT RAISE(ABORT, 'the acts of the operators are append-only'); END;
+            CREATE TRIGGER IF NOT EXISTS operator_acts_are_append_only_delete BEFORE DELETE ON operator_acts
+              BEGIN SELECT RAISE(ABORT, 'the acts of the operators are append-only'); END;
             CREATE TRIGGER IF NOT EXISTS run_events_are_append_only_update BEFORE UPDATE ON run_events
               BEGIN SELECT RAISE(ABORT, 'the trace of a run is append-only'); END;
             CREATE TRIGGER IF NOT EXISTS run_events_are_append_only_delete BEFORE DELETE ON run_events
@@ -120,6 +131,35 @@ public sealed class ExecutorStore : ISecondFactorSecrets, ISecondFactorUseLedger
 
     private static DateTimeOffset Parse(string text) =>
         DateTimeOffset.ParseExact(text, TimeFormat, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
+
+    // --- what the operators did on this executor: enrolling, replacing a secret, giving and revoking a delegation (never a secret or a code)
+
+    public void RecordAct(string act, string subject, string? detail, DateTimeOffset at)
+    {
+        using var connection = Connect();
+        using var command = connection.CreateCommand();
+        command.CommandText = "INSERT INTO operator_acts (at, act, subject, detail) VALUES ($at, $act, $subject, $detail);";
+        command.Parameters.AddWithValue("$at", Format(at));
+        command.Parameters.AddWithValue("$act", act);
+        command.Parameters.AddWithValue("$subject", subject);
+        command.Parameters.AddWithValue("$detail", (object?)detail ?? DBNull.Value);
+        command.ExecuteNonQuery();
+    }
+
+    public IReadOnlyList<(DateTimeOffset At, string Act, string Subject, string? Detail)> Acts(int limit)
+    {
+        using var connection = Connect();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT at, act, subject, detail FROM operator_acts ORDER BY id DESC LIMIT $limit;";
+        command.Parameters.AddWithValue("$limit", limit);
+        using var reader = command.ExecuteReader();
+        var acts = new List<(DateTimeOffset, string, string, string?)>();
+        while (reader.Read())
+        {
+            acts.Add((Parse(reader.GetString(0)), reader.GetString(1), reader.GetString(2), reader.IsDBNull(3) ? null : reader.GetString(3)));
+        }
+        return acts;
+    }
 
     // --- the second factor
 

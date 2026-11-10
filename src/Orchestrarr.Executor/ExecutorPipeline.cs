@@ -230,10 +230,13 @@ public sealed class DryRunTaskRunner(TaskKind kind) : ITaskRunner
         return ValueTask.FromResult(new TaskOutcome(task.Id, TaskResult.DryRun, what));
     }
 
+    // The shape check guarantees a full-length commit, but a description must never be the thing that fails on a short one
+    private static string Short(string sha) => sha.Length > 8 ? sha[..8] : sha;
+
     private static string Describe(TaskSpec task) => task.Kind switch
     {
-        TaskKind.ValidatePullRequest => $"would validate {task.Repository}#{task.PullRequest} at {task.HeadSha[..8]}: a workshop run with the build, the tests and a regression check",
-        TaskKind.MergePullRequest => $"would merge {task.Repository}#{task.PullRequest} at {task.HeadSha[..8]}, only once validated and with the forge's checks green on this commit",
+        TaskKind.ValidatePullRequest => $"would validate {task.Repository}#{task.PullRequest} at {Short(task.HeadSha)}: a workshop run with the build, the tests and a regression check",
+        TaskKind.MergePullRequest => $"would merge {task.Repository}#{task.PullRequest} at {Short(task.HeadSha)}, only once validated and with the forge's checks green on this commit",
         _ => $"would run {task.Kind}",
     };
 }

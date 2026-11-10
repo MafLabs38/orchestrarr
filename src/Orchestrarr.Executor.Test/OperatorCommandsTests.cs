@@ -119,6 +119,25 @@ public sealed class OperatorCommandsTests : IDisposable
     }
 
     [Fact]
+    public async Task Giving_and_revoking_a_delegation_leave_a_trace_of_who_confirmed_and_what_it_was()
+    {
+        _io.Secrets.Enqueue(_world.CodeAt());
+        await Commands().AddDelegationAsync("alice", TaskKind.ValidatePullRequest, "example/*", 30, 5, Ct);
+        var id = _world.Store.Delegations(includeEnded: true)[0].Id;
+        _world.Time.Advance(TimeSpan.FromSeconds(30));
+        _io.Secrets.Enqueue(_world.CodeAt());
+        await Commands().RevokeDelegationAsync("alice", id, Ct);
+
+        var acts = _world.Store.Acts(10);
+
+        acts.Select(act => act.Act).Should().Equal("delegation-revoked", "delegation-added");
+        acts.Should().OnlyContain(act => act.Subject == "alice");
+        acts[1].Detail.Should().Contain(id.ToString("D")).And.Contain("example/*");
+        Commands().ListActs().Should().Be(0);
+        _io.All.Should().Contain("delegation-added");
+    }
+
+    [Fact]
     public void Nothing_to_list_says_so()
     {
         Commands().ListDelegations();

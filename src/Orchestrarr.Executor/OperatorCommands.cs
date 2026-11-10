@@ -28,7 +28,8 @@ public sealed partial class OperatorCommands(ExecutorStore store, SecondFactorGu
             io.WriteLine("The subject must be the identity the control plane signs the operator in with (letters, digits and . _ - @ : +).");
             return 2;
         }
-        if (!replace && await store.FindAsync(subject, cancellationToken) is not null)
+        var enrolled = await store.FindAsync(subject, cancellationToken) is not null;
+        if (!replace && enrolled)
         {
             io.WriteLine($"{subject} is already enrolled. Use --replace to give them a new secret (their old app stops working).");
             return 1;
@@ -51,6 +52,7 @@ public sealed partial class OperatorCommands(ExecutorStore store, SecondFactorGu
         }
         // The code that confirmed the secret is spent: it will not open anything
         store.Enrol(subject, secret, step, time.GetUtcNow());
+        store.RecordAct(enrolled ? "secret-replaced" : "enrolled", subject, null, time.GetUtcNow());
         io.WriteLine($"{subject} is enrolled.");
         return 0;
     }
@@ -76,6 +78,7 @@ public sealed partial class OperatorCommands(ExecutorStore store, SecondFactorGu
         var now = time.GetUtcNow();
         var delegation = new Delegation(Guid.NewGuid(), subject, kind, repository, now.AddDays(days), quota, now, null);
         store.AddDelegation(delegation);
+        store.RecordAct("delegation-added", subject, $"{delegation.Id:D} {kind} {repository} until {delegation.ExpiresAt:yyyy-MM-dd}, {quota}/day", now);
         io.WriteLine($"Delegation {delegation.Id:D}: {kind} on {repository} until {delegation.ExpiresAt:yyyy-MM-dd}, {quota} tasks a day.");
         return 0;
     }
@@ -86,7 +89,28 @@ public sealed partial class OperatorCommands(ExecutorStore store, SecondFactorGu
         {
             return 1;
         }
-        io.WriteLine(store.RevokeDelegation(id, time.GetUtcNow()) ? $"Delegation {id:D} is revoked." : "No such delegation in force.");
+        var revoked = store.RevokeDelegation(id, time.GetUtcNow());
+        if (revoked)
+        {
+            // The subject is who confirmed with their code, which is not always the owner of the delegation
+            store.RecordAct("delegation-revoked", subject, $"{id:D}", time.GetUtcNow());
+        }
+        io.WriteLine(revoked ? $"Delegation {id:D} is revoked." : "No such delegation in force.");
+        return 0;
+    }
+
+    public int ListActs()
+    {
+        var acts = store.Acts(50);
+        if (acts.Count == 0)
+        {
+            io.WriteLine("Nothing was done yet.");
+            return 0;
+        }
+        foreach (var (at, act, subject, detail) in acts)
+        {
+            io.WriteLine($"{at:yyyy-MM-dd HH:mm:ss}  {act,-18}  {subject}{(detail is null ? string.Empty : "  " + detail)}");
+        }
         return 0;
     }
 

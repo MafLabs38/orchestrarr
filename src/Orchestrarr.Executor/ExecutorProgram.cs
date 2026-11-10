@@ -38,9 +38,10 @@ public static class ExecutorProgram
             {
                 "enroll-operator" => await Commands(options, io).EnrolAsync(Required(named, "subject"), named.ContainsKey("replace"), cancel.Token),
                 "operators" => Commands(options, io).ListOperators(),
+                "acts" => Commands(options, io).ListActs(),
                 "delegations" => await DelegationsAsync(args, named, Commands(options, io), io, cancel.Token),
                 "run" => await HostAsync(options, cancel.Token),
-                _ => Fail(io, "Unknown command. Known: run, enroll-operator, operators, delegations."),
+                _ => Fail(io, "Unknown command. Known: run, enroll-operator, operators, acts, delegations."),
             };
         }
         catch (Exception failure) when (failure is ArgumentException or FormatException or InvalidOperationException)
@@ -55,12 +56,15 @@ public static class ExecutorProgram
         return 2;
     }
 
+    // One definition for the enrolment and for the check, so that the parameters of the codes cannot drift apart
+    private static SecondFactorOptions SecondFactor() => new();
+
     private static OperatorCommands Commands(ExecutorOptions options, IConsoleIo io)
     {
         var store = new ExecutorStore(options.DataPath);
-        var totp = new TotpOptions();
-        var guard = new SecondFactorGuard(store, store, TimeProvider.System, new SecondFactorOptions { Totp = totp });
-        return new OperatorCommands(store, guard, totp, options.Issuer, TimeProvider.System, io);
+        var settings = SecondFactor();
+        var guard = new SecondFactorGuard(store, store, TimeProvider.System, settings);
+        return new OperatorCommands(store, guard, settings.Totp, options.Issuer, TimeProvider.System, io);
     }
 
     private static async Task<int> DelegationsAsync(string[] args, Dictionary<string, string> named, OperatorCommands commands, IConsoleIo io, CancellationToken cancellationToken)
@@ -95,7 +99,7 @@ public static class ExecutorProgram
         builder.Services.AddSingleton(options);
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddSingleton(new ExecutorStore(options.DataPath));
-        builder.Services.AddSingleton(provider => new SecondFactorGuard(provider.GetRequiredService<ExecutorStore>(), provider.GetRequiredService<ExecutorStore>(), provider.GetRequiredService<TimeProvider>(), new SecondFactorOptions()));
+        builder.Services.AddSingleton(provider => new SecondFactorGuard(provider.GetRequiredService<ExecutorStore>(), provider.GetRequiredService<ExecutorStore>(), provider.GetRequiredService<TimeProvider>(), SecondFactor()));
         // With no journal configured the double control has nothing to read, so every batch is refused: that is the safe state
         builder.Services.AddSingleton<IApprovalJournalReader>(new FileApprovalJournal(options.JournalPath.Length > 0 ? options.JournalPath : Path.Combine(AppContext.BaseDirectory, "no-journal.jsonl")));
         builder.Services.AddSingleton<IEnumerable<ITaskRunner>>([new DryRunTaskRunner(TaskKind.ValidatePullRequest), new DryRunTaskRunner(TaskKind.MergePullRequest)]);

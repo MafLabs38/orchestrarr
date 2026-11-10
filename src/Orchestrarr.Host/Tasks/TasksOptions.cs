@@ -37,7 +37,7 @@ public sealed partial class TasksOptions
     public bool? RequireSecondFactor { get; set; }
 
     /// <summary>
-    /// Where the journal of approvals is written, for the double control of the executor. Unset: next to the database when there is one;
+    /// Where the journal of approvals is written, for the double control of the executor. Unset: in a `journal` folder next to the database when there is one;
     /// with no file at all there is no journal, and an executor then refuses every batch.
     /// </summary>
     public string JournalPath { get; set; } = string.Empty;
@@ -93,7 +93,7 @@ public sealed partial class TasksOptions
         {
             return Path.GetFullPath(JournalPath, contentRoot);
         }
-        return storage is SqliteStorage file ? Path.Combine(Path.GetDirectoryName(file.Path) ?? contentRoot, "approvals-journal.jsonl") : null;
+        return storage is SqliteStorage file ? Path.Combine(Path.GetDirectoryName(file.Path) ?? contentRoot, "journal", "approvals-journal.jsonl") : null;
     }
 }
 

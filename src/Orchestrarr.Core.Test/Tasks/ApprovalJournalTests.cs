@@ -85,6 +85,24 @@ public sealed class ApprovalJournalTests : IDisposable
     }
 
     [Fact]
+    public async Task A_last_line_cut_short_by_a_crash_is_not_tampering_and_is_dropped_by_the_next_approval()
+    {
+        var journal = new FileApprovalJournal(File);
+        var first = Guid.NewGuid();
+        await journal.TryAppendAsync(first, "digest-0", "alice", Now, Ct);
+        await System.IO.File.AppendAllTextAsync(File, "{\"sequence\":2,\"at\":\"2026-11-09T12:0", Ct);
+
+        (await journal.CheckAsync(first, "digest-0", Ct)).Should().Be(JournalCheck.Found, "the chain up to the last complete line is intact");
+        (await journal.CheckAsync(Guid.NewGuid(), "digest-x", Ct)).Should().Be(JournalCheck.NotFound);
+        var second = Guid.NewGuid();
+        (await journal.TryAppendAsync(second, "digest-1", "alice", Now, Ct)).Should().BeTrue();
+
+        (await journal.CheckAsync(second, "digest-1", Ct)).Should().Be(JournalCheck.Found);
+        (await journal.CheckAsync(first, "digest-0", Ct)).Should().Be(JournalCheck.Found);
+        (await System.IO.File.ReadAllLinesAsync(File, Ct)).Should().HaveCount(2, "the fragment is gone");
+    }
+
+    [Fact]
     public async Task A_second_journal_on_the_same_file_reads_what_the_first_wrote()
     {
         var id = Guid.NewGuid();
