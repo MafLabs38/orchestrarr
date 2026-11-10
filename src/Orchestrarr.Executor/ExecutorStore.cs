@@ -55,6 +55,19 @@ public sealed class ExecutorStore : ISecondFactorSecrets, ISecondFactorUseLedger
         return connection;
     }
 
+    // SQLite may already have ended the transaction (busy, full disk, I/O error): a rollback that fails must not hide the failure it follows
+    private static void TryRollback(SqliteConnection connection)
+    {
+        try
+        {
+            Run(connection, "ROLLBACK;");
+        }
+        catch (SqliteException)
+        {
+            // Nothing is left to roll back
+        }
+    }
+
     private static void Run(SqliteConnection connection, string sql)
     {
         using var command = connection.CreateCommand();
@@ -198,7 +211,7 @@ public sealed class ExecutorStore : ISecondFactorSecrets, ISecondFactorUseLedger
         }
         catch
         {
-            Run(connection, "ROLLBACK;");
+            TryRollback(connection);
             throw;
         }
     }
@@ -323,7 +336,7 @@ public sealed class ExecutorStore : ISecondFactorSecrets, ISecondFactorUseLedger
             }
             if (used + count > quota)
             {
-                Run(connection, "ROLLBACK;");
+                TryRollback(connection);
                 return false;
             }
             using (var command = connection.CreateCommand())
@@ -339,7 +352,7 @@ public sealed class ExecutorStore : ISecondFactorSecrets, ISecondFactorUseLedger
         }
         catch
         {
-            Run(connection, "ROLLBACK;");
+            TryRollback(connection);
             throw;
         }
     }

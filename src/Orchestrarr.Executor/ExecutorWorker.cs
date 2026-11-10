@@ -10,7 +10,7 @@ namespace Orchestrarr.Executor;
 /// </summary>
 public sealed class ExecutorWorker(IControlPlane controlPlane, ExecutorPipeline pipeline, ExecutorStore store, ExecutorOptions options, TimeProvider time, ILogger<ExecutorWorker> logger) : BackgroundService
 {
-    private (Guid BatchId, PipelineResult Result)? _unreported;
+    private Unreported? _unreported;
 
     private const int EventsPerRequest = 100;
 
@@ -46,7 +46,7 @@ public sealed class ExecutorWorker(IControlPlane controlPlane, ExecutorPipeline 
         if (_unreported is { } pending)
         {
             // A report that could not be sent comes before anything else; if this fails again it is kept for the next turn
-            await ReportAsync(pending.BatchId, pending.Result, cancellationToken);
+            await ReportAsync(pending, cancellationToken);
             _unreported = null;
         }
 
@@ -70,28 +70,42 @@ public sealed class ExecutorWorker(IControlPlane controlPlane, ExecutorPipeline 
         var result = await pipeline.RunAsync(delivery, options.IsLocallyStopped, cancellationToken);
         logger.LogInformation("Batch {Batch} ended {State}", delivery.Batch.Id, result.Outcome.Final);
         // The batch is registered as seen: it cannot be run again, so what became of it is kept until the control plane has been told
-        _unreported = (delivery.Batch.Id, result);
-        await ReportAsync(delivery.Batch.Id, result, cancellationToken);
+        _unreported = new Unreported(delivery.Batch.Id, result);
+        await ReportAsync(_unreported, cancellationToken);
         _unreported = null;
         return true;
     }
 
-    private async Task ReportAsync(Guid batchId, PipelineResult result, CancellationToken cancellationToken)
+    // An answer that is not Ok is final (the control plane does not know the batch, or it is not this executor's, or the lines do not follow):
+    // sending again would change nothing. Only a call that fails is kept for the next turn, and the lines already accepted are not sent twice.
+    private async Task ReportAsync(Unreported report, CancellationToken cancellationToken)
     {
-        for (var offset = 0; offset < result.Events.Count; offset += EventsPerRequest)
+        var events = report.Result.Events;
+        while (report.Sent < events.Count)
         {
-            var sent = await controlPlane.AppendEventsAsync(batchId, [.. result.Events.Skip(offset).Take(EventsPerRequest)], cancellationToken);
+            var chunk = events.Skip(report.Sent).Take(EventsPerRequest).ToList();
+            var sent = await controlPlane.AppendEventsAsync(report.BatchId, chunk, cancellationToken);
             if (sent != QueueResult.Ok)
             {
-                logger.LogError("The control plane refused the trace of {Batch}: {Result}", batchId, sent);
+                logger.LogError("The control plane refused the trace of {Batch}: {Result}", report.BatchId, sent);
                 break;
             }
+            report.Sent += chunk.Count;
         }
-        var completed = await controlPlane.CompleteAsync(batchId, result.Outcome, cancellationToken);
+        var completed = await controlPlane.CompleteAsync(report.BatchId, report.Result.Outcome, cancellationToken);
         if (completed != QueueResult.Ok)
         {
-            logger.LogError("The control plane did not accept the end of {Batch}: {Result}", batchId, completed);
+            logger.LogError("The control plane did not accept the end of {Batch}: {Result}", report.BatchId, completed);
         }
+    }
+
+    private sealed class Unreported(Guid batchId, PipelineResult result)
+    {
+        public Guid BatchId { get; } = batchId;
+
+        public PipelineResult Result { get; } = result;
+
+        public int Sent { get; set; }
     }
 
     private ExecutorHello Hello() => new(
