@@ -83,7 +83,7 @@ public sealed class AccountServiceTests
 
         harness.Sessions.AccountOf(mine).Should().Be(account.Id);
         harness.Sessions.AccountOf(stolen).Should().BeNull();
-        harness.Audit.Events.Should().Contain(entry => entry.Action == AccountEvents.AccountPasswordChanged);
+        harness.Audit.Events.Should().Contain(entry => entry.Action == AccountEvents.AccountOwnSignInChanged);
     }
 
     [Fact]

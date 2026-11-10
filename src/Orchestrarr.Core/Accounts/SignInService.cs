@@ -87,12 +87,12 @@ public sealed class SignInService
     {
         var account = _accounts.Existing(id);
         var budget = PasswordCheckKey(account.Name);
-        Reserve(budget, isAccount: true, account, AccountEvents.PasswordLocked);
+        Reserve(budget, isAccount: true, account, AccountEvents.OwnChangeLocked);
         var credentials = _accounts.GetCredentials(account.Name);
         if (credentials?.PasswordHash is null || password.Length > PasswordPolicy.MaxLength
             || _hasher.VerifyHashedPassword(account, credentials.PasswordHash, password) == PasswordVerificationResult.Failed)
         {
-            _audit.Record(account.Subject, AccountEvents.PasswordVerifyFailed, account.Name);
+            _audit.Record(account.Subject, AccountEvents.OwnChangeRefused, account.Name);
             return false;
         }
 
@@ -183,16 +183,16 @@ public static class AccountEvents
     public const string LoginSucceeded = "login.succeeded";
     public const string LoginFailed = "login.failed";
     public const string LoginLocked = "login.locked";
-    public const string PasswordLocked = "password.locked";
-    public const string PasswordVerifyFailed = "password.verify-failed";
+    public const string OwnChangeLocked = "password.locked";
+    public const string OwnChangeRefused = "password.verify-failed";
     public const string AccountCreated = "account.created";
     public const string AccountRoleChanged = "account.role-changed";
     public const string AccountEnabled = "account.enabled";
     public const string AccountDisabled = "account.disabled";
-    public const string AccountPasswordChanged = "account.password-changed";
+    public const string AccountOwnSignInChanged = "account.password-changed";
     public const string AccountReset = "account.reset";
     public const string AccountDeleted = "account.deleted";
 
     /// <summary>The failures: anybody can provoke them, so they have the smaller share of a bounded trail.</summary>
-    public static bool IsFailure(string name) => name is LoginFailed or LoginLocked or PasswordLocked or PasswordVerifyFailed;
+    public static bool IsFailure(string name) => name is LoginFailed or LoginLocked or OwnChangeLocked or OwnChangeRefused;
 }

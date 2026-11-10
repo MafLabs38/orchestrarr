@@ -90,7 +90,7 @@ public sealed class AccountService(IAccountStore accounts, IAccountAudit audit, 
 
         throttle.Succeeded(account.Name);
         throttle.Succeeded(SignInService.PasswordCheckKey(account.Name));
-        audit.Record(actor, AccountEvents.AccountPasswordChanged, account.Name);
+        audit.Record(actor, AccountEvents.AccountOwnSignInChanged, account.Name);
     }
 
     /// <summary>Break-glass, for the day nobody can sign in: sets the password, enables the account, lifts its lockout and ends its sessions.</summary>
