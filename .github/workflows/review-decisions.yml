@@ -25,9 +25,8 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      - name: The tests of the checker
-        working-directory: tools/review-decisions
-        run: python3 -I -m unittest -q
+      # The tests of the checker run in the repository's own test lane, never here: nothing of the pull request is executed before the base
+      # branch's checker, which reads text only.
       # The checker and the list of approvers are read from the base branch: a pull request cannot approve itself by editing them.
       - name: Check the decisions
         env:

@@ -28,7 +28,7 @@ Severity scales differ per agent: map them to blocker / critical / high / major 
 
 ## What the agents do with the table
 
-The agents read the register (`docs/review-decisions/`) and do not raise again a finding that an entry already answers, unless the code changed so that the reason no longer holds. A serious entry without the maintainer's approval link is not trusted: the agent raises it again. The register, the checker (`tools/review-decisions/check.py`), the approvers file and the agents' instructions are in the maintainer's tier: the author does not merge changes to them alone.
+The agents read the register (`docs/review-decisions/`) and do not raise again a finding that an entry already answers, unless the code changed so that the reason no longer holds. A serious entry without the maintainer's approval link is not trusted: the agent raises it again. The checker (`tools/review-decisions/check.py`), the approvers file, the job and the agents' instructions are in the maintainer's tier: the author does not merge changes to them alone. The entries are the author's to write; the maintainer's approval is a comment on the PR that names the finding ("OK to decline R-12-3").
 
 ## Rules of thumb
 

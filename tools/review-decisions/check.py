@@ -17,7 +17,7 @@ FOLDER = "docs/review-decisions"
 GRAVE = {"blocker", "critical", "high", "major"}
 LEVELS = GRAVE | {"medium", "minor", "low"}
 DECISIONS = {"fixed", "declined", "deferred"}
-HEADING = re.compile(r"^## (R-\d+-\d+) \| ([a-z-]+) \| ([a-z]+) \| ([a-z]+)\s*$")
+HEADING = re.compile(r"^## (R-\d+-\d+) \| (test|quality|security|architecture|spec|codeql|sonar) \| ([a-z]+) \| ([a-z]+)\s*$")
 FIELD = re.compile(r"^- \*\*(Finding|Where|Reason|Approved)\*\*: (.*)$")
 COMMENT_URL = re.compile(r"^https://github\.com/([\w.-]+)/([\w.-]+)/(?:pull|issues)/\d+#issuecomment-(\d+)$")
 
@@ -41,7 +41,7 @@ def parse(text):
 
 def check_entry(entry, fetch_comment, approvers, repository, pr_number):
     """The problems of one entry. `fetch_comment(owner, repo, id)` gives (login of the comment's author, number of the issue or pull request
-    it is on), or None. The approval must be on this pull request: a comment of the maintainer elsewhere approves nothing here."""
+    it is on, its text), or None. The approval must be on this pull request: a comment of the maintainer elsewhere approves nothing here."""
     name, fields, problems = entry["id"], entry["fields"], []
     if entry["level"] not in LEVELS:
         problems.append(f"{name}: the level is one of {', '.join(sorted(LEVELS))}")
@@ -69,9 +69,11 @@ def check_entry(entry, fetch_comment, approvers, repository, pr_number):
         if found is None:
             problems.append(f"{name}: the approving comment cannot be read")
         else:
-            author, on = found
+            author, on, text = found
             if author.lower() not in approvers:
                 problems.append(f"{name}: the comment is by '{author}', who is not an approver")
+            if name not in text:
+                problems.append(f"{name}: the approving comment must name the finding ('OK to decline {name}'): a comment that does not is no approval of it")
             if str(on) != str(pr_number):
                 problems.append(f"{name}: the approving comment is on #{on}, not on this pull request (#{pr_number})")
     return problems
@@ -91,7 +93,7 @@ def github_comment(token):
         try:
             with urllib.request.urlopen(request, timeout=20) as response:
                 data = json.load(response)
-            return data["user"]["login"], int(data["issue_url"].rsplit("/", 1)[1])
+            return data["user"]["login"], int(data["issue_url"].rsplit("/", 1)[1]), data.get("body") or ""
         except (urllib.error.URLError, TimeoutError, ValueError, KeyError, TypeError):
             return None
 
@@ -101,7 +103,8 @@ def github_comment(token):
 def changed_files(base):
     out = subprocess.run(["git", "diff", "--name-only", "--no-renames", "--diff-filter=AM", f"origin/{base}...HEAD", "--", FOLDER],
                          check=True, capture_output=True, text=True).stdout
-    return [f for f in out.splitlines() if f.endswith(".md") and not f.endswith("README.md")]
+    # Only <number>.md files are entries; any other markdown file in the folder is refused by main(), so that nothing escapes the check
+    return [f for f in out.splitlines() if f.endswith(".md") and os.path.basename(f) != "README.md"]
 
 
 def main():
@@ -113,6 +116,9 @@ def main():
     approvers = read_approvers(".github/review-approvers")
     fetch, failures, count = github_comment(token), [], 0
     for path in changed_files(base):
+        if not re.fullmatch(r"\d+\.md", os.path.basename(path)):
+            failures.append(f"{path}: a file of the register is named <pull request number>.md")
+            continue
         with open(path, encoding="utf-8") as handle:
             entries, problems = parse(handle.read())
         failures += [f"{path}: {p}" for p in problems]

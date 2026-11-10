@@ -65,6 +65,8 @@ jobs:
           cache: yarn
           cache-dependency-path: frontend/yarn.lock
       - run: dotnet format Orchestrarr.slnx --verify-no-changes
+      - run: python3 -I -m unittest -q
+        working-directory: tools/review-decisions
       - run: yarn install --frozen-lockfile
         working-directory: frontend
       - run: yarn lint

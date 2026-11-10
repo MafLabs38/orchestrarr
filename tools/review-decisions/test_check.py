@@ -13,8 +13,8 @@ def entry(level="high", decision="declined", **fields):
     return {"id": "R-7-1", "agent": "security", "level": level, "decision": decision, "fields": base, "line": 1}
 
 
-def problems(item, author="maintainer", on=7):
-    return check.check_entry(item, lambda *_: None if author is None else (author, on), APPROVERS, REPO, 7)
+def problems(item, author="maintainer", on=7, text="OK to decline R-7-1"):
+    return check.check_entry(item, lambda *_: None if author is None else (author, on, text), APPROVERS, REPO, 7)
 
 
 class CheckEntry(unittest.TestCase):
@@ -40,6 +40,16 @@ class CheckEntry(unittest.TestCase):
 
     def test_the_comment_must_be_on_this_pull_request(self):
         self.assertTrue(problems(entry("high", Approved=URL), on=12))
+
+    def test_the_comment_must_name_the_finding(self):
+        self.assertTrue(problems(entry("high", Approved=URL), text="please fix R-7-2"))
+        self.assertTrue(problems(entry("high", Approved=URL), text="looks good to me"))
+
+    def test_the_agent_is_one_of_the_known_sources(self):
+        _, found = check.parse("## R-7-1 | someone | high | declined\n")
+        self.assertEqual(len(found), 1)
+        _, found = check.parse("## R-7-1 | codeql | high | fixed\n")
+        self.assertEqual(found, [])
 
     def test_an_unreadable_answer_is_a_clean_problem(self):
         self.assertTrue(problems(entry("high", Approved=URL), author=None))
