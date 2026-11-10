@@ -334,6 +334,31 @@ public sealed class ExecutorPipelineTests : IDisposable
         result.Events.Should().NotContain(line => line.Type == RunEvents.TaskDryRun && line.TaskId == batch.Tasks[1].Id, "the merge did not run after the stop");
     }
 
+    [Fact]
+    public async Task An_executor_set_not_to_ask_for_the_code_runs_a_batch_without_one_but_still_checks_the_rest()
+    {
+        var batch = await _world.Approved(ExecutorFixture.Batch());
+        var pipeline = _world.Pipeline(requireSecondFactor: false);
+
+        var result = await Run(batch, null, pipeline: pipeline);
+
+        result.Outcome.Final.Should().Be(BatchState.Done);
+        result.Events.Should().Contain(line => line.Type == RunEvents.SecondFactorChecked && line.Detail!.Contains("not required", StringComparison.Ordinal));
+        pipeline.SecondFactorRequired.Should().BeFalse();
+        var rogue = ExecutorFixture.Batch();
+        (await Run(rogue, null, pipeline: pipeline)).Outcome.Refusal.Should().Be(RunRefusal.JournalMismatch, "the double control does not depend on the code");
+    }
+
+    [Fact]
+    public void The_code_cannot_be_switched_off_on_an_executor_with_a_runner_that_is_not_a_dry_run()
+    {
+        var build = () => _world.Pipeline([new FailingRunner(TaskKind.ValidatePullRequest)], requireSecondFactor: false);
+
+        build.Should().Throw<InvalidOperationException>().WithMessage("*dry run*");
+        _world.Pipeline([new DryRunTaskRunner(TaskKind.ValidatePullRequest)], requireSecondFactor: false).SecondFactorRequired.Should().BeFalse();
+        _world.Pipeline([new FailingRunner(TaskKind.ValidatePullRequest)]).SecondFactorRequired.Should().BeTrue();
+    }
+
     private sealed class StoppingRunner(TaskKind kind, Action engage) : ITaskRunner
     {
         public TaskKind Kind => kind;

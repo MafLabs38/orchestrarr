@@ -227,6 +227,19 @@ public sealed class ExecutorApiTests : IDisposable
         seen.GetProperty("repositories").EnumerateArray().Select(r => r.GetString()).Should().Equal("example/*");
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task The_status_shows_whether_an_executor_checks_the_code_as_it_said_in_its_hello(bool checksTheCode)
+    {
+        using var factory = Factory();
+        await Executor(factory).PostAsJsonAsync("/api/v1/executor/claim", new ClaimRequest(Hello with { SecondFactorRequired = checksTheCode }), ExecutorWire.Json, Ct);
+
+        var executors = (await Json(await factory.CreateClient().GetAsync("/api/v1/system/status", Ct))).GetProperty("executors");
+
+        executors.EnumerateArray().Single().GetProperty("secondFactorRequired").GetBoolean().Should().Be(checksTheCode);
+    }
+
     // --- the real executor against the real control plane
 
     private (ExecutorStore Store, ExecutorWorker Worker) RealExecutor(ForgeApiFactory factory, string name = "executor-1")

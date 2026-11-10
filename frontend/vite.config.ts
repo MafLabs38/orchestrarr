@@ -17,6 +17,7 @@ export default defineConfig({
       Approvals: src('Approvals'),
       Decisions: src('Decisions'),
       Helpers: src('Helpers'),
+      Options: src('Options'),
       System: src('System'),
       Runs: src('Runs'),
       Utilities: src('Utilities'),

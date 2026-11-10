@@ -1,6 +1,7 @@
 using System.Threading.RateLimiting;
 using Orchestrarr.Core.Approvals;
 using Orchestrarr.Core.Launch;
+using Orchestrarr.Core.Settings;
 using Orchestrarr.Core.Tasks;
 using Orchestrarr.Core.WorkItems;
 using Orchestrarr.Host.Storage;
@@ -22,7 +23,7 @@ internal static class ApprovalsServiceCollectionExtensions
     /// Approving a decision card: the grants, the queue, the trail, the global stop and the service, in a SQLite file or in memory. The same
     /// instance answers to each interface it implements, so that the routes and the service see one trail and one stop.
     /// </summary>
-    public static IServiceCollection AddApprovals(this IServiceCollection services, ApprovalsOptions options, IReadOnlyList<PowerGrant> grants, IStorageSettings storage, TasksSettings tasks)
+    public static IServiceCollection AddApprovals(this IServiceCollection services, ApprovalsOptions options, IReadOnlyList<PowerGrant> grants, IStorageSettings storage, TasksSettings tasks, OptionsSettings? optionsSettings = null)
     {
         services
             .AddApprovingRateLimit(options)
@@ -30,6 +31,9 @@ internal static class ApprovalsServiceCollectionExtensions
             .AddSingleton(storage)
             .AddSingleton(tasks)
             .AddSingleton(tasks.Options)
+            .AddSingleton(optionsSettings ?? OptionsSettings.Locked)
+            .AddSingleton<OptionsService>()
+            .AddSingleton<ISecondFactorPolicy>(provider => provider.GetRequiredService<OptionsService>())
             .AddSingleton<ExecutorRegistry>()
             .AddSingleton<IApprovalJournal>(_ => tasks.JournalPath is { } journal ? new FileApprovalJournal(journal) : new NullApprovalJournal())
             .AddSingleton<IPowerPolicy>(new ConfiguredPowerPolicy(grants))
@@ -56,7 +60,8 @@ internal static class ApprovalsServiceCollectionExtensions
             provider.GetRequiredService<TimeProvider>(),
             provider.GetRequiredService<IApprovalLedger>(),
             provider.GetRequiredService<IApprovalJournal>(),
-            provider.GetRequiredService<TaskOptions>()));
+            provider.GetRequiredService<TaskOptions>(),
+            provider.GetRequiredService<ISecondFactorPolicy>()));
     }
 
     private static IServiceCollection AddApprovingRateLimit(this IServiceCollection services, ApprovalsOptions options) =>
@@ -85,7 +90,8 @@ internal static class ApprovalsServiceCollectionExtensions
             .AddSingleton<IKillSwitch>(provider => provider.GetRequiredService<SqliteKillSwitch>())
             .AddSingleton(provider => new SqliteAuditLog(provider.GetRequiredService<SqliteDatabase>(), auditCapacity, provider.GetService<ILogger<SqliteAuditLog>>()))
             .AddSingleton<IAuditLog>(provider => provider.GetRequiredService<SqliteAuditLog>())
-            .AddSingleton<IAuditSink>(provider => provider.GetRequiredService<SqliteAuditLog>());
+            .AddSingleton<IAuditSink>(provider => provider.GetRequiredService<SqliteAuditLog>())
+            .AddSingleton<IOptionStore>(provider => new SqliteOptionStore(provider.GetRequiredService<SqliteDatabase>()));
     }
 
     private static void AddMemoryStorage(this IServiceCollection services, bool startEngaged, Capacities capacities) =>
@@ -103,7 +109,8 @@ internal static class ApprovalsServiceCollectionExtensions
             .AddSingleton<IAuditSink>(provider => provider.GetRequiredService<InMemoryAuditLog>())
             .AddSingleton(provider => new InMemoryKillSwitch(provider.GetRequiredService<InMemoryAuditLog>(), startEngaged))
             .AddSingleton<IKillSwitchControl>(provider => provider.GetRequiredService<InMemoryKillSwitch>())
-            .AddSingleton<IKillSwitch>(provider => provider.GetRequiredService<InMemoryKillSwitch>());
+            .AddSingleton<IKillSwitch>(provider => provider.GetRequiredService<InMemoryKillSwitch>())
+            .AddSingleton<IOptionStore, InMemoryOptionStore>();
 
     // The two bounds, decided once for the kind of storage there is
     private readonly record struct Capacities(int Queue, int Audit);

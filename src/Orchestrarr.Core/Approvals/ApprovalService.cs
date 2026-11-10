@@ -20,7 +20,8 @@ public sealed class ApprovalService(
     TimeProvider time,
     IApprovalLedger ledger,
     IApprovalJournal journal,
-    TaskOptions taskOptions) : IDisposable
+    TaskOptions taskOptions,
+    ISecondFactorPolicy? secondFactor = null) : IDisposable
 {
     // What this vertical records. The other steps are shown and can be granted, but run with later verticals.
     private static readonly StepKind[] Supported = [StepKind.Validate, StepKind.MergePullRequests];
@@ -68,7 +69,7 @@ public sealed class ApprovalService(
             return ([], null, ApprovalRefusal.NotAnOperator);
         }
         // Whether the code is right is for the executor to say: here only that there is one, so that nobody is queued who cannot be checked
-        if (taskOptions.RequireSecondFactor && !IsCodeShaped(secondFactorCode))
+        if ((secondFactor?.Required ?? taskOptions.RequireSecondFactor) && !IsCodeShaped(secondFactorCode))
         {
             return ([], null, ApprovalRefusal.SecondFactorRequired);
         }

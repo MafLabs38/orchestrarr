@@ -60,6 +60,19 @@ public sealed class ExecutorWorkerTests : IDisposable
         await _controlPlane.Received(2).ClaimAsync(Arg.Any<ExecutorHello>(), Arg.Any<CancellationToken>());
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task The_hello_says_whether_this_executor_checks_the_code(bool requires)
+    {
+        var worker = new ExecutorWorker(_controlPlane, _world.Pipeline(requireSecondFactor: requires), _world.Store, new ExecutorOptions { Name = "executor-1", Rights = _world.Rights }, _world.Time, NullLogger<ExecutorWorker>.Instance);
+        _controlPlane.ClaimAsync(Arg.Any<ExecutorHello>(), Arg.Any<CancellationToken>()).Returns(new ClaimResult(ClaimStatus.Nothing));
+
+        await worker.StepAsync(Ct);
+
+        await _controlPlane.Received(1).ClaimAsync(Arg.Is<ExecutorHello>(hello => hello.SecondFactorRequired == requires), Ct);
+    }
+
     [Fact]
     public async Task With_no_stop_file_configured_a_STOP_file_next_to_the_executors_own_file_stops_it()
     {

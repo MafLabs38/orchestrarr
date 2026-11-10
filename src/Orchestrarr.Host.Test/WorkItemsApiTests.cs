@@ -90,7 +90,7 @@ public sealed class WorkItemsApiTests : IClassFixture<SampleApiFactory>
         var writes = withMethods.Where(e => e.Metadata.GetMetadata<HttpMethodMetadata>()!.HttpMethods.Any(m => m != HttpMethods.Get))
             .Select(e => $"{string.Join(',', e.Metadata.GetMetadata<HttpMethodMetadata>()!.HttpMethods)} {e.RoutePattern.RawText}");
         writes.Should().BeEquivalentTo(
-            "POST /api/v1/approvals", "PUT /api/v1/safety/kill-switch",
+            "POST /api/v1/approvals", "PUT /api/v1/safety/kill-switch", "PUT /api/v1/options/{id}",
             "POST /api/v1/auth/login", "POST /api/v1/auth/logout", "POST /api/v1/auth/password",
             "POST /api/v1/accounts/", "PUT /api/v1/accounts/{id:guid}", "POST /api/v1/accounts/{id:guid}/password", "DELETE /api/v1/accounts/{id:guid}");
         routes.Except(withMethods).Should().ContainSingle().Which.RoutePattern.RawText.Should().Contain("{*path");

@@ -196,7 +196,7 @@ public sealed class SqliteDatabase : IDisposable
     // A new step is appended here, and SchemaVersion goes up with it.
     private delegate void Step(SqliteConnection connection, bool created, bool startEngagedWhenNew, TimeProvider time);
 
-    private static readonly Step[] Steps = [CreateVersion1, CreateVersion2, CreateVersion3];
+    private static readonly Step[] Steps = [CreateVersion1, CreateVersion2, CreateVersion3, CreateVersion4];
 
     private static int SchemaVersion => Steps.Length;
 
@@ -370,6 +370,19 @@ public sealed class SqliteDatabase : IDisposable
               expires_at TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS sessions_by_account ON sessions (account_id);
+            """);
+    }
+
+    // Version 3 to 4: the options an operator can switch (ADR 0023), with when and by whom each was last set
+    private static void CreateVersion4(SqliteConnection connection, bool created, bool startEngagedWhenNew, TimeProvider time)
+    {
+        Run(connection, """
+            CREATE TABLE IF NOT EXISTS options (
+              id TEXT NOT NULL PRIMARY KEY,
+              value INTEGER NOT NULL,
+              changed_at TEXT NOT NULL,
+              changed_by TEXT NOT NULL
+            );
             """);
     }
 

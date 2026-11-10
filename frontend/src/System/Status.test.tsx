@@ -272,6 +272,7 @@ describe('Status', () => {
                 dailyQuota: 5,
               },
             ],
+            secondFactorRequired: true,
           },
         ],
       },
@@ -284,6 +285,30 @@ describe('Status', () => {
     expect(screen.getByText('Repositories: example/*')).toBeInTheDocument();
     expect(screen.getByText(/Merge on example\/\* until 2026-12-09, 5 a day/)).toBeInTheDocument();
     expect(screen.getByText('A code from your authenticator app, checked by the executor')).toBeInTheDocument();
+  });
+
+  it('says that an executor does not check the code of the authenticator (development)', async () => {
+    stubApi({
+      '/api/v1/system/status': {
+        ...status(),
+        executors: [
+          {
+            name: 'executor-1',
+            version: '1',
+            lastSeen: '2026-11-09T12:00:00Z',
+            connected: true,
+            kinds: [],
+            repositories: [],
+            delegations: [],
+            secondFactorRequired: false,
+          },
+        ],
+      },
+    });
+
+    renderWithProviders(<Status />);
+
+    expect(await screen.findByText('does not check the code (development)')).toBeInTheDocument();
   });
 
   it('says that an executor not seen for a while is not connected', async () => {
@@ -299,6 +324,7 @@ describe('Status', () => {
             kinds: [],
             repositories: [],
             delegations: [],
+            secondFactorRequired: true,
           },
         ],
       },

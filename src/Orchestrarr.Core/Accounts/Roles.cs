@@ -21,7 +21,10 @@ public static class Permissions
     /// <summary>Creating, changing and removing accounts, and resetting their passwords.</summary>
     public const string AccountsManage = "accounts.manage";
 
-    public static IReadOnlyList<string> All { get; } = [FleetRead, AuditRead, ApprovalsCreate, StopControl, AccountsManage];
+    /// <summary>Changing the options of the product, including those that lower its security where the host allows it.</summary>
+    public const string OptionsManage = "options.manage";
+
+    public static IReadOnlyList<string> All { get; } = [FleetRead, AuditRead, ApprovalsCreate, StopControl, AccountsManage, OptionsManage];
 }
 
 /// <summary>A named set of permissions. The built-in roles are in code, not stored.</summary>

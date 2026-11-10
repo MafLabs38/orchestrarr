@@ -1,6 +1,6 @@
-import { screen } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 
-import { renderWithProviders, stubApi, stubPendingApi } from 'testUtils';
+import { renderWithProviders, status, stubApi, stubPendingApi } from 'testUtils';
 
 import Page from './Page';
 
@@ -18,6 +18,30 @@ describe('Page', () => {
 
     expect(screen.queryByText('the decisions')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Sign in' })).not.toBeInTheDocument();
+  });
+
+  it('says on every page that the authenticator code is off', async () => {
+    stubApi({ '/api/v1/auth/me': session, '/api/v1/system/status': status({}, { requiresSecondFactor: false }) });
+
+    renderWithProviders(<Page>the decisions</Page>);
+
+    expect(await screen.findByText(/The authenticator code is off/)).toBeInTheDocument();
+    expect(screen.getByText('the decisions')).toBeInTheDocument();
+  });
+
+  it('says nothing about the code when approving asks for it', async () => {
+    const fetchMock = stubApi({
+      '/api/v1/auth/me': session,
+      '/api/v1/system/status': status({}, { requiresSecondFactor: true }),
+    });
+
+    renderWithProviders(<Page>the decisions</Page>);
+
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some(([path]) => String(path) === '/api/v1/system/status')).toBe(true),
+    );
+    await screen.findByText('the decisions');
+    expect(screen.queryByText(/The authenticator code is off/)).not.toBeInTheDocument();
   });
 
   it('shows the sign-in and none of the pages when nobody is signed in', async () => {

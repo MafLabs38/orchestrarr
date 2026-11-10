@@ -113,5 +113,6 @@ public sealed class ExecutorWorker(IControlPlane controlPlane, ExecutorPipeline 
         typeof(ExecutorWorker).Assembly.GetName().Version?.ToString() ?? "0",
         options.Rights.Kinds,
         options.Rights.Repositories,
-        [.. store.Delegations(includeEnded: false, time.GetUtcNow()).Select(delegation => delegation.ToInfo())]);
+        [.. store.Delegations(includeEnded: false, time.GetUtcNow()).Select(delegation => delegation.ToInfo())],
+        pipeline.SecondFactorRequired);
 }

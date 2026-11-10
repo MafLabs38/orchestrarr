@@ -34,8 +34,8 @@ internal sealed class ExecutorFixture : IDisposable
 
     public string Folder => _folder;
 
-    public ExecutorPipeline Pipeline(IEnumerable<ITaskRunner>? runners = null, RightsOptions? rights = null) =>
-        new(Store, Guard, Journal, rights ?? Rights, runners ?? [new DryRunTaskRunner(TaskKind.ValidatePullRequest), new DryRunTaskRunner(TaskKind.MergePullRequest)], Time, "executor-1");
+    public ExecutorPipeline Pipeline(IEnumerable<ITaskRunner>? runners = null, RightsOptions? rights = null, bool requireSecondFactor = true) =>
+        new(Store, Guard, Journal, rights ?? Rights, runners ?? [new DryRunTaskRunner(TaskKind.ValidatePullRequest), new DryRunTaskRunner(TaskKind.MergePullRequest)], Time, "executor-1", requireSecondFactor);
 
     public string CodeAt(int stepOffset = 0) => SecondFactor.TotpMath.Code(Secret, SecondFactor.TotpMath.StepAt(Time.GetUtcNow(), Totp) + stepOffset, Totp);
 

@@ -21,6 +21,9 @@ export default function ExecutorList({ executors }: Readonly<{ executors: Execut
           <Label kind={executor.connected ? kinds.SUCCESS : kinds.WARNING}>
             {executor.connected ? translate('ExecutorConnected') : translate('ExecutorGone')}
           </Label>{' '}
+          {executor.secondFactorRequired ? null : (
+            <Label kind={kinds.WARNING}>{translate('ExecutorNoCodeCheck')}</Label>
+          )}{' '}
           <span className={styles.meta}>
             v{executor.version} · {translate('ExecutorSeen', { time: formatTime(executor.lastSeen) ?? '' })}
           </span>

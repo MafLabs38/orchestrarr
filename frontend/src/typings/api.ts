@@ -149,6 +149,8 @@ export interface ExecutorStatus {
   kinds: TaskKind[];
   repositories: string[];
   delegations: DelegationInfo[];
+  // Whether this executor checks the code of the authenticator (false only in development, with dry runs only)
+  secondFactorRequired: boolean;
 }
 
 // Where the approvals, the trail and the global stop are kept: "sqlite" survives a restart, "memory" does not.
@@ -305,3 +307,13 @@ export type ApprovalError =
   | 'storeFull'
   | 'auditUnavailable'
   | 'tooManyRequests';
+
+// An option of the product (GET /options). "lockedReason" says why it cannot be turned off: the host was not started to allow it, or the configuration fixes it.
+export interface OptionState {
+  id: string;
+  value: boolean;
+  default: boolean;
+  lowersSecurityWhenOff: boolean;
+  canTurnOff: boolean;
+  lockedReason: 'host' | 'configuration' | null;
+}
