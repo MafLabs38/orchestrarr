@@ -12,7 +12,7 @@ namespace Orchestrarr.Host.Test;
 public sealed class ExecutorApiTests : IDisposable
 {
     private const string ShopId = "repository:example/shop";
-    private const string Token = "0123456789abcdef0123456789abcdef0123456789abcdef";
+    private static readonly string Token = new('a', 48);
     private static readonly string Head = new('c', 40);
     private static readonly byte[] Secret = [1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 33, 35, 37, 39];
     private static readonly TotpOptions Shape = new();
@@ -47,10 +47,10 @@ public sealed class ExecutorApiTests : IDisposable
     private static Task<HttpResponseMessage> Approve(HttpClient client, string? code = "123456") =>
         client.PostAsJsonAsync("/api/v1/approvals", new { workItemId = ShopId, steps = new[] { "validate", "mergePullRequests" }, pullRequests = new[] { new { number = 7, headSha = Head } }, secondFactorCode = code }, Ct);
 
-    private static HttpClient Executor(ForgeApiFactory factory, string token = Token)
+    private static HttpClient Executor(ForgeApiFactory factory, string? token = null)
     {
         var client = factory.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token ?? Token);
         return client;
     }
 
@@ -77,7 +77,7 @@ public sealed class ExecutorApiTests : IDisposable
         var client = factory.CreateClient();
         if (token is not null)
         {
-            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token ?? Token);
         }
 
         var response = await client.PostAsJsonAsync("/api/v1/executor/claim", new ClaimRequest(Hello), ExecutorWire.Json, Ct);

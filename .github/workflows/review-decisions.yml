@@ -34,6 +34,10 @@ jobs:
           BASE: ${{ github.base_ref }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          if ! git cat-file -e "origin/$BASE:tools/review-decisions/check.py" 2>/dev/null; then
+            echo "::notice::The base branch has no checker yet: this pull request introduces the review decisions, and the maintainer merges it."
+            exit 0
+          fi
           git show "origin/$BASE:tools/review-decisions/check.py" > "$RUNNER_TEMP/check.py"
           git show "origin/$BASE:.github/review-approvers" > "$RUNNER_TEMP/review-approvers"
           cp "$RUNNER_TEMP/review-approvers" .github/review-approvers
