@@ -39,8 +39,9 @@ def parse(text):
     return entries, problems
 
 
-def check_entry(entry, fetch_comment, approvers, repository):
-    """The problems of one entry. `fetch_comment(owner, repo, id)` gives the login of the comment's author, or None."""
+def check_entry(entry, fetch_comment, approvers, repository, pr_number):
+    """The problems of one entry. `fetch_comment(owner, repo, id)` gives (login of the comment's author, number of the issue or pull request
+    it is on), or None. The approval must be on this pull request: a comment of the maintainer elsewhere approves nothing here."""
     name, fields, problems = entry["id"], entry["fields"], []
     if entry["level"] not in LEVELS:
         problems.append(f"{name}: the level is one of {', '.join(sorted(LEVELS))}")
@@ -64,11 +65,15 @@ def check_entry(entry, fetch_comment, approvers, repository):
     elif f"{match[1]}/{match[2]}".lower() != repository.lower():
         problems.append(f"{name}: the approval is a comment of another repository")
     else:
-        author = fetch_comment(match[1], match[2], match[3])
-        if author is None:
+        found = fetch_comment(match[1], match[2], match[3])
+        if found is None:
             problems.append(f"{name}: the approving comment cannot be read")
-        elif author.lower() not in approvers:
-            problems.append(f"{name}: the comment is by '{author}', who is not an approver")
+        else:
+            author, on = found
+            if author.lower() not in approvers:
+                problems.append(f"{name}: the comment is by '{author}', who is not an approver")
+            if str(on) != str(pr_number):
+                problems.append(f"{name}: the approving comment is on #{on}, not on this pull request (#{pr_number})")
     return problems
 
 
@@ -85,21 +90,26 @@ def github_comment(token):
         )
         try:
             with urllib.request.urlopen(request, timeout=20) as response:
-                return json.load(response)["user"]["login"]
-        except urllib.error.URLError:
+                data = json.load(response)
+            return data["user"]["login"], int(data["issue_url"].rsplit("/", 1)[1])
+        except (urllib.error.URLError, TimeoutError, ValueError, KeyError, TypeError):
             return None
 
     return fetch
 
 
 def changed_files(base):
-    out = subprocess.run(["git", "diff", "--name-only", "--diff-filter=AM", f"origin/{base}...HEAD", "--", FOLDER],
+    out = subprocess.run(["git", "diff", "--name-only", "--no-renames", "--diff-filter=AM", f"origin/{base}...HEAD", "--", FOLDER],
                          check=True, capture_output=True, text=True).stdout
     return [f for f in out.splitlines() if f.endswith(".md") and not f.endswith("README.md")]
 
 
 def main():
     base, repository, token = os.environ["BASE"], os.environ["GITHUB_REPOSITORY"], os.environ.get("GITHUB_TOKEN", "")
+    pr_number = os.environ["PR_NUMBER"]
+    if not token:
+        print("::error title=Review decision::GITHUB_TOKEN is empty: the approving comments cannot be read")
+        return 1
     approvers = read_approvers(".github/review-approvers")
     fetch, failures, count = github_comment(token), [], 0
     for path in changed_files(base):
@@ -108,7 +118,7 @@ def main():
         failures += [f"{path}: {p}" for p in problems]
         for entry in entries:
             count += 1
-            failures += [f"{path}: {p}" for p in check_entry(entry, fetch, approvers, repository)]
+            failures += [f"{path}: {p}" for p in check_entry(entry, fetch, approvers, repository, pr_number)]
     for failure in failures:
         print(f"::error title=Review decision::{failure}")
     print(f"{count} decision(s) checked, {len(failures)} problem(s).")

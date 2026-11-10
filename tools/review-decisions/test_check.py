@@ -13,8 +13,8 @@ def entry(level="high", decision="declined", **fields):
     return {"id": "R-7-1", "agent": "security", "level": level, "decision": decision, "fields": base, "line": 1}
 
 
-def problems(item, author="maintainer"):
-    return check.check_entry(item, lambda *_: author, APPROVERS, REPO)
+def problems(item, author="maintainer", on=7):
+    return check.check_entry(item, lambda *_: None if author is None else (author, on), APPROVERS, REPO, 7)
 
 
 class CheckEntry(unittest.TestCase):
@@ -38,9 +38,40 @@ class CheckEntry(unittest.TestCase):
         self.assertTrue(problems(entry("high", Approved=URL.replace("Org/app", "Org/other"))))
         self.assertTrue(problems(entry("high", Approved="https://example.com/x#issuecomment-1")))
 
+    def test_the_comment_must_be_on_this_pull_request(self):
+        self.assertTrue(problems(entry("high", Approved=URL), on=12))
+
+    def test_an_unreadable_answer_is_a_clean_problem(self):
+        self.assertTrue(problems(entry("high", Approved=URL), author=None))
+
     def test_an_unknown_level_or_decision_is_refused(self):
         self.assertTrue(problems(entry("huge")))
         self.assertTrue(problems(entry("high", "ignored")))
+
+
+class ChangedFiles(unittest.TestCase):
+    def test_a_renamed_and_edited_file_is_still_checked(self):
+        import os, subprocess, tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            def git(*args):
+                subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *args], cwd=folder, check=True, capture_output=True)
+            git("init", "-q", "-b", "main")
+            os.makedirs(os.path.join(folder, check.FOLDER))
+            old = os.path.join(folder, check.FOLDER, "12.md")
+            open(old, "w").write("## R-12-1 | security | low | fixed\n- **Finding**: f\n- **Where**: w\n")
+            git("add", "-A")
+            git("commit", "-q", "-m", "base")
+            git("update-ref", "refs/remotes/origin/main", "HEAD")
+            git("mv", os.path.join(check.FOLDER, "12.md"), os.path.join(check.FOLDER, "36.md"))
+            open(os.path.join(folder, check.FOLDER, "36.md"), "a").write("## R-36-1 | security | high | declined\n- **Finding**: f\n- **Where**: w\n- **Reason**: no reason given here\n")
+            git("add", "-A")
+            git("commit", "-q", "-m", "rename")
+            cwd = os.getcwd()
+            os.chdir(folder)
+            try:
+                self.assertEqual(check.changed_files("main"), [os.path.join(check.FOLDER, "36.md")])
+            finally:
+                os.chdir(cwd)
 
 
 class Parse(unittest.TestCase):

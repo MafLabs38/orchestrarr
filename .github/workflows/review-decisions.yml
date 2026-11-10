@@ -32,6 +32,7 @@ jobs:
       - name: Check the decisions
         env:
           BASE: ${{ github.base_ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if ! git cat-file -e "origin/$BASE:tools/review-decisions/check.py" 2>/dev/null; then

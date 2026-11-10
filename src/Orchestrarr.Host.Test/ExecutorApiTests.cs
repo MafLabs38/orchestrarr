@@ -77,7 +77,7 @@ public sealed class ExecutorApiTests : IDisposable
         var client = factory.CreateClient();
         if (token is not null)
         {
-            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token ?? Token);
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         }
 
         var response = await client.PostAsJsonAsync("/api/v1/executor/claim", new ClaimRequest(Hello), ExecutorWire.Json, Ct);

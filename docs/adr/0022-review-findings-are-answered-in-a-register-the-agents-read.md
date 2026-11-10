@@ -26,6 +26,7 @@ Five review agents read every pull request (and CodeQL and SonarQube read the co
 
 - The agents' noise falls (answered findings are not repeated), and the author keeps the last word on everything that is not serious, so a round no longer chases a cosmetic point.
 - A serious finding cannot be set aside silently: the maintainer sees each one, and the job proves it.
+- An entry answers the same finding at the same place and nothing wider: it is not a standing waiver for a component.
 - The agents still judge differently from one run to the next, since they are models: the register reduces the noise, it does not remove it. It does not replace the author's check of each finding in the code.
-- The protocol is product-independent: its common part (the checker, the job, the README of the register, the instruction for the agents, the user-level skill `review-triage`) lives in the organisation's template repository and is copied into each product; a product adds its own register and ADR.
+- The protocol is product-independent: its common part (the checker, the job, the README of the register, the instruction for the agents, the skill `review-triage`, which is also kept in this repository under `.claude/skills/review-triage/`) lives in the organisation's template repository and is copied into each product; a product adds its own register and ADR.
 - Setting the `review-decisions` job as a required check is a repository setting (`repos/orchestrarr.yaml` of the template repository), done by the maintainer.
