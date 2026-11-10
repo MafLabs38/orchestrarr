@@ -136,13 +136,31 @@ public sealed class OptionsApiTests : IClassFixture<AccountsApiFactory>, IClassF
         (await admin.PutAsJsonAsync($"/api/v1/options/{Id}", new { password = "x" }, Ct)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
-    [Fact]
-    public void The_host_cannot_be_started_in_production_with_the_leave_to_lower_its_security()
+    [Theory]
+    [InlineData("Production")]
+    [InlineData("Staging")]
+    [InlineData("Homelab")]
+    public void The_host_cannot_be_started_outside_development_and_testing_with_the_leave_to_lower_its_security(string environment)
     {
-        var production = () => new SecurityOptionsConfiguration { AllowRelaxingSecurity = true }.Validate(production: true);
+        var start = () => new SecurityOptionsConfiguration { AllowRelaxingSecurity = true }.Validate(environment);
 
-        production.Should().Throw<InvalidOperationException>().WithMessage("*production*");
-        new SecurityOptionsConfiguration { AllowRelaxingSecurity = true }.Validate(production: false).AllowRelaxingSecurity.Should().BeTrue();
-        new SecurityOptionsConfiguration().Validate(production: true).AllowRelaxingSecurity.Should().BeFalse("the default is locked");
+        start.Should().Throw<InvalidOperationException>().WithMessage($"*'{environment}'*");
+        new SecurityOptionsConfiguration().Validate(environment).AllowRelaxingSecurity.Should().BeFalse("the default is locked");
+    }
+
+    [Theory]
+    [InlineData("Development")]
+    [InlineData("Testing")]
+    public void A_development_or_test_host_can_have_the_leave(string environment) =>
+        new SecurityOptionsConfiguration { AllowRelaxingSecurity = true }.Validate(environment).AllowRelaxingSecurity.Should().BeTrue();
+
+    [Fact]
+    public async Task A_locked_host_says_locked_before_it_asks_for_a_password()
+    {
+        using var admin = await Admin(_locked);
+
+        var answer = await Put(admin, false, "not the password");
+
+        answer.StatusCode.Should().Be(HttpStatusCode.Forbidden, "the lock is checked first: a wrong password cannot tell a thief anything on a locked host");
     }
 }

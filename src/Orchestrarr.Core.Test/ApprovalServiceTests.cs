@@ -898,6 +898,29 @@ public sealed class ApprovalServiceTests
     }
 
     [Fact]
+    public async Task The_policy_is_read_at_every_approval_so_that_turning_the_option_off_and_on_takes_effect_at_once()
+    {
+        var forge = new FakeForge { Items = [PullRequest(1, HeadA), PullRequest(2, HeadB)] };
+        var policy = new SwitchablePolicy();
+        var service = new ApprovalService(await CatalogOf(forge), _store, _killSwitch, _audit, _time, new InMemoryApprovalLedger(_store, _audit, _killSwitch), _journal, Tasks, policy);
+        var seen = new[] { new SeenPullRequest(1, HeadA), new SeenPullRequest(2, HeadB) };
+
+        var withCode = await service.ApproveAsync(Operator, ItemId, Both, seen, null, TestContext.Current.CancellationToken);
+        withCode.Refusal.Should().Be(ApprovalRefusal.SecondFactorRequired, "the policy asks for a code");
+
+        policy.Required = false;
+        (await service.ApproveAsync(Operator, ItemId, Both, seen, null, TestContext.Current.CancellationToken)).Recorded.Should().BeTrue("the policy no longer asks for one");
+
+        policy.Required = true;
+        (await service.ApproveAsync(Operator, ItemId, Both, seen, null, TestContext.Current.CancellationToken)).Refusal.Should().Be(ApprovalRefusal.SecondFactorRequired, "the code is asked for again as soon as the option is back on");
+    }
+
+    private sealed class SwitchablePolicy : ISecondFactorPolicy
+    {
+        public bool Required { get; set; } = true;
+    }
+
+    [Fact]
     public async Task A_sandbox_with_no_executor_may_do_without_the_code()
     {
         var forge = new FakeForge { Items = [PullRequest(1, HeadA)] };

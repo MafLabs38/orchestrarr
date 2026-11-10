@@ -42,8 +42,8 @@ if (builder.Environment.IsProduction() && !tasks.Options.RequireSecondFactor)
 {
     throw new InvalidOperationException("Tasks:RequireSecondFactor=false is for tests: in production the approvals carry the code of the authenticator.");
 }
-// What the screen of options may lower, if anything: off unless the host is started with it, and never in production (ADR 0023)
-var optionsSettings = (builder.Configuration.GetSection(SecurityOptionsConfiguration.SectionName).Get<SecurityOptionsConfiguration>() ?? new SecurityOptionsConfiguration()).Validate(builder.Environment.IsProduction());
+// What the screen of options may lower, if anything: off unless the host is started with it, and only in Development and Testing (ADR 0023)
+var optionsSettings = (builder.Configuration.GetSection(SecurityOptionsConfiguration.SectionName).Get<SecurityOptionsConfiguration>() ?? new SecurityOptionsConfiguration()).Validate(builder.Environment.EnvironmentName);
 builder.Services.AddApprovals(approvals, grants, storage, tasks, optionsSettings);
 // The accounts share the database of the approvals, so they come after it; the cookie's keys sit next to the database when there is one
 builder.Services.AddAccounts(auth, storage);

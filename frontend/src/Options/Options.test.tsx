@@ -82,6 +82,34 @@ describe('Options', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Turn off the code' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('That password is not right');
+    expect(screen.getByText('On')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Turn off the code' })).toBeInTheDocument();
+  });
+
+  it('closes the form and forgets the password when cancelled', async () => {
+    stub(admin, [option()]);
+    renderWithProviders(<Options />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Turn off…' }));
+    await userEvent.type(screen.getByLabelText('Your password'), 'typed');
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.queryByLabelText('Your password')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Turn off…' }));
+    expect(screen.getByLabelText('Your password')).toHaveValue('');
+  });
+
+  it('says that the host does not allow it when the server answers so', async () => {
+    stub(admin, [option()], {
+      [`PUT /api/v1/options/${id}`]: new Response(JSON.stringify({ error: 'lockedByHost' }), { status: 403 }),
+    });
+    renderWithProviders(<Options />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Turn off…' }));
+    await userEvent.type(screen.getByLabelText('Your password'), 'the password');
+    await userEvent.click(screen.getByRole('button', { name: 'Turn off the code' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('does not allow lowering security');
   });
 
   it('turns it back on without asking for anything', async () => {

@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 
 import { renderWithProviders, status, stubApi, stubPendingApi } from 'testUtils';
 
@@ -20,17 +20,27 @@ describe('Page', () => {
     expect(screen.queryByRole('button', { name: 'Sign in' })).not.toBeInTheDocument();
   });
 
-  it('says on every page that the authenticator code is off, and says nothing when it is on', async () => {
+  it('says on every page that the authenticator code is off', async () => {
     stubApi({ '/api/v1/auth/me': session, '/api/v1/system/status': status({}, { requiresSecondFactor: false }) });
 
-    const off = renderWithProviders(<Page>the decisions</Page>);
-
-    expect(await screen.findByText(/The authenticator code is off/)).toBeInTheDocument();
-    off.unmount();
-    stubApi({ '/api/v1/auth/me': session, '/api/v1/system/status': status({}, { requiresSecondFactor: true }) });
     renderWithProviders(<Page>the decisions</Page>);
 
-    expect(await screen.findByText('the decisions')).toBeInTheDocument();
+    expect(await screen.findByText(/The authenticator code is off/)).toBeInTheDocument();
+    expect(screen.getByText('the decisions')).toBeInTheDocument();
+  });
+
+  it('says nothing about the code when approving asks for it', async () => {
+    const fetchMock = stubApi({
+      '/api/v1/auth/me': session,
+      '/api/v1/system/status': status({}, { requiresSecondFactor: true }),
+    });
+
+    renderWithProviders(<Page>the decisions</Page>);
+
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some(([path]) => String(path) === '/api/v1/system/status')).toBe(true),
+    );
+    await screen.findByText('the decisions');
     expect(screen.queryByText(/The authenticator code is off/)).not.toBeInTheDocument();
   });
 
