@@ -45,6 +45,22 @@ public sealed class ExecutorWorkerTests : IDisposable
     }
 
     [Fact]
+    public async Task A_result_that_could_not_be_reported_is_sent_again_and_the_batch_is_not_run_twice()
+    {
+        var batch = await _world.Approved(ExecutorFixture.Batch());
+        _controlPlane.ClaimAsync(Arg.Any<ExecutorHello>(), Arg.Any<CancellationToken>()).Returns(new ClaimResult(ClaimStatus.Claimed, new BatchDelivery(batch, _world.CodeAt())), new ClaimResult(ClaimStatus.Nothing));
+        _controlPlane.CompleteAsync(batch.Id, Arg.Any<BatchOutcome>(), Arg.Any<CancellationToken>()).Returns(_ => throw new HttpRequestException("down"), _ => QueueResult.Ok);
+        var worker = Worker();
+
+        var first = async () => await worker.StepAsync(Ct);
+        await first.Should().ThrowAsync<HttpRequestException>();
+        (await worker.StepAsync(Ct)).Should().BeFalse("the second turn only reports and finds nothing to claim");
+
+        await _controlPlane.Received(2).CompleteAsync(batch.Id, Arg.Is<BatchOutcome>(outcome => outcome.Final == BatchState.Done), Ct);
+        await _controlPlane.Received(2).ClaimAsync(Arg.Any<ExecutorHello>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task With_no_stop_file_configured_a_STOP_file_next_to_the_executors_own_file_stops_it()
     {
         var options = new ExecutorOptions { Name = "executor-1", DataPath = Path.Combine(_world.Folder, "executor.db"), Rights = _world.Rights };
