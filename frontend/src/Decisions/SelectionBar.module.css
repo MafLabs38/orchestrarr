@@ -1,0 +1,29 @@
+.bar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: flex-end;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+  padding: 12px 16px;
+  background: var(--paperCard);
+  border-top: var(--borderWidth) solid var(--hairlineStrong);
+}
+
+.plan {
+  flex: 1;
+  min-width: 280px;
+}
+
+.muted {
+  color: var(--inkMuted);
+  font-size: var(--fontSizeMeta);
+}
+
+.code {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 150px;
+}

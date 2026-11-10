@@ -19,5 +19,7 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="..\..\samples\portarr-maintenance.sample.json" Link="portarr-maintenance.sample.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\samples\applications.sample.json" Link="applications.sample.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\samples\github-pull-requests.sample.json" Link="github-pull-requests.sample.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

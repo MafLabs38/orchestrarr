@@ -1,0 +1,48 @@
+{
+  "applications": [
+    {
+      "id": "repository:example/shop",
+      "kind": "own",
+      "source": "example/shop",
+      "qualify": { "mode": "smoke" },
+      "promote": { "rollback": "previous-tag", "check": "/health" },
+      "update": { "promote": ["patch", "minor"] }
+    },
+    {
+      "id": "repository:example/web-portal",
+      "kind": "own",
+      "source": "example/web-portal",
+      "qualify": { "mode": "e2e" },
+      "promote": { "rollback": "previous-tag", "check": "/health" },
+      "update": { "promote": ["patch", "minor", "major"] }
+    },
+    {
+      "id": "repository:example/notifier",
+      "kind": "own",
+      "source": "example/notifier",
+      "qualify": { "mode": "health" },
+      "promote": { "rollback": "previous-tag", "check": "/health" },
+      "update": { "promote": ["patch"] }
+    },
+    {
+      "id": "repository:example/recipes",
+      "kind": "own",
+      "source": "example/recipes",
+      "qualify": { "mode": "health" },
+      "promote": { "rollback": "previous-tag" },
+      "update": { "promote": ["patch", "minor"] }
+    },
+    {
+      "id": "repository:example/billing-api",
+      "kind": "own",
+      "source": "example/billing-api",
+      "qualify": { "mode": "smoke" }
+    },
+    {
+      "id": "repository:example/auth-service",
+      "kind": "own",
+      "source": "example/auth-service",
+      "qualify": { "mode": "none" }
+    }
+  ]
+}

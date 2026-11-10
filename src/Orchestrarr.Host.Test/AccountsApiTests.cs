@@ -51,7 +51,8 @@ public class AccountsApiFactory : WebApplicationFactory<Program>
     protected override void Dispose(bool disposing)
     {
         base.Dispose(disposing);
-        if (disposing)
+        // A factory can be disposed twice (a test that disposes it and the host that does): the second time there is nothing left
+        if (disposing && Directory.Exists(_folder))
         {
             Directory.Delete(_folder, recursive: true);
         }

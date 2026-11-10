@@ -10,30 +10,22 @@ import PageToolbar from 'Components/Page/PageToolbar';
 import * as icons from 'Helpers/Props/icons';
 import { kinds } from 'Helpers/Props/kinds';
 import { iconSizes } from 'Helpers/Props/sizes';
-import type { Severity, WorkItemReport } from 'typings/api';
-import { describeError } from 'Utilities/describe';
+import useSystemStatus from 'System/useSystemStatus';
+import type { Ceiling, ProblemRow, ProblemsReport } from 'typings/api';
+import { describeCeiling, describeError, describeProblem, describeProblemKind } from 'Utilities/describe';
 import formatTime from 'Utilities/formatTime';
 import translate from 'Utilities/translate';
 
-import DecisionRow from './DecisionRow';
 import styles from './Decisions.module.css';
-import useRefreshWorkItems from './useRefreshWorkItems';
-import useWorkItems from './useWorkItems';
+import ProblemTable, { isActionable } from './ProblemTable';
+import SelectionBar from './SelectionBar';
+import useProblems, { useRefreshProblems } from './useProblems';
 
-type Filter = 'all' | Severity;
-
-const groups: { severity: Severity; label: () => string }[] = [
-  { severity: 'danger', label: () => translate('SeverityDanger') },
-  { severity: 'warning', label: () => translate('SeverityWarning') },
-  { severity: 'info', label: () => translate('SeverityInfo') },
-];
-
-// With a few applications the cards are open, with many they are lines to open one by one
-const openByDefaultUpTo = 3;
+const ceilingOrder: Ceiling[] = ['production', 'mergeIntoDevelop', 'qualification', 'noAction'];
 
 export default function Decisions() {
-  const { data: report, error, isPending } = useWorkItems();
-  const refresh = useRefreshWorkItems();
+  const { data: report, error, isPending } = useProblems();
+  const refresh = useRefreshProblems();
 
   return (
     <PageContent title={translate('Decisions')}>
@@ -47,26 +39,62 @@ export default function Decisions() {
         <PageHeading title={translate('Decisions')} description={translate('DecisionsDescription')} />
         {isPending ? <CapabilityHint>{translate('Loading')}</CapabilityHint> : null}
         {error ? <Alert kind={kinds.DANGER}>{translate('CannotReadFleet', { error: error.message })}</Alert> : null}
-        {report ? <Report report={report} /> : null}
+        {report ? <Table report={report} /> : null}
       </PageContentBody>
     </PageContent>
   );
 }
 
-function Report({ report }: Readonly<{ report: WorkItemReport }>) {
-  const [filter, setFilter] = useState<Filter>('all');
-  const [opened, setOpened] = useState<Record<string, boolean>>({});
+interface Filters {
+  application: string;
+  type: string;
+  goesUp: string;
+  text: string;
+}
 
-  if (report.error && report.items.length === 0) {
+const noFilters: Filters = { application: '', type: '', goesUp: '', text: '' };
+
+function matches(row: ProblemRow, filters: Filters): boolean {
+  return (
+    (!filters.application || row.application === filters.application) &&
+    (!filters.type || row.kind === filters.type) &&
+    (!filters.goesUp || row.goesUpTo === filters.goesUp) &&
+    (!filters.text || `${row.application} ${describeProblem(row)}`.toLowerCase().includes(filters.text.toLowerCase()))
+  );
+}
+
+function Table({ report }: Readonly<{ report: ProblemsReport }>) {
+  const { data: status } = useSystemStatus();
+  const [filters, setFilters] = useState<Filters>(noFilters);
+  // The selection remembers the commit that was shown: a row whose pull request moved since is no longer what was chosen
+  const [chosenAt, setChosenAt] = useState<Record<string, string>>({});
+  const [stops, setStops] = useState<Record<string, boolean>>({});
+
+  if (report.error && report.rows.length === 0) {
     return <Alert kind={kinds.DANGER}>{translate('CannotReadFleet', { error: describeError(report.error) })}</Alert>;
   }
 
-  const defaultOpen = report.items.length <= openByDefaultUpTo;
-  const isOpen = (id: string) => opened[id] ?? defaultOpen;
-  const shown = report.items.filter((item) => filter === 'all' || item.severity === filter);
-  const toggle = (id: string) => setOpened((current) => ({ ...current, [id]: !(current[id] ?? defaultOpen) }));
-  const setAll = (open: boolean) => setOpened(Object.fromEntries(shown.map((item) => [item.id, open])));
-  const count = (severity: Severity) => report.items.filter((item) => item.severity === severity).length;
+  const shown = report.rows.filter((row) => matches(row, filters));
+  const chosen = report.rows.filter((row) => isActionable(row) && chosenAt[row.id] === row.headSha);
+  const selected = new Set(chosen.map((row) => row.id));
+  const applications = [...new Set(report.rows.map((row) => row.application))].sort((a, b) => a.localeCompare(b));
+  const types = [...new Set(report.rows.map((row) => row.kind))];
+  const set = (change: Partial<Filters>) => setFilters((current) => ({ ...current, ...change }));
+
+  // The commit shown when the row was chosen is what the approval is bound to
+  const choose = (rowsToChange: ProblemRow[], on: boolean) =>
+    setChosenAt((current) => {
+      const changed = new Set(rowsToChange.map((row) => row.id));
+      const next = Object.fromEntries(Object.entries(current).filter(([id]) => !changed.has(id)));
+      for (const row of rowsToChange) {
+        if (on && row.headSha) {
+          next[row.id] = row.headSha;
+        }
+      }
+      return next;
+    });
+  const select = (row: ProblemRow, on: boolean) => choose([row], on);
+  const selectAll = (on: boolean) => choose(shown.filter(isActionable), on);
 
   return (
     <>
@@ -78,7 +106,7 @@ function Report({ report }: Readonly<{ report: WorkItemReport }>) {
           })}
         </Alert>
       ) : null}
-      {report.items.length === 0 ? (
+      {report.rows.length === 0 ? (
         <CapabilityHint>
           {report.sourceKind === 'none' ? translate('NoSourceConfigured') : translate('NothingToDecide')}
         </CapabilityHint>
@@ -86,43 +114,69 @@ function Report({ report }: Readonly<{ report: WorkItemReport }>) {
         <>
           <div className={styles.controls}>
             <label className={styles.filter}>
-              {translate('FilterSeverity')}
-              <select value={filter} onChange={(event) => setFilter(event.target.value as Filter)}>
-                <option value="all">{translate('FilterAll')}</option>
-                {groups.map(({ severity, label }) => (
-                  <option key={severity} value={severity} disabled={count(severity) === 0}>
-                    {translate('GroupCount', { label: label(), count: count(severity) })}
+              {translate('FilterApplication')}
+              <select value={filters.application} onChange={(event) => set({ application: event.target.value })}>
+                <option value="">{translate('FilterAnyApplication')}</option>
+                {applications.map((application) => (
+                  <option key={application} value={application}>
+                    {application}
                   </option>
                 ))}
               </select>
             </label>
-            <Button onClick={() => setAll(true)}>{translate('ExpandAll')}</Button>
-            <Button onClick={() => setAll(false)}>{translate('CollapseAll')}</Button>
+            <label className={styles.filter}>
+              {translate('FilterType')}
+              <select value={filters.type} onChange={(event) => set({ type: event.target.value })}>
+                <option value="">{translate('FilterAnyType')}</option>
+                {types.map((type) => (
+                  <option key={type} value={type}>
+                    {describeProblemKind(type)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className={styles.filter}>
+              {translate('FilterGoesUp')}
+              <select value={filters.goesUp} onChange={(event) => set({ goesUp: event.target.value })}>
+                <option value="">{translate('FilterAnyGoesUp')}</option>
+                {ceilingOrder.map((ceiling) => (
+                  <option key={ceiling} value={ceiling}>
+                    {describeCeiling(ceiling)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <input
+              className={styles.search}
+              type="search"
+              placeholder={translate('SearchProblems')}
+              aria-label={translate('SearchProblems')}
+              value={filters.text}
+              onChange={(event) => set({ text: event.target.value })}
+            />
             <span className={styles.count}>
-              {translate('ShowingCount', { shown: shown.length, total: report.items.length })}
+              {translate('ProblemsShown', { shown: shown.length, total: report.rows.length, selected: chosen.length })}
             </span>
           </div>
-          {shown.length === 0 ? <CapabilityHint>{translate('NothingMatches')}</CapabilityHint> : null}
-          {groups.map(({ severity, label }) => {
-            const inGroup = shown.filter((item) => item.severity === severity);
-            return inGroup.length === 0 ? null : (
-              <section key={severity} className={styles.group} aria-label={label()}>
-                <h2 className={styles.groupTitle}>
-                  {translate('GroupCount', { label: label(), count: inGroup.length })}
-                </h2>
-                <ul className={styles.list}>
-                  {inGroup.map((item) => (
-                    <DecisionRow
-                      key={item.id}
-                      item={item}
-                      expanded={isOpen(item.id)}
-                      onToggle={() => toggle(item.id)}
-                    />
-                  ))}
-                </ul>
-              </section>
-            );
-          })}
+          {shown.length === 0 ? (
+            <CapabilityHint>{translate('NoProblemMatches')}</CapabilityHint>
+          ) : (
+            <ProblemTable
+              rows={shown}
+              selected={selected}
+              stops={stops}
+              onSelect={select}
+              onSelectAll={selectAll}
+              onStop={(row, stop) => setStops((current) => ({ ...current, [row.id]: stop }))}
+            />
+          )}
+          <SelectionBar
+            chosen={chosen}
+            stops={stops}
+            requiresSecondFactor={status?.approvals.requiresSecondFactor ?? true}
+            isOperator={status?.approvals.isOperator ?? false}
+            onDone={() => setChosenAt({})}
+          />
         </>
       )}
     </>

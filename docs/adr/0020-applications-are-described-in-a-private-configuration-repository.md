@@ -35,6 +35,10 @@ promote: { method: compose-pull, backup: manager_data, rollback: previous-tag }
 update: { autoQualify: [patch] }
 ```
 
+## First reader
+
+Until the provider that reads the private repository exists, the descriptions are read from one JSON file (`Applications:File`) with the same blocks: `id`, `kind` (`own` or `thirdParty`), `source`, `qualify.mode`, `promote.rollback` and `promote.check`, `update.promote` (the classes that may reach production by themselves). A wrong file stops the host. The format is still not frozen (point 6): `samples/applications.sample.json` is an example.
+
 ## Consequences
 
 - A provider reads the private repository and the table reads the descriptions: "goes up to" is computed from them (ADR 0019).

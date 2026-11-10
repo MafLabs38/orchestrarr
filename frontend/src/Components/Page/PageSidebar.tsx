@@ -1,6 +1,6 @@
 import useSession, { accountsManage, can } from 'Account/useSession';
 import { useApprovals } from 'Approvals/useApprovals';
-import useWorkItems from 'Decisions/useWorkItems';
+import useProblems from 'Decisions/useProblems';
 import * as icons from 'Helpers/Props/icons';
 import { iconSizes } from 'Helpers/Props/sizes';
 import translate from 'Utilities/translate';
@@ -9,7 +9,7 @@ import styles from './PageSidebar.module.css';
 import SidebarLink from './SidebarLink';
 
 export default function PageSidebar() {
-  const { data } = useWorkItems();
+  const { data } = useProblems();
   const { data: approvals } = useApprovals();
   const { data: session } = useSession();
   return (
@@ -19,7 +19,7 @@ export default function PageSidebar() {
         end
         icon={<icons.DECISIONS size={iconSizes.LARGE} aria-hidden="true" />}
         label={translate('Decisions')}
-        badge={data?.items.length}
+        badge={data?.rows.length}
       />
       <SidebarLink
         to="/queue"

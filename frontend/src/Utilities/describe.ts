@@ -1,98 +1,22 @@
 import type {
-  AlertCounts,
   ApprovalError,
   ApprovalState,
   BatchState,
+  Ceiling,
+  CeilingReason,
   ChecksState,
-  Finding,
-  MergeState,
-  PlanStep,
-  PullRequest,
+  ProblemKind,
+  ProblemRow,
   RunRefusal,
   SourceError,
   StepKind,
-  StepReason,
   TaskKind,
   TaskResult,
-  UpdateKind,
 } from 'typings/api';
 
 import translate from './translate';
 
 // The words of the interface for what the server sends as data and codes (SPEC D-22).
-const severities: (keyof AlertCounts)[] = ['critical', 'high', 'medium', 'low'];
-
-const alertWords = {
-  critical: 'AlertCritical',
-  high: 'AlertHigh',
-  medium: 'AlertMedium',
-  low: 'AlertLow',
-} as const;
-
-const changeWords = { build: 'ChangeBuild', patch: 'ChangePatch', minor: 'ChangeMinor', major: 'ChangeMajor' } as const;
-
-function breakdown(alerts: AlertCounts | null): string {
-  if (!alerts) {
-    return '';
-  }
-  return severities
-    .filter((severity) => alerts[severity] > 0)
-    .map((severity) => translate(alertWords[severity], { count: alerts[severity] }))
-    .join(', ');
-}
-
-function image(finding: Finding): string {
-  const update = finding.image;
-  if (!update) {
-    return '';
-  }
-  const move =
-    update.current && update.latest
-      ? translate('ImageMove', { current: update.current, latest: update.latest })
-      : translate('ImageNewerBuild');
-  const change =
-    update.change === 'none' ? '' : translate('ImageChange', { change: translate(changeWords[update.change]) });
-  return translate('FindingOutdatedImage', { reference: update.reference, move, change });
-}
-
-// The sentence of a finding, from its data.
-export function describeFinding(finding: Finding): string {
-  const tokens = { count: finding.count, breakdown: breakdown(finding.alerts) };
-  const one = finding.count === 1;
-  switch (finding.kind) {
-    case 'dependencyAlerts':
-      return translate(one ? 'FindingDependencyAlertsOne' : 'FindingDependencyAlertsOther', tokens);
-    case 'codeScanningAlerts':
-      return translate(one ? 'FindingCodeScanningAlertsOne' : 'FindingCodeScanningAlertsOther', tokens);
-    case 'secretScanningAlerts':
-      return translate(one ? 'FindingSecretScanningAlertsOne' : 'FindingSecretScanningAlertsOther', tokens);
-    case 'openDependencyPullRequests':
-      return translate(one ? 'FindingOpenDependencyPullRequestsOne' : 'FindingOpenDependencyPullRequestsOther', tokens);
-    case 'failingCi':
-      return translate('FindingFailingCi');
-    case 'outdatedImage':
-      return image(finding);
-    case 'dependencyScanUnavailable':
-      return translate('FindingDependencyScanUnavailable');
-  }
-}
-
-// The label of a plan step.
-export function describeStep(step: PlanStep): string {
-  switch (step.kind) {
-    case 'validate':
-      return translate('StepValidate');
-    case 'mergePullRequests':
-      return translate('StepMergePullRequests');
-    case 'mergeFix':
-      return translate('StepMergeFix');
-    case 'deploy':
-      return step.environmentName
-        ? translate('StepDeploy', { environment: step.environmentName })
-        : translate('StepDeployAnywhere');
-  }
-}
-
 const stepKinds = {
   validate: 'StepValidate',
   mergePullRequests: 'StepMergePullRequests',
@@ -165,12 +89,6 @@ export function describeApprovalError(code: string | null): string {
     : translate('ApprovalErrorUnknown');
 }
 
-const reasons = { noPlacement: 'ReasonNoPlacement' } as const satisfies Record<StepReason, string>;
-
-export function describeReason(reason: StepReason): string {
-  return translate(reasons[reason]);
-}
-
 const errors = {
   failed: 'ErrorFailed',
   unreachable: 'ErrorUnreachable',
@@ -193,47 +111,6 @@ const checks = {
 
 export function describeChecks(state: ChecksState): string {
   return translate(checks[state]);
-}
-
-const merges = {
-  clean: 'MergeClean',
-  unstable: 'MergeUnstable',
-  behind: 'MergeBehind',
-  blocked: 'MergeBlocked',
-  conflicting: 'MergeConflicting',
-  draft: 'MergeDraft',
-  unknown: 'MergeUnknown',
-} as const satisfies Record<MergeState, string>;
-
-export function describeMerge(state: MergeState): string {
-  return translate(merges[state]);
-}
-
-// The word of a kind of change: "major"
-export function describeChangeWord(kind: Exclude<UpdateKind, 'unknown'>): string {
-  return translate(changeWords[kind]);
-}
-
-// "major update", or nothing when the kind is not known
-export function describeUpdateKind(kind: UpdateKind): string | null {
-  return kind === 'unknown' ? null : translate('UpdateKind', { kind: translate(changeWords[kind]) });
-}
-
-// What a dependency pull request updates, from the parsed title: "lodash 4.17.4 → 4.17.21", or the packages, or the title itself.
-export function describeChanges(pullRequest: PullRequest): string {
-  const [first] = pullRequest.changes;
-  if (pullRequest.changes.length === 1 && first.from && first.to) {
-    return `${first.package} ${translate('ImageMove', { current: first.from, latest: first.to })}`;
-  }
-  return pullRequest.changes.length > 0
-    ? pullRequest.changes.map((change) => change.package).join(', ')
-    : pullRequest.title;
-}
-
-// The most significant kind of a pull request's changes, which says how risky it is
-export function updateKindOf(pullRequest: PullRequest): UpdateKind {
-  const order: UpdateKind[] = ['major', 'minor', 'patch'];
-  return order.find((kind) => pullRequest.changes.some((change) => change.kind === kind)) ?? 'unknown';
 }
 
 const approvalStates = {
@@ -316,4 +193,71 @@ const runEvents = {
 // The words of a line of the trace of a run; one the interface does not know is shown as the executor names it.
 export function describeRunEvent(type: string): string {
   return Object.hasOwn(runEvents, type) ? translate(runEvents[type as keyof typeof runEvents]) : type;
+}
+
+const ceilings = {
+  noAction: 'GoesUpNoAction',
+  qualification: 'GoesUpQualification',
+  mergeIntoDevelop: 'GoesUpMergeIntoDevelop',
+  production: 'GoesUpProduction',
+} as const satisfies Record<Ceiling, string>;
+
+export function describeCeiling(ceiling: Ceiling): string {
+  return translate(ceilings[ceiling]);
+}
+
+const whys = {
+  none: 'WhyNone',
+  noDescription: 'WhyNoDescription',
+  noActionDefined: 'WhyNoActionDefined',
+  pullRequestsNotCurrent: 'WhyPullRequestsNotCurrent',
+  notGranted: 'WhyNotGranted',
+  noExecutor: 'WhyNoExecutor',
+  qualificationNotDescribed: 'WhyQualificationNotDescribed',
+  checksFailing: 'WhyChecksFailing',
+  checksNotPassing: 'WhyChecksNotPassing',
+  cannotBeMergedNow: 'WhyCannotBeMergedNow',
+  noRollbackDescribed: 'WhyNoRollbackDescribed',
+  noCheckAfterDeployDescribed: 'WhyNoCheckAfterDeployDescribed',
+  updateClassStopsBeforeProduction: 'WhyUpdateClassStopsBeforeProduction',
+} as const satisfies Record<CeilingReason, string>;
+
+// Why a problem stops where it does, from the code of the server
+export function describeWhy(reason: CeilingReason): string {
+  return translate(whys[reason]);
+}
+
+const problemKinds = {
+  dependencyUpdate: 'KindDependencyUpdate',
+  dependencyAlert: 'KindDependencyAlert',
+  codeScanningAlert: 'KindCodeScanningAlert',
+  exposedSecret: 'KindExposedSecret',
+  failingCi: 'KindFailingCi',
+  imageUpdate: 'KindImageUpdate',
+  dependencyScanUnavailable: 'KindDependencyScanUnavailable',
+  pullRequestsNotRead: 'KindPullRequestsNotRead',
+} as const satisfies Record<ProblemKind, string>;
+
+export function describeProblemKind(kind: ProblemKind): string {
+  return translate(problemKinds[kind]);
+}
+
+// The sentence of a problem, from its data: the server sends a dependency update as "package from → to" and the others as a count or an image move
+export function describeProblem(row: ProblemRow): string {
+  const count = row.count ?? 0;
+  switch (row.kind) {
+    case 'dependencyAlert':
+    case 'codeScanningAlert':
+      return translate('ProblemAlerts', { count });
+    case 'exposedSecret':
+      return translate('ProblemSecrets', { count });
+    case 'pullRequestsNotRead':
+      return translate('ProblemPullRequestsWaiting', { count });
+    case 'failingCi':
+      return translate('ProblemFailingCi');
+    case 'dependencyScanUnavailable':
+      return translate('ProblemScanUnavailable');
+    default:
+      return row.description;
+  }
 }

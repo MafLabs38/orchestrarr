@@ -25,33 +25,5 @@ internal static class TaskShape
     }
 
     /// <summary>Whether <paramref name="repository"/> matches a pattern where <c>*</c> stands for any characters. Names are compared without regard to case.</summary>
-    public static bool Matches(string pattern, string repository)
-    {
-        var parts = pattern.Split('*');
-        var position = 0;
-        for (var i = 0; i < parts.Length; i++)
-        {
-            var part = parts[i];
-            if (i == 0)
-            {
-                if (!repository.StartsWith(part, StringComparison.OrdinalIgnoreCase))
-                {
-                    return false;
-                }
-                position = part.Length;
-                continue;
-            }
-            if (i == parts.Length - 1)
-            {
-                return repository.Length - position >= part.Length && repository.EndsWith(part, StringComparison.OrdinalIgnoreCase);
-            }
-            var found = repository.IndexOf(part, position, StringComparison.OrdinalIgnoreCase);
-            if (found < 0)
-            {
-                return false;
-            }
-            position = found + part.Length;
-        }
-        return repository.Length == position;
-    }
+    public static bool Matches(string pattern, string repository) => RepositoryPattern.Matches(pattern, repository);
 }

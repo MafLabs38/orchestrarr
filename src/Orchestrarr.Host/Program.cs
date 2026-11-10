@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Http.Json;
 using Orchestrarr.Core.Accounts;
+using Orchestrarr.Core.Applications;
 using Orchestrarr.Core.Approvals;
 using Orchestrarr.Core.Fleet;
 using Orchestrarr.Core.Forge;
@@ -12,6 +13,7 @@ using Orchestrarr.Core.WorkItems;
 using Orchestrarr.Host;
 using Orchestrarr.Host.Approvals;
 using Orchestrarr.Host.Accounts;
+using Orchestrarr.Host.Decisions;
 using Orchestrarr.Host.Settings;
 using Orchestrarr.Host.Storage;
 using Orchestrarr.Host.Tasks;
@@ -50,6 +52,8 @@ builder.Services.AddAccounts(auth, storage);
 builder.Services.AddOrchestrarrSecurity(auth, storage is SqliteStorage file ? Path.Combine(Path.GetDirectoryName(file.Path) ?? builder.Environment.ContentRootPath, "keys") : null);
 builder.Services.AddSingleton(builder.Configuration.GetSection(WorkItemCatalogOptions.SectionName).Get<WorkItemCatalogOptions>() ?? new WorkItemCatalogOptions());
 builder.Services.AddSingleton<WorkItemCatalog>();
+// What may be done to each application, from the private configuration (ADR 0020): checked now, a wrong file stops the host
+builder.Services.AddSingleton(_ => ApplicationCatalogFactory.Create(builder.Configuration, builder.Environment.ContentRootPath));
 
 var app = builder.Build();
 if (!storage.Persistent && !app.Environment.IsDevelopment())
@@ -90,6 +94,7 @@ api.MapGet("/work-items/{**id}", async (WorkItemCatalog catalog, string id, Canc
     await catalog.FindAsync(id, ct) is { } item ? Results.Ok(item) : Results.NotFound()).RequireAuthorization(Permissions.FleetRead);
 
 api.MapApprovalEndpoints();
+api.MapProblemsEndpoints();
 api.MapRunEndpoints();
 // The routes of the executors carry their own token and no session: they are mapped outside the group that needs a person
 app.MapExecutorEndpoints(tasks);
