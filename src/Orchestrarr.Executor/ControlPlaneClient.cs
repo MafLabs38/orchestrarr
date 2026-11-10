@@ -19,9 +19,13 @@ public sealed class ControlPlaneClient : IControlPlane
 {
     private readonly HttpClient _http;
 
+    private const long MaxAnswerBytes = 1024 * 1024;
+
     public ControlPlaneClient(HttpClient http, ControlPlaneOptions options)
     {
         _http = http;
+        // What the control plane answers is small: a larger answer is refused instead of being buffered (it is the party this executor does not trust)
+        _http.MaxResponseContentBufferSize = MaxAnswerBytes;
         if (!Uri.TryCreate(options.Url, UriKind.Absolute, out var url))
         {
             throw new InvalidOperationException("Executor:ControlPlane:Url must be an absolute address.");

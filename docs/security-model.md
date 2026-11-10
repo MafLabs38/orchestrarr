@@ -193,9 +193,9 @@ Still open:
 | Executor (.NET): typed tasks, second factor (TOTP) checked by the executor, rights list, double control against the journal, delegations, hash-chained trace and its timeline | 🟢 dry run, starts nothing |
 | Sign-in with local accounts, roles, server-side sessions, CSRF header ([ADR 0018](adr/0018-people-sign-in-with-local-accounts-and-permission-based-roles.md)) | 🟢 |
 | Vault dedicated to this purpose | 🔵 manifests in the GitOps repository, not initialised |
-| Launcher that runs, order store, workshop, certificates, revoking the tokens of a run | 🔵 not built |
+| A real runner in the executor, workshop, certificates, revoking the tokens of a run | 🔵 not built |
 | The Rust launcher and the conformance vectors of ADR 0014 | ⛔ superseded by the .NET executor (ADR 0017) |
-| The launcher pulling its orders through the control plane's API, with its own grants, its own list of production environments and an in-memory ledger; first a dry run | 🔵 proposed (ADR 0015, D-60), not built |
-| The launcher of the home environment also serving the orders with no environment (a merge), with its own grants and forge role, in a namespace of its own | 🔵 decided, not built (ADR 0016, D-63) |
-| The launcher authenticating to the API with a signed token of its own, one client per launcher, the key never leaving it (the token gives no access to Vault) | 🔵 decided, not built (ADR 0016, D-62) |
+| The launcher pulling its orders through the control plane's API, with its own grants, its own list of production environments and an in-memory ledger; first a dry run | ⛔ superseded in part by the executor (ADR 0017): it pulls through the API with the bearer token of the host's `Tasks:Executors`; the signed client token and the home launcher are not built |
+| The launcher of the home environment also serving the orders with no environment (a merge), with its own grants and forge role, in a namespace of its own | ⛔ superseded in part by the executor (ADR 0017): it pulls through the API with the bearer token of the host's `Tasks:Executors`; the signed client token and the home launcher are not built |
+| The launcher authenticating to the API with a signed token of its own, one client per launcher, the key never leaving it (the token gives no access to Vault) | ⛔ superseded in part by the executor (ADR 0017): it pulls through the API with the bearer token of the host's `Tasks:Executors`; the signed client token and the home launcher are not built |
 | One launcher and one Vault role set per environment, tiers of the operator account, validation of the plan for production | 🔵 proposed in ADR 0012 |

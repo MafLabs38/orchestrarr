@@ -104,7 +104,8 @@ public sealed class ExecutorPipeline(
             catch (Exception failure) when (failure is not OperationCanceledException)
             {
                 // A runner that fails ends its task as refused, with a trace, and the batch still ends: it must not stay delivered with no end
-                trace.Add(RunEvents.TaskRefused, task.Id, "the runner failed");
+                // The kind of failure only, never its message: a message can carry what a command printed
+                trace.Add(RunEvents.TaskRefused, task.Id, $"the runner failed ({failure.GetType().Name})");
                 outcomes.Add(new TaskOutcome(task.Id, TaskResult.Refused, "runner failed"));
                 stoppedApprovals.Add(task.ApprovalId);
             }

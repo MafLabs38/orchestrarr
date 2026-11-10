@@ -303,7 +303,7 @@ public sealed class ExecutorPipelineTests : IDisposable
         result.Outcome.Final.Should().Be(BatchState.Done);
         result.Outcome.Tasks.Select(task => task.Result).Should().Equal(TaskResult.Refused, TaskResult.Skipped);
         result.Events.Should().Contain(line => line.Type == RunEvents.TaskSkipped);
-        result.Events.Should().Contain(line => line.Type == RunEvents.TaskRefused && line.Detail == "the runner failed");
+        result.Events.Should().Contain(line => line.Type == RunEvents.TaskRefused && line.Detail == "the runner failed (InvalidOperationException)");
     }
 
     private sealed class FailingRunner(TaskKind kind) : ITaskRunner
