@@ -47,7 +47,7 @@ public static class AuditEvents
     public const string System = "system";
 
     /// <summary>A refusal, as opposed to a decision or a stop: refusals can be provoked by anyone, so they have the smaller share of a bounded trail.</summary>
-    public static bool IsRefusal(string name) => name is ApprovalRefused;
+    public static bool IsRefusal(string name) => name is ApprovalRefused || Accounts.AccountEvents.IsFailure(name);
 
     /// <summary>A trace of the stop, or of a new database: the last part of a bounded trail is kept for them, so that decisions cannot leave the stop untraceable.</summary>
     public static bool UsesReserve(string name) => name is KillSwitchEngaged or KillSwitchReleased or InstanceCreated;

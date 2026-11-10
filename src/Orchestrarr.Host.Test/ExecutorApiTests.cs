@@ -92,11 +92,11 @@ public sealed class ExecutorApiTests : IDisposable
         using var factory = Factory();
         var client = Executor(factory);
 
-        // The executor's token says nothing for the routes of the approvals: in the sandbox a local request is the operator, so use a request from the network
-        client.DefaultRequestHeaders.Add(RemoteAddressFilter.Header, "203.0.113.9");
+        // The executor's token says nothing for the routes of the approvals: nobody is signed in, so it is a 401
+        client.DefaultRequestHeaders.Add(TestSignInFilter.RoleHeader, "anonymous");
 
         (await client.PostAsJsonAsync("/api/v1/approvals", new { workItemId = ShopId, steps = new[] { "validate" }, pullRequests = new[] { new { number = 7, headSha = Head } }, secondFactorCode = "123456" }, Ct))
-            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+            .StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
     [Fact]
@@ -181,7 +181,7 @@ public sealed class ExecutorApiTests : IDisposable
     private (ExecutorStore Store, ExecutorWorker Worker) RealExecutor(ForgeApiFactory factory, string name = "executor-1")
     {
         var store = new ExecutorStore(Path.Combine(_folder, "executor.db"));
-        store.Enrol("dev-operator", Secret, 0, DateTimeOffset.UtcNow.AddMinutes(-5));
+        store.Enrol("test-operator", Secret, 0, DateTimeOffset.UtcNow.AddMinutes(-5));
         var rights = new RightsOptions { Kinds = [TaskKind.ValidatePullRequest, TaskKind.MergePullRequest], Repositories = ["example/*"] };
         var pipeline = new ExecutorPipeline(
             store,

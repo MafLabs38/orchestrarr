@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Http.Json;
+using Orchestrarr.Core.Accounts;
 using Orchestrarr.Core.Approvals;
 using Orchestrarr.Core.Fleet;
 using Orchestrarr.Core.Forge;
@@ -10,9 +11,11 @@ using Orchestrarr.Core.Tasks;
 using Orchestrarr.Core.WorkItems;
 using Orchestrarr.Host;
 using Orchestrarr.Host.Approvals;
-using Orchestrarr.Host.SignIn;
+using Orchestrarr.Host.Accounts;
+using Microsoft.AspNetCore.Authorization;
 using Orchestrarr.Host.Storage;
 using Orchestrarr.Host.Tasks;
+using Orchestrarr.Storage;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -27,52 +30,53 @@ builder.Services.AddSingleton(provider => PullRequestSourceFactory.Create(builde
 // Approving: recording the operator's decision, with its trail and the global stop. Nothing here runs anything yet.
 var approvals = builder.Configuration.GetSection(ApprovalsOptions.SectionName).Get<ApprovalsOptions>() ?? new ApprovalsOptions();
 approvals.Validate();
-SandboxGuard.Check(approvals, builder.Environment, builder.Configuration);
 // The powers the operator listed in the configuration (SPEC D-10, D-11): none unless a grant is written. Checked now, not at a request.
 var grants = (builder.Configuration.GetSection(PowersOptions.SectionName).Get<PowersOptions>() ?? new PowersOptions()).ToGrants(builder.Environment.IsDevelopment());
-// Signing in through the identity provider, when that is how operators are known (SPEC D-40, D-54). Checked now: a missing value stops the host.
-SignInSettings? signIn = null;
-if (approvals.Mode == ApprovalsMode.OpenIdConnect)
-{
-    signIn = (builder.Configuration.GetSection(SignInOptions.SectionName).Get<SignInOptions>() ?? new SignInOptions()).Validate(allowCleartextOnPrivateNetwork: builder.Environment.IsDevelopment());
-    builder.Services.AddSignIn(signIn);
-}
+// People sign in with the local accounts of the product (ADR 0018), the same way as in Portarr and Mnemarr. Checked now: a missing value stops the host.
+var auth = (builder.Configuration.GetSection(AuthOptions.SectionName).Get<AuthOptions>() ?? new AuthOptions()).Validate();
 // Where the approvals, the trail and the global stop are kept: checked now, so that a file that cannot be used stops the host
-var storage = (builder.Configuration.GetSection(StorageOptions.SectionName).Get<StorageOptions>() ?? new StorageOptions()).Validate(builder.Environment.ContentRootPath, builder.Environment.IsDevelopment(), approving: approvals.Mode != ApprovalsMode.Disabled);
+var storage = (builder.Configuration.GetSection(StorageOptions.SectionName).Get<StorageOptions>() ?? new StorageOptions()).Validate(builder.Environment.ContentRootPath, builder.Environment.IsDevelopment(), approving: true);
 // The tasks and the executors (ADR 0017): the code of the second factor, how long an approval waits, the tokens of the executors. Checked now.
 var tasks = (builder.Configuration.GetSection(TasksOptions.SectionName).Get<TasksOptions>() ?? new TasksOptions()).Validate(approvals, storage, builder.Environment.ContentRootPath);
 builder.Services.AddApprovals(approvals, grants, storage, tasks);
+// The accounts share the database of the approvals, so they come after it; the cookie's keys sit next to the database when there is one
+builder.Services.AddAccounts(auth, storage);
+builder.Services.AddOrchestrarrSecurity(auth, storage is SqliteStorage file ? Path.Combine(Path.GetDirectoryName(file.Path) ?? builder.Environment.ContentRootPath, "keys") : null);
 builder.Services.AddSingleton(builder.Configuration.GetSection(WorkItemCatalogOptions.SectionName).Get<WorkItemCatalogOptions>() ?? new WorkItemCatalogOptions());
 builder.Services.AddSingleton<WorkItemCatalog>();
 
 var app = builder.Build();
-if (!storage.Persistent && approvals.Mode == ApprovalsMode.OpenIdConnect && !app.Environment.IsDevelopment())
+if (!storage.Persistent && !app.Environment.IsDevelopment())
 {
-    app.Logger.LogWarning("Storage:Provider is Memory: the approvals, the audit trail and the global stop are lost at every restart. Use Sqlite.");
+    app.Logger.LogWarning("Storage:Provider is Memory: the accounts, the approvals, the audit trail and the global stop are lost at every restart. Use Sqlite.");
 }
-SandboxGuard.StopIfListeningBeyondLoopback(app, approvals);
-
-app.UseSecurityHeaders(overHttps: signIn?.Secure == true);
+app.UseSecurityHeaders(overHttps: auth.SecureCookie);
+// The files of the interface say nothing about the fleet: they are served before the sign-in is asked for, or the page itself could not load
+// (a file with an extension matches no route, and the fallback policy would refuse it)
+if (app.Environment.WebRootFileProvider.GetDirectoryContents("/").Exists)
+{
+    app.UseDefaultFiles();
+    app.UseStaticFiles();
+}
+// Everything the API says, reads included, is for a person who signed in: who approved what is not for anybody (the fallback policy)
+app.UseOrchestrarrSecurity();
 
 var api = app.MapGroup("/api/v1");
-if (signIn is not null)
-{
-    // Everything the API says, reads included, is for a person who signed in: who approved what is not for anybody
-    app.ConfigureSignIn(signIn, api);
-}
+api.MapAuthEndpoints();
+api.MapAccountEndpoints();
 
 // Approving is limited per person, so that a loop of refusals cannot fill the trail. After the sign-in, which tells who is asking.
 app.UseRateLimiter();
 
 // For a probe of the deployment: it says the host is up and nothing else
-app.MapGet("/health", () => Results.Ok(new HealthStatus("ok")));
+app.MapGet("/health", () => Results.Ok(new HealthStatus("ok"))).AllowAnonymous();
 
 // The decision cards waiting for the operator, and the approvals recorded for the launcher. Approving records a decision; nothing runs.
 api.MapGet("/work-items", async (WorkItemCatalog catalog, bool? refresh, CancellationToken ct) =>
-    Results.Ok(await catalog.GetAsync(refresh ?? false, ct)));
+    Results.Ok(await catalog.GetAsync(refresh ?? false, ct))).RequireAuthorization(Permissions.FleetRead);
 
 api.MapGet("/work-items/{**id}", async (WorkItemCatalog catalog, string id, CancellationToken ct) =>
-    await catalog.FindAsync(id, ct) is { } item ? Results.Ok(item) : Results.NotFound());
+    await catalog.FindAsync(id, ct) is { } item ? Results.Ok(item) : Results.NotFound()).RequireAuthorization(Permissions.FleetRead);
 
 api.MapApprovalEndpoints();
 api.MapRunEndpoints();
@@ -85,18 +89,16 @@ api.MapGet("/system/status", (WorkItemCatalog catalog, IApproverAccessor accesso
     var report = catalog.Peek();
     var version = typeof(Program).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0.0.0-dev";
     return Results.Ok(new SystemStatus("Orchestrarr", version, new SourceStatus(catalog.SourceKind, catalog.SourceConfigured, report?.ReadAt, report?.Error, report?.Stale ?? false), new ForgeStatus(catalog.ForgeKind, catalog.ForgeConfigured), ApprovalEndpoints.StatusOf(accessor, context, killSwitch, taskOptions.RequireSecondFactor), new StorageStatus(storage.Kind), executors.Snapshot()));
-});
+}).RequireAuthorization(Permissions.FleetRead);
 
-// An unknown route of the API, or of the sign-in (which is not there at all unless people sign in), is a 404, never the page of the interface
+// An unknown route of the API is a 404 for a person who signed in (a 401 for anybody else: the fallback policy), never the page of the interface
 api.MapFallback(() => Results.NotFound());
-app.MapFallback("/auth/{**rest}", () => Results.NotFound());
 
 // The user interface, once built into wwwroot (in development the Vite server serves it)
 if (app.Environment.WebRootFileProvider.GetDirectoryContents("/").Exists)
 {
-    app.UseDefaultFiles();
-    app.UseStaticFiles();
-    app.MapFallbackToFile("index.html");
+    // The routes of the interface (a path with no extension) get its page; the data is behind the sign-in
+    app.MapFallbackToFile("index.html").AllowAnonymous();
 }
 
 await app.RunAsync();

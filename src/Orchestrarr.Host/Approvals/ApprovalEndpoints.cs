@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Orchestrarr.Core.Accounts;
 using Orchestrarr.Core.Approvals;
 using Orchestrarr.Core.Launch;
 using Orchestrarr.Core.WorkItems;
@@ -27,7 +28,7 @@ internal static class ApprovalEndpoints
 
     public static void MapApprovalEndpoints(this RouteGroupBuilder api)
     {
-        api.MapGet("/approvals", (IApprovalStore store, int? limit) => WhenReadable(() => Results.Ok(store.List(PageSize(limit)).Select(ToDto).ToList())));
+        api.MapGet("/approvals", (IApprovalStore store, int? limit) => WhenReadable(() => Results.Ok(store.List(PageSize(limit)).Select(ToDto).ToList()))).RequireAuthorization(Permissions.FleetRead);
 
         // Ids of work items contain a slash, so the work item travels in the body.
         api.MapPost("/approvals", async (ApproveRequest request, HttpContext context, IApproverAccessor accessor, ApprovalService service, CancellationToken ct) =>
@@ -42,14 +43,14 @@ internal static class ApprovalEndpoints
             return result.Refusal is { } code
                 ? Error(JsonCode(code), Statuses.GetValueOrDefault(code, StatusCodes.Status422UnprocessableEntity))
                 : Results.Json(new ApproveResponse([.. result.Approvals.Select(ToDto)]), statusCode: StatusCodes.Status201Created);
-        }).RequireRateLimiting(ApprovalsServiceCollectionExtensions.ApprovingPolicy);
+        }).RequireAuthorization(Permissions.ApprovalsCreate).RequireRateLimiting(ApprovalsServiceCollectionExtensions.ApprovingPolicy);
 
         // Named "audit", not "activity" (the screen keeps its name): content blockers in browsers refuse a request to a path called "activity", and
         // the screen then shows "Failed to fetch" while the server never sees the request.
         api.MapGet("/audit", (IAuditLog audit, int? limit) => WhenReadable(() =>
-            Results.Ok(audit.Page(PageSize(limit)).Select(row => new ActivityDto(row.Id, row.Entry.At, row.Entry.Event, row.Entry.Subject, row.Entry.OrderId, row.Entry.Detail)).ToList())));
+            Results.Ok(audit.Page(PageSize(limit)).Select(row => new ActivityDto(row.Id, row.Entry.At, row.Entry.Event, row.Entry.Subject, row.Entry.OrderId, row.Entry.Detail)).ToList()))).RequireAuthorization(Permissions.AuditRead);
 
-        api.MapGet("/safety", (IKillSwitchControl killSwitch) => Results.Ok(SafetyOf(killSwitch)));
+        api.MapGet("/safety", (IKillSwitchControl killSwitch) => Results.Ok(SafetyOf(killSwitch))).RequireAuthorization(Permissions.FleetRead);
 
         // Engaging must work even when the trail cannot be written; a release needs to be saved and traced (the stop does both in one write).
         api.MapPut("/safety/kill-switch", async (KillSwitchRequest request, HttpContext context, IApproverAccessor accessor, IKillSwitchControl killSwitch, TimeProvider time, CancellationToken ct) =>
@@ -72,7 +73,7 @@ internal static class ApprovalEndpoints
                 KillSwitchChange.NotTraced => Error(ApiErrors.AuditUnavailable, StatusCodes.Status503ServiceUnavailable),
                 _ => Results.Ok(SafetyOf(killSwitch)),
             };
-        });
+        }).RequireAuthorization(Permissions.StopControl);
     }
 
     // A list that cannot be read is an error and never an empty list: the answer says the storage is unavailable
@@ -102,20 +103,12 @@ internal static class ApprovalEndpoints
     {
         var approver = accessor.Current(context);
         var state = killSwitch.State();
-        return new(accessor.Mode.ToString().ToLowerInvariant(), accessor.Mode != ApprovalsMode.Disabled, approver?.Subject, accessor.DisplayName(context), approver is { IsPerson: true, IsOperator: true }, state.Engaged, state.Saved, requiresSecondFactor);
+        return new(approver?.Subject, accessor.DisplayName(context), approver is { IsPerson: true, IsOperator: true }, state.Engaged, state.Saved, requiresSecondFactor);
     }
 
-    // Who may call the two routes that record something: approving turned on, a local request (the sandbox operator only), somebody signed in.
+    // Who may call the two routes that record something: somebody signed in (the permission is checked by the route's policy first).
     private static (Approver? Approver, IResult? Refusal) Authorize(IApproverAccessor accessor, HttpContext context)
     {
-        if (accessor.Mode == ApprovalsMode.Disabled)
-        {
-            return (null, Error(ApiErrors.ApprovalsDisabled, StatusCodes.Status403Forbidden));
-        }
-        if (accessor.Mode == ApprovalsMode.Development && !SandboxGuard.IsLocalRequest(context))
-        {
-            return (null, Error(ApiErrors.HostNotAllowed, StatusCodes.Status403Forbidden));
-        }
         return accessor.Current(context) is { } approver
             ? (approver, null)
             : (null, Error(ApiErrors.NotSignedIn, StatusCodes.Status401Unauthorized));

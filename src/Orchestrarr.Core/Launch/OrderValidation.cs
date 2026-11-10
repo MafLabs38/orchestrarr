@@ -39,7 +39,7 @@ internal static partial class OrderValidation
 
     public static bool IsValidWorkItem(string? workItemId) => WorkItem().IsMatch(workItemId ?? string.Empty);
 
-    /// <summary>The subject of an approver, as the identity provider gives it.</summary>
+    /// <summary>The subject of an approver: the id of their account.</summary>
     public static bool IsValidSubject(string? subject) => Identity().IsMatch(subject ?? string.Empty);
 
     private static bool HasValidSteps(IReadOnlyList<StepKind>? steps) =>

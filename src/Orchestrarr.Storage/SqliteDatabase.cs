@@ -196,7 +196,7 @@ public sealed class SqliteDatabase : IDisposable
     // A new step is appended here, and SchemaVersion goes up with it.
     private delegate void Step(SqliteConnection connection, bool created, bool startEngagedWhenNew, TimeProvider time);
 
-    private static readonly Step[] Steps = [CreateVersion1, CreateVersion2];
+    private static readonly Step[] Steps = [CreateVersion1, CreateVersion2, CreateVersion3];
 
     private static int SchemaVersion => Steps.Length;
 
@@ -345,6 +345,29 @@ public sealed class SqliteDatabase : IDisposable
               BEGIN SELECT RAISE(ABORT, 'the trace of a run is append-only'); END;
             CREATE TRIGGER IF NOT EXISTS run_events_are_append_only_delete BEFORE DELETE ON run_events
               BEGIN SELECT RAISE(ABORT, 'the trace of a run is append-only'); END;
+            """);
+    }
+
+    // Version 2 to 3: the accounts of the people who sign in, and their sessions (ADR 0018). A session is kept by the hash of its id.
+    private static void CreateVersion3(SqliteConnection connection, bool created, bool startEngagedWhenNew, TimeProvider time)
+    {
+        Run(connection, """
+            CREATE TABLE IF NOT EXISTS accounts (
+              id TEXT NOT NULL PRIMARY KEY,
+              name TEXT NOT NULL,
+              role TEXT NOT NULL,
+              enabled INTEGER NOT NULL,
+              password_hash TEXT NOT NULL,
+              created_at TEXT NOT NULL
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS accounts_by_name ON accounts (name COLLATE NOCASE);
+            CREATE TABLE IF NOT EXISTS sessions (
+              id TEXT NOT NULL PRIMARY KEY,
+              account_id TEXT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+              created_at TEXT NOT NULL,
+              expires_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS sessions_by_account ON sessions (account_id);
             """);
     }
 

@@ -27,8 +27,8 @@ public sealed partial class TasksOptions
     public int DeliveryTimeoutMinutes { get; set; } = 10;
 
     /// <summary>
-    /// Whether approving needs the code of the second factor, which the executor checks. Unset: yes, except for the sandbox operator of
-    /// <c>Approvals:Mode=Development</c>, which has no executor behind it.
+    /// Whether approving needs the code of the second factor, which the executor checks. Unset: yes. Only the tests of the control plane
+    /// alone, which have no executor behind them, turn it off.
     /// </summary>
     public bool? RequireSecondFactor { get; set; }
 
@@ -70,7 +70,7 @@ public sealed partial class TasksOptions
             {
                 BatchLifetime = TimeSpan.FromMinutes(BatchLifetimeMinutes),
                 DeliveryTimeout = TimeSpan.FromMinutes(DeliveryTimeoutMinutes),
-                RequireSecondFactor = RequireSecondFactor ?? approvals.Mode != ApprovalsMode.Development,
+                RequireSecondFactor = RequireSecondFactor ?? true,
             },
             JournalFile(storage, contentRoot),
             credentials);

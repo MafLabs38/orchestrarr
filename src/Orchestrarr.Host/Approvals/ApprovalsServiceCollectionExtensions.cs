@@ -25,21 +25,6 @@ internal static class ApprovalsServiceCollectionExtensions
     public static IServiceCollection AddApprovals(this IServiceCollection services, ApprovalsOptions options, IReadOnlyList<PowerGrant> grants, IStorageSettings storage, TasksSettings? tasks = null)
     {
         tasks ??= TasksSettings.Bare;
-        // Signing in through the identity provider brings its own approver (AddSignIn, called before this): the host does not start without one
-        if (options.Mode == ApprovalsMode.OpenIdConnect)
-        {
-            if (!services.Any(descriptor => descriptor.ServiceType == typeof(IApproverAccessor)))
-            {
-                throw new InvalidOperationException("Approvals:Mode=OpenIdConnect needs the sign-in: AddSignIn comes before AddApprovals.");
-            }
-        }
-        else
-        {
-            services.AddSingleton<IApproverAccessor>(provider => options.Mode == ApprovalsMode.Development
-                ? new DevelopmentApprover(options, provider.GetRequiredService<TimeProvider>())
-                : new NoApprover());
-        }
-
         services
             .AddApprovingRateLimit(options)
             .AddSingleton(options)

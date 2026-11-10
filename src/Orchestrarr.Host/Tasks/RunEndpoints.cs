@@ -1,3 +1,4 @@
+using Orchestrarr.Core.Accounts;
 using Orchestrarr.Core.Approvals;
 using Orchestrarr.Core.Tasks;
 using Orchestrarr.Host.Approvals;
@@ -12,8 +13,8 @@ internal static class RunEndpoints
 
     public static void MapRunEndpoints(this RouteGroupBuilder api)
     {
-        api.MapGet("/runs", (IBatchQueue queue, int? limit) => WhenReadable(() => Results.Ok(queue.Runs(Math.Clamp(limit ?? DefaultPageSize, 1, MaxPageSize)))));
-        api.MapGet("/runs/{id:guid}", (IBatchQueue queue, Guid id) => WhenReadable(() => queue.Find(id) is { } run ? Results.Ok(run) : Results.NotFound()));
+        api.MapGet("/runs", (IBatchQueue queue, int? limit) => WhenReadable(() => Results.Ok(queue.Runs(Math.Clamp(limit ?? DefaultPageSize, 1, MaxPageSize))))).RequireAuthorization(Permissions.FleetRead);
+        api.MapGet("/runs/{id:guid}", (IBatchQueue queue, Guid id) => WhenReadable(() => queue.Find(id) is { } run ? Results.Ok(run) : Results.NotFound())).RequireAuthorization(Permissions.FleetRead);
     }
 
     private static IResult WhenReadable(Func<IResult> read)

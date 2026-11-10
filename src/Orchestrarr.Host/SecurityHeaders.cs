@@ -7,9 +7,8 @@ namespace Orchestrarr.Host;
 /// </summary>
 internal static class SecurityHeaders
 {
-    // The form-action directive is left out on purpose: signing out is a form whose answer is a redirect to the identity provider
     private const string Policy = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; "
-        + "object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
+        + "object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 
     private const string StrictTransport = "max-age=31536000";
 

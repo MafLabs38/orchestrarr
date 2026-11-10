@@ -4,6 +4,8 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using System.Security.Claims;
+using Orchestrarr.Core.Accounts;
 using Orchestrarr.Core.Fleet;
 using Orchestrarr.Core.Forge;
 
@@ -15,6 +17,7 @@ public sealed class SampleApiFactory : WebApplicationFactory<Program>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseSetting(FleetSourceFactory.SampleFileKey, Path.Combine(AppContext.BaseDirectory, "portarr-maintenance.sample.json"));
+        builder.ConfigureTestServices(services => services.AddTestSignIn());
     }
 }
 
@@ -24,7 +27,9 @@ public sealed class NoForgeApiFactory : WebApplicationFactory<Program>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
+        builder.UseSetting("Storage:Provider", "Memory");
         builder.UseSetting(FleetSourceFactory.SampleFileKey, Path.Combine(AppContext.BaseDirectory, "portarr-maintenance.sample.json"));
+        builder.ConfigureTestServices(services => services.AddTestSignIn());
     }
 }
 
@@ -34,6 +39,8 @@ public sealed class UnconfiguredApiFactory : WebApplicationFactory<Program>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
+        builder.UseSetting("Storage:Provider", "Memory");
+        builder.ConfigureTestServices(services => services.AddTestSignIn());
     }
 }
 
@@ -46,6 +53,7 @@ public sealed class FailingApiFactory : WebApplicationFactory<Program>
     {
         builder.ConfigureTestServices(services =>
         {
+            services.AddTestSignIn();
             services.RemoveAll<IFleetSource>();
             services.AddSingleton<IFleetSource>(new DownSource());
         });
@@ -61,7 +69,55 @@ public sealed class FailingApiFactory : WebApplicationFactory<Program>
     }
 }
 
-/// <summary>The sample host with a forge that answers for every repository, or fails with a given exception.</summary>
+
+/// <summary>
+/// Signs a test client in without the cookie: an Operator by default, another role or another name by header, or nobody (<c>anonymous</c>).
+/// It also adds the header that a write from a person must carry, unless the test says it wants the real check. The sign-in itself, with its
+/// cookie, is tested through the real routes in <c>AccountsApiTests</c>.
+/// </summary>
+internal sealed class TestSignInFilter : IStartupFilter
+{
+    public const string RoleHeader = "X-Test-Role";
+    public const string UserHeader = "X-Test-User";
+    public const string RealCsrfHeader = "X-Test-Real-Csrf";
+
+    public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
+    {
+        app.Use((context, pipeline) =>
+        {
+            var headers = context.Request.Headers;
+            if (!headers.ContainsKey(RealCsrfHeader))
+            {
+                headers["X-Orchestrarr-Request"] = "test";
+            }
+
+            var role = headers.TryGetValue(RoleHeader, out var chosen) ? chosen.ToString() : Roles.Operator;
+            if (role != "anonymous" && Roles.Find(role) is { } known)
+            {
+                var subject = headers.TryGetValue(UserHeader, out var user) ? user.ToString() : "test-operator";
+                var identity = new ClaimsIdentity("orchestrarr.cookie", ClaimTypes.Name, "orchestrarr:role");
+                identity.AddClaim(new Claim(ClaimTypes.NameIdentifier, subject));
+                identity.AddClaim(new Claim(ClaimTypes.Name, subject));
+                identity.AddClaim(new Claim("orchestrarr:role", known.Name));
+                foreach (var permission in known.Permissions)
+                {
+                    identity.AddClaim(new Claim("orchestrarr:permission", permission));
+                }
+
+                context.User = new ClaimsPrincipal(identity);
+            }
+
+            return pipeline(context);
+        });
+        next(app);
+    };
+}
+
+internal static class TestSignIn
+{
+    public static IServiceCollection AddTestSignIn(this IServiceCollection services) => services.AddSingleton<IStartupFilter, TestSignInFilter>();
+}
+
 /// <summary>
 /// The test server has no network: this gives each request the address of its client. By default the loopback (the maintainer's own
 /// machine); a test that wants a client from the network says so with the <c>X-Test-Remote</c> header.
@@ -106,6 +162,8 @@ public sealed class ForgeApiFactory : WebApplicationFactory<Program>
         // Nobody keeps what a test approves: the sandbox's memory, unless a test asks for a file
         builder.UseSetting("Storage:Provider", "Memory");
         builder.UseSetting("Storage:MemoryStartsEngaged", "false");
+        // The control plane alone: there is no executor behind it to check a code (a test that wants the code says so in its settings)
+        builder.UseSetting("Tasks:RequireSecondFactor", "false");
         foreach (var (key, value) in Settings)
         {
             builder.UseSetting(key, value);
@@ -116,6 +174,7 @@ public sealed class ForgeApiFactory : WebApplicationFactory<Program>
             services.AddSingleton<IPullRequestSource>(new FakeForge(Failure));
             ServiceOverrides?.Invoke(services);
             services.AddSingleton<IStartupFilter, RemoteAddressFilter>();
+            services.AddTestSignIn();
         });
     }
 
@@ -149,8 +208,10 @@ public sealed class CountingApiFactory : WebApplicationFactory<Program>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
+        builder.UseSetting("Storage:Provider", "Memory");
         builder.ConfigureTestServices(services =>
         {
+            services.AddTestSignIn();
             services.RemoveAll<IFleetSource>();
             services.AddSingleton<IFleetSource>(Source);
         });

@@ -47,7 +47,7 @@ public sealed class WorkItemsApiTests : IClassFixture<SampleApiFactory>
     [Fact]
     public async Task A_decision_card_has_its_plan_ticked_and_available_but_no_step_granted_unless_the_operator_granted_one()
     {
-        using var factory = new ApprovalsDisabledApiFactory();
+        using var factory = new NoGrantApiFactory();
         var item = await factory.CreateClient().GetFromJsonAsync<JsonElement>("/api/v1/work-items/repository:example/shop", TestContext.Current.CancellationToken);
 
         var plan = item.GetProperty("plan").EnumerateArray().ToList();
@@ -78,7 +78,7 @@ public sealed class WorkItemsApiTests : IClassFixture<SampleApiFactory>
     }
 
     [Fact]
-    public void Every_route_of_the_api_only_reads_apart_from_the_two_the_operator_uses_and_the_fallback_that_answers_404_to_everything_else()
+    public void Every_route_of_the_api_only_reads_apart_from_the_operators_two_the_sign_in_and_the_accounts_and_the_fallback_that_answers_404_to_everything_else()
     {
         var routes = _factory.Services.GetServices<EndpointDataSource>().SelectMany(source => source.Endpoints).OfType<RouteEndpoint>()
             .Where(e => e.RoutePattern.RawText?.StartsWith("/api", StringComparison.Ordinal) == true)
@@ -86,10 +86,13 @@ public sealed class WorkItemsApiTests : IClassFixture<SampleApiFactory>
 
         routes.Should().NotBeEmpty();
         var withMethods = routes.Where(e => e.Metadata.GetMetadata<HttpMethodMetadata>() is not null).ToList();
-        // The only routes that change something: record an approval, and set the global stop. Neither runs anything.
+        // The only routes that change something: record an approval, set the global stop (neither runs anything), sign in and out, and the accounts.
         var writes = withMethods.Where(e => e.Metadata.GetMetadata<HttpMethodMetadata>()!.HttpMethods.Any(m => m != HttpMethods.Get))
             .Select(e => $"{string.Join(',', e.Metadata.GetMetadata<HttpMethodMetadata>()!.HttpMethods)} {e.RoutePattern.RawText}");
-        writes.Order().Should().Equal("POST /api/v1/approvals", "PUT /api/v1/safety/kill-switch");
+        writes.Should().BeEquivalentTo(
+            "POST /api/v1/approvals", "PUT /api/v1/safety/kill-switch",
+            "POST /api/v1/auth/login", "POST /api/v1/auth/logout", "POST /api/v1/auth/password",
+            "POST /api/v1/accounts/", "PUT /api/v1/accounts/{id:guid}", "POST /api/v1/accounts/{id:guid}/password", "DELETE /api/v1/accounts/{id:guid}");
         routes.Except(withMethods).Should().ContainSingle().Which.RoutePattern.RawText.Should().Contain("{*path");
     }
 

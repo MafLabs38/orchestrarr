@@ -36,6 +36,8 @@ internal static class ExecutorEndpoints
         });
 
         var group = app.MapGroup("/api/v1/executor");
+        // The routes of the executors carry their own token, not a session: the sign-in of people does not apply to them
+        group.AllowAnonymous();
         group.AddEndpointFilter((context, next) => Authenticate(context, next, settings));
 
         group.MapPost("/claim", async (ClaimRequest request, HttpContext context, IBatchQueue queue, ExecutorRegistry registry, CancellationToken ct) =>
