@@ -18,11 +18,8 @@ internal static class AccountEndpoints
             return Results.Json(ToDto(created), statusCode: StatusCodes.Status201Created);
         }));
 
-        accounts.MapPut("/{id:guid}", (Guid id, UpdateAccountRequest request, HttpContext context, AccountService service, IAccountStore store) => AccountResults.Run(() =>
-        {
-            var current = store.Existing(id);
-            return Results.Ok(ToDto(service.Update(id, request.Role ?? current.Role, request.Enabled ?? current.Enabled, Actor(context))));
-        }));
+        accounts.MapPut("/{id:guid}", (Guid id, UpdateAccountRequest request, HttpContext context, AccountService service) => AccountResults.Run(() =>
+            Results.Ok(ToDto(service.Update(id, request.Role, request.Enabled, Actor(context))))));
 
         accounts.MapPost("/{id:guid}/password", (Guid id, SetPasswordRequest request, HttpContext context, AccountService service) => AccountResults.Run(() =>
         {

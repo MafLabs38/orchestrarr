@@ -5,7 +5,12 @@ import { renderWithProviders } from 'testUtils';
 
 import Accounts from './Accounts';
 
-const me = { subject: 's-1', name: 'root', role: 'Admin', permissions: ['accounts.manage'] };
+const me = {
+  subject: '11111111-1111-1111-1111-111111111111',
+  name: 'root',
+  role: 'Admin',
+  permissions: ['accounts.manage'],
+};
 const accounts = [
   {
     id: '11111111-1111-1111-1111-111111111111',
@@ -75,7 +80,7 @@ describe('Accounts', () => {
     await waitFor(() => expect(sent(fetchMock, 'PUT', `/api/v1/accounts/${accounts[1].id}`)).toBeDefined());
     expect(
       JSON.parse(String((sent(fetchMock, 'PUT', `/api/v1/accounts/${accounts[1].id}`)?.[1] as RequestInit).body)),
-    ).toEqual({ role: 'Operator', enabled: true });
+    ).toEqual({ role: 'Operator' });
   });
 
   it('disables an account', async () => {
@@ -87,7 +92,7 @@ describe('Accounts', () => {
     await waitFor(() => expect(sent(fetchMock, 'PUT', `/api/v1/accounts/${accounts[1].id}`)).toBeDefined());
     expect(
       JSON.parse(String((sent(fetchMock, 'PUT', `/api/v1/accounts/${accounts[1].id}`)?.[1] as RequestInit).body)),
-    ).toMatchObject({ enabled: false });
+    ).toEqual({ enabled: false });
   });
 
   it('creates an account, and says when the name is taken', async () => {

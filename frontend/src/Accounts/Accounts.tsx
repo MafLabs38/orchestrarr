@@ -49,9 +49,7 @@ function AccountRow({ account, isMe }: Readonly<{ account: Account; isMe: boolea
             className={form.input}
             aria-label={translate('RoleOf', { name: account.name })}
             value={account.role}
-            onChange={(event) =>
-              changes.update.mutate({ id: account.id, role: event.target.value, enabled: account.enabled })
-            }
+            onChange={(event) => changes.update.mutate({ id: account.id, role: event.target.value })}
           >
             {(roles ?? []).map((role) => (
               <option key={role.name} value={role.name}>
@@ -66,9 +64,7 @@ function AccountRow({ account, isMe }: Readonly<{ account: Account; isMe: boolea
             type="checkbox"
             aria-label={translate('EnabledOf', { name: account.name })}
             checked={account.enabled}
-            onChange={(event) =>
-              changes.update.mutate({ id: account.id, role: account.role, enabled: event.target.checked })
-            }
+            onChange={(event) => changes.update.mutate({ id: account.id, enabled: event.target.checked })}
           />
         </td>
         <td>
@@ -199,7 +195,7 @@ export default function Accounts() {
             </thead>
             <tbody>
               {accounts.map((account) => (
-                <AccountRow key={account.id} account={account} isMe={account.name === session?.name} />
+                <AccountRow key={account.id} account={account} isMe={account.id === session?.subject} />
               ))}
             </tbody>
           </table>

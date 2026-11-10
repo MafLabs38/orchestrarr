@@ -116,6 +116,18 @@ const events = {
   'batch.done': 'EventBatchDone',
   'batch.refused': 'EventBatchRefused',
   'batch.expired': 'EventBatchExpired',
+  'login.succeeded': 'EventLoginSucceeded',
+  'login.failed': 'EventLoginFailed',
+  'login.locked': 'EventLoginLocked',
+  'password.locked': 'EventPasswordLocked',
+  'password.verify-failed': 'EventPasswordVerifyFailed',
+  'account.created': 'EventAccountCreated',
+  'account.role-changed': 'EventAccountRoleChanged',
+  'account.enabled': 'EventAccountEnabled',
+  'account.disabled': 'EventAccountDisabled',
+  'account.password-changed': 'EventAccountPasswordChanged',
+  'account.reset': 'EventAccountReset',
+  'account.deleted': 'EventAccountDeleted',
 } as const;
 
 // The words of an event of the audit trail; one the interface does not know is shown as the server names it.

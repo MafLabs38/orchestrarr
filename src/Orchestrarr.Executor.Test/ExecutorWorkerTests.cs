@@ -103,7 +103,7 @@ public sealed class ControlPlaneClientTests
     [InlineData("https://orchestrarr.homelab.example")]
     [InlineData("http://localhost:5080")]
     [InlineData("http://127.0.0.1:5080")]
-    [InlineData("http://192.168.1.50:5080")]
+    [InlineData("http://10.0.0.50:5080")]
     [InlineData("http://10.0.0.5")]
     [InlineData("http://172.16.0.9")]
     public void The_token_goes_only_over_https_or_inside_the_local_network(string url)

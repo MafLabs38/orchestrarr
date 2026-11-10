@@ -60,20 +60,6 @@ public sealed class LoginThrottle
         }
     }
 
-    internal bool IsLocked(string name)
-    {
-        lock (_gate)
-        {
-            if (!_entries.TryGetValue(name, out var entry))
-            {
-                return false;
-            }
-
-            Prune(entry.Attempts);
-            return entry.Attempts.Count >= MaxFailures;
-        }
-    }
-
     /// <summary>The attempt succeeded: the name starts again from nothing.</summary>
     public void Succeeded(string name)
     {

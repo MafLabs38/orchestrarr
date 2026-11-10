@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using Orchestrarr.Core.Accounts;
 
@@ -17,7 +18,8 @@ internal sealed class AccountsHarness
         Audit = new RecordingAudit();
         Throttle = new LoginThrottle(Time);
         Sessions = new SessionService(SessionStore, Time, TimeSpan.FromDays(sessionDays));
-        Hasher = new PasswordHasher<Account>();
+        // A cheap hasher: the tests check what is done with a hash, not how slow it is to make (the host uses the default one)
+        Hasher = new PasswordHasher<Account>(Options.Create(new PasswordHasherOptions { IterationCount = 1000 }));
         Service = new AccountService(Accounts, Audit, Throttle, Sessions, Hasher, Time);
         SignIn = new SignInService(Accounts, Audit, Throttle, Sessions, new AuditSampler(Time), Hasher);
     }

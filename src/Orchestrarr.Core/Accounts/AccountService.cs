@@ -30,12 +30,17 @@ public sealed class AccountService(IAccountStore accounts, IAccountAudit audit, 
 
     public IReadOnlyList<Account> List() => accounts.List();
 
-    /// <summary>Changes the role and the state of an account in one step: both are checked first, and nothing is written when one is refused.</summary>
-    public Account Update(Guid id, string role, bool enabled, string actor)
+    /// <summary>
+    /// Changes the role and the state of an account in one step: both are checked first, and nothing is written when one is refused. A value left
+    /// out (null) keeps the account's current one, read under the lock, so that two changes of two different fields never undo each other.
+    /// </summary>
+    public Account Update(Guid id, string? newRole, bool? newEnabled, string actor)
     {
         lock (_administrators)
         {
             var account = accounts.Existing(id);
+            var role = newRole ?? account.Role;
+            var enabled = newEnabled ?? account.Enabled;
             CheckRole(role);
             KeepOneAdmin(account, stillAdmin: enabled && role == Roles.Admin);
             if (!accounts.Update(id, role, enabled))

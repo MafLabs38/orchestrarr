@@ -104,6 +104,19 @@ public sealed class ExecutorApiTests : IDisposable
     }
 
     [Fact]
+    public async Task An_executor_sends_no_header_of_the_interface_and_is_not_asked_for_one()
+    {
+        using var factory = Factory();
+        var client = Executor(factory);
+        // The tests add the header of the interface to every request, unless this says not to: an executor never sends it
+        client.DefaultRequestHeaders.Add(TestSignInFilter.RealCsrfHeader, "1");
+
+        var response = await client.PostAsJsonAsync("/api/v1/executor/claim", new ClaimRequest(Hello), ExecutorWire.Json, Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
     public async Task The_token_of_an_executor_does_not_open_the_routes_for_people()
     {
         using var factory = Factory();

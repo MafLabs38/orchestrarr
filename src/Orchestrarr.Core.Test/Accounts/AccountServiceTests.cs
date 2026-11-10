@@ -105,4 +105,29 @@ public sealed class AccountServiceTests
         harness.Sessions.AccountOf(session).Should().BeNull();
         harness.Throttle.TryReserve("root").Should().BeTrue();
     }
+
+    [Fact]
+    public void A_value_left_out_of_an_update_keeps_the_current_one()
+    {
+        var harness = new AccountsHarness();
+        var account = harness.Create("alice", Roles.Operator);
+        harness.Service.Update(account.Id, null, false, "root");
+
+        var changed = harness.Service.Update(account.Id, Roles.Reader, null, "root");
+
+        changed.Should().Match<Account>(updated => updated.Role == Roles.Reader && !updated.Enabled);
+        harness.Accounts.Get(account.Id).Should().Be(changed);
+    }
+
+    [Fact]
+    public void Updating_or_deleting_an_account_that_does_not_exist_is_not_found()
+    {
+        var harness = new AccountsHarness();
+
+        var update = () => harness.Service.Update(Guid.NewGuid(), Roles.Reader, true, "root");
+        var delete = () => harness.Service.Delete(Guid.NewGuid(), "root");
+
+        update.Should().Throw<AccountRejectedException>().Which.Problem.Should().Be(AccountProblem.NotFound);
+        delete.Should().Throw<AccountRejectedException>().Which.Problem.Should().Be(AccountProblem.NotFound);
+    }
 }

@@ -59,7 +59,8 @@ export function useAccountChanges() {
       onSuccess: refresh,
     }),
     update: useMutation({
-      mutationFn: (change: { id: string; role: string; enabled: boolean }) =>
+      // Only the field that changed is sent: the server keeps the other as it is now, so two changes never undo each other
+      mutationFn: (change: { id: string; role?: string; enabled?: boolean }) =>
         sendJson<Account>('PUT', `${accountsPath}/${change.id}`, { role: change.role, enabled: change.enabled }),
       onSettled: refresh,
     }),
