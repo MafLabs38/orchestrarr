@@ -158,13 +158,9 @@ export interface StorageStatus {
   kind: StorageKind;
 }
 
-export type ApprovalMode = 'disabled' | 'development' | 'openidconnect';
-
-// Who may approve (the mode is "disabled", "development" or "openidconnect"), who the operator is (the identifier that counts, and the
+// Who is signed in as an approver (the identifier that counts, and the
 // name to show), and whether the global stop is engaged.
 export interface ApprovalStatus {
-  mode: ApprovalMode;
-  enabled: boolean;
   operator: string | null;
   operatorName: string | null;
   // Only an operator is offered approving and the global stop
@@ -176,11 +172,28 @@ export interface ApprovalStatus {
   requiresSecondFactor: boolean;
 }
 
-// Who the session is, whatever it may do (GET /auth/me, only when people sign in): canRead false is an account the API refuses.
+// Who is signed in (GET /auth/me): the subject is the identifier the approvals and the authenticator's enrolment use for this person.
+export type RoleName = 'Admin' | 'Operator' | 'Reader';
+
 export interface Session {
-  name: string | null;
-  canRead: boolean;
-  isOperator: boolean;
+  subject: string;
+  name: string;
+  role: RoleName;
+  permissions: string[];
+}
+
+export interface Account {
+  id: string;
+  name: string;
+  role: RoleName;
+  enabled: boolean;
+  createdAt: string;
+}
+
+export interface Role {
+  name: RoleName;
+  description: string;
+  permissions: string[];
 }
 
 // Where an approval is in its life: a dry run spends it, so a real run needs a new approval.
@@ -273,7 +286,6 @@ export interface ActivityEntry {
 
 // Why an approval was refused: a code, which the interface words (Utilities/describe.ts).
 export type ApprovalError =
-  | 'approvalsDisabled'
   | 'notSignedIn'
   | 'notAnOperator'
   | 'notAPerson'
@@ -282,8 +294,6 @@ export type ApprovalError =
   | 'pullRequestsNotRead'
   | 'nothingTicked'
   | 'planChanged'
-  | 'hostNotAllowed'
-  | 'originNotAllowed'
   | 'stepNotOffered'
   | 'stepNotGranted'
   | 'stepNotSupported'

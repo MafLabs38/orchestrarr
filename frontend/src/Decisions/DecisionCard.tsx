@@ -119,10 +119,7 @@ function ApprovalOutcome({ approve }: Readonly<{ approve: ReturnType<typeof useA
 
 // What to say under the button: why it cannot be pressed, or what pressing it does.
 function approvalHint(approvals: ApprovalStatus | undefined, plan: PlanStep[], pullRequestsRead: boolean): string {
-  if (!approvals?.enabled) {
-    return translate('ApprovalDisabledHint');
-  }
-  if (!approvals.isOperator) {
+  if (!approvals?.isOperator) {
     return translate('ApprovalNotOperatorHint');
   }
   if (approvals.killSwitchEngaged) {
@@ -167,8 +164,7 @@ export default function DecisionCard({ item }: Readonly<{ item: WorkItem }>) {
   // Only what the server would accept is sent: ticked, possible, granted, and a step that approving records. The server decides the rest.
   const approvable = item.plan.filter((step) => isChecked(step) && step.granted && isApprovable(step));
   const canApprove =
-    approvals?.enabled === true &&
-    approvals.isOperator &&
+    approvals?.isOperator === true &&
     !approvals.killSwitchEngaged &&
     approvable.length > 0 &&
     pullRequestsRead &&

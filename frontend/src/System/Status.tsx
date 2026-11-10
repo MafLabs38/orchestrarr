@@ -35,13 +35,7 @@ function storageName(kind: string): string {
 }
 
 function approvalsText(approvals: ApprovalStatus): string {
-  if (!approvals.enabled) {
-    return translate('ApprovalsOff');
-  }
-  const operator = approvals.operatorName ?? approvals.operator ?? '';
-  return approvals.mode === 'openidconnect'
-    ? translate('ApprovalsSignedIn', { operator })
-    : translate('ApprovalsSandbox', { operator });
+  return translate('ApprovalsSignedIn', { operator: approvals.operatorName ?? approvals.operator ?? '' });
 }
 
 export default function Status() {

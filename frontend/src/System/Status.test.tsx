@@ -1,7 +1,7 @@
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-import { approvalsOff, renderWithProviders, status, stubApi } from 'testUtils';
+import { renderWithProviders, status, stubApi } from 'testUtils';
 import type { StorageKind } from 'typings/api';
 
 import Status from './Status';
@@ -70,13 +70,13 @@ describe('Status', () => {
 
     renderWithProviders(<Status />);
 
-    expect(await screen.findByText('Sandbox operator: dev-operator')).toBeInTheDocument();
+    expect(await screen.findByText('Signed in: test-operator')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Engage the global stop' })).toBeEnabled();
   });
 
-  it('says who is signed in when people sign in through the identity provider', async () => {
+  it('says who is signed in', async () => {
     stubApi({
-      '/api/v1/system/status': status({}, { mode: 'openidconnect', operator: 'a1b2', operatorName: 'alice' }),
+      '/api/v1/system/status': status({}, { operator: 'a1b2', operatorName: 'alice' }),
     });
 
     renderWithProviders(<Status />);
@@ -84,24 +84,9 @@ describe('Status', () => {
     expect(await screen.findByText('Signed in: alice')).toBeInTheDocument();
   });
 
-  it('says approving is turned off, and offers no global stop to nobody', async () => {
-    stubApi({
-      '/api/v1/system/status': status({}, approvalsOff),
-    });
-
-    renderWithProviders(<Status />);
-
-    expect(await screen.findByText('Turned off')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /global stop/ })).not.toBeInTheDocument();
-    expect(screen.getByText('Only a signed-in operator can use the global stop.')).toBeInTheDocument();
-  });
-
   it('offers no global stop to somebody who is signed in but is not an operator, and says why', async () => {
     stubApi({
-      '/api/v1/system/status': status(
-        {},
-        { mode: 'openidconnect', operator: 'bob-2', operatorName: 'bob', isOperator: false },
-      ),
+      '/api/v1/system/status': status({}, { operator: 'bob-2', operatorName: 'bob', isOperator: false }),
     });
 
     renderWithProviders(<Status />);

@@ -1,0 +1,45 @@
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 28px;
+}
+
+.table th,
+.table td {
+  padding: 8px 10px;
+  border-bottom: var(--borderWidth) solid var(--hairline);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.table th {
+  color: var(--inkMuted);
+  font-weight: 800;
+}
+
+.me {
+  color: var(--inkMuted);
+  font-size: 0.85em;
+}
+
+.inline {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+}
+
+.new {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 380px;
+}
+
+.new h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.new > button {
+  align-self: flex-start;
+}

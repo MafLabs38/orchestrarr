@@ -124,7 +124,6 @@ export function describeEvent(event: string): string {
 }
 
 const approvalErrors = {
-  approvalsDisabled: 'ApprovalErrorApprovalsDisabled',
   notSignedIn: 'ApprovalErrorNotSignedIn',
   notAnOperator: 'ApprovalErrorNotAnOperator',
   notAPerson: 'ApprovalErrorNotAPerson',
@@ -133,8 +132,6 @@ const approvalErrors = {
   pullRequestsNotRead: 'ApprovalErrorPullRequestsNotRead',
   nothingTicked: 'ApprovalErrorNothingTicked',
   planChanged: 'ApprovalErrorPlanChanged',
-  hostNotAllowed: 'ApprovalErrorHostNotAllowed',
-  originNotAllowed: 'ApprovalErrorOriginNotAllowed',
   stepNotOffered: 'ApprovalErrorStepNotOffered',
   stepNotGranted: 'ApprovalErrorStepNotGranted',
   stepNotSupported: 'ApprovalErrorStepNotSupported',

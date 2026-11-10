@@ -92,10 +92,8 @@ export function report(overrides: Partial<WorkItemReport> = {}): WorkItemReport 
 
 export function approvalStatus(overrides: Partial<ApprovalStatus> = {}): ApprovalStatus {
   return {
-    mode: 'development',
-    enabled: true,
-    operator: 'dev-operator',
-    operatorName: 'dev-operator',
+    operator: 'test-operator',
+    operatorName: 'test-operator',
     isOperator: true,
     killSwitchEngaged: false,
     killSwitchSaved: true,
@@ -104,14 +102,8 @@ export function approvalStatus(overrides: Partial<ApprovalStatus> = {}): Approva
   };
 }
 
-// Approving is off: nobody is signed in, so nobody is an operator
-export const approvalsOff: Partial<ApprovalStatus> = {
-  enabled: false,
-  mode: 'disabled',
-  operator: null,
-  operatorName: null,
-  isOperator: false,
-};
+// A person who is signed in and may only read
+export const readerOnly: Partial<ApprovalStatus> = { operator: 'reader-1', operatorName: 'reader', isOperator: false };
 
 export function status(
   overrides: Partial<SystemStatus['source']> = {},

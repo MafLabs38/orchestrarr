@@ -17,6 +17,8 @@
     "paths": {
       "App/*": ["./src/App/*"],
       "Components/*": ["./src/Components/*"],
+      "Account/*": ["./src/Account/*"],
+      "Accounts/*": ["./src/Accounts/*"],
       "Activity/*": ["./src/Activity/*"],
       "Approvals/*": ["./src/Approvals/*"],
       "Decisions/*": ["./src/Decisions/*"],

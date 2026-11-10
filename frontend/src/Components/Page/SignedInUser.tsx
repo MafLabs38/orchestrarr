@@ -1,22 +1,26 @@
+import { Link } from 'react-router-dom';
+
+import { useSignOut } from 'Account/useAccountApi';
+import useSession from 'Account/useSession';
 import Button from 'Components/Button';
-import { signOutPath } from 'Helpers/signIn';
 import translate from 'Utilities/translate';
 
 import styles from './SignedInUser.module.css';
-import useSession from './useSession';
 
-// Who is signed in, and the way out, for any session, including one the API refuses. Nothing where people do not sign in: the sandbox
-// operator has nothing to leave. Signing out is a form, a POST that the browser navigates with: no link or image can do it.
+// Who is signed in, with a link to their account, and the way out.
 export default function SignedInUser() {
   const { data } = useSession();
+  const signOut = useSignOut();
   if (!data) {
     return null;
   }
 
   return (
-    <form method="post" action={signOutPath} className={styles.user}>
-      <span>{translate('SignedInAs', { name: data.name ?? translate('UnknownAccount') })}</span>
-      <Button type="submit">{translate('SignOut')}</Button>
-    </form>
+    <div className={styles.user}>
+      <Link to="/account">{translate('SignedInAs', { name: data.name, role: data.role })}</Link>
+      <Button onClick={() => signOut.mutate()} disabled={signOut.isPending}>
+        {translate('SignOut')}
+      </Button>
+    </div>
   );
 }

@@ -11,6 +11,8 @@ export default defineConfig({
     alias: {
       App: src('App'),
       Components: src('Components'),
+      Account: src('Account'),
+      Accounts: src('Accounts'),
       Activity: src('Activity'),
       Approvals: src('Approvals'),
       Decisions: src('Decisions'),
@@ -23,13 +25,11 @@ export default defineConfig({
     },
   },
   server: {
-    // The sandbox has an operator with no sign-in behind this proxy: it listens on the loopback, never on the network. To reach it from
-    // another machine, forward the port (an SSH tunnel, or the port forwarding of the editor).
+    // The development server listens on the loopback, never on the network. To reach it from another machine, forward the port (an SSH
+    // tunnel, or the port forwarding of the editor).
     host: '127.0.0.1',
     proxy: {
       '/api': { target: 'http://127.0.0.1:7878', changeOrigin: false },
-      // The sign-in: the browser is sent to the identity provider and back through this same address
-      '/auth': { target: 'http://127.0.0.1:7878', changeOrigin: false },
     },
   },
   build: {

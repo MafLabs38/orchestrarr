@@ -2,7 +2,6 @@ import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import {
-  approvalsOff,
   finding,
   pullRequest,
   pullRequestsRead,
@@ -201,17 +200,8 @@ describe('DecisionCard approval', () => {
     vi.unstubAllGlobals();
   });
 
-  it('cannot be approved while approving is turned off, and says so next to the button', async () => {
-    stubApproving(approvalsOff);
-
-    renderWithProviders(<DecisionCard item={granted} />);
-
-    await waitFor(() => expect(approveButton()).toHaveAccessibleDescription(/turned off/));
-    expect(approveButton()).toBeDisabled();
-  });
-
   it('cannot be approved by somebody who is signed in but is not an operator, and says so', async () => {
-    stubApproving({ mode: 'openidconnect', operator: 'bob-2', operatorName: 'bob', isOperator: false });
+    stubApproving({ operator: 'bob-2', operatorName: 'bob', isOperator: false });
 
     renderWithProviders(<DecisionCard item={granted} />);
 
