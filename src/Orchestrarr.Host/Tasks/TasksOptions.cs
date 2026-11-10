@@ -20,8 +20,12 @@ public sealed partial class TasksOptions
 {
     public const string SectionName = "Tasks";
 
-    /// <summary>How long an approval waits for the executor, in minutes.</summary>
-    public int BatchLifetimeMinutes { get; set; } = 60;
+    /// <summary>
+    /// How long an approval waits for the executor, in minutes. The executor checks the code of the authenticator when it takes the batch, and a
+    /// code is good for about a minute and a half: a batch that waits longer could only be refused for its code, so it expires instead, and the
+    /// operator approves again with a fresh one.
+    /// </summary>
+    public int BatchLifetimeMinutes { get; set; } = 2;
 
     /// <summary>How long a batch may stay with an executor that does not answer, in minutes.</summary>
     public int DeliveryTimeoutMinutes { get; set; } = 10;

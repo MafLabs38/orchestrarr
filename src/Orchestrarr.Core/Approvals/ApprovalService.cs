@@ -41,9 +41,9 @@ public sealed class ApprovalService(
         ArgumentNullException.ThrowIfNull(seen);
 
         // Everything that reads or checks comes first, without the gate: a slow read of the forge must not block the other approvals.
-        var (candidates, batch, refusal) = await CandidatesAsync(approver, workItemId, ticked, seen, secondFactorCode, cancellationToken);
+        var (candidates, batchFor, refusal) = await CandidatesAsync(approver, workItemId, ticked, seen, secondFactorCode, cancellationToken);
         var result = refusal is null
-            ? await RecordAsync(candidates, batch!, secondFactorCode, cancellationToken)
+            ? await RecordAsync(candidates, batchFor!, secondFactorCode, cancellationToken)
             : ApprovalResult.Refused(refusal.Value);
         if (!result.Recorded)
         {
@@ -52,7 +52,7 @@ public sealed class ApprovalService(
         return result;
     }
 
-    private async Task<(IReadOnlyList<Approval> Candidates, TaskBatch? Batch, ApprovalRefusal? Refusal)> CandidatesAsync(
+    private async Task<(IReadOnlyList<Approval> Candidates, Func<IReadOnlyList<Approval>, TaskBatch>? BatchFor, ApprovalRefusal? Refusal)> CandidatesAsync(
         Approver approver, string workItemId, IReadOnlyList<StepKind> ticked, IReadOnlyList<SeenPullRequest> seen, string? secondFactorCode, CancellationToken cancellationToken)
     {
         if (await killSwitch.IsEngagedAsync(cancellationToken))
@@ -106,7 +106,7 @@ public sealed class ApprovalService(
             return ([], null, ApprovalRefusal.PlanChanged);
         }
         return seen.All(pullRequest => pullRequest is not null) && SameAsSeen(approvals, seen)
-            ? (approvals, BuildBatch(batchId, item.Id, approver, now, approvals, steps), null)
+            ? (approvals, fresh => BuildBatch(batchId, item.Id, approver, now, fresh, steps), null)
             : ([], null, ApprovalRefusal.PlanChanged);
     }
 
@@ -165,7 +165,7 @@ public sealed class ApprovalService(
         && OrderValidation.IsValidApproval(approval.WorkItemId, approval.Repository, approval.HeadSha, approval.Steps, approval.ApproverSubject);
 
     // Under the gate: the check for a decision already there, the trace and the recording are one step, all or nothing.
-    private async Task<ApprovalResult> RecordAsync(IReadOnlyList<Approval> candidates, TaskBatch batch, string? secondFactorCode, CancellationToken cancellationToken)
+    private async Task<ApprovalResult> RecordAsync(IReadOnlyList<Approval> candidates, Func<IReadOnlyList<Approval>, TaskBatch> batchFor, string? secondFactorCode, CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken);
         try
@@ -180,6 +180,9 @@ public sealed class ApprovalService(
             {
                 return ApprovalResult.Refused(ApprovalRefusal.StoreFull);
             }
+
+            // The batch holds only what is new: a pull request already in an open approval is not validated or merged a second time
+            var batch = batchFor(fresh);
 
             // The stop may have been engaged while the pull requests were read: read it again, last, before anything is written.
             if (await killSwitch.IsEngagedAsync(cancellationToken))

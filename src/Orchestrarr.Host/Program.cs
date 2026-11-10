@@ -38,6 +38,10 @@ var auth = (builder.Configuration.GetSection(AuthOptions.SectionName).Get<AuthOp
 var storage = (builder.Configuration.GetSection(StorageOptions.SectionName).Get<StorageOptions>() ?? new StorageOptions()).Validate(builder.Environment.ContentRootPath, builder.Environment.IsDevelopment(), approving: true);
 // The tasks and the executors (ADR 0017): the code of the second factor, how long an approval waits, the tokens of the executors. Checked now.
 var tasks = (builder.Configuration.GetSection(TasksOptions.SectionName).Get<TasksOptions>() ?? new TasksOptions()).Validate(approvals, storage, builder.Environment.ContentRootPath);
+if (builder.Environment.IsProduction() && !tasks.Options.RequireSecondFactor)
+{
+    throw new InvalidOperationException("Tasks:RequireSecondFactor=false is for tests: in production the approvals carry the code of the authenticator.");
+}
 builder.Services.AddApprovals(approvals, grants, storage, tasks);
 // The accounts share the database of the approvals, so they come after it; the cookie's keys sit next to the database when there is one
 builder.Services.AddAccounts(auth, storage);
@@ -49,6 +53,10 @@ var app = builder.Build();
 if (!storage.Persistent && !app.Environment.IsDevelopment())
 {
     app.Logger.LogWarning("Storage:Provider is Memory: the accounts, the approvals, the audit trail and the global stop are lost at every restart. Use Sqlite.");
+}
+if (!auth.SecureCookie && !app.Environment.IsDevelopment())
+{
+    app.Logger.LogWarning("Auth:CookieSecurity is SameAsRequest: over plain HTTP the passwords and the session cookie cross the network in clear. Use Always behind HTTPS.");
 }
 app.UseSecurityHeaders(overHttps: auth.SecureCookie);
 // The files of the interface say nothing about the fleet: they are served before the sign-in is asked for, or the page itself could not load

@@ -25,23 +25,36 @@ internal static class ExecutorEndpoints
             return;
         }
 
-        // The limit is set before the body is read: an endpoint filter runs after the binding, which is too late (Kestrel refuses to change it)
-        app.Use((context, next) =>
+        // Before the body is read: the limit is set (an endpoint filter runs after the binding, which is too late, Kestrel refuses to change it)
+        // and the token is checked, so that nobody without one has a body read or parsed
+        app.Use(async (context, next) =>
         {
-            if (context.Request.Path.StartsWithSegments("/api/v1/executor", StringComparison.Ordinal))
+            if (!context.Request.Path.StartsWithSegments("/api/v1/executor", StringComparison.OrdinalIgnoreCase))
             {
-                context.Features.Get<IHttpMaxRequestBodySizeFeature>()?.MaxRequestBodySize = MaxBody;
+                await next(context);
+                return;
             }
-            return next(context);
+            context.Features.Get<IHttpMaxRequestBodySizeFeature>()?.MaxRequestBodySize = MaxBody;
+            if (ExecutorNamed(context, settings) is not { } name)
+            {
+                context.Response.Headers.WWWAuthenticate = "Bearer";
+                await Results.Json(new ErrorResponse(ApiErrors.NotSignedIn), statusCode: StatusCodes.Status401Unauthorized).ExecuteAsync(context);
+                return;
+            }
+            context.Items[ExecutorItem] = name;
+            await next(context);
         });
 
         var group = app.MapGroup("/api/v1/executor");
         // The routes of the executors carry their own token, not a session: the sign-in of people does not apply to them
         group.AllowAnonymous();
-        group.AddEndpointFilter((context, next) => Authenticate(context, next, settings));
 
         group.MapPost("/claim", async (ClaimRequest request, HttpContext context, IBatchQueue queue, ExecutorRegistry registry, CancellationToken ct) =>
         {
+            if (request.Hello is null)
+            {
+                return Results.Json(new ErrorResponse("invalid"), statusCode: StatusCodes.Status400BadRequest);
+            }
             var name = (string)context.Items[ExecutorItem]!;
             registry.Seen(name, request.Hello);
             var claim = await queue.ClaimAsync(name, ct);
@@ -55,27 +68,21 @@ internal static class ExecutorEndpoints
             Answer(await queue.CompleteAsync(id, (string)context.Items[ExecutorItem]!, request.Outcome, ct)));
     }
 
-    private static ValueTask<object?> Authenticate(EndpointFilterInvocationContext context, EndpointFilterDelegate next, TasksSettings settings)
+    private static string? ExecutorNamed(HttpContext http, TasksSettings settings)
     {
-        var http = context.HttpContext;
         var presented = http.Request.Headers.Authorization.ToString();
-        if (presented.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+        if (!presented.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
         {
-            var hash = SHA256.HashData(Encoding.UTF8.GetBytes(presented["Bearer ".Length..].Trim()));
-            // Every credential is compared, in constant time, whatever the first answer is
-            string? name = null;
-            foreach (var credential in settings.Executors.Where(credential => CryptographicOperations.FixedTimeEquals(hash, credential.TokenHash)))
-            {
-                name = credential.Name;
-            }
-            if (name is not null)
-            {
-                http.Items[ExecutorItem] = name;
-                return next(context);
-            }
+            return null;
         }
-        http.Response.Headers.WWWAuthenticate = "Bearer";
-        return ValueTask.FromResult<object?>(Results.Json(new ErrorResponse(ApiErrors.NotSignedIn), statusCode: StatusCodes.Status401Unauthorized));
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(presented["Bearer ".Length..].Trim()));
+        // Every credential is compared, in constant time, whatever the first answer is
+        string? name = null;
+        foreach (var credential in settings.Executors.Where(credential => CryptographicOperations.FixedTimeEquals(hash, credential.TokenHash)))
+        {
+            name = credential.Name;
+        }
+        return name;
     }
 
     private static IResult Answer(QueueResult result) => result switch

@@ -147,6 +147,19 @@ public sealed class ApprovalServiceTests
     }
 
     [Fact]
+    public async Task The_second_batch_holds_only_the_tasks_of_the_new_pull_requests()
+    {
+        await Approve(await Service(PullRequest(1, HeadA)));
+
+        var result = await Approve(await Service(PullRequest(1, HeadA), PullRequest(2, HeadB)));
+
+        var second = _queue.Runs(10).Single(batch => batch.BatchId == result.Approvals.Single().BatchId);
+        var tasks = _queue.Find(second.BatchId)!.Tasks;
+        tasks.Select(task => task.Spec.PullRequest).Should().OnlyContain(number => number == 2, "a pull request already in an open approval is not done twice");
+        tasks.Select(task => task.Spec.ApprovalId).Distinct().Should().BeEquivalentTo(result.Approvals.Select(approval => approval.Id));
+    }
+
+    [Fact]
     public async Task Ten_approvals_of_the_same_decision_at_once_record_it_once()
     {
         var service = await Service();

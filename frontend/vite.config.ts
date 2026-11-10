@@ -4,7 +4,7 @@ import { defineConfig } from 'vitest/config';
 
 const src = (folder: string) => fileURLToPath(new URL(`./src/${folder}`, import.meta.url));
 
-// The API is the .NET host: in development the Vite server proxies /api and /auth to it.
+// The API is the .NET host: in development the Vite server proxies /api to it.
 export default defineConfig({
   plugins: [react()],
   resolve: {

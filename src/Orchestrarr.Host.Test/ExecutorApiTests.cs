@@ -86,6 +86,23 @@ public sealed class ExecutorApiTests : IDisposable
         response.Headers.WwwAuthenticate.Should().ContainSingle().Which.Scheme.Should().Be("Bearer");
     }
 
+    [Theory]
+    [InlineData("/api/v1/executor/claim")]
+    [InlineData("/API/V1/EXECUTOR/CLAIM")]
+    public async Task Nobody_without_a_token_has_a_body_read_and_a_body_without_a_hello_is_refused(string path)
+    {
+        using var factory = Factory();
+
+        // A body that is not even JSON: without a token it is a 401, never a 400 (the body is not read before the token is checked)
+        using var garbage = new StringContent("{ not json", System.Text.Encoding.UTF8, "application/json");
+        (await factory.CreateClient().PostAsync(path, garbage, Ct)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+
+        // With the token, a claim that does not say who the executor is cannot be recorded
+        using var empty = new StringContent("{}", System.Text.Encoding.UTF8, "application/json");
+        (await Executor(factory).PostAsync(path, empty, Ct)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await factory.CreateClient().GetAsync("/api/v1/system/status", Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
     [Fact]
     public async Task The_token_of_an_executor_does_not_open_the_routes_for_people()
     {

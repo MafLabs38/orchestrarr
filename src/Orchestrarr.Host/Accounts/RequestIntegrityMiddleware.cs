@@ -16,7 +16,7 @@ public sealed class RequestIntegrityMiddleware(RequestDelegate next)
     {
         var path = context.Request.Path;
         var isWrite = !SafeMethods.Contains(context.Request.Method);
-        var isPerson = path.StartsWithSegments("/api", StringComparison.Ordinal) && !path.StartsWithSegments("/api/v1/executor", StringComparison.Ordinal);
+        var isPerson = path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase) && !path.StartsWithSegments("/api/v1/executor", StringComparison.OrdinalIgnoreCase);
         if (isWrite && isPerson && !context.Request.Headers.ContainsKey(HeaderName))
         {
             context.Response.StatusCode = StatusCodes.Status403Forbidden;

@@ -203,6 +203,18 @@ public sealed class AccountsApiTests : IClassFixture<AccountsApiFactory>
         response.Headers.Contains("Set-Cookie").Should().BeFalse();
     }
 
+    [Theory]
+    [InlineData("/API/v1/auth/login")]
+    [InlineData("/api/V1/AUTH/login")]
+    public async Task The_header_is_asked_whatever_the_case_of_the_path(string path)
+    {
+        // Routing ignores the case of a path: the check of the header must not
+        var response = await Browser(withHeader: false).PostAsJsonAsync(path, new { name = "root", password = AccountsApiFactory.AdminPassword }, Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        response.Headers.Contains("Set-Cookie").Should().BeFalse();
+    }
+
     [Fact]
     public async Task Five_wrong_passwords_lock_the_name_and_the_answer_says_when_to_come_back()
     {

@@ -43,7 +43,7 @@ public static class SecurityExtensions
         app.Use((context, next) =>
         {
             var path = context.Request.Path;
-            if (path.StartsWithSegments("/api/v1/auth", StringComparison.Ordinal) || path.StartsWithSegments("/api/v1/accounts", StringComparison.Ordinal))
+            if (path.StartsWithSegments("/api/v1/auth", StringComparison.OrdinalIgnoreCase) || path.StartsWithSegments("/api/v1/accounts", StringComparison.OrdinalIgnoreCase))
             {
                 context.Features.Get<IHttpMaxRequestBodySizeFeature>()?.MaxRequestBodySize = SmallBody;
             }

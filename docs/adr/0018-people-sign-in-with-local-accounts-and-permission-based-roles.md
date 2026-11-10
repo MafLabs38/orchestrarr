@@ -26,3 +26,4 @@ ADR 0011 made the identity provider the only way in. The maintainer tried it and
 - Orchestrarr holds password hashes: the database is a secret, and a backup of it too.
 - One instance per database: the lockout counters live in memory.
 - A service account (for the executor, or an assistant) is not part of this step: the executors keep their own token (ADR 0017).
+- The lockout counts failures per name only (5 in 15 minutes): anyone who can reach the control plane can keep a known name locked out, and the global stop needs a signed-in person. That is accepted for a control plane that answers on a private network or a VPN (ADR 0017 point 3). The executor's local stop file works without a sign-in, so the stop stays within reach; a limit per source address, which needs the proxy's address to be trusted, comes with the first exposure beyond that network.
