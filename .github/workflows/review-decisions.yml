@@ -1,0 +1,40 @@
+# Checks the decisions a pull request records about the findings of the review agents (docs/review-decisions/README.md):
+# a finding rated blocker, critical, high or major that is not fixed must cite the approving comment of the maintainer.
+# No model, no secret, read-only: it parses text and asks GitHub who wrote one comment. Once the maintainer has commented,
+# re-run the job (it does not run on a comment).
+name: Review decisions
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: review-decisions-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review-decisions:
+    name: review-decisions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: The tests of the checker
+        working-directory: tools/review-decisions
+        run: python3 -I -m unittest -q
+      # The checker and the list of approvers are read from the base branch: a pull request cannot approve itself by editing them.
+      - name: Check the decisions
+        env:
+          BASE: ${{ github.base_ref }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git show "origin/$BASE:tools/review-decisions/check.py" > "$RUNNER_TEMP/check.py"
+          git show "origin/$BASE:.github/review-approvers" > "$RUNNER_TEMP/review-approvers"
+          cp "$RUNNER_TEMP/review-approvers" .github/review-approvers
+          python3 -I "$RUNNER_TEMP/check.py"
