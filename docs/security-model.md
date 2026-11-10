@@ -66,7 +66,7 @@ flowchart TB
 
 The colours show the main state of each box; the sentence below gives the exact state.
 
-What is built (`🟢`): the sign-in with local accounts and roles ([ADR 0018](adr/0018-people-sign-in-with-local-accounts-and-permission-based-roles.md)), recording an approval, the audit trail and the global stop, and, as library code that no process runs yet, the signed order and the launcher's checks. Everything else on the chain is `🔵`.
+What is built (`🟢`): the sign-in with local accounts and roles ([ADR 0018](adr/0018-people-sign-in-with-local-accounts-and-permission-based-roles.md)), recording an approval, the audit trail and the global stop, and the executor as a dry run (typed tasks, the second factor, its rights list and the double control; it starts nothing). Everything else on the chain is `🔵`.
 
 ## 2. One run, step by step
 

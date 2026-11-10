@@ -73,15 +73,21 @@ public sealed class AccountService(IAccountStore accounts, IAccountAudit audit, 
     {
         var account = accounts.Existing(id);
         var hash = hasher.HashPassword(account, CheckedPassword(password, account.Name));
-        // The sessions end before the password changes (if the process stopped between the two, nobody keeps a session) and after (a sign-in
-        // that checked the old password and started its session in between does not keep it).
-        sessions.EndAll(id, keepSession);
-        if (!accounts.SetPasswordHash(id, hash))
+        lock (_administrators)
         {
-            throw NoSuchAccount();
+            // Under the same lock as the changes of role, state and deletion, so that none of them interleaves with this one
+            accounts.Existing(id);
+            // The sessions end before the password changes (if the process stopped between the two, nobody keeps a session) and after (a sign-in
+            // that checked the old password and started its session in between does not keep it).
+            sessions.EndAll(id, keepSession);
+            if (!accounts.SetPasswordHash(id, hash))
+            {
+                throw NoSuchAccount();
+            }
+
+            sessions.EndAll(id, keepSession);
         }
 
-        sessions.EndAll(id, keepSession);
         throttle.Succeeded(account.Name);
         throttle.Succeeded(SignInService.PasswordCheckKey(account.Name));
         audit.Record(actor, AccountEvents.AccountPasswordChanged, account.Name);
@@ -98,8 +104,11 @@ public sealed class AccountService(IAccountStore accounts, IAccountAudit audit, 
             // The sessions go first: a reset is for the day a cookie may be stolen, and it must not leave one if it stops half way.
             var current = accounts.Existing(account.Id);
             sessions.EndAll(account.Id);
-            accounts.SetPasswordHash(account.Id, hash);
-            accounts.Update(account.Id, current.Role, enabled: true);
+            if (!accounts.SetPasswordHash(account.Id, hash) || !accounts.Update(account.Id, current.Role, enabled: true))
+            {
+                throw NoSuchAccount();
+            }
+
             sessions.EndAll(account.Id);
         }
 

@@ -23,6 +23,11 @@ internal static class AccountEndpoints
 
         accounts.MapPost("/{id:guid}/password", (Guid id, SetPasswordRequest request, HttpContext context, AccountService service) => AccountResults.Run(() =>
         {
+            // One's own password changes through /auth/password, which asks for the current one: a stolen administrator cookie must not take the account over
+            if (context.User.AccountId() == id)
+            {
+                throw new AccountRejectedException(AccountProblem.Invalid, "Change your own password from your account page: it asks for the current one.");
+            }
             service.SetPassword(id, request.Password ?? string.Empty, Actor(context));
             return Results.NoContent();
         }));

@@ -461,6 +461,18 @@ public sealed class AccountsApiTests : IClassFixture<AccountsApiFactory>
     }
 
     [Fact]
+    public async Task An_administrator_cannot_set_their_own_password_without_the_current_one()
+    {
+        using var admin = await Admin();
+        var me = await Json(await admin.GetAsync("/api/v1/auth/me", Ct));
+
+        var response = await admin.PostAsJsonAsync($"/api/v1/accounts/{me.GetProperty("subject").GetString()}/password", new { password = "a password that is not asked for" }, Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await admin.GetAsync("/api/v1/auth/me", Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
     public async Task A_deleted_account_loses_its_session_at_once_and_an_unknown_account_is_a_404()
     {
         var (name, password) = await NewAccount(Roles.Operator);

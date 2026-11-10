@@ -12,7 +12,6 @@ using Orchestrarr.Core.WorkItems;
 using Orchestrarr.Host;
 using Orchestrarr.Host.Approvals;
 using Orchestrarr.Host.Accounts;
-using Microsoft.AspNetCore.Authorization;
 using Orchestrarr.Host.Storage;
 using Orchestrarr.Host.Tasks;
 using Orchestrarr.Storage;

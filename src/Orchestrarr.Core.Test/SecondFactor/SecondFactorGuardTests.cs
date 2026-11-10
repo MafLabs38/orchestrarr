@@ -181,6 +181,23 @@ public sealed class SecondFactorGuardTests
     }
 
     [Fact]
+    public async Task Made_up_names_cannot_push_a_real_lockout_out_of_the_table()
+    {
+        var guard = new SecondFactorGuard(_secrets, new InMemorySecondFactorUseLedger(), _time, new SecondFactorOptions { TrackedSubjects = 3 });
+        for (var i = 0; i < 5; i++)
+        {
+            (await guard.VerifyAsync("alice", Wrong(CodeAt()), CancellationToken.None)).Should().Be(SecondFactorResult.Wrong);
+        }
+
+        for (var i = 0; i < 20; i++)
+        {
+            await guard.VerifyAsync($"invented-{i}", "123456", CancellationToken.None);
+        }
+
+        (await guard.VerifyAsync("alice", CodeAt(), CancellationToken.None)).Should().Be(SecondFactorResult.LockedOut);
+    }
+
+    [Fact]
     public async Task Two_requests_with_the_same_code_never_both_succeed()
     {
         var code = CodeAt();

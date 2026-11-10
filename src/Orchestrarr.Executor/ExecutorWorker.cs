@@ -23,10 +23,12 @@ public sealed class ExecutorWorker(IControlPlane controlPlane, ExecutorPipeline 
                 worked = await StepAsync(stoppingToken);
                 failures = 0;
             }
-            catch (Exception failure) when (failure is HttpRequestException or TaskCanceledException or TimeoutException && !stoppingToken.IsCancellationRequested)
+            catch (Exception failure) when (!stoppingToken.IsCancellationRequested)
             {
+                // Whatever went wrong (no answer, or an answer that cannot be read), the executor stays up and tries again: a control plane
+                // that could stop it with a malformed answer could also restart it, and a restart forgets the counters of the second factor.
                 failures++;
-                logger.LogWarning(failure, "The control plane cannot be reached, trying again");
+                logger.LogWarning(failure, "The control plane cannot be reached or answered something unreadable, trying again");
             }
             var wait = worked ? TimeSpan.Zero : TimeSpan.FromSeconds(Math.Min(30, options.PollSeconds * (1 + failures)));
             if (wait > TimeSpan.Zero)

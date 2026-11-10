@@ -76,7 +76,7 @@ public sealed class ControlPlaneClient : IControlPlane
     private static bool IsPrivate(Uri url) =>
         url.IsLoopback
         || (System.Net.IPAddress.TryParse(url.Host, out var address) && IsPrivateAddress(address))
-        || url.Host is "localhost" || url.Host.EndsWith(".local", StringComparison.OrdinalIgnoreCase);
+        || url.Host is "localhost";
 
     private static bool IsPrivateAddress(System.Net.IPAddress address)
     {

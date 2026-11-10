@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
 using Orchestrarr.Core.Tasks;
 
@@ -54,6 +55,34 @@ public sealed class ExecutorWorkerTests : IDisposable
         (await Worker().StepAsync(Ct)).Should().BeFalse();
 
         await _controlPlane.DidNotReceive().CompleteAsync(Arg.Any<Guid>(), Arg.Any<BatchOutcome>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task An_answer_that_cannot_be_read_does_not_stop_the_executor()
+    {
+        var asked = new TaskCompletionSource();
+        var calls = 0;
+        _controlPlane.ClaimAsync(Arg.Any<ExecutorHello>(), Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            if (++calls == 1)
+            {
+                throw new JsonException("not a claim");
+            }
+            asked.TrySetResult();
+            return Task.FromResult(new ClaimResult(ClaimStatus.Nothing));
+        });
+        using var worker = Worker();
+
+        await worker.StartAsync(Ct);
+        for (var turn = 0; turn < 200 && !asked.Task.IsCompleted; turn++)
+        {
+            _world.Time.Advance(TimeSpan.FromSeconds(10));
+            await Task.Delay(10, Ct);
+        }
+
+        asked.Task.IsCompleted.Should().BeTrue("the executor asked again after the unreadable answer");
+        worker.ExecuteTask!.IsFaulted.Should().BeFalse("a control plane must not be able to stop the executor, and so restart it with empty counters");
+        await worker.StopAsync(Ct);
     }
 
     [Fact]

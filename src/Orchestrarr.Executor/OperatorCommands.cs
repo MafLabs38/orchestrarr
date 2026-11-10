@@ -60,6 +60,13 @@ public sealed class OperatorCommands(ExecutorStore store, SecondFactorGuard guar
             io.WriteLine("A delegation lasts 1 to 90 days, allows 1 to 1000 tasks a day, and names a repository such as example/app or example/*.");
             return 2;
         }
+        // Which kinds of task may run without a code is not decided (ADR 0017, "Not decided here"): until it is, nothing that changes a
+        // repository can be delegated, and a rule has to name an owner, never every repository.
+        if (kind == TaskKind.MergePullRequest || repository == "*")
+        {
+            io.WriteLine("A merge cannot be delegated yet, and a delegation names an owner (example/*) or a repository, never every repository: which kinds may run without a code is still to be decided.");
+            return 2;
+        }
         if (!await ConfirmAsync(subject, cancellationToken))
         {
             return 1;

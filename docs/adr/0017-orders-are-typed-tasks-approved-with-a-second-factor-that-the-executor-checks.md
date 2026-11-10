@@ -28,7 +28,7 @@ The launcher designed in ADR 0014 to 0016 defended against a compromised control
 
 ## Not decided here
 
-The enrolment of the operator's secret on the executor, its rotation and loss; the channel between the control plane and the executor (certificates from Vault or another); the format of the journal and where it is shipped; the revocation of a standing delegation; which task kinds may be delegated at all. Settled while building, and recorded here.
+The enrolment of the operator's secret on the executor, its rotation and loss; the channel between the control plane and the executor (certificates from Vault or another); the format of the journal and where it is shipped; the revocation of a standing delegation; which task kinds may be delegated at all. Settled while building, and recorded here. Also open, found by the review of the first slice: whether a delegation ends with the account of its operator (the executor does not know accounts); and that the report of a run is lost when the executor cannot reach the control plane after it ran the batch (the batch then shows as expired), which must be solved before the first real runner. A merge cannot be delegated yet, and a delegation never covers every repository.
 
 ## What the first slice settled
 
@@ -42,3 +42,4 @@ The first slice is a dry run, so the choices below are **interim**: each is repl
 - **The trace.** Hash-chained in the executor's own database and sent to the control plane (`/runs/{id}/events`), where the Runs screen shows it as a timeline. The copy in a journal outside the executor's database (point 7) is not built.
 - **Limits of the second factor.** Five failures in fifteen minutes lock the subject for fifteen minutes, and one step of clock drift is accepted: fixed defaults for now, not configuration. What is configurable: the rights list, the executor's name and paths, its poll interval, and the control plane's tokens and lifetimes.
 - **Not built.** Certification of the executor's identity by Vault, any real runner (validate, merge), the rotation and loss of an enrolment, and a method that signs the content.
+- **The task format has no environment yet**, and a batch goes to whichever executor takes it first; both come with the second executor (the rights list then names the environments, and a batch is routed by the rights an executor announced).

@@ -74,7 +74,7 @@ public sealed class SecondFactorGuard(ISecondFactorSecrets secrets, ISecondFacto
         var secret = await secrets.FindAsync(subject, cancellationToken);
         if (secret is null)
         {
-            Fail(subject, now);
+            // Nothing to guess for a subject that is not enrolled, so nothing is counted: invented names must not push a real lockout out of the table
             return SecondFactorResult.UnknownSubject;
         }
         if (Totp.MatchingStep(secret, cleaned, now, options.Totp) is not { } step)

@@ -68,14 +68,14 @@ public sealed class OperatorCommandsTests : IDisposable
     public async Task A_delegation_is_added_only_with_the_right_code_of_the_operator()
     {
         _io.Secrets.Enqueue("000000");
-        (await Commands().AddDelegationAsync("alice", TaskKind.MergePullRequest, "example/*", 30, 5, Ct)).Should().Be(1);
+        (await Commands().AddDelegationAsync("alice", TaskKind.ValidatePullRequest, "example/*", 30, 5, Ct)).Should().Be(1);
         _world.Store.Delegations(includeEnded: true).Should().BeEmpty();
 
         _io.Secrets.Enqueue(_world.CodeAt());
-        (await Commands().AddDelegationAsync("alice", TaskKind.MergePullRequest, "example/*", 30, 5, Ct)).Should().Be(0);
+        (await Commands().AddDelegationAsync("alice", TaskKind.ValidatePullRequest, "example/*", 30, 5, Ct)).Should().Be(0);
 
         var delegation = _world.Store.Delegations(includeEnded: true).Should().ContainSingle().Subject;
-        delegation.Should().Match<Delegation>(d => d.Subject == "alice" && d.Kind == TaskKind.MergePullRequest && d.Repository == "example/*" && d.DailyQuota == 5);
+        delegation.Should().Match<Delegation>(d => d.Subject == "alice" && d.Kind == TaskKind.ValidatePullRequest && d.Repository == "example/*" && d.DailyQuota == 5);
         delegation.ExpiresAt.Should().Be(ExecutorFixture.Start.AddDays(30));
     }
 
@@ -87,14 +87,24 @@ public sealed class OperatorCommandsTests : IDisposable
     [InlineData(30, 5, "example/app; rm")]
     public async Task A_delegation_outside_the_frame_is_refused_before_any_code_is_asked(int days, int quota, string repository)
     {
-        (await Commands().AddDelegationAsync("alice", TaskKind.MergePullRequest, repository, days, quota, Ct)).Should().Be(2);
+        (await Commands().AddDelegationAsync("alice", TaskKind.ValidatePullRequest, repository, days, quota, Ct)).Should().Be(2);
+    }
+
+    [Theory]
+    [InlineData(TaskKind.MergePullRequest, "example/*")]
+    [InlineData(TaskKind.ValidatePullRequest, "*")]
+    public async Task A_merge_cannot_be_delegated_and_a_delegation_never_covers_every_repository(TaskKind kind, string repository)
+    {
+        (await Commands().AddDelegationAsync("alice", kind, repository, 30, 5, Ct)).Should().Be(2);
+
+        _world.Store.Delegations(includeEnded: true).Should().BeEmpty();
     }
 
     [Fact]
     public async Task A_delegation_is_revoked_with_the_code_and_listed_as_such()
     {
         _io.Secrets.Enqueue(_world.CodeAt());
-        await Commands().AddDelegationAsync("alice", TaskKind.MergePullRequest, "example/*", 30, 5, Ct);
+        await Commands().AddDelegationAsync("alice", TaskKind.ValidatePullRequest, "example/*", 30, 5, Ct);
         var id = _world.Store.Delegations(includeEnded: true)[0].Id;
         _world.Time.Advance(TimeSpan.FromSeconds(30));
 
