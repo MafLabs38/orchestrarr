@@ -172,6 +172,7 @@ function Table({ report }: Readonly<{ report: ProblemsReport }>) {
           )}
           <SelectionBar
             chosen={chosen}
+            descriptionsVersion={report.descriptionsVersion}
             stops={stops}
             requiresSecondFactor={status?.approvals.requiresSecondFactor ?? true}
             isOperator={status?.approvals.isOperator ?? false}

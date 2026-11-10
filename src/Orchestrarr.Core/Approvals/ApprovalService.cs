@@ -319,6 +319,13 @@ public sealed class ApprovalService(
 
     public void Dispose() => _gate.Dispose();
 
+    /// <summary>Traces a refusal that was decided before the service was reached (a row of the table that is not what the operator saw): refusals are worth a trace too.</summary>
+    public Task TraceRefusalAsync(Approver approver, string workItemId, ApprovalRefusal refusal)
+    {
+        ArgumentNullException.ThrowIfNull(approver);
+        return RecordRefusalAsync(approver, workItemId, refusal);
+    }
+
     private async Task RecordRefusalAsync(Approver approver, string workItemId, ApprovalRefusal refusal)
     {
         // A refusal is worth a trace, but it does not depend on one: it already fails closed. The work item id comes from the client, so

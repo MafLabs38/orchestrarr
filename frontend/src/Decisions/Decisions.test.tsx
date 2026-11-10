@@ -79,7 +79,11 @@ function stub(
 const posted = (fetchMock: ReturnType<typeof stub>) => {
   const call = fetchMock.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === 'POST');
   return call
-    ? (JSON.parse(String((call[1] as RequestInit).body)) as { rows: unknown[]; secondFactorCode?: string })
+    ? (JSON.parse(String((call[1] as RequestInit).body)) as {
+        rows: unknown[];
+        secondFactorCode?: string;
+        descriptionsVersion?: string;
+      })
     : undefined;
 };
 
@@ -163,7 +167,7 @@ describe('Decisions', () => {
     await userEvent.click(screen.getByLabelText(/Select example\/web-portal react/));
 
     expect(screen.getByText('2 problems in 2 applications → 2 batches, one code')).toBeInTheDocument();
-    expect(screen.getByText(/example\/shop: .*promote to production/)).toBeInTheDocument();
+    expect(screen.getByText(/example\/shop: .*production allowed, not built yet/)).toBeInTheDocument();
     expect(screen.getByText(/example\/web-portal: .*merge into develop → stops before production/)).toBeInTheDocument();
     expect(screen.getByText('4 of 4 problems · 2 selected')).toBeInTheDocument();
   });
@@ -202,10 +206,16 @@ describe('Decisions', () => {
     await waitFor(() => expect(posted(fetchMock)).toBeDefined());
     expect(posted(fetchMock)).toEqual({
       rows: [
-        { id: 'pr:example/shop#2', headSha: head('a'), stopBeforeProduction: true },
-        { id: 'pr:example/web-portal#4', headSha: head('c'), stopBeforeProduction: false },
+        { id: 'pr:example/shop#2', headSha: head('a'), goesUpTo: 'production', stopBeforeProduction: true },
+        {
+          id: 'pr:example/web-portal#4',
+          headSha: head('c'),
+          goesUpTo: 'mergeIntoDevelop',
+          stopBeforeProduction: false,
+        },
       ],
       secondFactorCode: '123 456',
+      descriptionsVersion: 'abc123',
     });
     expect(await screen.findByText(/Approved: 2 pull requests in one batch/)).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText('Select problems to validate them together.')).toBeInTheDocument());

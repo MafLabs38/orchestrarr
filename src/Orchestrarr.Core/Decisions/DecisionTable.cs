@@ -70,7 +70,7 @@ public sealed record ProblemRow(
     CeilingReason Why,
     bool CanStopBeforeProduction);
 
-/// <summary>What the connected executors accept, as they reported it: the table never promises more than they would run.</summary>
+/// <summary>What a connected executor accepts, as it reported it. The table never promises more than they would run: with none connected, nothing can be run, and every row says so.</summary>
 public sealed record ExecutorAcceptance(IReadOnlyList<TaskKind> Kinds, IReadOnlyList<string> Repositories)
 {
     public bool Accepts(TaskKind kind, string repository) => Kinds.Contains(kind) && Repositories.Any(pattern => RepositoryPattern.Matches(pattern, repository));
@@ -141,7 +141,7 @@ public static class DecisionTable
         {
             return (Ceiling.NoAction, CeilingReason.NoDescription, false);
         }
-        if (executors.Count > 0 && !executors.Any(executor => executor.Accepts(TaskKind.ValidatePullRequest, repository)))
+        if (!executors.Any(executor => executor.Accepts(TaskKind.ValidatePullRequest, repository)))
         {
             return (Ceiling.NoAction, CeilingReason.NoExecutor, false);
         }
@@ -156,7 +156,7 @@ public static class DecisionTable
         {
             return (Ceiling.Qualification, CeilingReason.NotGranted, false);
         }
-        if (executors.Count > 0 && !executors.Any(executor => executor.Accepts(TaskKind.MergePullRequest, repository)))
+        if (!executors.Any(executor => executor.Accepts(TaskKind.MergePullRequest, repository)))
         {
             return (Ceiling.Qualification, CeilingReason.NoExecutor, false);
         }

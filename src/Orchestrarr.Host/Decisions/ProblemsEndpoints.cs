@@ -11,9 +11,10 @@ namespace Orchestrarr.Host.Decisions;
 /// <summary>The table as the screen reads it: one row per problem, how far each can go, and the version of the descriptions it was computed from.</summary>
 public sealed record ProblemsReport(DateTimeOffset? ReadAt, string SourceKind, bool Stale, SourceError? Error, string DescriptionsVersion, IReadOnlyList<ProblemRow> Rows);
 
-public sealed record SelectedRow(string? Id, string? HeadSha, bool StopBeforeProduction);
+/// <summary><c>GoesUpTo</c> is how far the row went when the operator saw it: the approval is for that, and for no more.</summary>
+public sealed record SelectedRow(string? Id, string? HeadSha, Ceiling? GoesUpTo, bool StopBeforeProduction);
 
-public sealed record ApproveProblemsRequest(List<SelectedRow>? Rows, string? SecondFactorCode);
+public sealed record ApproveProblemsRequest(List<SelectedRow>? Rows, string? SecondFactorCode, string? DescriptionsVersion);
 
 /// <summary>
 /// The table of decisions (ADR 0019). The client sends which rows it selected and at which commit; <b>the plan is computed here again</b>, from the
@@ -40,12 +41,14 @@ internal static class ProblemsEndpoints
             var report = await catalog.GetAsync(refresh: false, ct);
             var table = DecisionTable.Build(report.Items, applications, Acceptance(executors)).ToDictionary(row => row.Id, StringComparer.Ordinal);
             var selection = new List<SelectedProblem>();
+            // What the operator saw is what is approved: the descriptions, the commit and how far the row went must still be the same
+            var sameDescriptions = string.Equals(request.DescriptionsVersion ?? string.Empty, applications.Version, StringComparison.Ordinal);
             foreach (var chosen in request.Rows ?? [])
             {
-                // A row that is gone, moved to another commit, or without an action is not what the operator saw: they read the table again
-                if (chosen.Id is null || !table.TryGetValue(chosen.Id, out var row) || row.PullRequest is null || row.GoesUpTo == Ceiling.NoAction
-                    || !string.Equals(row.HeadSha, chosen.HeadSha, StringComparison.Ordinal))
+                if (!sameDescriptions || chosen.Id is null || !table.TryGetValue(chosen.Id, out var row) || row.PullRequest is null || row.GoesUpTo == Ceiling.NoAction
+                    || !string.Equals(row.HeadSha, chosen.HeadSha, StringComparison.Ordinal) || chosen.GoesUpTo != row.GoesUpTo)
                 {
+                    await service.TraceRefusalAsync(approver, chosen.Id is not null && table.TryGetValue(chosen.Id, out var known) ? known.WorkItemId : string.Empty, ApprovalRefusal.PlanChanged);
                     return ApprovalEndpoints.RefusalResult(ApprovalRefusal.PlanChanged);
                 }
                 var stops = chosen.StopBeforeProduction && row.CanStopBeforeProduction;

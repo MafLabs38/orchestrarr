@@ -2,16 +2,30 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
+using Orchestrarr.Core.Tasks;
 
 namespace Orchestrarr.Host.Test;
 
 /// <summary>The host with the sample fleet, the sample pull requests, the sample descriptions of the applications and the powers to validate and merge.</summary>
 public sealed class TableApiFactory : AccountsApiFactory
 {
+    public static readonly string ExecutorToken = new('t', 48);
+
+    /// <summary>The executor says what it accepts, as the real one does when it asks for work: the table promises nothing more.</summary>
+    public async Task ConnectExecutorAsync(params TaskKind[] kinds)
+    {
+        using var executor = CreateClient();
+        executor.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", ExecutorToken);
+        var hello = new ExecutorHello("executor-1", "1.0", kinds.Length == 0 ? [TaskKind.ValidatePullRequest, TaskKind.MergePullRequest] : kinds, ["example/*"], []);
+        (await executor.PostAsJsonAsync("/api/v1/executor/claim", new ClaimRequest(hello), ExecutorWire.Json, TestContext.Current.CancellationToken)).EnsureSuccessStatusCode();
+    }
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         base.ConfigureWebHost(builder);
         builder.UseSetting("Forge:SamplePullRequestsFile", Path.Combine(AppContext.BaseDirectory, "github-pull-requests.sample.json"));
+        builder.UseSetting("Tasks:Executors:0:Name", "executor-1");
+        builder.UseSetting("Tasks:Executors:0:Token", ExecutorToken);
         builder.UseSetting("Applications:File", Path.Combine(AppContext.BaseDirectory, "applications.sample.json"));
         // Outside Development a grant on every repository may only validate: the repositories are named
         string[] repositories = ["example/shop", "example/web-portal", "example/reporting"];
@@ -62,12 +76,16 @@ public sealed class ProblemsApiTests
 
     private static JsonElement Row(JsonElement table, string id) => table.GetProperty("rows").EnumerateArray().Single(row => row.GetProperty("id").GetString() == id);
 
-    private static object Chosen(JsonElement table, string id, bool stop = false) => new { id, headSha = Row(table, id).GetProperty("headSha").GetString(), stopBeforeProduction = stop };
+    private static object Chosen(JsonElement table, string id, bool stop = false) =>
+        new { id, headSha = Row(table, id).GetProperty("headSha").GetString(), goesUpTo = Row(table, id).GetProperty("goesUpTo").GetString(), stopBeforeProduction = stop };
+
+    private static string Version(JsonElement table) => table.GetProperty("descriptionsVersion").GetString()!;
 
     [Fact]
     public async Task The_table_says_how_far_each_problem_goes_and_why_it_stops()
     {
         using var factory = new TableApiFactory();
+        await factory.ConnectExecutorAsync();
         using var reader = await SignedIn(factory, "Reader");
 
         var table = await Table(reader);
@@ -89,6 +107,7 @@ public sealed class ProblemsApiTests
     public async Task Nobody_signed_out_reads_or_validates_and_a_reader_cannot_validate()
     {
         using var factory = new TableApiFactory();
+        await factory.ConnectExecutorAsync();
         using var anonymous = factory.CreateClient();
         anonymous.DefaultRequestHeaders.Add(Header, "test");
         using var reader = await SignedIn(factory, "Reader");
@@ -102,11 +121,12 @@ public sealed class ProblemsApiTests
     public async Task A_selection_of_two_applications_is_approved_with_one_code_as_one_run_and_the_trail_keeps_the_plan()
     {
         using var factory = new TableApiFactory();
+        await factory.ConnectExecutorAsync();
         using var operatorClient = await SignedIn(factory, "Operator");
         var table = await Table(operatorClient);
 
         var answer = await operatorClient.PostAsJsonAsync("/api/v1/problems/approve",
-            new { rows = new[] { Chosen(table, "pr:example/shop#2", stop: true), Chosen(table, "pr:example/shop#1"), Chosen(table, "pr:example/web-portal#1") }, secondFactorCode = "123456" }, Ct);
+            new { rows = new[] { Chosen(table, "pr:example/shop#2", stop: true), Chosen(table, "pr:example/shop#1"), Chosen(table, "pr:example/web-portal#1") }, secondFactorCode = "123456", descriptionsVersion = Version(table) }, Ct);
 
         answer.StatusCode.Should().Be(HttpStatusCode.Created);
         (await Json(answer)).GetProperty("approvals").GetArrayLength().Should().Be(3);
@@ -122,10 +142,11 @@ public sealed class ProblemsApiTests
     public async Task A_stop_asked_for_a_row_that_cannot_reach_production_is_not_recorded_as_one()
     {
         using var factory = new TableApiFactory();
+        await factory.ConnectExecutorAsync();
         using var operatorClient = await SignedIn(factory, "Operator");
         var table = await Table(operatorClient);
 
-        var answer = await operatorClient.PostAsJsonAsync("/api/v1/problems/approve", new { rows = new[] { Chosen(table, "pr:example/shop#3", stop: true) }, secondFactorCode = "123456" }, Ct);
+        var answer = await operatorClient.PostAsJsonAsync("/api/v1/problems/approve", new { rows = new[] { Chosen(table, "pr:example/shop#3", stop: true) }, secondFactorCode = "123456", descriptionsVersion = Version(table) }, Ct);
 
         answer.StatusCode.Should().Be(HttpStatusCode.Created);
         (await Json(await operatorClient.GetAsync("/api/v1/audit?limit=20", Ct))).EnumerateArray()
@@ -136,10 +157,11 @@ public sealed class ProblemsApiTests
     public async Task Without_a_code_shaped_like_one_nothing_is_queued()
     {
         using var factory = new TableApiFactory();
+        await factory.ConnectExecutorAsync();
         using var operatorClient = await SignedIn(factory, "Operator");
         var table = await Table(operatorClient);
 
-        var answer = await operatorClient.PostAsJsonAsync("/api/v1/problems/approve", new { rows = new[] { Chosen(table, "pr:example/shop#2") } }, Ct);
+        var answer = await operatorClient.PostAsJsonAsync("/api/v1/problems/approve", new { rows = new[] { Chosen(table, "pr:example/shop#2") }, descriptionsVersion = Version(table) }, Ct);
 
         answer.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
         (await Json(answer)).GetProperty("error").GetString().Should().Be("secondFactorRequired");
@@ -150,35 +172,90 @@ public sealed class ProblemsApiTests
     public async Task What_the_client_sends_cannot_widen_a_row_a_row_without_action_a_moved_commit_and_an_unknown_row_are_refused()
     {
         using var factory = new TableApiFactory();
+        await factory.ConnectExecutorAsync();
         using var operatorClient = await SignedIn(factory, "Operator");
         var table = await Table(operatorClient);
         var noAction = table.GetProperty("rows").EnumerateArray().First(row => row.GetProperty("goesUpTo").GetString() == "noAction").GetProperty("id").GetString()!;
 
         foreach (var rows in new object[][]
         {
-            [new { id = noAction, headSha = new string('a', 40), stopBeforeProduction = false }],
-            [new { id = "pr:example/shop#2", headSha = new string('f', 40), stopBeforeProduction = false }],
-            [new { id = "pr:example/shop#99", headSha = new string('a', 40), stopBeforeProduction = false }],
-            [new { id = "pr:example/reporting#3", headSha = Row(table, "pr:example/reporting#3").GetProperty("headSha").GetString(), stopBeforeProduction = false }],
+            [new { id = noAction, headSha = new string('a', 40), goesUpTo = "production", stopBeforeProduction = false }],
+            [new { id = "pr:example/shop#2", headSha = new string('f', 40), goesUpTo = "production", stopBeforeProduction = false }],
+            [new { id = "pr:example/shop#99", headSha = new string('a', 40), goesUpTo = "production", stopBeforeProduction = false }],
+            [new { id = "pr:example/reporting#3", headSha = Row(table, "pr:example/reporting#3").GetProperty("headSha").GetString(), goesUpTo = "production", stopBeforeProduction = false }],
         })
         {
-            var answer = await operatorClient.PostAsJsonAsync("/api/v1/problems/approve", new { rows, secondFactorCode = "123456" }, Ct);
+            var answer = await operatorClient.PostAsJsonAsync("/api/v1/problems/approve", new { rows, secondFactorCode = "123456", descriptionsVersion = Version(table) }, Ct);
 
             answer.StatusCode.Should().Be(HttpStatusCode.Conflict);
             (await Json(answer)).GetProperty("error").GetString().Should().Be("planChanged");
         }
         (await Json(await operatorClient.GetAsync("/api/v1/runs", Ct))).GetArrayLength().Should().Be(0);
+        (await Json(await operatorClient.GetAsync("/api/v1/audit?limit=20", Ct))).EnumerateArray()
+            .Should().Contain(entry => entry.GetProperty("event").GetString() == "approval.refused" && (entry.GetProperty("detail").GetString() ?? string.Empty).Contains("PlanChanged", StringComparison.Ordinal),
+                "a refusal decided before the service is traced too");
+    }
+
+    [Fact]
+    public async Task The_approval_is_for_how_far_the_row_went_when_it_was_seen_and_for_the_descriptions_of_that_moment()
+    {
+        using var factory = new TableApiFactory();
+        await factory.ConnectExecutorAsync();
+        using var operatorClient = await SignedIn(factory, "Operator");
+        var table = await Table(operatorClient);
+        var row = Row(table, "pr:example/shop#2");
+
+        var higher = await operatorClient.PostAsJsonAsync("/api/v1/problems/approve",
+            new { rows = new[] { new { id = "pr:example/shop#2", headSha = row.GetProperty("headSha").GetString(), goesUpTo = "qualification", stopBeforeProduction = false } }, secondFactorCode = "123456", descriptionsVersion = Version(table) }, Ct);
+        var otherDescriptions = await operatorClient.PostAsJsonAsync("/api/v1/problems/approve",
+            new { rows = new[] { Chosen(table, "pr:example/shop#2") }, secondFactorCode = "123456", descriptionsVersion = "000000000000" }, Ct);
+        var noCeiling = await operatorClient.PostAsJsonAsync("/api/v1/problems/approve",
+            new { rows = new[] { new { id = "pr:example/shop#2", headSha = row.GetProperty("headSha").GetString(), stopBeforeProduction = false } }, secondFactorCode = "123456", descriptionsVersion = Version(table) }, Ct);
+
+        higher.StatusCode.Should().Be(HttpStatusCode.Conflict, "the row goes higher now than the operator saw");
+        otherDescriptions.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        noCeiling.StatusCode.Should().Be(HttpStatusCode.Conflict, "a request that does not say what was seen approves nothing");
+        (await Json(await operatorClient.GetAsync("/api/v1/runs", Ct))).GetArrayLength().Should().Be(0);
+    }
+
+    [Fact]
+    public async Task With_no_executor_connected_nothing_can_be_done_and_the_table_says_why()
+    {
+        using var factory = new TableApiFactory();
+        using var reader = await SignedIn(factory, "Reader");
+
+        var table = await Table(reader);
+
+        foreach (var id in new[] { "pr:example/shop#2", "pr:example/web-portal#1" })
+        {
+            Row(table, id).GetProperty("goesUpTo").GetString().Should().Be("noAction");
+            Row(table, id).GetProperty("why").GetString().Should().Be("noExecutor");
+        }
+    }
+
+    [Fact]
+    public async Task An_executor_that_only_validates_keeps_every_row_at_the_qualification()
+    {
+        using var factory = new TableApiFactory();
+        await factory.ConnectExecutorAsync(TaskKind.ValidatePullRequest);
+        using var reader = await SignedIn(factory, "Reader");
+
+        var table = await Table(reader);
+
+        Row(table, "pr:example/shop#2").GetProperty("goesUpTo").GetString().Should().Be("qualification");
+        Row(table, "pr:example/shop#2").GetProperty("why").GetString().Should().Be("noExecutor");
     }
 
     [Fact]
     public async Task An_empty_selection_is_refused_and_the_same_selection_twice_is_already_approved()
     {
         using var factory = new TableApiFactory();
+        await factory.ConnectExecutorAsync();
         using var operatorClient = await SignedIn(factory, "Operator");
         var table = await Table(operatorClient);
 
         (await operatorClient.PostAsJsonAsync("/api/v1/problems/approve", new { rows = Array.Empty<object>(), secondFactorCode = "123456" }, Ct)).StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
-        var body = new { rows = new[] { Chosen(table, "pr:example/shop#2") }, secondFactorCode = "123456" };
+        var body = new { rows = new[] { Chosen(table, "pr:example/shop#2") }, secondFactorCode = "123456", descriptionsVersion = Version(table) };
         (await operatorClient.PostAsJsonAsync("/api/v1/problems/approve", body, Ct)).StatusCode.Should().Be(HttpStatusCode.Created);
 
         var again = await operatorClient.PostAsJsonAsync("/api/v1/problems/approve", body, Ct);

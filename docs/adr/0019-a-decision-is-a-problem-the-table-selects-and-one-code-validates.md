@@ -24,7 +24,9 @@ The first card showed one work item per repository with a fixed plan (build and 
 
 - **The ceiling** of a dependency update is the lowest of: the powers granted to Orchestrarr, what the connected executors accepted in their hello, the description of the application (how it is qualified, a rollback and a check after the deployment, the classes of update that may be promoted by themselves) and the state of the pull request (checks, mergeable). The reason it stops is part of the row.
 - **One code, one batch.** Approving a selection builds one batch for all the applications chosen, so that the executor checks the code once (a code is good for one time step per operator). The executor will group by application when a real runner exists.
-- **The client says only what it chose**: the row, the commit it saw, the stop switch. The server computes the plan again from the current table.
+- **The client says what it chose and what it saw**: the row, the commit, how far the row went and the version of the descriptions, plus the stop switch. The server computes the plan again from the current table and **refuses** the selection (`409 planChanged`, traced) if any of them moved: what is approved is what the operator saw.
+- **No executor connected means no action**: the table never promises more than an executor would run, so with none connected every row says so.
+- **Limits of this slice, to settle before the production step**: the stop before production and the ceiling are written in the trail (they do not change the tasks or the digest of the batch, since no task promotes yet); the old card route `POST /approvals` stays for scripts and the executor's tests and records the steps it is given, within the powers granted (the description grants no power, ADR 0020).
 
 ## Consequences
 

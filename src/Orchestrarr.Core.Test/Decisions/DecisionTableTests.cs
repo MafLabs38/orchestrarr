@@ -34,7 +34,9 @@ public sealed class DecisionTableTests
             """);
 
     private static IReadOnlyList<ProblemRow> Table(WorkItem item, IApplicationCatalog? applications = null, IReadOnlyList<ExecutorAcceptance>? executors = null) =>
-        DecisionTable.Build([item], applications ?? Described(), executors ?? []);
+        DecisionTable.Build([item], applications ?? Described(), executors ?? [Everything]);
+
+    private static readonly ExecutorAcceptance Everything = new([TaskKind.ValidatePullRequest, TaskKind.MergePullRequest], ["example/*"]);
 
     private static ProblemRow Only(IReadOnlyList<ProblemRow> rows) => rows.Single(row => row.Kind == ProblemKind.DependencyUpdate);
 
@@ -140,7 +142,9 @@ public sealed class DecisionTableTests
         var elsewhere = new ExecutorAcceptance([TaskKind.ValidatePullRequest, TaskKind.MergePullRequest], ["other/*"]);
 
         Only(Table(Item(), executors: [all])).GoesUpTo.Should().Be(Ceiling.Production);
-        Only(Table(Item(), executors: [])).GoesUpTo.Should().Be(Ceiling.Production, "no executor has been seen: nothing is known, nothing is capped");
+        var nobody = Only(Table(Item(), executors: []));
+        nobody.GoesUpTo.Should().Be(Ceiling.NoAction, "with no executor connected nothing can be run, and the row says so");
+        nobody.Why.Should().Be(CeilingReason.NoExecutor);
         var capped = Only(Table(Item(), executors: [validateOnly]));
         capped.GoesUpTo.Should().Be(Ceiling.Qualification);
         capped.Why.Should().Be(CeilingReason.NoExecutor);

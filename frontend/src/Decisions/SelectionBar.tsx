@@ -14,6 +14,7 @@ import { type SelectedRow, useApproveProblems } from './useProblems';
 
 interface SelectionBarProps {
   chosen: ProblemRow[];
+  descriptionsVersion: string;
   stops: Readonly<Record<string, boolean>>;
   requiresSecondFactor: boolean;
   isOperator: boolean;
@@ -47,6 +48,7 @@ function summary(problems: number, apps: number): string {
 // The selection and the one code that validates it: the server computes the plan again, this only says what was chosen.
 export default function SelectionBar({
   chosen,
+  descriptionsVersion,
   stops,
   requiresSecondFactor,
   isOperator,
@@ -66,10 +68,11 @@ export default function SelectionBar({
     const rows: SelectedRow[] = chosen.map((row) => ({
       id: row.id,
       headSha: row.headSha ?? '',
+      goesUpTo: row.goesUpTo,
       stopBeforeProduction: stops[row.id] ?? false,
     }));
     approve.mutate(
-      { rows, secondFactorCode: requiresSecondFactor ? code : undefined },
+      { rows, secondFactorCode: requiresSecondFactor ? code : undefined, descriptionsVersion },
       {
         onSuccess: () => {
           setCode('');

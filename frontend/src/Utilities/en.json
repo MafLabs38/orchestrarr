@@ -303,7 +303,7 @@
   "SelectionSummaryOneApp": "{problems} problems in 1 application → 1 batch, one code",
   "PlanQualifyOnly": "{app}: build, test and qualify once, nothing merged ({count})",
   "PlanMerge": "{app}: build, test and qualify once → merge into develop → stops before production ({count})",
-  "PlanPromote": "{app}: build, test and qualify once → merge into develop → promote to production ({count})",
+  "PlanPromote": "{app}: build, test and qualify once → merge into develop → production allowed, not built yet ({count})",
   "AuthenticatorCode": "Authenticator code",
   "ValidateSelection": "Validate the selection",
   "SelectionApproved": "Approved: {count} pull requests in one batch. The executor takes it next; follow it in Runs.",

@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import sendJson from 'Helpers/Hooks/sendJson';
 import useApiQuery, { getJson, refreshIntervalMs } from 'Helpers/Hooks/useApiQuery';
 import { systemStatusPath } from 'System/useSystemStatus';
-import type { Approval, ProblemsReport } from 'typings/api';
+import type { Approval, Ceiling, ProblemsReport } from 'typings/api';
 
 export const problemsPath = '/api/v1/problems';
 const approvalsPath = '/api/v1/approvals';
@@ -32,9 +32,11 @@ export function useRefreshProblems() {
   });
 }
 
+// What the operator saw: the commit and how far the row went. The server refuses the selection when either has moved since.
 export interface SelectedRow {
   id: string;
   headSha: string;
+  goesUpTo: Ceiling;
   stopBeforeProduction: boolean;
 }
 
@@ -43,7 +45,7 @@ export interface SelectedRow {
 export function useApproveProblems() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (request: { rows: SelectedRow[]; secondFactorCode?: string }) =>
+    mutationFn: (request: { rows: SelectedRow[]; secondFactorCode?: string; descriptionsVersion: string }) =>
       sendJson<{ approvals: Approval[] }>('POST', `${problemsPath}/approve`, request),
     onSettled: () =>
       Promise.all([
