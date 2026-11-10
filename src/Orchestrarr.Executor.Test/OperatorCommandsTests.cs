@@ -85,17 +85,20 @@ public sealed class OperatorCommandsTests : IDisposable
     [InlineData(30, 0, "example/*")]
     [InlineData(30, 5, "")]
     [InlineData(30, 5, "example/app; rm")]
+    [InlineData(30, 5, "*")]
+    [InlineData(30, 5, "*/*")]
+    [InlineData(30, 5, "**")]
+    [InlineData(30, 5, "ex*/app")]
+    [InlineData(30, 5, "*/app")]
     public async Task A_delegation_outside_the_frame_is_refused_before_any_code_is_asked(int days, int quota, string repository)
     {
         (await Commands().AddDelegationAsync("alice", TaskKind.ValidatePullRequest, repository, days, quota, Ct)).Should().Be(2);
     }
 
-    [Theory]
-    [InlineData(TaskKind.MergePullRequest, "example/*")]
-    [InlineData(TaskKind.ValidatePullRequest, "*")]
-    public async Task A_merge_cannot_be_delegated_and_a_delegation_never_covers_every_repository(TaskKind kind, string repository)
+    [Fact]
+    public async Task A_merge_cannot_be_delegated_yet()
     {
-        (await Commands().AddDelegationAsync("alice", kind, repository, 30, 5, Ct)).Should().Be(2);
+        (await Commands().AddDelegationAsync("alice", TaskKind.MergePullRequest, "example/*", 30, 5, Ct)).Should().Be(2);
 
         _world.Store.Delegations(includeEnded: true).Should().BeEmpty();
     }

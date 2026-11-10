@@ -300,6 +300,7 @@ export type ApprovalError =
   | 'mergeNeedsValidation'
   | 'noPullRequests'
   | 'alreadyApproved'
+  | 'tooManyPullRequests'
   | 'secondFactorRequired'
   | 'storeFull'
   | 'auditUnavailable'

@@ -100,6 +100,11 @@ public sealed class ApprovalService(
         {
             return ([], null, ApprovalRefusal.NoPullRequests);
         }
+        // A batch the executor would always refuse for its size is not recorded: the operator is told now, not in the Runs screen later
+        if (approvals.Count * steps.Count(step => step is StepKind.Validate or StepKind.MergePullRequests) > TaskLimits.MaxTasksPerBatch)
+        {
+            return ([], null, ApprovalRefusal.TooManyPullRequests);
+        }
         // The same pull request twice (a list that shifted while it was read) is not a list that can be approved: read it again
         if (approvals.Select(approval => approval.PullRequest).Distinct().Count() != approvals.Count)
         {

@@ -8,7 +8,7 @@ namespace Orchestrarr.Core.Launch;
 /// findings and requests, which are untrusted: nothing outside these patterns is signed, run or written to the audit trail. The
 /// patterns end with <c>\z</c>, because <c>$</c> also accepts a trailing newline.
 /// </summary>
-internal static partial class OrderValidation
+public static partial class OrderValidation
 {
     private const int MaxSteps = 16;
 
@@ -36,6 +36,12 @@ internal static partial class OrderValidation
         HasValidFields(workItemId, repository, headSha, environment: null, steps, approverSubject);
 
     public static bool IsRepositoryName(string? repository) => Repository().IsMatch(repository ?? string.Empty);
+
+    /// <summary>The name of a repository, <c>owner/name</c>.</summary>
+    public static bool IsValidRepository(string? repository) => Repository().IsMatch(repository ?? string.Empty);
+
+    /// <summary>A full commit, 40 or 64 hexadecimal characters.</summary>
+    public static bool IsValidSha(string? sha) => Sha().IsMatch(sha ?? string.Empty);
 
     public static bool IsValidWorkItem(string? workItemId) => WorkItem().IsMatch(workItemId ?? string.Empty);
 

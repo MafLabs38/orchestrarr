@@ -1,6 +1,8 @@
 using System.Text;
+using System.Text.RegularExpressions;
 using Net.Codecrete.QrCodeGenerator;
 using Orchestrarr.Core.SecondFactor;
+using Orchestrarr.Core.Launch;
 using Orchestrarr.Core.Tasks;
 
 namespace Orchestrarr.Executor;
@@ -17,13 +19,13 @@ public interface IConsoleIo
 /// The commands that the operator runs on the executor's machine, in their own terminal: enrolling the app that gives their codes, and the standing
 /// delegations. The secret of an operator is made here and stays here; it is shown once, on this terminal, and never goes to the control plane.
 /// </summary>
-public sealed class OperatorCommands(ExecutorStore store, SecondFactorGuard guard, TotpOptions totp, string issuer, TimeProvider time, IConsoleIo io)
+public sealed partial class OperatorCommands(ExecutorStore store, SecondFactorGuard guard, TotpOptions totp, string issuer, TimeProvider time, IConsoleIo io)
 {
     public async Task<int> EnrolAsync(string subject, bool replace, CancellationToken cancellationToken)
     {
         if (!IsSubject(subject))
         {
-            io.WriteLine("The subject must be the identity the control plane signs the operator in with (letters, digits and . _ - @ : / +).");
+            io.WriteLine("The subject must be the identity the control plane signs the operator in with (letters, digits and . _ - @ : +).");
             return 2;
         }
         if (!replace && await store.FindAsync(subject, cancellationToken) is not null)
@@ -55,16 +57,16 @@ public sealed class OperatorCommands(ExecutorStore store, SecondFactorGuard guar
 
     public async Task<int> AddDelegationAsync(string subject, TaskKind kind, string repository, int days, int quota, CancellationToken cancellationToken)
     {
-        if (days is < 1 or > 90 || quota is < 1 or > 1000 || repository.Length == 0 || repository.Any(c => !(char.IsAsciiLetterOrDigit(c) || c is '_' or '.' or '-' or '/' or '*')))
+        if (days is < 1 or > 90 || quota is < 1 or > 1000 || !DelegationScope().IsMatch(repository))
         {
-            io.WriteLine("A delegation lasts 1 to 90 days, allows 1 to 1000 tasks a day, and names a repository such as example/app or example/*.");
+            io.WriteLine("A delegation lasts 1 to 90 days, allows 1 to 1000 tasks a day, and names one repository (example/app) or every repository of one owner (example/*), never more.");
             return 2;
         }
         // Which kinds of task may run without a code is not decided (ADR 0017, "Not decided here"): until it is, nothing that changes a
         // repository can be delegated, and a rule has to name an owner, never every repository.
-        if (kind == TaskKind.MergePullRequest || repository == "*")
+        if (kind == TaskKind.MergePullRequest)
         {
-            io.WriteLine("A merge cannot be delegated yet, and a delegation names an owner (example/*) or a repository, never every repository: which kinds may run without a code is still to be decided.");
+            io.WriteLine("A merge cannot be delegated yet: which kinds may run without a code is still to be decided (ADR 0017).");
             return 2;
         }
         if (!await ConfirmAsync(subject, cancellationToken))
@@ -131,8 +133,12 @@ public sealed class OperatorCommands(ExecutorStore store, SecondFactorGuard guar
         return false;
     }
 
+    // One repository, or every repository of one owner: a delegation never covers more than that
+    [GeneratedRegex(@"^[A-Za-z0-9_.-]{1,100}/([A-Za-z0-9_.-]{1,100}|\*)\z", RegexOptions.None, matchTimeoutMilliseconds: 200)]
+    private static partial Regex DelegationScope();
+
     private static bool IsSubject(string subject) =>
-        subject.Length is > 0 and <= 200 && subject.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '_' or '-' or '@' or ':' or '/' or '+');
+        OrderValidation.IsValidSubject(subject);
 
     /// <summary>The QR code as text: two rows of modules per line, light modules as blocks, so that it reads on a dark terminal.</summary>
     internal static string Qr(string text)

@@ -147,6 +147,18 @@ public sealed class ApprovalServiceTests
     }
 
     [Fact]
+    public async Task A_card_with_more_pull_requests_than_a_batch_can_carry_is_refused_at_once()
+    {
+        var pullRequests = Enumerable.Range(1, 101).Select(number => PullRequest(number, HeadA)).ToArray();
+        var seen = pullRequests.Select(pullRequest => new SeenPullRequest(pullRequest.Number, HeadA)).ToArray();
+
+        var result = await Approve(await Service(pullRequests), seen: seen);
+
+        result.Refusal.Should().Be(ApprovalRefusal.TooManyPullRequests, "two tasks each makes more than the executor accepts in one batch");
+        _store.List().Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task The_second_batch_holds_only_the_tasks_of_the_new_pull_requests()
     {
         await Approve(await Service(PullRequest(1, HeadA)));

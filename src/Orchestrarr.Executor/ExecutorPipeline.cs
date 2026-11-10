@@ -83,7 +83,16 @@ public sealed class ExecutorPipeline(
                 outcomes.Add(new TaskOutcome(task.Id, TaskResult.Refused, "no runner"));
                 continue;
             }
-            outcomes.Add(await runner.RunAsync(task, trace, cancellationToken));
+            try
+            {
+                outcomes.Add(await runner.RunAsync(task, trace, cancellationToken));
+            }
+            catch (Exception failure) when (failure is not OperationCanceledException)
+            {
+                // A runner that fails ends its task as refused, with a trace, and the batch still ends: it must not stay delivered with no end
+                trace.Add(RunEvents.TaskRefused, task.Id, "the runner failed");
+                outcomes.Add(new TaskOutcome(task.Id, TaskResult.Refused, "runner failed"));
+            }
         }
         trace.Add(RunEvents.RunCompleted, null, $"{outcomes.Count} tasks");
         return new PipelineResult(new BatchOutcome(BatchState.Done, null, outcomes), trace.Events);

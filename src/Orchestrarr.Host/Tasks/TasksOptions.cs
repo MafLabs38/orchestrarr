@@ -55,6 +55,12 @@ public sealed partial class TasksOptions
         {
             throw new InvalidOperationException("Tasks:BatchLifetimeMinutes must be 1 to 1440 and Tasks:DeliveryTimeoutMinutes 1 to 120.");
         }
+        // A batch goes to whichever executor asks first, and a refusal by an executor that is not the right one is final: routing by the rights an
+        // executor announced comes with the second executor (ADR 0017), and until then a second one is refused rather than left to take batches blindly.
+        if (Executors.Count > 1)
+        {
+            throw new InvalidOperationException("Tasks:Executors: one executor is supported for now; batches are not routed between several (ADR 0017).");
+        }
         var credentials = new List<ExecutorCredential>();
         foreach (var executor in Executors)
         {

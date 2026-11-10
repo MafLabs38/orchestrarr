@@ -29,6 +29,9 @@ public enum ApprovalRefusal
     NoPullRequests,
     AlreadyApproved,
 
+    /// <summary>The card holds more pull requests than one batch can carry: the executor would refuse it for its size.</summary>
+    TooManyPullRequests,
+
     /// <summary>The code of the second factor is missing or is not six digits. Whether it is right is for the executor to say.</summary>
     SecondFactorRequired,
     StoreFull,

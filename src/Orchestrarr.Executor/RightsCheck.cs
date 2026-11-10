@@ -1,26 +1,16 @@
-using System.Text.RegularExpressions;
+using Orchestrarr.Core.Launch;
 using Orchestrarr.Core.Tasks;
 
 namespace Orchestrarr.Executor;
 
 /// <summary>The shapes that a task must have before anything else looks at it, and the matching of a repository against the patterns of the rights.</summary>
-internal static partial class TaskShape
+internal static class TaskShape
 {
-    public const int MaxTasks = 50;
-
-    [GeneratedRegex("^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$", RegexOptions.None, matchTimeoutMilliseconds: 200)]
-    private static partial Regex RepositoryShape();
-
-    [GeneratedRegex("^[0-9a-f]{40}$", RegexOptions.None, matchTimeoutMilliseconds: 200)]
-    private static partial Regex CommitShape();
-
-    [GeneratedRegex("^[A-Za-z0-9@._:/+-]{1,200}$", RegexOptions.None, matchTimeoutMilliseconds: 200)]
-    private static partial Regex SubjectShape();
 
     /// <summary>True when every field of the batch has the shape of a real one. The fields come from the queue, so they are checked like any outside input.</summary>
     public static bool IsWellFormed(TaskBatch batch)
     {
-        if (batch.Tasks.Count is 0 or > MaxTasks || !SubjectShape().IsMatch(batch.ApproverSubject) || batch.WorkItemId.Length is 0 or > 300)
+        if (batch.Tasks.Count is 0 or > TaskLimits.MaxTasksPerBatch || !OrderValidation.IsValidSubject(batch.ApproverSubject) || !OrderValidation.IsValidWorkItem(batch.WorkItemId))
         {
             return false;
         }
@@ -30,8 +20,8 @@ internal static partial class TaskShape
             && batch.Tasks.All(task =>
                 Enum.IsDefined(task.Kind)
                 && task.PullRequest > 0
-                && RepositoryShape().IsMatch(task.Repository)
-                && CommitShape().IsMatch(task.HeadSha));
+                && OrderValidation.IsValidRepository(task.Repository)
+                && OrderValidation.IsValidSha(task.HeadSha));
     }
 
     /// <summary>Whether <paramref name="repository"/> matches a pattern where <c>*</c> stands for any characters. Names are compared without regard to case.</summary>

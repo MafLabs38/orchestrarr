@@ -150,6 +150,7 @@ const approvalErrors = {
   mergeNeedsValidation: 'ApprovalErrorMergeNeedsValidation',
   noPullRequests: 'ApprovalErrorNoPullRequests',
   alreadyApproved: 'ApprovalErrorAlreadyApproved',
+  tooManyPullRequests: 'ApprovalErrorTooManyPullRequests',
   secondFactorRequired: 'ApprovalErrorSecondFactorRequired',
   storeFull: 'ApprovalErrorStoreFull',
   auditUnavailable: 'ApprovalErrorAuditUnavailable',

@@ -179,6 +179,7 @@
   "KillSwitchNotSaved": "The global stop is engaged, but its state could not be saved or read: do not count on it across a restart.",
   "SecondFactorCode": "Authenticator code",
   "SecondFactorHint": "The 6-digit code of your authenticator app. The executor checks it; it is never kept.",
+  "ApprovalErrorTooManyPullRequests": "This card holds too many pull requests for one batch: approve it after some are merged or closed.",
   "ApprovalErrorSecondFactorRequired": "Type the 6-digit code of your authenticator app.",
   "Runs": "Runs",
   "RunsDescription": "What the executor did with each approval: every check, every task, and the chained trace of what happened.",

@@ -53,6 +53,13 @@ public enum RunRefusal
 /// <summary>One thing to do, in the order of its batch. <c>ApprovalId</c> ties it to the decision of the operator that it carries out.</summary>
 public sealed record TaskSpec(Guid Id, int Sequence, TaskKind Kind, string Repository, int PullRequest, string HeadSha, Guid ApprovalId);
 
+/// <summary>Bounds that the control plane and the executor both apply, so that an approval is never recorded for a batch the executor would always refuse.</summary>
+public static class TaskLimits
+{
+    /// <summary>The most tasks one batch may hold (two per pull request when validating and merging).</summary>
+    public const int MaxTasksPerBatch = 200;
+}
+
 /// <summary>
 /// What one click of approval produces: the tasks it covers, who approved, until when it is good. <c>DelegationId</c> is set when a standing
 /// delegation stands in for the code (ADR 0017); the executor checks the delegation in its own store.
