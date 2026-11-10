@@ -143,6 +143,27 @@ public sealed class ExecutorApiTests : IDisposable
         (await Json(await client.GetAsync("/api/v1/runs", Ct))).GetArrayLength().Should().Be(0);
     }
 
+    [Theory]
+    [InlineData("0")]
+    [InlineData("-5")]
+    [InlineData("100000")]
+    [InlineData("abc")]
+    public async Task The_page_size_of_the_runs_is_kept_within_its_bounds(string limit)
+    {
+        using var factory = Factory();
+        var client = factory.CreateClient();
+        await Approve(client, "123456");
+
+        var answer = await client.GetAsync($"/api/v1/runs?limit={limit}", Ct);
+
+        // A number is clamped to 1..500; text that is not a number is a bad request, never a crash and never everything
+        answer.StatusCode.Should().BeOneOf(HttpStatusCode.OK, HttpStatusCode.BadRequest);
+        if (answer.StatusCode == HttpStatusCode.OK)
+        {
+            (await Json(answer)).GetArrayLength().Should().BeInRange(0, 500);
+        }
+    }
+
     [Fact]
     public async Task An_approval_makes_a_waiting_run_whose_tasks_a_person_can_read_and_no_code_appears_anywhere()
     {

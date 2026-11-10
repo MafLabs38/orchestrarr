@@ -155,6 +155,10 @@ public sealed class RepositoryPatternTests
     [InlineData("example/app*", "example/app", true)]
     [InlineData("a*b*c", "axxbxxc", true)]
     [InlineData("a*b*c", "axxcxxb", false)]
+    [InlineData("", "example/app", false)]
+    [InlineData("example/app", "", false)]
+    [InlineData("a**b", "axb", true)]
+    [InlineData("ab*bc", "abc", false)]
     public void A_star_stands_for_any_characters_and_nothing_else_does(string pattern, string repository, bool expected)
     {
         TaskShape.Matches(pattern, repository).Should().Be(expected);
