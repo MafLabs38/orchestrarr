@@ -1,6 +1,6 @@
 # 0011 — People sign in through the identity provider; the host keeps the session
 
-- **Status**: proposed
+- **Status**: superseded by [ADR 0018](0018-people-sign-in-with-local-accounts-and-permission-based-roles.md) on 2026-11-10 (people sign in with local accounts, as in Portarr and Mnemarr)
 - **Date**: 2026-11-03
 
 ## Context

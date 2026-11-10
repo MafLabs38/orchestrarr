@@ -10,7 +10,7 @@ The security of an agent that can act does not live in its prompt. It lives in *
 
 Two systems cooperate, and neither trusts the other's word:
 
-- **The identity provider** (Keycloak in the reference setup) says **who the person is** and whether they may give orders (operator group, second factor for production).
+- **The sign-in** (a local account, [ADR 0018](adr/0018-people-sign-in-with-local-accounts-and-permission-based-roles.md)) says **who the person is** and whether their role lets them give orders (the permission to approve); the proof of an approval is the second factor, which the executor checks (ADR 0017).
 - **Vault** holds the **signing key of the orders** and issues the **short-lived credentials** that the machines accept. The agent never holds anything long-lived.
 
 The agent is not authenticated by the identity provider. It is **given a badge** for one run, and the machines check the badge. In this document, the **workshop** is the isolated place where the agent runs (SPEC D-25).
@@ -37,7 +37,7 @@ Contents: [the chain](#1-the-whole-chain) · [a run step by step](#2-one-run-ste
 ```mermaid
 flowchart TB
   person["You, the operator"]
-  kc["Identity provider<br/>who you are, your group,<br/>a second factor for production"]:::built
+  kc["Sign-in (local accounts)<br/>who you are, your role"]:::built
   cp["Control plane (the API)<br/>records your approval (built),<br/>signs the order when the run starts<br/>(at delivery: proposed, ADR 0015)"]:::decided
   vault["Vault<br/>non-exportable signing key,<br/>one role set per environment,<br/>SSH authority"]:::decided
   store[("Order store<br/>(behind the API)")]:::decided
@@ -65,7 +65,7 @@ flowchart TB
 
 The colours show the main state of each box; the sentence below gives the exact state.
 
-What is built (`🟢`): the sign-in with the identity provider ([ADR 0011](adr/0011-people-sign-in-through-the-identity-provider.md)), recording an approval, the audit trail and the global stop, and, as library code that no process runs yet, the signed order and the launcher's checks. Everything else on the chain is `🔵`.
+What is built (`🟢`): the sign-in with local accounts and roles ([ADR 0018](adr/0018-people-sign-in-with-local-accounts-and-permission-based-roles.md)), recording an approval, the audit trail and the global stop, and, as library code that no process runs yet, the signed order and the launcher's checks. Everything else on the chain is `🔵`.
 
 ## 2. One run, step by step
 
@@ -73,18 +73,18 @@ What is built (`🟢`): the sign-in with the identity provider ([ADR 0011](adr/0
 sequenceDiagram
   autonumber
   actor P as You
-  participant K as Identity provider
+  participant K as Sign-in (accounts)
   participant C as Control plane
   participant V as Vault
   participant L as Launcher
   participant W as Workshop, the agent
   participant T as Target machine
 
-  P->>K: sign in (password, plus a second factor for production)
-  K-->>C: your identity and your group
+  P->>K: sign in (name and password)
+  K-->>C: your account and your role
   P->>C: approve this plan, at this commit (recorded, no order yet)
   Note over C,L: later, when the run is about to start
-  C->>K: is this person still an operator?
+  C->>K: is this person still an operator? (read from the database at every request)
   C->>C: kill switch off? power granted? commit unchanged? fresh second factor for production?
   C->>V: sign the order (the key never leaves Vault)
   L->>C: pull the signed order through the API (proposed, ADR 0015; the launcher has no inbound port)
@@ -176,7 +176,7 @@ Settled by [ADR 0012](adr/0012-one-launcher-and-one-vault-role-per-environment.m
 
 Still open:
 
-- **How does the control plane know, at run start, that the person is still an operator?** ADR 0010 says it asks the identity provider again, but nobody's session is live then. Options: keep a refresh token on the server, ask the provider's admin interface, or keep a server-side session store that can revoke. It also closes the weakness of section 7. 🔵
+- **How does the control plane know, at run start, that the person is still an operator?** Answered by ADR 0018: the role is read from the database at every request and the sessions are kept by the server, so a disabled account or a changed role applies at once. (The earlier weakness of a session that is a snapshot no longer exists.) 🟢
 - **Who validates the plan for production**: one person with a step-up, or two (SPEC Q-21). Validating the plan itself is the default proposed by ADR 0012.
 - **How is a budget extended while a run is going, and by whom?** SPEC Q-09 covers the ceilings only. 🟣
 
@@ -192,7 +192,7 @@ Still open:
 |---|---|
 | Approval recorded per pull request and commit, audit trail, global stop (in a SQLite file, [ADR 0013](adr/0013-approvals-the-trail-and-the-stop-are-kept-in-a-sqlite-file.md)) | 🟢 |
 | Signed order, issuer, launcher checks, one-time number and refusal codes (library code, tested, not run by any process) | 🟢 |
-| Sign-in with the identity provider, operator group, origin check ([ADR 0011](adr/0011-people-sign-in-through-the-identity-provider.md)) | 🟢 |
+| Sign-in with local accounts, roles, server-side sessions, CSRF header ([ADR 0018](adr/0018-people-sign-in-with-local-accounts-and-permission-based-roles.md)) | 🟢 |
 | Vault dedicated to this purpose | 🔵 manifests in the GitOps repository, not initialised |
 | Launcher that runs, order store, workshop, certificates, revoking the tokens of a run | 🔵 not built |
 | The launcher as a Rust binary, held to the control plane's rules by shared conformance vectors | 🔵 decided ([ADR 0014](adr/0014-the-launcher-is-a-rust-binary-held-to-the-control-plane-by-shared-vectors.md), D-59), not built |
