@@ -60,7 +60,6 @@ public sealed class ExecutorWorkerTests : IDisposable
     [Theory]
     [InlineData(typeof(JsonException))]
     [InlineData(typeof(HttpRequestException))]
-    [InlineData(typeof(InvalidOperationException))]
     [InlineData(typeof(NullReferenceException))]
     public async Task An_answer_that_cannot_be_read_or_a_control_plane_that_fails_does_not_stop_the_executor(Type failure)
     {

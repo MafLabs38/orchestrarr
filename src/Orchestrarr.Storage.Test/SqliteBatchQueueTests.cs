@@ -244,7 +244,7 @@ public sealed class SqliteBatchQueueTests : IDisposable
     }
 
     [Fact]
-    public async Task A_file_that_holds_approvals_of_version_one_is_migrated_and_they_keep_waiting()
+    public async Task A_file_that_holds_approvals_of_version_one_is_migrated_and_they_end_as_expired()
     {
         // Rebuild what version 1 wrote: the old table with its table-level key, no batch, no state
         using (var connection = _database.Connect())
@@ -269,7 +269,8 @@ public sealed class SqliteBatchQueueTests : IDisposable
         var migrated = SqliteDatabase.Open(_file.Path);
 
         var approval = new SqliteApprovalStore(migrated).List().Should().ContainSingle().Subject;
-        approval.State.Should().Be(ApprovalState.Waiting);
+        approval.State.Should().Be(ApprovalState.Expired, "no executor can take an approval that has no batch");
+        approval.EndedAt.Should().NotBeNull();
         approval.BatchId.Should().BeNull();
         approval.PullRequest.Should().Be(9);
         new SqliteBatchQueue(migrated, _stop, _time, Options).Runs(10).Should().BeEmpty("the new tables are there");

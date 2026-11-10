@@ -292,8 +292,10 @@ public sealed class SqliteDatabase : IDisposable
                   batch_id TEXT NULL,
                   ended_at TEXT NULL
                 );
-                INSERT INTO approvals_v2 (id, work_item_id, repository, pull_request, head_sha, steps, approver, approved_at, step_up_at)
-                  SELECT id, work_item_id, repository, pull_request, head_sha, steps, approver, approved_at, step_up_at FROM approvals;
+                -- An approval of version 1 has no batch and no code: no executor can ever take it, so it ends here instead of waiting for good
+                -- (and blocking the same decision from being approved again).
+                INSERT INTO approvals_v2 (id, work_item_id, repository, pull_request, head_sha, steps, approver, approved_at, step_up_at, state, ended_at)
+                  SELECT id, work_item_id, repository, pull_request, head_sha, steps, approver, approved_at, step_up_at, 'Expired', strftime('%Y-%m-%dT%H:%M:%S.0000000Z', 'now') FROM approvals;
                 DROP TABLE approvals;
                 ALTER TABLE approvals_v2 RENAME TO approvals;
                 """);

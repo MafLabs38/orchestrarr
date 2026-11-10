@@ -75,23 +75,38 @@ public sealed class ExecutorPipeline(
         }
 
         var outcomes = new List<TaskOutcome>();
+        // A task that is refused or fails stops what follows for the same approval: a merge never runs after its validation did not pass
+        var stoppedApprovals = new HashSet<Guid>();
         foreach (var task in batch.Tasks.OrderBy(task => task.Sequence))
         {
+            if (stoppedApprovals.Contains(task.ApprovalId))
+            {
+                trace.Add(RunEvents.TaskSkipped, task.Id, "an earlier task of this approval did not pass");
+                outcomes.Add(new TaskOutcome(task.Id, TaskResult.Skipped, "earlier task did not pass"));
+                continue;
+            }
             if (!_runners.TryGetValue(task.Kind, out var runner))
             {
                 trace.Add(RunEvents.TaskRefused, task.Id, "no runner for this kind");
                 outcomes.Add(new TaskOutcome(task.Id, TaskResult.Refused, "no runner"));
+                stoppedApprovals.Add(task.ApprovalId);
                 continue;
             }
             try
             {
-                outcomes.Add(await runner.RunAsync(task, trace, cancellationToken));
+                var outcome = await runner.RunAsync(task, trace, cancellationToken);
+                outcomes.Add(outcome);
+                if (outcome.Result == TaskResult.Refused)
+                {
+                    stoppedApprovals.Add(task.ApprovalId);
+                }
             }
             catch (Exception failure) when (failure is not OperationCanceledException)
             {
                 // A runner that fails ends its task as refused, with a trace, and the batch still ends: it must not stay delivered with no end
                 trace.Add(RunEvents.TaskRefused, task.Id, "the runner failed");
                 outcomes.Add(new TaskOutcome(task.Id, TaskResult.Refused, "runner failed"));
+                stoppedApprovals.Add(task.ApprovalId);
             }
         }
         trace.Add(RunEvents.RunCompleted, null, $"{outcomes.Count} tasks");

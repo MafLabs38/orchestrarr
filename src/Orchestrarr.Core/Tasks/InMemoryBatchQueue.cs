@@ -144,6 +144,11 @@ public sealed class InMemoryBatchQueue(InMemoryApprovalStore approvals, IAuditSi
         }
         lock (_gate)
         {
+            // Another report of the same batch may have ended it while the trace was written: the first one stands
+            if (entry.State != BatchState.Delivered || entry.Executor != executor)
+            {
+                return QueueResult.NotYours;
+            }
             entry.State = outcome.Final;
             entry.Refusal = outcome.Refusal;
             entry.Outcomes = outcome.Tasks.ToDictionary(task => task.TaskId);

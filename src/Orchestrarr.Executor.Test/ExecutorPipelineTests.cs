@@ -293,7 +293,7 @@ public sealed class ExecutorPipelineTests : IDisposable
     }
 
     [Fact]
-    public async Task A_runner_that_fails_ends_its_task_as_refused_and_the_batch_still_ends()
+    public async Task A_runner_that_fails_ends_its_task_as_refused_skips_the_merge_after_it_and_the_batch_still_ends()
     {
         var batch = await _world.Approved(ExecutorFixture.Batch());
         var pipeline = _world.Pipeline([new FailingRunner(TaskKind.ValidatePullRequest), new DryRunTaskRunner(TaskKind.MergePullRequest)]);
@@ -301,7 +301,8 @@ public sealed class ExecutorPipelineTests : IDisposable
         var result = await pipeline.RunAsync(new BatchDelivery(batch, _world.CodeAt()), stopped: false, TestContext.Current.CancellationToken);
 
         result.Outcome.Final.Should().Be(BatchState.Done);
-        result.Outcome.Tasks.Select(task => task.Result).Should().Equal(TaskResult.Refused, TaskResult.DryRun);
+        result.Outcome.Tasks.Select(task => task.Result).Should().Equal(TaskResult.Refused, TaskResult.Skipped);
+        result.Events.Should().Contain(line => line.Type == RunEvents.TaskSkipped);
         result.Events.Should().Contain(line => line.Type == RunEvents.TaskRefused && line.Detail == "the runner failed");
     }
 

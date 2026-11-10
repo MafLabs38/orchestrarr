@@ -506,6 +506,26 @@ public sealed class AccountsApiTests : IClassFixture<AccountsApiFactory>
     // --- the garbage and the production cookie
 
     [Fact]
+    public async Task Every_answer_forbids_being_framed_and_sniffed_and_keeps_the_page_to_itself()
+    {
+        var response = await Browser().GetAsync("/health", Ct);
+
+        response.Headers.GetValues("X-Frame-Options").Should().Equal("DENY");
+        response.Headers.GetValues("X-Content-Type-Options").Should().Equal("nosniff");
+        response.Headers.GetValues("Content-Security-Policy").Single().Should().Contain("default-src 'self'").And.Contain("frame-ancestors 'none'").And.Contain("form-action 'self'");
+        response.Headers.Contains("Strict-Transport-Security").Should().BeFalse("the sandbox cookie setting is not https");
+    }
+
+    [Fact]
+    public async Task A_read_never_needs_the_header_of_the_interface()
+    {
+        using var admin = await Admin();
+        admin.DefaultRequestHeaders.Remove(Header);
+
+        (await admin.GetAsync("/api/v1/auth/me", Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
     public async Task A_cookie_that_was_made_up_is_not_a_session()
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/auth/me");
@@ -542,6 +562,7 @@ public sealed class SecureCookieTests : IClassFixture<SecureCookieFactory>
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var cookie = response.Headers.GetValues("Set-Cookie").Single(value => value.Contains("orchestrarr.session=", StringComparison.Ordinal));
         cookie.Should().StartWith("__Host-orchestrarr.session=");
+        response.Headers.GetValues("Strict-Transport-Security").Should().ContainSingle().Which.Should().StartWith("max-age=");
         cookie.ToLowerInvariant().Should().Contain("secure").And.Contain("path=/").And.Contain("httponly").And.Contain("samesite=strict").And.NotContain("domain=");
     }
 }
