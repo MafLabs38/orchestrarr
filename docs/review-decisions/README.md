@@ -19,7 +19,7 @@ A medium finding is still answered (fixed, or declined with its reason); only th
 `docs/review-decisions/<pr number>.md`, one entry per finding, in this exact shape (the CI reads it):
 
 ```markdown
-## R-44-03 | security | high | declined
+## R-44-3 | security | high | declined
 
 - **Finding**: what the agent said, in one line.
 - **Where**: the file, or the component.
@@ -33,7 +33,7 @@ The heading is `R-<pr>-<n> | <agent> | <level> | <decision>`: the source is `tes
 
 - **The agents read this folder** (their instructions say so) and do not raise again a finding that an entry already answers, unless the code changed so that the reason no longer holds. A serious entry without a valid approval is not trusted: the agent raises the finding.
 - **The `review-decisions` job** fails a pull request that adds or changes an entry which is serious, not fixed, and without the link of a comment by an approver (`.github/review-approvers`) in this repository. The job runs the checker and the list of approvers **of the base branch**: a pull request cannot approve itself. After the maintainer has commented, re-run the job.
-- The README of the folder, the checker, the approvers, the job and the agents' instructions are in the maintainer's tier ([ADR 0015](../adr/0015-where-the-launcher-gets-what-its-checks-read.md) §3, CLAUDE.md rule 15): the author of a pull request does not edit the rules that judge it without the maintainer. The entries (`<pr number>.md`) are the author's to write. The approving comment must be **on this pull request and name the finding** ("OK to decline R-44-03", or "OK to defer R-44-03"; any other comment is no approval); the level in the heading is the author's word, which the maintainer reads in the table of the pull request.
+- The README of the folder, the checker, the approvers, the job and the agents' instructions are in the maintainer's tier ([ADR 0015](../adr/0015-where-the-launcher-gets-what-its-checks-read.md) §3, CLAUDE.md rule 15): the author of a pull request does not edit the rules that judge it without the maintainer. The entries (`<pr number>.md`) are the author's to write. The approving comment must be **on this pull request and name the finding** ("OK to decline R-44-3", or "OK to defer R-44-3"; any other comment is no approval); the level in the heading is the author's word, which the maintainer reads in the table of the pull request.
 
 ## What the author does
 
