@@ -46,7 +46,9 @@ class CheckEntry(unittest.TestCase):
         self.assertTrue(problems(entry("high", Approved=URL), text="looks good to me"))
         self.assertTrue(problems(entry("high", Approved=URL), text="OK to decline R-7-10"), "R-7-1 is not R-7-10")
         self.assertTrue(problems(entry("high", Approved=URL), text="do NOT decline R-7-1, fix it"))
-        self.assertEqual(problems(entry("high", Approved=URL), text="OK to defer R-7-1, thanks"), [])
+        self.assertTrue(problems(entry("high", Approved=URL), text="Not OK to decline R-7-1"))
+        self.assertTrue(problems(entry("high", Approved=URL), text="> OK to decline R-7-1\nno, fix it"))
+        self.assertEqual(problems(entry("high", Approved=URL), text="Fine.\nOK to defer R-7-1, thanks"), [])
         self.assertEqual(problems(entry("high", Approved=URL), text="OK to decline R-7-1"), [])
 
     def test_an_id_with_a_leading_zero_is_not_an_entry(self):

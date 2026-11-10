@@ -73,7 +73,7 @@ def check_entry(entry, fetch_comment, approvers, repository, pr_number):
             author, on, text = found
             if author.lower() not in approvers:
                 problems.append(f"{name}: the comment is by '{author}', who is not an approver")
-            if not re.search(rf"\bOK to (?:decline|defer) {re.escape(name)}(?![\w-])", text):
+            if not re.search(rf"(?m)^[ \t]*OK to (?:decline|defer) {re.escape(name)}(?![\w-])", text):
                 problems.append(f"{name}: the approving comment must say 'OK to decline {name}' (or 'OK to defer {name}'): any other comment is no approval of it")
             if str(on) != str(pr_number):
                 problems.append(f"{name}: the approving comment is on #{on}, not on this pull request (#{pr_number})")
@@ -122,6 +122,10 @@ def main():
             continue
         with open(path, encoding="utf-8") as handle:
             entries, problems = parse(handle.read())
+        ids = [entry["id"] for entry in entries]
+        problems += [f"{i} appears twice: an approval covers one finding" for i in sorted(set(ids)) if ids.count(i) > 1]
+        number = os.path.basename(path)[:-3]
+        problems += [f"{entry['id']} is in the file of pull request {number}: the number in the id is the pull request's" for entry in entries if entry["id"].split("-")[1] != number]
         failures += [f"{path}: {p}" for p in problems]
         for entry in entries:
             count += 1
