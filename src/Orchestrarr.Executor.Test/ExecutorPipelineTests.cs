@@ -217,6 +217,20 @@ public sealed class ExecutorPipelineTests : IDisposable
 
     // --- standing delegations
 
+    [Fact]
+    public async Task A_batch_under_a_delegation_is_refused_by_an_executor_that_does_not_accept_delegations()
+    {
+        var delegation = Delegate();
+        var rights = new RightsOptions { Kinds = _world.Rights.Kinds, Repositories = _world.Rights.Repositories };
+        var batch = await _world.Approved(Delegated(delegation));
+
+        var result = await Run(batch, null, pipeline: _world.Pipeline(rights: rights));
+
+        result.Outcome.Refusal.Should().Be(RunRefusal.DelegationInvalid);
+        result.Events.Should().Contain(line => line.Type == RunEvents.DelegationChecked && line.Detail!.Contains("does not run batches", StringComparison.Ordinal));
+        _world.Store.Delegations(includeEnded: true).Should().ContainSingle("nothing of the delegation is used").Which.Should().Be(delegation);
+    }
+
     private Delegation Delegate(TaskKind kind = TaskKind.MergePullRequest, string repository = "example/*", int quota = 5, int days = 30, DateTimeOffset? revokedAt = null)
     {
         var delegation = new Delegation(Guid.NewGuid(), "alice", kind, repository, ExecutorFixture.Start.AddDays(days), quota, ExecutorFixture.Start, null);

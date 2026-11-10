@@ -22,7 +22,7 @@ internal sealed class ExecutorFixture : IDisposable
 
     public SecondFactorGuard Guard { get; }
 
-    public RightsOptions Rights { get; set; } = new() { Kinds = [TaskKind.ValidatePullRequest, TaskKind.MergePullRequest], Repositories = ["example/*"] };
+    public RightsOptions Rights { get; set; } = new() { Kinds = [TaskKind.ValidatePullRequest, TaskKind.MergePullRequest], Repositories = ["example/*"], AcceptDelegations = true };
 
     public ExecutorFixture()
     {

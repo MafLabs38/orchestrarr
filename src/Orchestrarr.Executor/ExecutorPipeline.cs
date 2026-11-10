@@ -171,9 +171,16 @@ public sealed class ExecutorPipeline(
             return RunRefusal.Replayed;
         }
 
-        return batch.DelegationId is null
-            ? await CheckSecondFactorAsync(delivery, trace, cancellationToken)
-            : CheckDelegation(batch, trace);
+        if (batch.DelegationId is null)
+        {
+            return await CheckSecondFactorAsync(delivery, trace, cancellationToken);
+        }
+        if (!rights.AcceptDelegations)
+        {
+            trace.Add(RunEvents.DelegationChecked, null, "refused: this executor does not run batches under a delegation");
+            return RunRefusal.DelegationInvalid;
+        }
+        return CheckDelegation(batch, trace);
     }
 
     private (RunRefusal Refusal, string Detail)? RightsRefusal(TaskBatch batch)

@@ -44,6 +44,44 @@ public sealed class ExecutorWorkerTests : IDisposable
         await _controlPlane.Received(1).CompleteAsync(rogue.Id, Arg.Is<BatchOutcome>(outcome => outcome.Final == BatchState.Refused && outcome.Refusal == RunRefusal.JournalMismatch), Ct);
     }
 
+    [Fact]
+    public async Task With_no_stop_file_configured_a_STOP_file_next_to_the_executors_own_file_stops_it()
+    {
+        var options = new ExecutorOptions { Name = "executor-1", DataPath = Path.Combine(_world.Folder, "executor.db"), Rights = _world.Rights };
+        var worker = new ExecutorWorker(_controlPlane, _world.Pipeline(), _world.Store, options, _world.Time, NullLogger<ExecutorWorker>.Instance);
+        await File.WriteAllTextAsync(Path.Combine(_world.Folder, "STOP"), string.Empty, Ct);
+
+        (await worker.StepAsync(Ct)).Should().BeFalse();
+
+        await _controlPlane.DidNotReceive().ClaimAsync(Arg.Any<ExecutorHello>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task A_stop_file_created_during_a_run_ends_it_before_the_next_task()
+    {
+        var batch = await _world.Approved(ExecutorFixture.Batch());
+        var stop = Path.Combine(_world.Folder, "STOP");
+        var pipeline = _world.Pipeline([new CreatesTheStopFile(TaskKind.ValidatePullRequest, stop), new DryRunTaskRunner(TaskKind.MergePullRequest)]);
+        var options = new ExecutorOptions { Name = "executor-1", LocalStopFile = stop, Rights = _world.Rights };
+        var worker = new ExecutorWorker(_controlPlane, pipeline, _world.Store, options, _world.Time, NullLogger<ExecutorWorker>.Instance);
+        _controlPlane.ClaimAsync(Arg.Any<ExecutorHello>(), Arg.Any<CancellationToken>()).Returns(new ClaimResult(ClaimStatus.Claimed, new BatchDelivery(batch, _world.CodeAt())));
+
+        await worker.StepAsync(Ct);
+
+        await _controlPlane.Received(1).CompleteAsync(batch.Id, Arg.Is<BatchOutcome>(outcome => outcome.Tasks.Count == 2 && outcome.Tasks[1].Result == TaskResult.Skipped), Ct);
+    }
+
+    private sealed class CreatesTheStopFile(TaskKind kind, string stopFile) : ITaskRunner
+    {
+        public TaskKind Kind => kind;
+
+        public ValueTask<TaskOutcome> RunAsync(TaskSpec task, RunTrace trace, CancellationToken cancellationToken)
+        {
+            File.WriteAllText(stopFile, string.Empty);
+            return ValueTask.FromResult(new TaskOutcome(task.Id, TaskResult.DryRun, "ran, then the stop file appeared"));
+        }
+    }
+
     [Theory]
     [InlineData(ClaimStatus.Nothing)]
     [InlineData(ClaimStatus.Stopped)]

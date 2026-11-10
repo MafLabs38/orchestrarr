@@ -23,6 +23,12 @@ public sealed record RightsOptions
 
     /// <summary>Repositories as <c>owner/name</c>; a <c>*</c> stands for any characters (<c>example/*</c>, <c>*</c>).</summary>
     public IReadOnlyList<string> Repositories { get; init; } = [];
+
+    /// <summary>
+    /// Whether this executor runs a batch that cites one of its standing delegations instead of a code. Off by default: nothing in the control
+    /// plane makes such a batch yet, and a path nobody uses is a path a taken-over control plane could try. Turned on with the flow that uses it.
+    /// </summary>
+    public bool AcceptDelegations { get; init; }
 }
 
 public sealed record ExecutorOptions
