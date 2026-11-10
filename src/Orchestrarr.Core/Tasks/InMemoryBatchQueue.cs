@@ -28,27 +28,11 @@ public sealed class InMemoryBatchQueue(InMemoryApprovalStore approvals, IAuditSi
         {
             return new ClaimResult(ClaimStatus.Stopped);
         }
+        if (!await ExpireDueAsync(cancellationToken))
+        {
+            return new ClaimResult(ClaimStatus.Unavailable);
+        }
         var now = time.GetUtcNow();
-        List<Entry> expired;
-        lock (_gate)
-        {
-            expired = [.. _entries.Where(entry => IsDue(entry, now))];
-        }
-
-        foreach (var entry in expired)
-        {
-            if (!await audit.TryRecordAsync(new AuditEntry(now, AuditEvents.BatchExpired, AuditEvents.System, entry.Batch.Id.ToString("D"), $"{entry.State}"), cancellationToken))
-            {
-                return new ClaimResult(ClaimStatus.Unavailable);
-            }
-            lock (_gate)
-            {
-                entry.State = BatchState.Expired;
-                entry.Code = null;
-                entry.EndedAt = now;
-            }
-            approvals.SetState(entry.Batch.Id, ApprovalState.Expired, now);
-        }
 
         // The batch is reserved in the same step that picks it, so that two claims at once never hand out the same one; the code leaves the
         // queue with the batch (handed out once)
@@ -84,6 +68,32 @@ public sealed class InMemoryBatchQueue(InMemoryApprovalStore approvals, IAuditSi
         }
         approvals.SetState(claimed.Batch.Id, ApprovalState.Taken, now);
         return new ClaimResult(ClaimStatus.Claimed, new BatchDelivery(claimed.Batch, code));
+    }
+
+    public async ValueTask<bool> ExpireDueAsync(CancellationToken cancellationToken)
+    {
+        var now = time.GetUtcNow();
+        List<Entry> expired;
+        lock (_gate)
+        {
+            expired = [.. _entries.Where(entry => IsDue(entry, now))];
+        }
+
+        foreach (var entry in expired)
+        {
+            if (!await audit.TryRecordAsync(new AuditEntry(now, AuditEvents.BatchExpired, AuditEvents.System, entry.Batch.Id.ToString("D"), $"{entry.State}"), cancellationToken))
+            {
+                return false;
+            }
+            lock (_gate)
+            {
+                entry.State = BatchState.Expired;
+                entry.Code = null;
+                entry.EndedAt = now;
+            }
+            approvals.SetState(entry.Batch.Id, ApprovalState.Expired, now);
+        }
+        return true;
     }
 
     public ValueTask<QueueResult> AppendEventsAsync(Guid batchId, string executor, IReadOnlyList<RunEvent> events, CancellationToken cancellationToken)

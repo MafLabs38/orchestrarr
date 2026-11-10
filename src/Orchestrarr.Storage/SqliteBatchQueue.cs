@@ -68,19 +68,7 @@ public sealed class SqliteBatchQueue(SqliteDatabase database, IKillSwitch killSw
         var now = time.GetUtcNow();
         var entries = new List<AuditEntry>();
 
-        // Past their time: a batch nobody took, and one that was handed out and never answered
-        foreach (var id in DueBatches(connection, now))
-        {
-            using (var command = connection.CreateCommand())
-            {
-                command.CommandText = "UPDATE batches SET state = 'Expired', code = NULL, ended_at = $now WHERE id = $id;";
-                command.Parameters.AddWithValue("$now", SqliteDatabase.Format(now));
-                command.Parameters.AddWithValue("$id", id.ToString("D"));
-                command.ExecuteNonQuery();
-            }
-            SqliteApprovalStore.SetStateOfBatch(connection, id, ApprovalState.Expired, now);
-            entries.Add(new AuditEntry(now, AuditEvents.BatchExpired, AuditEvents.System, id.ToString("D"), null));
-        }
+        ExpireDue(connection, now, entries);
 
         var waiting = NextWaiting(connection);
         BatchDelivery? delivery = null;
@@ -109,6 +97,49 @@ public sealed class SqliteBatchQueue(SqliteDatabase database, IKillSwitch killSw
             SqliteAuditLog.Insert(connection, entry);
         }
         return (true, delivery is null ? new ClaimResult(ClaimStatus.Nothing) : new ClaimResult(ClaimStatus.Claimed, delivery));
+    }
+
+    // Past their time: a batch nobody took, and one that was handed out and never answered
+    private void ExpireDue(SqliteConnection connection, DateTimeOffset now, List<AuditEntry> entries)
+    {
+        foreach (var id in DueBatches(connection, now))
+        {
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "UPDATE batches SET state = 'Expired', code = NULL, ended_at = $now WHERE id = $id;";
+                command.Parameters.AddWithValue("$now", SqliteDatabase.Format(now));
+                command.Parameters.AddWithValue("$id", id.ToString("D"));
+                command.ExecuteNonQuery();
+            }
+            SqliteApprovalStore.SetStateOfBatch(connection, id, ApprovalState.Expired, now);
+            entries.Add(new AuditEntry(now, AuditEvents.BatchExpired, AuditEvents.System, id.ToString("D"), null));
+        }
+    }
+
+    public ValueTask<bool> ExpireDueAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            return ValueTask.FromResult(database.InWriteTransaction(connection =>
+            {
+                var entries = new List<AuditEntry>();
+                ExpireDue(connection, time.GetUtcNow(), entries);
+                if (entries.Count > 0 && !AuditCapacityPolicy.Fits(auditCapacity, SqliteAuditLog.Count(connection), SqliteAuditLog.RefusalCount(connection), entries))
+                {
+                    // Nothing is changed that the trail cannot say
+                    return (false, false);
+                }
+                foreach (var entry in entries)
+                {
+                    SqliteAuditLog.Insert(connection, entry);
+                }
+                return (true, true);
+            }));
+        }
+        catch (Exception failure) when (SqliteDatabase.IsUnavailable(failure))
+        {
+            return ValueTask.FromResult(false);
+        }
     }
 
     private List<Guid> DueBatches(SqliteConnection connection, DateTimeOffset now)

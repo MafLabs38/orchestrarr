@@ -100,8 +100,4 @@ public sealed partial class TasksOptions
 public sealed record ExecutorCredential(string Name, byte[] TokenHash);
 
 /// <summary>The settings once checked. <c>JournalPath</c> is null when there is nowhere to write one.</summary>
-public sealed record TasksSettings(TaskOptions Options, string? JournalPath, IReadOnlyList<ExecutorCredential> Executors)
-{
-    /// <summary>What the tests and a bare registration get: no code required, no journal, no executor.</summary>
-    public static TasksSettings Bare { get; } = new(new TaskOptions { RequireSecondFactor = false }, null, []);
-}
+public sealed record TasksSettings(TaskOptions Options, string? JournalPath, IReadOnlyList<ExecutorCredential> Executors);

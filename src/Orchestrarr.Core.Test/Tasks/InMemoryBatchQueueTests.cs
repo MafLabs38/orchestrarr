@@ -140,6 +140,21 @@ public sealed class InMemoryBatchQueueTests
     }
 
     [Fact]
+    public async Task An_expiry_pass_ends_the_batches_past_their_time_with_no_executor_and_while_the_stop_is_engaged()
+    {
+        var batch = await Queue();
+        await _stop.ChangeAsync(true, new AuditEntry(Start, AuditEvents.KillSwitchEngaged, "alice", null, null), Ct);
+        _time.Advance(Options.BatchLifetime + TimeSpan.FromSeconds(1));
+
+        (await _queue.ExpireDueAsync(Ct)).Should().BeTrue();
+
+        _queue.Find(batch.Id)!.Summary.State.Should().Be(BatchState.Expired);
+        _store.List().Should().OnlyContain(approval => approval.State == ApprovalState.Expired && approval.EndedAt != null);
+        await _stop.ChangeAsync(false, new AuditEntry(Start, AuditEvents.KillSwitchReleased, "alice", null, null), Ct);
+        await Queue();
+    }
+
+    [Fact]
     public async Task A_batch_that_an_executor_never_answered_ends_as_expired()
     {
         var batch = await Queue();

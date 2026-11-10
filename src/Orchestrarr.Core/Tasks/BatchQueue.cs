@@ -59,6 +59,13 @@ public interface IBatchQueue
     /// </summary>
     ValueTask<ClaimResult> ClaimAsync(string executor, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Ends as expired the batches that waited past their time and the ones that were handed out and never answered, and frees their
+    /// approvals. It does not depend on an executor asking for work, and it hands nothing out, so the global stop does not hold it back.
+    /// False when the store or the trail could not take it (nothing was changed).
+    /// </summary>
+    ValueTask<bool> ExpireDueAsync(CancellationToken cancellationToken);
+
     ValueTask<QueueResult> AppendEventsAsync(Guid batchId, string executor, IReadOnlyList<RunEvent> events, CancellationToken cancellationToken);
 
     ValueTask<QueueResult> CompleteAsync(Guid batchId, string executor, BatchOutcome outcome, CancellationToken cancellationToken);
@@ -84,4 +91,7 @@ public sealed record TaskOptions
     public int MaxEventsPerRun { get; init; } = 500;
 
     public int MaxEventDetail { get; init; } = 500;
+
+    /// <summary>How often the host ends the batches that are past their time, whether or not an executor asks for work.</summary>
+    public TimeSpan ExpirySweepInterval { get; init; } = TimeSpan.FromSeconds(15);
 }

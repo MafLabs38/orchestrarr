@@ -22,9 +22,8 @@ internal static class ApprovalsServiceCollectionExtensions
     /// Approving a decision card: the grants, the queue, the trail, the global stop and the service, in a SQLite file or in memory. The same
     /// instance answers to each interface it implements, so that the routes and the service see one trail and one stop.
     /// </summary>
-    public static IServiceCollection AddApprovals(this IServiceCollection services, ApprovalsOptions options, IReadOnlyList<PowerGrant> grants, IStorageSettings storage, TasksSettings? tasks = null)
+    public static IServiceCollection AddApprovals(this IServiceCollection services, ApprovalsOptions options, IReadOnlyList<PowerGrant> grants, IStorageSettings storage, TasksSettings tasks)
     {
-        tasks ??= TasksSettings.Bare;
         services
             .AddApprovingRateLimit(options)
             .AddSingleton(options)
@@ -33,7 +32,8 @@ internal static class ApprovalsServiceCollectionExtensions
             .AddSingleton(tasks.Options)
             .AddSingleton<ExecutorRegistry>()
             .AddSingleton<IApprovalJournal>(_ => tasks.JournalPath is { } journal ? new FileApprovalJournal(journal) : new NullApprovalJournal())
-            .AddSingleton<IPowerPolicy>(new ConfiguredPowerPolicy(grants));
+            .AddSingleton<IPowerPolicy>(new ConfiguredPowerPolicy(grants))
+            .AddHostedService<BatchExpirySweeper>();
 
         // What must survive a restart is in one file, or, in the sandbox, in memory. The capacities default to what suits where it is kept.
         var capacities = storage.Persistent

@@ -1,6 +1,8 @@
 using Microsoft.Extensions.DependencyInjection;
 using Orchestrarr.Host.Approvals;
+using Orchestrarr.Core.Tasks;
 using Orchestrarr.Host.Storage;
+using Orchestrarr.Host.Tasks;
 using Orchestrarr.Storage;
 
 namespace Orchestrarr.Host.Test;
@@ -76,7 +78,7 @@ public sealed class SqliteStartupTests : IDisposable
         var services = new ServiceCollection();
         services.AddSingleton(TimeProvider.System);
 
-        services.AddApprovals(new ApprovalsOptions(), [], new SqliteStorage(DatabasePath, StartEngagedWhenNew: true));
+        services.AddApprovals(new ApprovalsOptions(), [], new SqliteStorage(DatabasePath, StartEngagedWhenNew: true), new TasksSettings(new TaskOptions { RequireSecondFactor = false }, null, []));
 
         services.Should().Contain(descriptor => descriptor.ImplementationType == typeof(SqliteStartup), "no entry point can forget to open the file");
     }
