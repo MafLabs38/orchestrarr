@@ -26,6 +26,7 @@ Rules: a test protects a behavior someone relies on, runs in milliseconds, and f
 | Quality and coverage | SonarQube Quality Gate | full lane |
 | Static security analysis | CodeQL (C#, TypeScript, workflows), `security-and-quality` queries | PR (skippable) and weekly |
 | Secrets | gitleaks | PR |
+| Review decisions | `.github/workflows/review-decisions.yml`: a serious finding that is not fixed must cite the maintainer's "OK to decline R-<pr>-<n>" comment on the pull request (ADR 0022); the checker's own tests run in the `lint` job (`python3 -I -m unittest` in `tools/review-decisions`) | PR |
 | Vulnerabilities | Trivy (dependencies and configuration), Dependabot | PR and weekly |
 | Mutation testing | Stryker.NET (Core, providers; the storage is not mutated yet, its tests use a real file), StrykerJS (frontend): do the tests catch injected bugs? | weekly, never blocking |
 | AI review (advisory) | The five agents of `.claude/agents/` (tests, quality and spec on Sonnet, security and architecture on Opus), one comment each on the pull request, on the maintainer's subscription token | when a PR is opened or marked ready, and again with the `ai-review` label; not with `skip-quality`; locally before a vertical PR with the `review-vertical` skill |
@@ -66,7 +67,7 @@ On a machine with limited CPU, run heavy builds through the resource-limited sli
 
 ## 6. Before a vertical's pull request
 
-Run the **`review-vertical`** skill: the five review agents run in parallel on the branch (the `spec-reviewer` checks that the README, the docs and the spec describe what is implemented), and their findings are triaged (fixed, or declined with the reason) in the PR's *Review* section. An architecture verdict of "no" blocks the PR.
+Run the **`review-vertical`** skill: the five review agents run in parallel on the branch (the `spec-reviewer` checks that the README, the docs and the spec describe what is implemented), and their findings (and those of CodeQL and SonarQube) are triaged with the three-level protocol of ADR 0022 (`.claude/skills/review-triage/`): fixed, declined at medium or below with the reason, or, at blocker, critical, high or major, accepted by the maintainer in a comment; one table in the PR's *Review* section and `docs/review-decisions/<pr>.md`. An architecture verdict of "no" blocks the PR.
 
 ## 7. Seeing the code smells in the editor
 

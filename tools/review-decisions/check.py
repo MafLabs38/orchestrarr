@@ -17,7 +17,8 @@ FOLDER = "docs/review-decisions"
 GRAVE = {"blocker", "critical", "high", "major"}
 LEVELS = GRAVE | {"medium", "minor", "low"}
 DECISIONS = {"fixed", "declined", "deferred"}
-HEADING = re.compile(r"^## (R-\d+-\d+) \| (test|quality|security|architecture|spec|codeql|sonar) \| ([a-z]+) \| ([a-z]+)\s*$")
+# The ids are written the same way by the author and by the maintainer: no leading zero, so that R-36-1 and R-36-01 are never two entries
+HEADING = re.compile(r"^## (R-[1-9]\d*-[1-9]\d*) \| (test|quality|security|architecture|spec|codeql|sonar) \| ([a-z]+) \| ([a-z]+)\s*$")
 FIELD = re.compile(r"^- \*\*(Finding|Where|Reason|Approved)\*\*: (.*)$")
 COMMENT_URL = re.compile(r"^https://github\.com/([\w.-]+)/([\w.-]+)/(?:pull|issues)/\d+#issuecomment-(\d+)$")
 
@@ -72,8 +73,8 @@ def check_entry(entry, fetch_comment, approvers, repository, pr_number):
             author, on, text = found
             if author.lower() not in approvers:
                 problems.append(f"{name}: the comment is by '{author}', who is not an approver")
-            if name not in text:
-                problems.append(f"{name}: the approving comment must name the finding ('OK to decline {name}'): a comment that does not is no approval of it")
+            if not re.search(rf"\bOK to (?:decline|defer) {re.escape(name)}(?![\w-])", text):
+                problems.append(f"{name}: the approving comment must say 'OK to decline {name}' (or 'OK to defer {name}'): any other comment is no approval of it")
             if str(on) != str(pr_number):
                 problems.append(f"{name}: the approving comment is on #{on}, not on this pull request (#{pr_number})")
     return problems
@@ -104,7 +105,7 @@ def changed_files(base):
     out = subprocess.run(["git", "diff", "--name-only", "--no-renames", "--diff-filter=AM", f"origin/{base}...HEAD", "--", FOLDER],
                          check=True, capture_output=True, text=True).stdout
     # Only <number>.md files are entries; any other markdown file in the folder is refused by main(), so that nothing escapes the check
-    return [f for f in out.splitlines() if f.endswith(".md") and os.path.basename(f) != "README.md"]
+    return [f for f in out.splitlines() if os.path.basename(f) != "README.md"]
 
 
 def main():
@@ -116,8 +117,8 @@ def main():
     approvers = read_approvers(".github/review-approvers")
     fetch, failures, count = github_comment(token), [], 0
     for path in changed_files(base):
-        if not re.fullmatch(r"\d+\.md", os.path.basename(path)):
-            failures.append(f"{path}: a file of the register is named <pull request number>.md")
+        if not re.fullmatch(r"\d+\.md", os.path.basename(path)) or os.path.dirname(path) != FOLDER:
+            failures.append(f"{path}: the register holds the README and files named <pull request number>.md, nothing else")
             continue
         with open(path, encoding="utf-8") as handle:
             entries, problems = parse(handle.read())

@@ -41,9 +41,17 @@ class CheckEntry(unittest.TestCase):
     def test_the_comment_must_be_on_this_pull_request(self):
         self.assertTrue(problems(entry("high", Approved=URL), on=12))
 
-    def test_the_comment_must_name_the_finding(self):
-        self.assertTrue(problems(entry("high", Approved=URL), text="please fix R-7-2"))
+    def test_the_comment_must_say_ok_to_decline_this_exact_finding(self):
+        self.assertTrue(problems(entry("high", Approved=URL), text="please fix R-7-1"))
         self.assertTrue(problems(entry("high", Approved=URL), text="looks good to me"))
+        self.assertTrue(problems(entry("high", Approved=URL), text="OK to decline R-7-10"), "R-7-1 is not R-7-10")
+        self.assertTrue(problems(entry("high", Approved=URL), text="do NOT decline R-7-1, fix it"))
+        self.assertEqual(problems(entry("high", Approved=URL), text="OK to defer R-7-1, thanks"), [])
+        self.assertEqual(problems(entry("high", Approved=URL), text="OK to decline R-7-1"), [])
+
+    def test_an_id_with_a_leading_zero_is_not_an_entry(self):
+        _, found = check.parse("## R-7-01 | security | high | declined\n")
+        self.assertEqual(len(found), 1)
 
     def test_the_agent_is_one_of_the_known_sources(self):
         _, found = check.parse("## R-7-1 | someone | high | declined\n")
