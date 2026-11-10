@@ -11,7 +11,7 @@ public sealed class ExecutorPipelineTests : IDisposable
     public void Dispose() => _world.Dispose();
 
     private async Task<PipelineResult> Run(TaskBatch batch, string? code, bool stopped = false, ExecutorPipeline? pipeline = null) =>
-        await (pipeline ?? _world.Pipeline()).RunAsync(new BatchDelivery(batch, code), stopped, Ct);
+        await (pipeline ?? _world.Pipeline()).RunAsync(new BatchDelivery(batch, code), () => stopped, Ct);
 
     private static string[] Types(PipelineResult result) => [.. result.Events.Select(line => line.Type)];
 
@@ -298,12 +298,37 @@ public sealed class ExecutorPipelineTests : IDisposable
         var batch = await _world.Approved(ExecutorFixture.Batch());
         var pipeline = _world.Pipeline([new FailingRunner(TaskKind.ValidatePullRequest), new DryRunTaskRunner(TaskKind.MergePullRequest)]);
 
-        var result = await pipeline.RunAsync(new BatchDelivery(batch, _world.CodeAt()), stopped: false, TestContext.Current.CancellationToken);
+        var result = await pipeline.RunAsync(new BatchDelivery(batch, _world.CodeAt()), () => false, TestContext.Current.CancellationToken);
 
         result.Outcome.Final.Should().Be(BatchState.Done);
         result.Outcome.Tasks.Select(task => task.Result).Should().Equal(TaskResult.Refused, TaskResult.Skipped);
         result.Events.Should().Contain(line => line.Type == RunEvents.TaskSkipped);
         result.Events.Should().Contain(line => line.Type == RunEvents.TaskRefused && line.Detail == "the runner failed (InvalidOperationException)");
+    }
+
+    [Fact]
+    public async Task A_stop_engaged_during_the_run_ends_it_before_the_next_task()
+    {
+        var batch = await _world.Approved(ExecutorFixture.Batch());
+        var stop = false;
+        var pipeline = _world.Pipeline([new StoppingRunner(TaskKind.ValidatePullRequest, () => stop = true), new DryRunTaskRunner(TaskKind.MergePullRequest)]);
+
+        var result = await pipeline.RunAsync(new BatchDelivery(batch, _world.CodeAt()), () => stop, Ct);
+
+        result.Outcome.Tasks.Select(task => task.Result).Should().Equal(TaskResult.DryRun, TaskResult.Skipped);
+        result.Events.Should().Contain(line => line.Type == RunEvents.Stopped).And.Contain(line => line.Type == RunEvents.TaskSkipped);
+        result.Events.Should().NotContain(line => line.Type == RunEvents.TaskDryRun && line.TaskId == batch.Tasks[1].Id, "the merge did not run after the stop");
+    }
+
+    private sealed class StoppingRunner(TaskKind kind, Action engage) : ITaskRunner
+    {
+        public TaskKind Kind => kind;
+
+        public ValueTask<TaskOutcome> RunAsync(TaskSpec task, RunTrace trace, CancellationToken cancellationToken)
+        {
+            engage();
+            return ValueTask.FromResult(new TaskOutcome(task.Id, TaskResult.DryRun, "ran, then the stop was engaged"));
+        }
     }
 
     private sealed class FailingRunner(TaskKind kind) : ITaskRunner

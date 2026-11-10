@@ -85,12 +85,13 @@ public sealed class ApprovalJournalTests : IDisposable
     }
 
     [Fact]
-    public async Task A_last_line_cut_short_by_a_crash_is_not_tampering_and_is_dropped_by_the_next_approval()
+    public async Task A_last_line_cut_short_by_a_crash_is_not_tampering_and_the_next_approval_is_appended_without_rewriting_the_file()
     {
         var journal = new FileApprovalJournal(File);
         var first = Guid.NewGuid();
         await journal.TryAppendAsync(first, "digest-0", "alice", Now, Ct);
         await System.IO.File.AppendAllTextAsync(File, "{\"sequence\":2,\"at\":\"2026-11-09T12:0", Ct);
+        var before = await System.IO.File.ReadAllTextAsync(File, Ct);
 
         (await journal.CheckAsync(first, "digest-0", Ct)).Should().Be(JournalCheck.Found, "the chain up to the last complete line is intact");
         (await journal.CheckAsync(Guid.NewGuid(), "digest-x", Ct)).Should().Be(JournalCheck.NotFound);
@@ -99,7 +100,7 @@ public sealed class ApprovalJournalTests : IDisposable
 
         (await journal.CheckAsync(second, "digest-1", Ct)).Should().Be(JournalCheck.Found);
         (await journal.CheckAsync(first, "digest-0", Ct)).Should().Be(JournalCheck.Found);
-        (await System.IO.File.ReadAllLinesAsync(File, Ct)).Should().HaveCount(2, "the fragment is gone");
+        (await System.IO.File.ReadAllTextAsync(File, Ct)).Should().StartWith(before, "nothing before the end was rewritten");
     }
 
     [Fact]

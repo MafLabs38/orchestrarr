@@ -42,8 +42,16 @@ public sealed record ExecutorOptions
     /// <summary>Where the control plane writes the journal of approvals, for the double control. Empty: no double control is possible and every batch is refused.</summary>
     public string JournalPath { get; init; } = string.Empty;
 
-    /// <summary>A file whose presence stops this executor at once, whatever the control plane says: the local stop.</summary>
+    /// <summary>
+    /// A file whose presence stops this executor, whatever the control plane says: it asks for nothing while the file is there, and a run ends
+    /// before its next task. Unset: a file named <c>STOP</c> in the folder of <see cref="DataPath"/>, so that the local stop is never off.
+    /// </summary>
     public string LocalStopFile { get; init; } = string.Empty;
+
+    /// <summary>The local stop file in force: the one given, else <c>STOP</c> next to the executor's own file.</summary>
+    public string StopFile => LocalStopFile.Length > 0 ? LocalStopFile : Path.Combine(Path.GetDirectoryName(Path.GetFullPath(DataPath)) ?? ".", "STOP");
+
+    public bool IsLocallyStopped() => File.Exists(StopFile);
 
     public int PollSeconds { get; init; } = 3;
 

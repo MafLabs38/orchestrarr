@@ -75,20 +75,17 @@ public sealed class FileApprovalJournal(string path) : IApprovalJournal, IApprov
         {
             try
             {
-                var (entries, intact, complete) = Read();
+                var (entries, intact, cutShort) = Read();
                 if (!intact)
                 {
                     return ValueTask.FromResult(false);
                 }
-                if (complete is not null)
-                {
-                    // The tail is a line cut short by a crash: it was never acknowledged (the approval was refused), so it is dropped
-                    File.WriteAllText(path, complete);
-                }
                 var previous = entries.Count == 0 ? JournalEntry.Genesis : entries[^1].Hash;
                 var entry = JournalEntry.Create(previous, entries.Count + 1L, at, batchId, digest, approverSubject);
                 EnsureFolder();
-                File.AppendAllText(path, JsonSerializer.Serialize(entry, Json) + "\n");
+                // The file is only ever appended to (production can make it append-only). A line cut short by a crash was never acknowledged;
+                // it is ended where it stands and the reader skips it
+                File.AppendAllText(path, (cutShort ? "\n" : string.Empty) + JsonSerializer.Serialize(entry, Json) + "\n");
                 return ValueTask.FromResult(true);
             }
             catch (Exception failure) when (failure is IOException or UnauthorizedAccessException or JsonException)
@@ -123,9 +120,10 @@ public sealed class FileApprovalJournal(string path) : IApprovalJournal, IApprov
         }
     }
 
-    // A line that does not end with a line feed is the line being written, or one cut short by a crash: it is not part of the chain yet, and
-    // it is not tampering. A complete line that does not parse or does not chain is. CompleteText is set only when there is such a tail.
-    private (List<JournalEntry> Entries, bool Intact, string? CompleteText) Read()
+    // A line that does not parse is a write that was cut short by a crash (or is being made): it is no part of the chain and is skipped. It
+    // cannot hide a change: a line that parses and does not chain, and a line missing from the middle, still break the chain, and a line
+    // replaced by text that does not parse leaves its batch unknown, which is refused. CutShort says that the file does not end with a line feed.
+    private (List<JournalEntry> Entries, bool Intact, bool CutShort) Read()
     {
         var entries = new List<JournalEntry>();
         if (Directory.Exists(path))
@@ -134,25 +132,32 @@ public sealed class FileApprovalJournal(string path) : IApprovalJournal, IApprov
         }
         if (!File.Exists(path))
         {
-            return (entries, true, null);
+            return (entries, true, false);
         }
         var text = File.ReadAllText(path);
-        var end = text.LastIndexOf('\n') + 1;
         var previous = JournalEntry.Genesis;
-        foreach (var line in text[..end].Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        foreach (var line in text.Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
-            var entry = JsonSerializer.Deserialize<JournalEntry>(line, Json);
+            JournalEntry? entry;
+            try
+            {
+                entry = JsonSerializer.Deserialize<JournalEntry>(line, Json);
+            }
+            catch (JsonException)
+            {
+                continue;
+            }
             if (entry is null
                 || entry.Sequence != entries.Count + 1L
                 || entry.PreviousHash != previous
                 || entry.Hash != JournalEntry.Compute(previous, entry.Sequence, entry.At, entry.BatchId, entry.Digest, entry.ApproverSubject))
             {
-                return (entries, false, null);
+                return (entries, false, false);
             }
             entries.Add(entry);
             previous = entry.Hash;
         }
-        return (entries, true, end < text.Length ? text[..end] : null);
+        return (entries, true, text.Length > 0 && text[^1] != '\n');
     }
 
     private void EnsureFolder()

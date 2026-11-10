@@ -41,9 +41,9 @@ public sealed class ExecutorWorker(IControlPlane controlPlane, ExecutorPipeline 
     /// <summary>One turn: true when a batch was handled, so that the next one is asked for at once.</summary>
     internal async Task<bool> StepAsync(CancellationToken cancellationToken)
     {
-        if (options.LocalStopFile.Length > 0 && File.Exists(options.LocalStopFile))
+        if (options.IsLocallyStopped())
         {
-            logger.LogWarning("The local stop file {File} exists: nothing is asked for", options.LocalStopFile);
+            logger.LogWarning("The local stop file {File} exists: nothing is asked for", options.StopFile);
             return false;
         }
 
@@ -58,7 +58,7 @@ public sealed class ExecutorWorker(IControlPlane controlPlane, ExecutorPipeline 
         }
 
         var delivery = claim.Delivery;
-        var result = await pipeline.RunAsync(delivery, stopped: false, cancellationToken);
+        var result = await pipeline.RunAsync(delivery, options.IsLocallyStopped, cancellationToken);
         logger.LogInformation("Batch {Batch} ended {State}", delivery.Batch.Id, result.Outcome.Final);
         for (var offset = 0; offset < result.Events.Count; offset += EventsPerRequest)
         {

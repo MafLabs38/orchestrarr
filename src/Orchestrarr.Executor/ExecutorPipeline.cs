@@ -60,14 +60,16 @@ public sealed class ExecutorPipeline(
 {
     private readonly Dictionary<TaskKind, ITaskRunner> _runners = runners.ToDictionary(runner => runner.Kind);
 
-    public async Task<PipelineResult> RunAsync(BatchDelivery delivery, bool stopped, CancellationToken cancellationToken)
+    // isStopped is read before the batch is accepted and again before each task: a stop engaged during a run ends it before the next task
+    public async Task<PipelineResult> RunAsync(BatchDelivery delivery, Func<bool> isStopped, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(delivery);
+        ArgumentNullException.ThrowIfNull(isStopped);
         var batch = delivery.Batch;
         var trace = new RunTrace(batch.Id, batch.Digest(), time, store);
         trace.Add(RunEvents.Claimed, null, $"executor {executorName}, {batch.Tasks.Count} tasks");
 
-        var refusal = await FirstRefusalAsync(delivery, stopped, trace, cancellationToken);
+        var refusal = await FirstRefusalAsync(delivery, isStopped(), trace, cancellationToken);
         if (refusal is not null)
         {
             trace.Add(RunEvents.RunRefused, null, refusal.Value.ToString());
@@ -77,8 +79,20 @@ public sealed class ExecutorPipeline(
         var outcomes = new List<TaskOutcome>();
         // A task that is refused or fails stops what follows for the same approval: a merge never runs after its validation did not pass
         var stoppedApprovals = new HashSet<Guid>();
+        var stopNoted = false;
         foreach (var task in batch.Tasks.OrderBy(task => task.Sequence))
         {
+            if (isStopped())
+            {
+                if (!stopNoted)
+                {
+                    trace.Add(RunEvents.Stopped, null, "the local stop was engaged during the run");
+                    stopNoted = true;
+                }
+                trace.Add(RunEvents.TaskSkipped, task.Id, "the stop was engaged");
+                outcomes.Add(new TaskOutcome(task.Id, TaskResult.Skipped, "stopped"));
+                continue;
+            }
             if (stoppedApprovals.Contains(task.ApprovalId))
             {
                 trace.Add(RunEvents.TaskSkipped, task.Id, "an earlier task of this approval did not pass");
