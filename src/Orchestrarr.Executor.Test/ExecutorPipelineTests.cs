@@ -124,6 +124,15 @@ public sealed class ExecutorPipelineTests : IDisposable
     }
 
     [Fact]
+    public async Task A_batch_with_more_repairs_than_one_approval_may_start_is_malformed_for_the_executor_too()
+    {
+        var kinds = Enumerable.Repeat(TaskKind.RepairPullRequest, TaskLimits.MaxRepairsPerBatch + 1).ToArray();
+        var batch = ExecutorFixture.Batch(kinds: kinds);
+
+        (await Run(batch, _world.CodeAt())).Outcome.Refusal.Should().Be(RunRefusal.Malformed);
+    }
+
+    [Fact]
     public async Task A_batch_with_no_task_with_gaps_in_its_order_or_a_repeated_task_is_malformed()
     {
         var one = ExecutorFixture.Batch();

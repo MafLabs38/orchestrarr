@@ -223,15 +223,14 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
         return (System.Text.Encoding.UTF8.GetString(bytes), bytes.LongLength, Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes)).ToLowerInvariant());
     }
 
-    // The instructions of the pull request are for whoever reads it, not for the agent: they are taken out of the folder it works in. So is every link that
-    // leaves the folder (to /proc/self/environ, where the token is, or to anything of the host): what the pull request or its install step made as a link is
-    // not something the agent may read through.
+    // The instructions of the pull request are for whoever reads it, not for the agent: they are taken out of the folder it works in. So is every link
+    // (to /proc/self/environ, where the token is, or to anything of the host): what the pull request or its install step made as a link is not something
+    // the agent may read through.
     // Returns the paths (from the folder) of what it removed, so that the removal of a link the pull request tracks is not counted as the agent's change.
     // node_modules is walked too: an install step may leave a link there (and a .git, an instruction file or a folder of instructions is removed there as anywhere).
     private static List<string> RemoveInstructions(string work)
     {
         var removed = new List<string>();
-        var root = Path.GetFullPath(work) + Path.DirectorySeparatorChar;
         var pending = new Stack<string>([work]);
         while (pending.Count > 0)
         {
@@ -242,10 +241,13 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
                 var info = new FileInfo(entry);
                 if (info.LinkTarget is not null)
                 {
-                    if (LeavesTheFolder(info, root) || name == ".git" || InstructionFiles.Contains(name, StringComparer.Ordinal) || InstructionFolders.Contains(name, StringComparer.Ordinal))
+                    // Every link goes, not only the ones that seem to leave the folder: where a chain of links ends cannot be judged from the names (y -> . and
+                    // x -> y/.. looks like it stays inside and is the parent of the folder), and the agent has no use for a link: the steps are run by the executor
+                    PullRequestWorkspace.DeleteEntry(entry);
+                    var relative = Path.GetRelativePath(work, entry);
+                    if (!relative.Split(Path.DirectorySeparatorChar).Contains("node_modules", StringComparer.Ordinal))
                     {
-                        PullRequestWorkspace.DeleteEntry(entry);
-                        removed.Add(Path.GetRelativePath(work, entry));
+                        removed.Add(relative);
                     }
                 }
                 else if (Directory.Exists(entry))
@@ -267,21 +269,6 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
             }
         }
         return removed;
-    }
-
-    // Where the link ends, resolved all the way: a link that points back into the folder is harmless, one that goes anywhere else is not
-    private static bool LeavesTheFolder(FileInfo link, string root)
-    {
-        try
-        {
-            var target = link.ResolveLinkTarget(returnFinalTarget: true)?.FullName;
-            return target is null || !(target + Path.DirectorySeparatorChar).StartsWith(root, StringComparison.Ordinal);
-        }
-        catch (IOException)
-        {
-            // A link that cannot be resolved (a loop, a missing target) is not one to keep
-            return true;
-        }
     }
 
     private static void AddPatch(TaskSpec task, RunTrace trace, (string Text, long Bytes, string Digest) written, int files)

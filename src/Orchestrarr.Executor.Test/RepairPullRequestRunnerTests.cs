@@ -368,6 +368,20 @@ public sealed class RepairPullRequestRunnerTests : IDisposable
         _processes.Calls.Should().Contain(call => call.File == "docker" && call.Arguments[0] == "kill" && call.Arguments[1].StartsWith("orchestrarr-agent-", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task An_agent_container_that_cannot_be_stopped_refuses_the_task_before_anything_else_is_read()
+    {
+        FailsThenPasses();
+        _processes.Script(IsAgent, new ProcessResult(-1, true, string.Empty));
+        _processes.Script(call => call.File == "docker" && call.Arguments[0] == "rm", new ProcessResult(1, false, "Error response from daemon: cannot kill container"));
+
+        var (outcome, _) = await Run();
+
+        outcome.Result.Should().Be(TaskResult.Refused);
+        outcome.Reason.Should().Be("the agent's container could not be stopped");
+        _processes.Calls.Should().NotContain(call => call.File == "git" && call.Arguments.Contains("--name-only"), "the folder is not read while a container may still write to it");
+    }
+
     [Theory]
     [InlineData(1, TaskResult.Failed, "the agent ended with an error")]
     [InlineData(125, TaskResult.Refused, "the agent's container could not be started")]
@@ -613,7 +627,7 @@ public sealed class RepairPullRequestRunnerTests : IDisposable
     }
 
     [Fact]
-    public async Task A_link_that_leaves_the_folder_or_names_an_instruction_is_removed_before_the_agent_and_what_it_points_at_is_untouched()
+    public async Task Every_link_is_removed_before_the_agent_whatever_it_points_at_and_what_it_points_at_is_untouched()
     {
         FailsThenPasses();
         AgentChanges();
@@ -628,6 +642,9 @@ public sealed class RepairPullRequestRunnerTests : IDisposable
             File.CreateSymbolicLink(Path.Combine(work, "src", "outside-dir"), outside);
             File.CreateSymbolicLink(Path.Combine(work, ".claude"), outside);
             File.CreateSymbolicLink(Path.Combine(work, "src", "inside"), Path.Combine(work, "src", "real.js"));
+            // Two links that look like they stay inside by their names, and whose second is the parent of the folder
+            File.CreateSymbolicLink(Path.Combine(work, "y"), ".");
+            File.CreateSymbolicLink(Path.Combine(work, "x"), "y/..");
             // What an install step may leave: a link inside node_modules
             Directory.CreateDirectory(Path.Combine(work, "node_modules", "pkg"));
             File.CreateSymbolicLink(Path.Combine(work, "node_modules", "pkg", "leak"), "/proc/self/environ");
@@ -642,10 +659,10 @@ public sealed class RepairPullRequestRunnerTests : IDisposable
         {
             await Run();
 
-            seen.Should().Contain("src/real.js").And.Contain("src/inside", "a link that stays in the folder is harmless").And.NotContain(["environ", "src/outside-dir", ".claude", "node_modules/pkg/leak", "src/.git", "src/.git/config"]);
+            seen.Should().Contain("src/real.js").And.NotContain(["environ", "src/outside-dir", "src/inside", "x", "y", ".claude", "node_modules/pkg/leak", "src/.git", "src/.git/config"]);
             (await File.ReadAllTextAsync(Path.Combine(outside, "secret.txt"), Ct)).Should().Be("keep me", "a link is removed as a link, never followed");
             // The removal of a link the pull request tracks is not the agent's change: its path is kept out of what is staged
-            _processes.Calls.Single(call => call.File == "git" && call.Arguments.Contains("add")).Arguments.Should().Contain([":(exclude,literal)environ", ":(exclude,literal)node_modules/pkg/leak"]);
+            _processes.Calls.Single(call => call.File == "git" && call.Arguments.Contains("add")).Arguments.Should().Contain([":(exclude,literal)environ", ":(exclude,literal)x"]).And.NotContain(":(exclude,literal)node_modules/pkg/leak", "untracked links of node_modules are not listed one by one");
         }
         finally
         {
