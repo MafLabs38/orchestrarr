@@ -148,6 +148,7 @@
   "TaskResultSkipped": "skipped",
   "TaskResultPassed": "passed",
   "TaskResultFailed": "failed",
+  "TaskResultRepaired": "repaired (patch in the trace)",
   "TaskNotRunYet": "not run yet",
   "TaskLine": "{kind} {repository}#{number} at {commit}",
   "RunEventClaimed": "Taken by the executor",

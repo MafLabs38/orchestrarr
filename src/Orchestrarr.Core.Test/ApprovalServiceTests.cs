@@ -338,6 +338,31 @@ public sealed class ApprovalServiceTests
         result.Refusal.Should().Be(ApprovalRefusal.StepNotSupported);
     }
 
+    [Theory]
+    [InlineData(StepKind.Validate)]
+    [InlineData(StepKind.MergePullRequests)]
+    public async Task A_repair_stands_alone_it_is_never_combined_with_a_validation_or_a_merge(StepKind other)
+    {
+        _powers = new ConfiguredPowerPolicy([new PowerGrant(PowerGrant.Wildcard, [StepKind.Validate, StepKind.MergePullRequests, StepKind.Repair])]);
+
+        var combined = await Approve(await Service(), steps: [StepKind.Repair, other]);
+        var alone = await Approve(await Service(), steps: [StepKind.Repair]);
+
+        combined.Refusal.Should().Be(ApprovalRefusal.StepNotSupported, "a repair validates by itself and its patch is not pushed: a merge would merge what was not repaired");
+        alone.Recorded.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_repair_that_is_not_granted_is_refused_and_nothing_is_queued()
+    {
+        _powers = new ConfiguredPowerPolicy([new PowerGrant(PowerGrant.Wildcard, [StepKind.Validate, StepKind.MergePullRequests])]);
+
+        var result = await Approve(await Service(), steps: [StepKind.Repair]);
+
+        result.Refusal.Should().Be(ApprovalRefusal.StepNotGranted);
+        _store.List().Should().BeEmpty();
+    }
+
     [Fact]
     public async Task A_list_that_could_not_be_read_is_refused()
     {

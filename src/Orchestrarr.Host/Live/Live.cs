@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.SignalR;
 namespace Orchestrarr.Host.Live;
 
 /// <summary>
-/// The channel that tells the screens that something changed (ADR 0024): a WebSocket (SignalR, with the fallbacks it has). It carries no data of the fleet, of
+/// The channel that tells the screens that something changed (ADR 0025): a WebSocket (SignalR, with the fallbacks it has). It carries no data of the fleet, of
 /// a person or of a run, only <c>(topic, id)</c>: the screen then reads what changed through the API, which asks for the session like any other route.
 /// A client that is not allowed to read the fleet cannot connect; one that stayed connected after signing out receives pings it cannot do anything with.
 /// </summary>
@@ -15,7 +15,7 @@ public sealed class LiveHub : Hub
     public const string Changed = "changed";
 }
 
-/// <summary>What the host says changed. The topics are the ones the screens know: <c>runs</c> (with the id of the run), <c>approvals</c>, <c>audit</c>, <c>status</c>, <c>problems</c>.</summary>
+/// <summary>What the host says changed. The topics are the ones the screens know: <c>runs</c> (with the id of the run), <c>approvals</c>, <c>audit</c>, <c>status</c>, <c>problems</c>, <c>accounts</c> and <c>options</c>.</summary>
 public static class LiveTopics
 {
     public const string Runs = "runs";

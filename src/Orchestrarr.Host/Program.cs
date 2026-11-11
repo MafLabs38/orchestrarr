@@ -28,7 +28,7 @@ builder.Services.Configure<JsonOptions>(options =>
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
 });
 builder.Services.AddSingleton(TimeProvider.System);
-// What changes is pushed to the screens as it changes (ADR 0024): a WebSocket that says what to read again, never the data itself
+// What changes is pushed to the screens as it changes (ADR 0025): a WebSocket that says what to read again, never the data itself
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<LiveBroadcaster>();
 builder.Services.AddSingleton<ILiveNotifier>(provider => provider.GetRequiredService<LiveBroadcaster>());
@@ -83,24 +83,7 @@ app.UseOrchestrarrSecurity();
 
 // A change made through the API (an approval, the stop, an option, an account) is told to every screen once it has succeeded
 var live = app.Services.GetRequiredService<ILiveNotifier>();
-app.Use(async (context, next) =>
-{
-    await next(context);
-    var path = context.Request.Path;
-    if (!HttpMethods.IsGet(context.Request.Method) && !HttpMethods.IsHead(context.Request.Method) && context.Response.StatusCode < 400
-        && path.StartsWithSegments("/api/v1") && !path.StartsWithSegments(LiveHub.Path) && !path.StartsWithSegments("/api/v1/executor"))
-    {
-        foreach (var topic in new[] { LiveTopics.Runs, LiveTopics.Approvals, LiveTopics.Audit, LiveTopics.Status })
-        {
-            live.Publish(topic);
-        }
-        // The screens of the accounts and of the options follow the changes made there, by anybody
-        foreach (var topic in new[] { LiveTopics.Accounts, LiveTopics.Options }.Where(topic => path.StartsWithSegments($"/api/v1/{topic}")))
-        {
-            live.Publish(topic);
-        }
-    }
-});
+app.UseMiddleware<LiveChangeMiddleware>();
 app.Services.GetRequiredService<WorkItemCatalog>().Changed += () => live.Publish(LiveTopics.Problems);
 app.Services.GetRequiredService<ExecutorRegistry>().Changed += () => live.Publish(LiveTopics.Status);
 

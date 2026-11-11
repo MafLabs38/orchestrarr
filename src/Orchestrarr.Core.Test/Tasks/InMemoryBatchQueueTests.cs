@@ -216,19 +216,29 @@ public sealed class InMemoryBatchQueueTests
     }
 
     [Fact]
-    public async Task What_became_of_the_tasks_that_ended_is_listed_newest_first_for_the_table_and_a_running_batch_has_none()
+    public async Task What_became_of_the_tasks_that_ended_is_listed_newest_first_with_the_whole_row_and_a_running_batch_has_none()
     {
-        var batch = await Queue();
+        var first = await Queue();
         await _queue.ClaimAsync("executor-1", Ct);
         _queue.TaskResults(10).Should().BeEmpty("nothing has ended");
-
-        await _queue.CompleteAsync(batch.Id, "executor-1", Done(batch), Ct);
+        await _queue.CompleteAsync(first.Id, "executor-1", Outcome(first, TaskResult.Failed, "npm test failed (exit 1)"), Ct);
+        _time.Advance(TimeSpan.FromMinutes(5));
+        var second = await Queue();
+        await _queue.ClaimAsync("executor-1", Ct);
+        await _queue.CompleteAsync(second.Id, "executor-1", Outcome(second, TaskResult.Repaired, "repaired: 1 file(s) changed"), Ct);
 
         var rows = _queue.TaskResults(10);
-        rows.Should().HaveCount(2).And.OnlyContain(row => row.Result == TaskResult.DryRun && row.At == Start);
-        rows.Select(row => (row.Repository, row.PullRequest, row.HeadSha)).Should().OnlyContain(key => key.Repository == batch.Tasks[0].Repository && key.HeadSha == batch.Tasks[0].HeadSha);
+        var lastTask = second.Tasks[^1];
+
+        rows.Should().HaveCount(4);
+        rows.Select(row => row.Result).Distinct().Should().Equal(TaskResult.Repaired, TaskResult.Failed);
+        rows[0].Should().Match<TaskResultRow>(row => row.Reason == "repaired: 1 file(s) changed" && row.At == Start.AddMinutes(5) && row.Repository == lastTask.Repository && row.HeadSha == lastTask.HeadSha && row.Kind == lastTask.Kind, "the last task of the newest batch is the first row");
+        rows[^1].At.Should().Be(Start);
         _queue.TaskResults(1).Should().HaveCount(1);
     }
+
+    private static BatchOutcome Outcome(TaskBatch batch, TaskResult result, string reason) =>
+        new(BatchState.Done, null, [.. batch.Tasks.Select(task => new TaskOutcome(task.Id, result, reason))]);
 
     [Fact]
     public async Task A_batch_that_ended_done_spends_its_approvals_and_the_operator_may_approve_again()

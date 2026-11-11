@@ -18,8 +18,9 @@ public sealed class ExecutorWorkerTests : IDisposable
 
     public void Dispose() => _world.Dispose();
 
-    private ExecutorWorker Worker(string localStop = "", ExecutorPipeline? pipeline = null) =>
-        new(_controlPlane, pipeline ?? _world.Pipeline(), _world.Store, new ExecutorOptions { Name = "executor-1", LocalStopFile = localStop, Rights = _world.Rights, LiveSendMilliseconds = 20 }, _world.Time, NullLogger<ExecutorWorker>.Instance);
+    // The live sending is slow by default: a test of something else must not see a partial send. The tests of the live sending ask for a fast one.
+    private ExecutorWorker Worker(string localStop = "", ExecutorPipeline? pipeline = null, int liveMilliseconds = 60_000) =>
+        new(_controlPlane, pipeline ?? _world.Pipeline(), _world.Store, new ExecutorOptions { Name = "executor-1", LocalStopFile = localStop, Rights = _world.Rights, LiveSendMilliseconds = liveMilliseconds }, _world.Time, NullLogger<ExecutorWorker>.Instance);
 
     [Fact]
     public async Task A_batch_that_is_handed_over_is_run_then_its_trace_and_its_end_are_reported()
@@ -49,13 +50,25 @@ public sealed class ExecutorWorkerTests : IDisposable
             }
             return QueueResult.Ok;
         });
-        var pipeline = _world.Pipeline([new SlowRunner()]);
+        var firstSent = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _controlPlane.AppendEventsAsync(batch.Id, Arg.Any<IReadOnlyList<RunEvent>>(), Arg.Any<CancellationToken>()).Returns(call =>
+        {
+            lock (received)
+            {
+                received.AddRange(call.Arg<IReadOnlyList<RunEvent>>());
+                requests++;
+            }
+            firstSent.TrySetResult();
+            return QueueResult.Ok;
+        });
+        // The task waits for the first live send before it goes on: nothing here depends on how fast the machine is
+        var pipeline = _world.Pipeline([new SlowRunner(firstSent.Task)]);
 
-        await Worker(pipeline: pipeline).StepAsync(Ct);
+        await Worker(pipeline: pipeline, liveMilliseconds: 20).StepAsync(Ct);
 
         lock (received)
         {
-            requests.Should().BeGreaterThan(1, "the lines were sent while the task was still running");
+            requests.Should().BeGreaterThan(1, "the lines were sent while the task was still running, and the rest at its end");
             RunEvent.Continues(batch.Digest(), 0, received).Should().BeTrue("each line once, in order, chained from the digest of the batch");
             received.Select(line => line.Type).Should().Contain(RunEvents.TaskPassed).And.EndWith(RunEvents.RunCompleted);
         }
@@ -81,17 +94,33 @@ public sealed class ExecutorWorkerTests : IDisposable
             return QueueResult.Ok;
         });
 
-        await Worker(pipeline: _world.Pipeline([new SlowRunner()])).StepAsync(Ct);
+        var failedOnce = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _controlPlane.AppendEventsAsync(batch.Id, Arg.Any<IReadOnlyList<RunEvent>>(), Arg.Any<CancellationToken>()).Returns(call =>
+        {
+            lock (received)
+            {
+                if (++calls == 1)
+                {
+                    failedOnce.TrySetResult();
+                    throw new HttpRequestException("down");
+                }
+                received.AddRange(call.Arg<IReadOnlyList<RunEvent>>());
+            }
+            return QueueResult.Ok;
+        });
+
+        await Worker(pipeline: _world.Pipeline([new SlowRunner(failedOnce.Task)]), liveMilliseconds: 20).StepAsync(Ct);
 
         lock (received)
         {
+            calls.Should().BeGreaterThanOrEqualTo(2, "the live send failed once, and the rest was sent at the end");
             RunEvent.Continues(batch.Digest(), 0, received).Should().BeTrue("nothing lost, nothing twice");
             received.Select(line => line.Type).Should().EndWith(RunEvents.RunCompleted);
         }
     }
 
     // A task that takes a while and writes lines as it goes
-    private sealed class SlowRunner : ITaskRunner
+    private sealed class SlowRunner(Task gate) : ITaskRunner
     {
         public TaskKind Kind => TaskKind.ValidatePullRequest;
 
@@ -99,11 +128,13 @@ public sealed class ExecutorWorkerTests : IDisposable
 
         public async ValueTask<TaskOutcome> RunAsync(TaskSpec task, RunTrace trace, CancellationToken cancellationToken)
         {
-            for (var step = 1; step <= 4; step++)
+            for (var step = 1; step <= 2; step++)
             {
                 trace.Add(RunEvents.TaskStep, task.Id, $"step {step}");
-                await Task.Delay(120, cancellationToken);
             }
+            // Until the control plane has been asked once (or a generous limit), then the last lines
+            await Task.WhenAny(gate, Task.Delay(TimeSpan.FromSeconds(30), cancellationToken));
+            trace.Add(RunEvents.TaskStep, task.Id, "step 3");
             trace.Add(RunEvents.TaskPassed, task.Id, "done");
             return new TaskOutcome(task.Id, TaskResult.Passed, "done");
         }

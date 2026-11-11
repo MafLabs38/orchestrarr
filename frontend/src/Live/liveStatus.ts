@@ -1,4 +1,4 @@
-// Whether the screens are told what changes as it changes (ADR 0024): the state of the WebSocket, for the badge of the header.
+// Whether the screens are told what changes as it changes (ADR 0025): the state of the WebSocket, for the badge of the header.
 export type LiveState = 'connecting' | 'live' | 'reconnecting' | 'off';
 
 let current: LiveState = 'connecting';

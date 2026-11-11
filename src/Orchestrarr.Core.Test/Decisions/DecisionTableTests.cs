@@ -33,8 +33,8 @@ public sealed class DecisionTableTests
               "update": { "promote": [{{promote}}] } } ] }
             """);
 
-    private static IReadOnlyList<ProblemRow> Table(WorkItem item, IApplicationCatalog? applications = null, IReadOnlyList<ExecutorAcceptance>? executors = null) =>
-        DecisionTable.Build([item], applications ?? Described(), executors ?? [Everything]);
+    private static IReadOnlyList<ProblemRow> Table(WorkItem item, IApplicationCatalog? applications = null, IReadOnlyList<ExecutorAcceptance>? executors = null, IReadOnlyList<TaskResultRow>? results = null) =>
+        DecisionTable.Build([item], applications ?? Described(), executors ?? [Everything], results);
 
     private static readonly ExecutorAcceptance Everything = new([TaskKind.ValidatePullRequest, TaskKind.MergePullRequest], ["example/*"]);
 
@@ -145,11 +145,38 @@ public sealed class DecisionTableTests
     [Fact]
     public void A_repair_that_worked_leaves_a_patch_and_nothing_to_select_because_applying_it_is_not_built()
     {
-        var row = Only(TableWith(Item([Pull(checks: ChecksState.Failing)]), Said(TaskKind.RepairPullRequest, TaskResult.Passed, "repaired: 1 file(s) changed, the validation passes again (patch in the trace, nothing pushed)")));
+        var row = Only(TableWith(Item([Pull(checks: ChecksState.Failing)]), Said(TaskKind.RepairPullRequest, TaskResult.Repaired, "repaired: 1 file(s) changed")));
 
         row.GoesUpTo.Should().Be(Ceiling.NoAction);
         row.Why.Should().Be(CeilingReason.PatchReady);
         row.Workshop.Should().Be(WorkshopVerdict.Repaired);
+    }
+
+    [Fact]
+    public void A_task_that_was_refused_or_only_dry_run_after_a_failure_says_nothing_about_the_code_so_the_failure_still_counts()
+    {
+        var row = Only(TableWith(Item(), Said(TaskKind.ValidatePullRequest, TaskResult.Failed, minutes: 0), Said(TaskKind.ValidatePullRequest, TaskResult.Refused, minutes: 5), Said(TaskKind.MergePullRequest, TaskResult.DryRun, minutes: 6)));
+
+        row.Workshop.Should().Be(WorkshopVerdict.Fails);
+        row.GoesUpTo.Should().Be(Ceiling.Repair);
+    }
+
+    [Fact]
+    public void When_the_workshop_failed_and_no_repair_can_be_tried_the_pull_request_stays_at_the_qualification()
+    {
+        var row = Only(Table(Item(grantRepair: false), executors: [Repairing], results: [Said(TaskKind.ValidatePullRequest, TaskResult.Failed)]));
+
+        row.GoesUpTo.Should().Be(Ceiling.Qualification);
+        row.Why.Should().Be(CeilingReason.QualificationFailed);
+    }
+
+    [Fact]
+    public void A_newer_validation_that_passes_after_a_repair_is_the_latest_word()
+    {
+        var row = Only(TableWith(Item(), Said(TaskKind.RepairPullRequest, TaskResult.Repaired, "repaired: 1 file(s) changed", minutes: 0), Said(TaskKind.ValidatePullRequest, TaskResult.Passed, minutes: 5)));
+
+        row.Workshop.Should().Be(WorkshopVerdict.Passes);
+        row.Why.Should().NotBe(CeilingReason.PatchReady);
     }
 
     [Fact]

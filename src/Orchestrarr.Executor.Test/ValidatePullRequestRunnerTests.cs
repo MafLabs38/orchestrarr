@@ -70,8 +70,11 @@ public sealed class ValidatePullRequestRunnerTests : IDisposable
         await Run(Options());
 
         var git = _processes.Calls.Where(call => call.File == "git").ToList();
-        git.Select(call => call.Arguments).Should().Contain(args => args.Contains("refs/pull/7/head") && args.Contains("https://github.com/example/app.git"));
-        git.Should().OnlyContain(call => call.Environment["GIT_TERMINAL_PROMPT"] == "0" && call.Environment["GIT_CONFIG_KEY_0"] == "http.extraHeader");
+        var fetch = git.Single(call => call.Arguments.Contains("fetch"));
+        fetch.Arguments.Should().Contain("refs/pull/7/head").And.Contain("https://github.com/example/app.git");
+        fetch.Environment["GIT_CONFIG_KEY_0"].Should().Be("http.extraHeader");
+        git.Where(call => call != fetch).Should().OnlyContain(call => !call.Environment.ContainsKey("GIT_CONFIG_KEY_0"), "only the fetch carries the token");
+        git.Should().OnlyContain(call => call.Environment["GIT_TERMINAL_PROMPT"] == "0" && call.Environment["GIT_CONFIG_NOSYSTEM"] == "1" && call.Environment["GIT_CONFIG_GLOBAL"] == "/dev/null");
         git.SelectMany(call => call.Arguments).Should().NotContain(argument => argument.Contains("the-secret-token"));
         _processes.Calls.IndexOf(git.Single(call => call.Arguments.Contains("rev-parse"))).Should().BeLessThan(_processes.Calls.FindIndex(call => call.File == "docker"));
     }
@@ -83,11 +86,48 @@ public sealed class ValidatePullRequestRunnerTests : IDisposable
 
         var containers = _processes.Calls.Where(call => call.File == "docker").Select(call => call.Arguments).ToList();
         containers.Should().HaveCount(2).And.OnlyContain(args => args.Contains("--cap-drop") && args.Contains("ALL") && args.Contains("no-new-privileges") && args.Contains("1000:1000") && args.Contains("--pids-limit"));
-        containers.Should().OnlyContain(args => args.Contains("1") && args.Contains("1024m") && args.Contains("node:22-alpine"));
+        containers.Should().OnlyContain(args => args.Contains("node:22-alpine"));
+        containers.Select(args => string.Join(' ', args)).Should().OnlyContain(line => line.Contains("--cpus 1 ") && line.Contains("--memory 1024m ") && line.Contains("--pids-limit 512"));
         containers[0].Should().NotContain("--network");
         containers[1].Should().ContainInOrder("--network", "none");
         containers[1].Should().ContainInOrder("sh", "-c", "npm test");
     }
+
+    [Fact]
+    public async Task Git_on_the_host_has_its_directory_outside_the_folder_a_container_sees_and_its_hooks_and_monitors_off()
+    {
+        await Run(Options());
+
+        var git = _processes.Calls.Where(call => call.File == "git" && call.Arguments.Contains("--git-dir")).ToList();
+        git.Should().NotBeEmpty();
+        var mounted = _processes.Calls.Where(call => call.File == "docker").Select(call => call.MountedWork).Distinct().Single()!;
+        git.Should().OnlyContain(call => !call.After("--git-dir")!.StartsWith(mounted, StringComparison.Ordinal) && call.After("--work-tree") == mounted);
+        git.Should().OnlyContain(call => call.Arguments.Contains("core.hooksPath=/dev/null") && call.Arguments.Contains("core.fsmonitor=false") && call.Arguments.Contains("http.followRedirects=false"));
+        _processes.Calls.Single(call => call.File == "git" && call.Arguments.Contains("init")).Arguments.Should().Contain("--separate-git-dir").And.Contain("--template=");
+    }
+
+    [Fact]
+    public async Task A_container_sees_the_work_folder_and_nothing_else_of_the_run()
+    {
+        await Run(Options());
+
+        var docker = _processes.Calls.Where(call => call.File == "docker").ToList();
+        docker.Select(call => call.After("-v")).Distinct().Should().ContainSingle().Which.Should().EndWith("/work:/work");
+        docker.Select(call => call.Arguments.Count(argument => argument == "-v")).Should().OnlyContain(count => count == 1);
+    }
+
+    [Fact]
+    public async Task The_token_of_the_forge_is_masked_in_every_line_of_the_trace_even_when_a_command_prints_it()
+    {
+        _processes.Script(call => IsTestStep(call), new ProcessResult(1, false, "leak: the-secret-token and bGVhaw== " + Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes("x-access-token:the-secret-token"))[..4]));
+
+        var (_, trace) = await Run(Options());
+
+        trace.Events.Select(line => line.Detail).Should().NotContain(detail => detail != null && detail.Contains("the-secret-token"));
+        trace.Events.Should().Contain(line => line.Detail!.Contains("leak: *** and"));
+    }
+
+    private static bool IsTestStep(Call call) => call.File == "docker" && call.Arguments.Contains("npm test");
 
     [Fact]
     public async Task The_container_gets_no_environment_from_the_executor_and_the_trace_never_holds_the_token()

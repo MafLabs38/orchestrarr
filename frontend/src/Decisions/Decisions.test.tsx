@@ -106,6 +106,42 @@ describe('Decisions', () => {
     expect(lines[3]).toHaveTextContent(/^4.*api.*Secret.*No action.*No task yet/);
   });
 
+  it('names the severity of an alert for a screen reader, not by colour alone, and a repair row offers no merge', async () => {
+    const alert = problem({
+      id: 'finding:x',
+      kind: 'dependencyAlert',
+      severity: 'danger',
+      count: 3,
+      pullRequest: null,
+      headSha: null,
+      goesUpTo: 'noAction',
+      why: 'noActionDefined',
+      url: null,
+      checks: null,
+      canStopBeforeProduction: false,
+    });
+    const failing = problem({
+      id: 'pr:example/shop#9',
+      description: 'express 4 → 5',
+      pullRequest: 9,
+      headSha: head('d'),
+      goesUpTo: 'repair',
+      why: 'qualificationFailed',
+      workshop: 'fails',
+      canStopBeforeProduction: false,
+    });
+    stub(problemsReport([alert, failing]));
+    renderWithProviders(<Decisions />);
+    await screen.findByText('express 4 → 5');
+
+    expect(screen.getByRole('img', { name: 'Urgent' })).toBeInTheDocument();
+    const line = within(screen.getByRole('table'))
+      .getAllByRole('row')
+      .find((row) => row.textContent?.includes('express 4 → 5'));
+    expect(line).toHaveTextContent(/1Validate2Repair/);
+    expect(line).not.toHaveTextContent(/Merge/);
+  });
+
   it('puts the long reason in a bubble beside the short one, so that a line stays one line', async () => {
     stub();
     renderWithProviders(<Decisions />);

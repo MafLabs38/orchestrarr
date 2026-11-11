@@ -110,7 +110,7 @@ export interface Approval {
 
 export type BatchState = 'waiting' | 'delivered' | 'done' | 'refused' | 'expired';
 
-export type TaskResult = 'dryRun' | 'refused' | 'skipped' | 'passed' | 'failed';
+export type TaskResult = 'dryRun' | 'refused' | 'skipped' | 'passed' | 'failed' | 'repaired';
 
 // Why the executor refused a batch: a code, which the interface words.
 export type RunRefusal =

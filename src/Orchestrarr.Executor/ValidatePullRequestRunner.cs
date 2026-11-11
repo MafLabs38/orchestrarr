@@ -6,7 +6,8 @@ namespace Orchestrarr.Executor;
 /// Validates a pull request for real: it fetches the head of the pull request, checks that it is the commit that was approved (the fact comes from
 /// the forge, not from the task), and runs the steps of the repository's profile in a container. It changes nothing in the repository and keeps no
 /// credential in the container. A step that fails is a result (<see cref="TaskResult.Failed"/>); what keeps the run from happening at all
-/// (no profile, no fetch, a commit that moved, a container that does not start) is a refusal.
+/// (no profile, no fetch, a commit that moved, a container that does not start) is a refusal. A step with <c>Network</c> runs the code of the pull
+/// request with network access: run this executor only for repositories whose pull requests come from people you trust.
 /// </summary>
 public sealed class ValidatePullRequestRunner(ValidationOptions options, IProcessRunner processes) : ITaskRunner
 {
@@ -26,21 +27,24 @@ public sealed class ValidatePullRequestRunner(ValidationOptions options, IProces
             return Refuse(task, trace, "no validation profile for this repository");
         }
 
+        if (_workspace.GitToken() is { } token)
+        {
+            trace.Redact(token);
+        }
         trace.Add(RunEvents.TaskStarted, task.Id, $"validating {task.Repository}#{task.PullRequest} at {PullRequestWorkspace.Short(task.HeadSha)} in {profile.Image}");
-        var folder = _workspace.FolderFor(task);
+        var folders = _workspace.FoldersFor(task);
         try
         {
-            Directory.CreateDirectory(folder);
-            if (await _workspace.FetchAsync(task, trace, folder, cancellationToken) is { } reason)
+            if (await _workspace.FetchAsync(task, trace, folders, cancellationToken) is { } reason)
             {
                 return Refuse(task, trace, reason);
             }
-            var steps = await _workspace.RunStepsAsync(task, trace, profile, folder, string.Empty, cancellationToken);
+            var steps = await _workspace.RunStepsAsync(task, trace, profile, folders.Work, string.Empty, cancellationToken);
             return steps.Result == TaskResult.Refused ? Refuse(task, trace, steps.Reason) : Finish(task, trace, steps.Result, steps.Reason);
         }
         finally
         {
-            PullRequestWorkspace.Remove(folder);
+            PullRequestWorkspace.Clean(folders, task, trace);
         }
     }
 
@@ -52,7 +56,7 @@ public sealed class ValidatePullRequestRunner(ValidationOptions options, IProces
 
     internal static TaskOutcome Finish(TaskSpec task, RunTrace trace, TaskResult result, string reason)
     {
-        trace.Add(result == TaskResult.Passed ? RunEvents.TaskPassed : RunEvents.TaskFailed, task.Id, reason);
+        trace.Add(result is TaskResult.Passed or TaskResult.Repaired ? RunEvents.TaskPassed : RunEvents.TaskFailed, task.Id, reason);
         return new TaskOutcome(task.Id, result, reason);
     }
 }

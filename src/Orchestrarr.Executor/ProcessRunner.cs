@@ -87,7 +87,14 @@ public sealed partial class SystemProcessRunner : IProcessRunner
         }
         catch (OperationCanceledException)
         {
-            process.Kill(entireProcessTree: true);
+            try
+            {
+                process.Kill(entireProcessTree: true);
+            }
+            catch (InvalidOperationException)
+            {
+                // It ended between the timeout and the kill: the timeout is still what happened
+            }
             await process.WaitForExitAsync(CancellationToken.None);
             cancellationToken.ThrowIfCancellationRequested();
             return new ProcessResult(-1, true, tail.ToString());

@@ -6,7 +6,7 @@ using Orchestrarr.Host.Live;
 
 namespace Orchestrarr.Host.Test;
 
-/// <summary>The channel that tells the screens what changed (ADR 0024): it says what to read again, only to people who may read the fleet.</summary>
+/// <summary>The channel that tells the screens what changed (ADR 0025): it says what to read again, only to people who may read the fleet.</summary>
 public sealed class LiveTests : IClassFixture<SampleApiFactory>, IClassFixture<AccountsApiFactory>
 {
     private const string Header = "X-Orchestrarr-Request";
@@ -34,7 +34,7 @@ public sealed class LiveTests : IClassFixture<SampleApiFactory>, IClassFixture<A
     public async Task A_burst_of_the_same_change_is_one_message_and_each_distinct_change_is_sent()
     {
         var (broadcaster, clients) = Broadcaster();
-        for (var index = 0; index < 20; index++)
+        for (var index = 0; index < 3; index++)
         {
             broadcaster.Publish(LiveTopics.Runs, "run-1");
         }

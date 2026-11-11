@@ -37,6 +37,7 @@ public sealed class RunTrace
     private readonly List<RunEvent> _events = [];
     private readonly Lock _gate = new();
     private readonly Action<RunEvent>? _onAdded;
+    private readonly List<string> _secrets = [];
     private string _previous;
 
     internal RunTrace(Guid batchId, string digest, TimeProvider time, ExecutorStore store, Action<RunEvent>? onAdded = null)
@@ -60,9 +61,36 @@ public sealed class RunTrace
         }
     }
 
+    /// <summary>
+    /// A secret the run holds (a token): it is replaced by <c>***</c>, in the form it has and in base64, in every line written from now on, so that nothing a
+    /// command prints, an agent says or a patch contains can put it in a trace that any reader sees.
+    /// </summary>
+    public void Redact(string secret)
+    {
+        if (secret.Length < 8)
+        {
+            return;
+        }
+        lock (_gate)
+        {
+            _secrets.Add(secret);
+            _secrets.Add(Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(secret)));
+        }
+    }
+
     // The end of a long line is what matters (the last lines of an output): the start is dropped, and the cut is visible
-    private static string? Cut(string? detail) =>
-        detail is { Length: > TaskLimits.MaxEventDetail } ? "…" + detail[^(TaskLimits.MaxEventDetail - 1)..] : detail;
+    private string? Cut(string? detail)
+    {
+        if (detail is null)
+        {
+            return null;
+        }
+        foreach (var secret in _secrets)
+        {
+            detail = detail.Replace(secret, "***", StringComparison.Ordinal);
+        }
+        return detail.Length > TaskLimits.MaxEventDetail ? "…" + detail[^(TaskLimits.MaxEventDetail - 1)..] : detail;
+    }
 
     public void Add(string type, Guid? taskId = null, string? detail = null)
     {

@@ -216,7 +216,9 @@ function ProblemTableRow({
         {row.severity ? (
           <span
             className={classNames(styles.dot, severityTones[row.severity])}
+            role="img"
             title={describeSeverity(row.severity)}
+            aria-label={describeSeverity(row.severity)}
           />
         ) : null}
         {row.url ? (

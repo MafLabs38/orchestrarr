@@ -14,7 +14,7 @@
 | End to end | Playwright, by hand against the sandbox | Looking at the real screens in a real browser, as the maintainer does (§6). No suite is committed yet: the scripts hold the address and the accounts of a sandbox, which never go in the repository |
 | Acceptance | The rotten test repository (`SCENARIOS.md` of `orchestrarr-testbed`) | Find, fix, merge, deploy and roll back on a real application |
 
-Rules: a test protects a behavior someone relies on, runs in milliseconds, and fails for one reason. Time is a `FakeTimeProvider`, never a sleep. **Safety behaviours are tested like features**: while the executor only does a dry run, the tests prove that no route runs anything and that the ones that record something answer only to an operator or an administrator who signed in, with the header that only the interface sends; a step that cannot be done is unavailable and unticked; a power that is off is not offered.
+Rules: a test protects a behavior someone relies on, runs in milliseconds, and fails for one reason. Time is a `FakeTimeProvider`, never a sleep. **Safety behaviours are tested like features**: the tests prove that no route runs anything, that the runners that start a container change nothing outside it (git on the host never reads a folder a container can write, the agent has no shell and its token never reaches the trace), and that the ones that record something answer only to an operator or an administrator who signed in, with the header that only the interface sends; a step that cannot be done is unavailable and unticked; a power that is off is not offered.
 
 
 ## 2. Other automated checks

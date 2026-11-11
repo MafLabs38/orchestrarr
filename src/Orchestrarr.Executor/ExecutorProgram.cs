@@ -93,6 +93,21 @@ public static class ExecutorProgram
         }
     }
 
+    /// <summary>
+    /// The runners this executor offers. Validating runs for real when profiles are configured, otherwise it is a dry run; merging is always a dry run (no
+    /// write power yet); repairing is offered only when the validation (its profile says how to check a repair) and the agent's image and token are configured.
+    /// </summary>
+    internal static List<ITaskRunner> RunnersFor(ExecutorOptions options, IProcessRunner processes)
+    {
+        ITaskRunner validate = options.Validation.IsConfigured ? new ValidatePullRequestRunner(options.Validation, processes) : new DryRunTaskRunner(TaskKind.ValidatePullRequest);
+        List<ITaskRunner> runners = [validate, new DryRunTaskRunner(TaskKind.MergePullRequest)];
+        if (options.Validation.IsConfigured && options.Repair.IsConfigured)
+        {
+            runners.Add(new RepairPullRequestRunner(options.Validation, options.Repair, processes));
+        }
+        return runners;
+    }
+
     private static async Task<int> HostAsync(ExecutorOptions options, CancellationToken cancellationToken)
     {
         var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { Args = [] });
@@ -102,15 +117,7 @@ public static class ExecutorProgram
         builder.Services.AddSingleton(provider => new SecondFactorGuard(provider.GetRequiredService<ExecutorStore>(), provider.GetRequiredService<ExecutorStore>(), provider.GetRequiredService<TimeProvider>(), SecondFactor()));
         // With no journal configured the double control has nothing to read, so every batch is refused: that is the safe state
         builder.Services.AddSingleton<IApprovalJournalReader>(new FileApprovalJournal(options.JournalPath.Length > 0 ? options.JournalPath : Path.Combine(AppContext.BaseDirectory, "no-journal.jsonl")));
-        // Validating runs for real when profiles are configured; merging stays a dry run (no write power yet)
-        ITaskRunner validate = options.Validation.IsConfigured ? new ValidatePullRequestRunner(options.Validation, new SystemProcessRunner()) : new DryRunTaskRunner(TaskKind.ValidatePullRequest);
-        List<ITaskRunner> runners = [validate, new DryRunTaskRunner(TaskKind.MergePullRequest)];
-        // The repair needs the validation (its profile says how to check a repair) and the agent's image and token
-        if (options.Validation.IsConfigured && options.Repair.IsConfigured)
-        {
-            runners.Add(new RepairPullRequestRunner(options.Validation, options.Repair, new SystemProcessRunner()));
-        }
-        builder.Services.AddSingleton<IEnumerable<ITaskRunner>>(runners);
+        builder.Services.AddSingleton<IEnumerable<ITaskRunner>>(RunnersFor(options, new SystemProcessRunner()));
         builder.Services.AddSingleton(provider => new ExecutorPipeline(
             provider.GetRequiredService<ExecutorStore>(),
             provider.GetRequiredService<SecondFactorGuard>(),

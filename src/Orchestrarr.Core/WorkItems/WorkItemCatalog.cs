@@ -102,11 +102,13 @@ public sealed class WorkItemCatalog : IDisposable
                 lock (_state)
                 {
                     _last = new WorkItemReport(fleet.ReadAt, _source.Kind, items, Error: null, Stale: false);
-                    Changed?.Invoke();
                     _generation++;
                     _enrichment = StartEnrichment(_generation, items, refresh);
                     enrichment = _enrichment;
                 }
+
+                // Told outside the lock: a listener is foreign code
+                Changed?.Invoke();
             }
             catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
             {

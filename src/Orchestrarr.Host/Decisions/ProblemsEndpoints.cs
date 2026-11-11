@@ -57,12 +57,16 @@ internal static class ProblemsEndpoints
         }).RequireAuthorization(Permissions.ApprovalsCreate).RequireRateLimiting(ApprovalsServiceCollectionExtensions.ApprovingPolicy);
     }
 
+    // The newest results of the tasks that ended: a commit whose verdict is older than this window shows as never run. Bounded on purpose (the query runs on every
+    // read of the table); a per-commit store comes with a fleet large enough to need it.
+    private const int WorkshopWindow = 500;
+
     // What the workshop said lately about each commit. A store that cannot be read gives none: the table still shows the problems, from the forge alone.
     private static IReadOnlyList<TaskResultRow> WorkshopResults(IBatchQueue queue)
     {
         try
         {
-            return queue.TaskResults(500);
+            return queue.TaskResults(WorkshopWindow);
         }
         catch (StorageUnavailableException)
         {

@@ -171,11 +171,11 @@ public static class DecisionTable
         var repository = item.RepositoryFullName!;
         var canRepair = item.Plan.FirstOrDefault(step => step.Kind == StepKind.Repair && step.EnvironmentId is null) is { Available: true, Granted: true }
             && executors.Any(executor => executor.Accepts(TaskKind.RepairPullRequest, repository));
-        if (mine.FirstOrDefault(row => row.Kind == TaskKind.RepairPullRequest) is { Result: TaskResult.Passed, Reason: { } said } && said.StartsWith("repaired", StringComparison.Ordinal))
+        var latest = LatestWord(mine);
+        if (latest is { Result: TaskResult.Repaired })
         {
             return (Ceiling.NoAction, CeilingReason.PatchReady, false);
         }
-        var latest = mine.FirstOrDefault(row => row.Kind is TaskKind.ValidatePullRequest or TaskKind.RepairPullRequest && row.Result is TaskResult.Passed or TaskResult.Failed);
         if (latest is { Result: TaskResult.Failed })
         {
             var reason = latest.Kind == TaskKind.RepairPullRequest ? CeilingReason.RepairFailed : CeilingReason.QualificationFailed;
@@ -195,21 +195,18 @@ public static class DecisionTable
         return (ceiling, why, canStop);
     }
 
-    // The workshop's latest word on the commit, newest first in <paramref name="mine"/>: a repair that worked, else the last verdict of a validation or a repair
-    private static WorkshopVerdict VerdictOf(IReadOnlyList<TaskResultRow> mine)
+    // The workshop's latest word on the commit (newest first in <paramref name="mine"/>): the last validation or repair that ended with a verdict. A task that was
+    // refused or skipped said nothing about the code, so an older failure still counts.
+    private static TaskResultRow? LatestWord(IReadOnlyList<TaskResultRow> mine) =>
+        mine.FirstOrDefault(row => row.Kind is TaskKind.ValidatePullRequest or TaskKind.RepairPullRequest && row.Result is TaskResult.Passed or TaskResult.Failed or TaskResult.Repaired);
+
+    private static WorkshopVerdict VerdictOf(IReadOnlyList<TaskResultRow> mine) => LatestWord(mine)?.Result switch
     {
-        if (mine.Any(row => row.Kind == TaskKind.RepairPullRequest && row.Result == TaskResult.Passed && row.Reason is { } said && said.StartsWith("repaired", StringComparison.Ordinal)))
-        {
-            return WorkshopVerdict.Repaired;
-        }
-        var latest = mine.FirstOrDefault(row => row.Kind is TaskKind.ValidatePullRequest or TaskKind.RepairPullRequest && row.Result is TaskResult.Passed or TaskResult.Failed);
-        return latest?.Result switch
-        {
-            TaskResult.Passed => WorkshopVerdict.Passes,
-            TaskResult.Failed => WorkshopVerdict.Fails,
-            _ => WorkshopVerdict.Unknown,
-        };
-    }
+        TaskResult.Repaired => WorkshopVerdict.Repaired,
+        TaskResult.Passed => WorkshopVerdict.Passes,
+        TaskResult.Failed => WorkshopVerdict.Fails,
+        _ => WorkshopVerdict.Unknown,
+    };
 
     private static (Ceiling Ceiling, CeilingReason Why, bool CanStop) CeilingOf(WorkItem item, PullRequestInfo pullRequest, IApplicationCatalog applications, IReadOnlyList<ExecutorAcceptance> executors)
     {

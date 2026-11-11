@@ -101,6 +101,14 @@ public sealed class WorkItemBuilderTests
     }
 
     [Fact]
+    public void A_repository_with_no_open_pull_request_has_no_repair_step()
+    {
+        var item = Build(Snapshot([Repository(pullRequests: 0, dependencyAlerts: new AlertCounts(1, 0, 0, 0))])).Should().ContainSingle().Which;
+
+        item.Plan.Should().NotContain(step => step.Kind == StepKind.Repair);
+    }
+
+    [Fact]
     public void Without_a_known_placement_the_deploy_step_is_unavailable_and_not_ticked_and_says_why()
     {
         var item = Build(Snapshot([Repository(pullRequests: 1)])).Should().ContainSingle().Which;

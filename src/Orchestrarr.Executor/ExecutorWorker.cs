@@ -120,7 +120,7 @@ public sealed class ExecutorWorker(IControlPlane controlPlane, ExecutorPipeline 
     {
         private readonly Lock _gate = new();
         private readonly List<RunEvent> _waiting = [];
-        private bool _failed;
+        private volatile bool _failed;
 
         public int Sent { get; private set; }
 
@@ -167,8 +167,10 @@ public sealed class ExecutorWorker(IControlPlane controlPlane, ExecutorPipeline 
                     return;
                 }
             }
-            catch (HttpRequestException failure)
+            catch (Exception failure)
             {
+                // Whatever went wrong (no answer, a timeout, an answer that cannot be read), the live feed is best effort: it must never hide the outcome of a run that
+                // has happened. It stops, and the rest is sent with the end of the run.
                 logger.LogWarning(failure, "A line of the trace could not be sent while the run goes on; the rest is sent at its end");
                 _failed = true;
                 return;

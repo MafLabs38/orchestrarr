@@ -1,28 +1,36 @@
 namespace Orchestrarr.Executor.Test;
 
-internal sealed record Call(string File, IReadOnlyList<string> Arguments, IReadOnlyDictionary<string, string> Environment);
+internal sealed record Call(string File, IReadOnlyList<string> Arguments, IReadOnlyDictionary<string, string> Environment, string? WorkingDirectory = null)
+{
+    /// <summary>The folder a docker run mounts as /work.</summary>
+    public string? MountedWork => Arguments.SkipWhile(argument => argument != "-v").Skip(1).FirstOrDefault()?.Split(':')[0];
 
-/// <summary>A process runner that answers from a script instead of starting git or docker, and remembers every call.</summary>
+    /// <summary>The value after a flag, for example <c>--git-dir</c>.</summary>
+    public string? After(string flag) => Arguments.SkipWhile(argument => argument != flag).Skip(1).FirstOrDefault();
+}
+
+/// <summary>A process runner that answers from a script instead of starting git or docker, remembers every call and can do what the real program would do to the disk.</summary>
 internal sealed class ScriptedProcesses : IProcessRunner
 {
-    private readonly List<(Func<Call, bool> When, Queue<ProcessResult> Results)> _scripts = [];
+    private readonly List<(Func<Call, bool> When, Queue<ProcessResult> Results, Action<Call>? Effect)> _scripts = [];
 
     public List<Call> Calls { get; } = [];
 
-    /// <summary>Answers every call that matches with this result.</summary>
-    public void Script(Func<Call, bool> when, ProcessResult result) => _scripts.Insert(0, (when, new Queue<ProcessResult>([result])));
+    /// <summary>Answers every call that matches with this result, after doing <paramref name="effect"/> (what the program would write).</summary>
+    public void Script(Func<Call, bool> when, ProcessResult result, Action<Call>? effect = null) => _scripts.Insert(0, (when, new Queue<ProcessResult>([result]), effect));
 
     /// <summary>Answers the calls that match one after the other with these results; the last one repeats.</summary>
-    public void Sequence(Func<Call, bool> when, params ProcessResult[] results) => _scripts.Insert(0, (when, new Queue<ProcessResult>(results)));
+    public void Sequence(Func<Call, bool> when, params ProcessResult[] results) => _scripts.Insert(0, (when, new Queue<ProcessResult>(results), null));
 
     public Task<ProcessResult> RunAsync(string file, IReadOnlyList<string> arguments, string? workingDirectory, IReadOnlyDictionary<string, string> environment, TimeSpan timeout, int maxOutputCharacters, CancellationToken cancellationToken, Action<string>? onLine = null)
     {
-        var call = new Call(file, arguments, environment);
+        var call = new Call(file, arguments, environment, workingDirectory);
         Calls.Add(call);
-        foreach (var (when, results) in _scripts)
+        foreach (var (when, results, effect) in _scripts)
         {
             if (when(call))
             {
+                effect?.Invoke(call);
                 var answer = results.Count > 1 ? results.Dequeue() : results.Peek();
                 // The lines of the output reach the listener as they would from a real process
                 foreach (var line in answer.OutputTail.Split('\n'))

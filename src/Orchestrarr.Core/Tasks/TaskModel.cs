@@ -41,6 +41,9 @@ public enum TaskResult
     /// <summary>The task ran and every check passed (a validation: the build and the tests are green).</summary>
     Passed,
 
+    /// <summary>A repair worked: an agent changed the code, the executor ran the steps again on a clean checkout with exactly that patch, and they pass. The patch is in the trace; nothing was pushed.</summary>
+    Repaired,
+
     /// <summary>The task ran and a check did not pass. It is a result, not an error: what follows for the same approval does not run.</summary>
     Failed,
 }

@@ -175,6 +175,7 @@ const taskResults = {
   skipped: 'TaskResultSkipped',
   passed: 'TaskResultPassed',
   failed: 'TaskResultFailed',
+  repaired: 'TaskResultRepaired',
 } as const satisfies Record<TaskResult, string>;
 
 export function describeTaskResult(result: TaskResult | null): string {

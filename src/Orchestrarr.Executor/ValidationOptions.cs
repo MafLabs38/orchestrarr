@@ -46,6 +46,12 @@ public sealed record ValidationOptions
 
     public int MemoryMegabytes { get; init; } = 1024;
 
+    /// <summary>The most processes a container may start.</summary>
+    public int PidsLimit { get; init; } = 512;
+
+    /// <summary>The size of the temporary folder of a container.</summary>
+    public int TmpfsMegabytes { get; init; } = 512;
+
     /// <summary>The user the container runs as, <c>uid:gid</c>: the one that owns the work folder, never root.</summary>
     public string ContainerUser { get; init; } = "1000:1000";
 
