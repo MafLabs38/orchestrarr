@@ -51,7 +51,7 @@ public sealed class ProcessRunnerTests : IDisposable
     {
         var pidFile = Path.Combine(_folder, "pid");
 
-        var result = await Sh($"echo $$ > {pidFile}; sleep 60", timeout: TimeSpan.FromMilliseconds(400), cancellationToken: Ct);
+        var result = await Sh($"echo $$ > {pidFile}; sleep 60", timeout: TimeSpan.FromSeconds(1), cancellationToken: Ct);
 
         result.TimedOut.Should().BeTrue();
         result.ExitCode.Should().Be(-1);

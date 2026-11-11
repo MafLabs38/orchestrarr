@@ -294,6 +294,12 @@ public sealed class RepairPullRequestRunnerTests : IDisposable
     [InlineData("deploy/Dockerfile.prod", true)]
     [InlineData(".gitattributes", true)]
     [InlineData(".npmrc", true)]
+    [InlineData("src/Shop.Tests/CartTests.cs", true)]
+    [InlineData("Shop.Test/Cart.cs", true)]
+    [InlineData("pkg/cart_test.go", true)]
+    [InlineData("app/test_cart.py", true)]
+    [InlineData("app/cart_test.py", true)]
+    [InlineData("src/main/java/CartTest.java", true)]
     [InlineData("src/server.js", false)]
     [InlineData("src/contest/app.js", false)]
     [InlineData("docs/package.json.md", false)]
@@ -605,6 +611,9 @@ public sealed class RepairPullRequestRunnerTests : IDisposable
             File.CreateSymbolicLink(Path.Combine(work, "src", "outside-dir"), outside);
             File.CreateSymbolicLink(Path.Combine(work, ".claude"), outside);
             File.CreateSymbolicLink(Path.Combine(work, "src", "inside"), Path.Combine(work, "src", "real.js"));
+            // What an install step may leave: a link inside node_modules
+            Directory.CreateDirectory(Path.Combine(work, "node_modules", "pkg"));
+            File.CreateSymbolicLink(Path.Combine(work, "node_modules", "pkg", "leak"), "/proc/self/environ");
         });
         var seen = new List<string>();
         _processes.Script(IsAgent, new ProcessResult(0, false, string.Join('\n', AgentStream("src/server.js"))), call =>
@@ -613,8 +622,10 @@ public sealed class RepairPullRequestRunnerTests : IDisposable
         {
             await Run();
 
-            seen.Should().Contain("src/real.js").And.Contain("src/inside", "a link that stays in the folder is harmless").And.NotContain(["environ", "src/outside-dir", ".claude"]);
+            seen.Should().Contain("src/real.js").And.Contain("src/inside", "a link that stays in the folder is harmless").And.NotContain(["environ", "src/outside-dir", ".claude", "node_modules/pkg/leak"]);
             (await File.ReadAllTextAsync(Path.Combine(outside, "secret.txt"), Ct)).Should().Be("keep me", "a link is removed as a link, never followed");
+            // The removal of a link the pull request tracks is not the agent's change: its path is kept out of what is staged
+            _processes.Calls.Single(call => call.File == "git" && call.Arguments.Contains("add")).Arguments.Should().Contain([":(exclude,literal)environ", ":(exclude,literal)node_modules/pkg/leak"]);
         }
         finally
         {

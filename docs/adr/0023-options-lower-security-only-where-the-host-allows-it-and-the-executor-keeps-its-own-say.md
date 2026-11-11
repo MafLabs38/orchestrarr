@@ -1,6 +1,6 @@
 # 0023 — Options that lower security exist for development, only where the host allows it, and the executor keeps its own say
 
-- **Status**: proposed (asked for by the maintainer on 2026-11-10; accepted when the pull request that builds it is merged)
+- **Status**: proposed (asked for by the maintainer on 2026-11-10; accepted when the pull request that builds it is merged). *Amended on 2026-11-11: point 5 now allows a validation or a repair that changes nothing outside its sandbox, see [ADR 0024](0024-a-pull-request-is-validated-for-real-and-an-agent-may-try-to-repair-it-on-paper.md).*
 - **Date**: 2026-11-10
 - **Spec**: D-71 (refines D-65 and ADR 0017 for development)
 

@@ -27,12 +27,12 @@ public sealed class ValidatePullRequestRunner(ValidationOptions options, IProces
             return Refuse(task, trace, "no validation profile for this repository");
         }
 
-        if (_workspace.GitToken() is { } token)
+        var folders = _workspace.FoldersFor(task);
+        if (folders.GitToken is { } token)
         {
             trace.Redact(token);
         }
         trace.Add(RunEvents.TaskStarted, task.Id, $"validating {task.Repository}#{task.PullRequest} at {PullRequestWorkspace.Short(task.HeadSha)} in {profile.Image}");
-        var folders = _workspace.FoldersFor(task);
         try
         {
             if (await _workspace.FetchAsync(task, trace, folders, cancellationToken) is { } reason)

@@ -52,12 +52,12 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
             return ValidatePullRequestRunner.Refuse(task, trace, "no validation profile for this repository");
         }
 
-        if (_workspace.GitToken() is { } gitToken)
+        var folders = _workspace.FoldersFor(task);
+        if (folders.GitToken is { } gitToken)
         {
             trace.Redact(gitToken);
         }
         trace.Add(RunEvents.TaskStarted, task.Id, $"repairing {task.Repository}#{task.PullRequest} at {PullRequestWorkspace.Short(task.HeadSha)}: validate, then let an agent try, then validate again on a clean checkout");
-        var folders = _workspace.FoldersFor(task);
         try
         {
             if (await _workspace.FetchAsync(task, trace, folders, cancellationToken) is { } reason)
@@ -95,7 +95,7 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
             return ValidatePullRequestRunner.Refuse(task, trace, "the agent's token could not be read");
         }
         trace.Redact(token);
-        RemoveInstructions(folders.Work);
+        var removed = RemoveInstructions(folders.Work);
         var container = $"orchestrarr-agent-{task.Id:N}";
         // What the agent does is written in the trace as it happens; the lines may arrive from another thread
         var shown = 0;
@@ -140,7 +140,8 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
 
         // The host reads the work tree only after the agent: a .git that the container made is not trusted, and git is given its own directory
         PullRequestWorkspace.RemoveGitEntry(folders.Work);
-        var (paths, error) = await StagedPathsAsync(folders, cancellationToken);
+        var excludes = PatchExcludes.Concat(removed.Select(path => ":(exclude,literal)" + path)).ToArray();
+        var (paths, error) = await StagedPathsAsync(folders, excludes, cancellationToken);
         if (error is not null)
         {
             // A git that failed, or a list too large to read, is not "no change": it is said
@@ -156,7 +157,7 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
             return ValidatePullRequestRunner.Finish(task, trace, TaskResult.Failed, "the agent changed a protected file");
         }
 
-        var patch = await WritePatchAsync(folders, cancellationToken);
+        var patch = await WritePatchAsync(folders, excludes, cancellationToken);
         if (patch is null)
         {
             return ValidatePullRequestRunner.Finish(task, trace, TaskResult.Failed, "the patch could not be made or is too large");
@@ -182,11 +183,11 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
     }
 
     // The files the agent changed, as git sees them (a rename counts as the deletion of the old path and the creation of the new one)
-    private async Task<(IReadOnlyList<string> Paths, string? Error)> StagedPathsAsync(RunFolders folders, CancellationToken cancellationToken)
+    private async Task<(IReadOnlyList<string> Paths, string? Error)> StagedPathsAsync(RunFolders folders, string[] excludes, CancellationToken cancellationToken)
     {
-        var add = await _workspace.GitAsync(folders, folders.Work, ["add", "-A", "--", ".", .. PatchExcludes], network: false, 200, cancellationToken);
+        var add = await _workspace.GitAsync(folders, folders.Work, ["add", "-A", "--", ".", .. excludes], network: false, 200, cancellationToken);
         // Written to a file by git and read in full: a long list read from the end of an output would lose its start, where the protected paths sort first
-        var names = await _workspace.GitAsync(folders, folders.Work, ["diff", "--cached", "--name-only", "--no-renames", "--no-ext-diff", "--output", folders.PathsFile, "--", ".", .. PatchExcludes], network: false, 200, cancellationToken);
+        var names = await _workspace.GitAsync(folders, folders.Work, ["diff", "--cached", "--name-only", "--no-renames", "--no-ext-diff", "--output", folders.PathsFile, "--", ".", .. excludes], network: false, 200, cancellationToken);
         if (add.ExitCode != 0 || names.ExitCode != 0 || !File.Exists(folders.PathsFile))
         {
             return ([], "git could not list what the agent changed");
@@ -199,10 +200,10 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
     }
 
     // Written to a file outside every mount, in full: what is shown in the trace may be cut, what is applied is not
-    private async Task<string?> WritePatchAsync(RunFolders folders, CancellationToken cancellationToken)
+    private async Task<string?> WritePatchAsync(RunFolders folders, string[] excludes, CancellationToken cancellationToken)
     {
         var diff = await _workspace.GitAsync(
-            folders, folders.Work, ["diff", "--cached", "--binary", "--no-renames", "--no-ext-diff", "--no-textconv", "--output", folders.PatchFile, "--", ".", .. PatchExcludes], network: false, 200, cancellationToken);
+            folders, folders.Work, ["diff", "--cached", "--binary", "--no-renames", "--no-ext-diff", "--no-textconv", "--output", folders.PatchFile, "--", ".", .. excludes], network: false, 200, cancellationToken);
         if (diff.ExitCode != 0 || !File.Exists(folders.PatchFile) || new FileInfo(folders.PatchFile).Length is 0 or > MaxPatchBytes)
         {
             return null;
@@ -213,8 +214,11 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
     // The instructions of the pull request are for whoever reads it, not for the agent: they are taken out of the folder it works in. So is every link that
     // leaves the folder (to /proc/self/environ, where the token is, or to anything of the host): what the pull request or its install step made as a link is
     // not something the agent may read through.
-    private static void RemoveInstructions(string work)
+    // Returns the paths (from the folder) of what it removed, so that the removal of a link the pull request tracks is not counted as the agent's change.
+    // node_modules is walked too: an install step may leave a link there, and only links are looked for in it.
+    private static List<string> RemoveInstructions(string work)
     {
+        var removed = new List<string>();
         var root = Path.GetFullPath(work) + Path.DirectorySeparatorChar;
         var pending = new Stack<string>([work]);
         while (pending.Count > 0)
@@ -229,6 +233,7 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
                     if (LeavesTheFolder(info, root) || InstructionFiles.Contains(name, StringComparer.Ordinal) || InstructionFolders.Contains(name, StringComparer.Ordinal))
                     {
                         PullRequestWorkspace.DeleteEntry(entry);
+                        removed.Add(Path.GetRelativePath(work, entry));
                     }
                 }
                 else if (Directory.Exists(entry))
@@ -237,7 +242,7 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
                     {
                         PullRequestWorkspace.DeleteEntry(entry);
                     }
-                    else if (name is not ("node_modules" or ".git"))
+                    else if (name is not ".git")
                     {
                         pending.Push(entry);
                     }
@@ -248,6 +253,7 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
                 }
             }
         }
+        return removed;
     }
 
     // Where the link ends, resolved all the way: a link that points back into the folder is harmless, one that goes anywhere else is not

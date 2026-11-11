@@ -105,7 +105,7 @@ public sealed class RunTrace
         lock (_gate)
         {
             // The control plane refuses a trace past its limit, and a refused trace loses the end of the run, patch included. Past the budget, the lines that
-            // only tell how a step went are left out (the executor keeps them in its own file), one line says so, and what must arrive still does.
+            // only tell how a step went are left out (neither side keeps them; the output of a step is cut anyway), one line says so, and what must arrive still does.
             if (_events.Count >= TaskLimits.MaxEventsPerRun - TaskLimits.EventsKeptForTheEnd && !Essential.Contains(type))
             {
                 if (!_cut)

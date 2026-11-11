@@ -10,7 +10,7 @@ internal sealed record StepsOutcome(TaskResult Result, string Reason, string? Fa
 /// The folders of one run. <c>Work</c> is the only one a container sees. <c>GitDir</c> is outside it, so that nothing a container writes (the code of a
 /// pull request, an agent) can change what git does on the host: git reads its configuration, hooks and filters from the git directory.
 /// </summary>
-internal sealed record RunFolders(string Root, string GitDir, string Work)
+internal sealed record RunFolders(string Root, string GitDir, string Work, string? GitToken = null)
 {
     /// <summary>A second work tree: the approved commit with exactly the patch applied, where a repair is checked.</summary>
     public string WorkAfter => Path.Combine(Root, "work-after");
@@ -41,11 +41,12 @@ internal sealed class PullRequestWorkspace(ValidationOptions options, IProcessRu
     public RunFolders FoldersFor(TaskSpec task)
     {
         var root = Path.Combine(Path.GetFullPath(options.WorkRoot), task.Id.ToString("N"));
-        return new RunFolders(root, Path.Combine(root, "git"), Path.Combine(root, "work"));
+        // The token is read once for the run: what is masked in the trace is what the fetch uses, even if the file is replaced meanwhile
+        return new RunFolders(root, Path.Combine(root, "git"), Path.Combine(root, "work"), GitToken());
     }
 
     /// <summary>The secrets that must never reach the trace: the token to fetch with.</summary>
-    public string? GitToken()
+    private string? GitToken()
     {
         if (options.GitTokenFile.Length == 0)
         {
@@ -73,10 +74,10 @@ internal sealed class PullRequestWorkspace(ValidationOptions options, IProcessRu
         ["GIT_CEILING_DIRECTORIES"] = Path.GetFullPath(options.WorkRoot),
     };
 
-    private Dictionary<string, string> FetchEnvironment()
+    private Dictionary<string, string> FetchEnvironment(RunFolders folders)
     {
         var environment = GitEnvironment();
-        if (GitToken() is { } token)
+        if (folders.GitToken is { } token)
         {
             // The token travels in the environment of the git process (not in its arguments, which any process can list) and nowhere else
             var header = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes($"x-access-token:{token}"));
@@ -99,7 +100,7 @@ internal sealed class PullRequestWorkspace(ValidationOptions options, IProcessRu
             "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "core.quotePath=false", "-c", "http.followRedirects=false", "-c", "advice.detachedHead=false",
             .. arguments,
         ];
-        return processes.RunAsync("git", all, workingDirectory, network ? FetchEnvironment() : GitEnvironment(), StepTimeout(), maxOutputCharacters, cancellationToken);
+        return processes.RunAsync("git", all, workingDirectory, network ? FetchEnvironment(folders) : GitEnvironment(), StepTimeout(), maxOutputCharacters, cancellationToken);
     }
 
     public TimeSpan StepTimeout() => TimeSpan.FromMinutes(Math.Max(1, options.StepTimeoutMinutes));

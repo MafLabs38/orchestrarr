@@ -97,6 +97,7 @@ public static class AgentTranscript
             "Write" => $"writes {path}",
             "Glob" => $"looks for files {Field("pattern")}",
             "Grep" => $"searches {Field("pattern")}",
+            // Not offered to the agent today (it has no shell); shown if a tool is ever allowed
             "Bash" => $"runs {Cut(Field("command"), Changed)}",
             _ => $"uses {name}",
         };

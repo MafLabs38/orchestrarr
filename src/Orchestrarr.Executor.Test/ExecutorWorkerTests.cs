@@ -248,7 +248,7 @@ public sealed class ExecutorWorkerTests : IDisposable
                 trace.Add(RunEvents.TaskStep, task.Id, $"step {step}");
             }
             // Until the control plane has been asked once (or a generous limit), then the last lines
-            await Task.WhenAny(gate, Task.Delay(TimeSpan.FromSeconds(5), cancellationToken));
+            await gate.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
             trace.Add(RunEvents.TaskStep, task.Id, "step 3");
             trace.Add(RunEvents.TaskPassed, task.Id, "done");
             return new TaskOutcome(task.Id, TaskResult.Passed, "done");

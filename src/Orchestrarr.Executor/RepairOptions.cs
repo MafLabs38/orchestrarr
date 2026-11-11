@@ -3,7 +3,7 @@ namespace Orchestrarr.Executor;
 /// <summary>
 /// The agent that tries to repair a pull request whose validation fails (ADR 0017: the instruction is built here from a template, what the failing
 /// step printed is data). The agent works in the folder of the run, in a container with the token of the subscription and nothing else of the host,
-/// and it can only edit files and run the steps of the repository's profile. What it did is a patch in the trace: nothing is pushed. It needs the
+/// and it can only read and edit files (it has no shell: the executor runs the steps of the repository's profile itself). What it did is a patch in the trace: nothing is pushed. It needs the
 /// validation to be configured (the profile says how to check a repair).
 /// </summary>
 public sealed record RepairOptions
@@ -38,7 +38,7 @@ public sealed record RepairOptions
     [
         // Matched anywhere in the repository, nested projects included: the dependencies, the tests and their configuration, the pipeline, the image
         "*package.json", "*package-lock.json", "*yarn.lock", "*pnpm-lock.yaml", "*.npmrc", "*.nvmrc", "*tsconfig*.json",
-        "test/*", "*/test/*", "tests/*", "*/tests/*", "*__tests__*", "*.test.*", "*.spec.*", "*jest.config.*", "*vitest.config.*", "*.mocharc*",
+        "test/*", "*/test/*", "tests/*", "*/tests/*", "*__tests__*", "*.test.*", "*.spec.*", "*.Tests/*", "*.Test/*", "*Tests.cs", "*Test.cs", "*_test.go", "test_*.py", "*/test_*.py", "*_test.py", "*Test.java", "*Tests.java", "*jest.config.*", "*vitest.config.*", "*.mocharc*",
         ".github/*", "*Dockerfile*", "*docker-compose*", ".gitattributes", "*.gitattributes", ".git/*", "*/.git/*",
         // Where tests and builds are configured in the other ecosystems: a repair that weakens them has repaired nothing (an allow-list per profile is the stricter way, later)
         "*vite.config.*", "*webpack.config.*", "*babel.config.*", "*.babelrc*", "*.eslintrc*", "*eslint.config.*", "*playwright.config.*", "*cypress.config.*", "*karma.conf*",
