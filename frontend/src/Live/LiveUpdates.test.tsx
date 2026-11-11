@@ -2,6 +2,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { stubApi } from 'testUtils';
+
 import { liveStatus } from './liveStatus';
 import LiveUpdates, { invalidateTopic } from './LiveUpdates';
 
@@ -55,7 +57,10 @@ vi.mock('@microsoft/signalr', () => ({
   },
 }));
 
+const session = { subject: 's-1', name: 'alice', role: 'Operator', permissions: ['fleet.read'] };
+
 function setup() {
+  stubApi({ '/api/v1/auth/me': session });
   const queryClient = new QueryClient();
   for (const key of [
     '/api/v1/runs',
@@ -189,6 +194,27 @@ describe('LiveUpdates', () => {
 
     expect(liveStatus.get()).toBe('live');
     await vi.waitFor(() => expect(stale().length).toBeGreaterThan(3));
+  });
+
+  it('does not open the channel while nobody has signed in, and opens it as soon as somebody does', async () => {
+    fake.start.mockResolvedValue(undefined);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(new Response('{}', { status: 401 }))),
+    );
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <LiveUpdates />
+      </QueryClientProvider>,
+    );
+    await vi.waitFor(() => expect(queryClient.getQueryState(['/api/v1/auth/me'])?.status).toBe('error'));
+    expect(fake.start).not.toHaveBeenCalled();
+
+    queryClient.setQueryData(['/api/v1/auth/me'], session);
+
+    await vi.waitFor(() => expect(liveStatus.get()).toBe('live'));
+    expect(fake.start).toHaveBeenCalledTimes(1);
   });
 
   it('says it is not live when it cannot connect, tries again later and stops when the page goes', async () => {

@@ -1,7 +1,7 @@
 {
   "AppName": "Orchestrarr",
   "Decisions": "Decisions",
-  "DecisionsDescription": "One row per problem, numbered. \"What will happen\" lists the steps if you select the row; the step marked AI is the only one that calls an agent. Nothing is pushed to a repository yet.",
+  "DecisionsDescription": "One row per problem, numbered. The Plan column lists the steps done if you select the row; the step marked ✦ is the only one that calls an agent. Nothing is pushed to a repository yet. Click a header to sort.",
   "System": "System",
   "Status": "Status",
   "Refresh": "Refresh",

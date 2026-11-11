@@ -2,6 +2,8 @@ import { HubConnectionBuilder, HubConnectionState, LogLevel } from '@microsoft/s
 import { type QueryClient, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
+import useSession from 'Account/useSession';
+
 import { liveStatus } from './liveStatus';
 
 export const livePath = '/api/v1/live';
@@ -42,8 +44,14 @@ const retryAfterMs = 10_000;
 // screens keep reading every thirty seconds, and the badge says so.
 export default function LiveUpdates() {
   const queryClient = useQueryClient();
+  // The channel is for a person who signed in: it opens as soon as there is a session, and closes when there is none
+  const signedIn = useSession().data !== undefined;
 
   useEffect(() => {
+    if (!signedIn) {
+      liveStatus.set('connecting');
+      return undefined;
+    }
     let stopped = false;
     let retry: ReturnType<typeof setTimeout> | undefined;
     const connection = new HubConnectionBuilder()
@@ -90,7 +98,7 @@ export default function LiveUpdates() {
       clearTimeout(retry);
       void connection.stop();
     };
-  }, [queryClient]);
+  }, [queryClient, signedIn]);
 
   return null;
 }
