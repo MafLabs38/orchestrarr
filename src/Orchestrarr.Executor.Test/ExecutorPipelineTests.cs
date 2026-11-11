@@ -326,6 +326,17 @@ public sealed class ExecutorPipelineTests : IDisposable
     }
 
     [Fact]
+    public async Task A_delegation_covers_only_a_runner_that_is_a_dry_run_so_it_never_starts_the_code_of_a_pull_request()
+    {
+        var delegation = Delegate(TaskKind.ValidatePullRequest, quota: 2);
+        var batch = await _world.Approved(Delegated(delegation, kinds: [TaskKind.ValidatePullRequest]));
+
+        var result = await Run(batch, null, pipeline: _world.Pipeline([new FailingRunner(TaskKind.ValidatePullRequest)]));
+
+        result.Outcome.Refusal.Should().Be(RunRefusal.DelegationInvalid, "the runner of that kind runs the code of the pull request: a delegation is for what changes nothing and runs nothing");
+    }
+
+    [Fact]
     public async Task A_delegation_that_is_revoked_expired_or_unknown_covers_nothing()
     {
         var revoked = Delegate(revokedAt: ExecutorFixture.Start);

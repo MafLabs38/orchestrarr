@@ -159,6 +159,19 @@ public sealed class ApprovalServiceTests
     }
 
     [Fact]
+    public async Task A_card_with_more_repairs_than_one_approval_may_start_is_refused_at_once()
+    {
+        _powers = new ConfiguredPowerPolicy([new PowerGrant(PowerGrant.Wildcard, [StepKind.Validate, StepKind.MergePullRequests, StepKind.Repair])]);
+        var pullRequests = Enumerable.Range(1, TaskLimits.MaxRepairsPerBatch + 1).Select(number => PullRequest(number, HeadA)).ToArray();
+        var seen = pullRequests.Select(pullRequest => new SeenPullRequest(pullRequest.Number, HeadA)).ToArray();
+
+        var result = await Approve(await Service(pullRequests), [StepKind.Repair], seen: seen);
+
+        result.Refusal.Should().Be(ApprovalRefusal.TooManyRepairs);
+        _store.List().Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task The_second_batch_holds_only_the_tasks_of_the_new_pull_requests()
     {
         await Approve(await Service(PullRequest(1, HeadA)));

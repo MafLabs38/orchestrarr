@@ -147,6 +147,7 @@ public sealed class RepairPullRequestRunnerTests : IDisposable
         var allowed = arguments.SkipWhile(argument => argument != "--allowedTools").Skip(1).TakeWhile(argument => !argument.StartsWith("--", StringComparison.Ordinal)).ToList();
         allowed.Should().Equal("Read", "Edit", "Glob", "Grep");
         var denied = arguments.SkipWhile(argument => argument != "--disallowedTools").Skip(1).TakeWhile(argument => !argument.StartsWith("--", StringComparison.Ordinal)).ToList();
+        denied.Should().Contain(["Edit(//tmp/**)", "Edit(//home/**)", "Edit(//etc/**)"], "the agent writes in the work folder only");
         denied.Should().Contain(["Bash", "WebFetch", "WebSearch", "Read(//proc/**)", "Read(//dev/**)", "Read(//sys/**)", "Read(//etc/**)", "Read(//tmp/**)", "Read(//root/**)"]);
         agent.After("--tools").Should().Be("Read,Edit,Glob,Grep", "the built-in tools that exist at all");
         arguments.Should().NotContain("--dangerously-skip-permissions").And.NotContain(argument => argument.StartsWith("Bash(", StringComparison.Ordinal));
@@ -385,8 +386,8 @@ public sealed class RepairPullRequestRunnerTests : IDisposable
     [Theory]
     [InlineData(1, TaskResult.Failed, "the agent ended with an error")]
     [InlineData(125, TaskResult.Refused, "the agent's container could not be started")]
-    [InlineData(126, TaskResult.Refused, "the agent's container could not be started")]
-    [InlineData(127, TaskResult.Refused, "the agent's container could not be started")]
+    [InlineData(126, TaskResult.Failed, "the agent ended with an error")]
+    [InlineData(127, TaskResult.Failed, "the agent ended with an error")]
     public async Task An_agent_that_ends_with_an_error_fails_without_its_words_in_the_reason_and_a_container_that_does_not_start_is_a_refusal(int exitCode, TaskResult expected, string reason)
     {
         FailsThenPasses();

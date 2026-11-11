@@ -5,7 +5,7 @@ using System.Text.RegularExpressions;
 namespace Orchestrarr.Executor;
 
 /// <summary>How a process ended: its exit code, whether it was stopped for taking too long, and the end of what it printed (both streams).</summary>
-public sealed record ProcessResult(int ExitCode, bool TimedOut, string OutputTail);
+public sealed record ProcessResult(int ExitCode, bool TimedOut, string OutputTail, bool NotStarted = false);
 
 /// <summary>Starts a program with arguments (never through a shell). A seam so that the runners are tested without git or docker.</summary>
 public interface IProcessRunner
@@ -63,7 +63,7 @@ public sealed partial class SystemProcessRunner : IProcessRunner
         }
         catch (System.ComponentModel.Win32Exception)
         {
-            return new ProcessResult(127, false, $"{file}: not found or not executable");
+            return new ProcessResult(127, false, $"{file}: not found or not executable", NotStarted: true);
         }
         process.StandardInput.Close();
         // The lines are cut as they are read, so that a program that prints without ever ending a line cannot fill the memory of the executor.

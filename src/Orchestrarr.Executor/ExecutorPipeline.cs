@@ -353,7 +353,8 @@ public sealed class ExecutorPipeline(
             || delegation.RevokedAt is not null
             || delegation.ExpiresAt <= now
             || batch.ApproverSubject != $"delegation:{delegation.Id:D}"
-            || delegation.Kind == TaskKind.RepairPullRequest
+            // A delegation is a decision made once for many runs, with no code: it covers only what changes nothing and runs nothing of a pull request
+            || !(_runners.TryGetValue(delegation.Kind, out var covered) && covered.IsDryRun)
             || batch.Tasks.Any(task => task.Kind != delegation.Kind || !TaskShape.Matches(delegation.Repository, task.Repository)))
         {
             trace.Add(RunEvents.DelegationChecked, null, "refused: no delegation in force covers this batch");

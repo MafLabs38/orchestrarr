@@ -33,7 +33,11 @@ internal sealed class PullRequestWorkspace(ValidationOptions options, IProcessRu
     public const string ContainerWork = "/work";
 
     // The exit codes with which docker itself says that it could not run the container, as opposed to the command inside it failing
-    public static bool DockerCouldNotRun(int exitCode) => exitCode is 125 or 126 or 127;
+    /// <summary>
+    /// Docker itself failed (125) or could not be started. 126 and 127 are the container's own command (not executable, not found): a step whose tool is missing
+    /// from the image has failed, it is not a container that did not start.
+    /// </summary>
+    public static bool DockerCouldNotRun(ProcessResult result) => result.NotStarted || result.ExitCode == 125;
 
     public ValidationProfile? ProfileFor(string repository) =>
         options.Profiles.FirstOrDefault(candidate => candidate.Repositories.Any(pattern => TaskShape.Matches(pattern, repository)) && candidate.Steps.Count > 0 && candidate.Image.Length > 0);
@@ -170,7 +174,7 @@ internal sealed class PullRequestWorkspace(ValidationOptions options, IProcessRu
                 trace.Add(RunEvents.TaskStep, task.Id, $"{title}: stopped after {StepTimeout().TotalMinutes.ToString(CultureInfo.InvariantCulture)} min\n{result.OutputTail}");
                 return new StepsOutcome(TaskResult.Failed, $"{step.Name} took more than {StepTimeout().TotalMinutes.ToString(CultureInfo.InvariantCulture)} min", step.Name, result.OutputTail);
             }
-            if (DockerCouldNotRun(result.ExitCode))
+            if (DockerCouldNotRun(result))
             {
                 trace.Add(RunEvents.TaskStep, task.Id, $"{title}: the container did not start (exit {result.ExitCode})\n{result.OutputTail}");
                 return new StepsOutcome(TaskResult.Refused, "the container could not be started");
@@ -199,6 +203,8 @@ internal sealed class PullRequestWorkspace(ValidationOptions options, IProcessRu
             "--pids-limit", options.PidsLimit.ToString(CultureInfo.InvariantCulture),
             "--cap-drop", "ALL",
             "--security-opt", "no-new-privileges",
+            // The image is not writable: what is written is the work folder and /tmp, nothing a later process of the container would read as configuration
+            "--read-only",
             "--user", options.ContainerUser,
             "--tmpfs", $"/tmp:rw,exec,size={options.TmpfsMegabytes.ToString(CultureInfo.InvariantCulture)}m",
             "-e", "HOME=/tmp",

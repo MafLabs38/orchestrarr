@@ -34,6 +34,9 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
     ];
 
     // The agent reads the code, not the container: its own state, the process table, the system
+    // And not to write where the container keeps its own state or the system's files: the work folder is the only place the agent edits
+    private static readonly string[] ForbiddenEdits = ["Edit(//proc/**)", "Edit(//dev/**)", "Edit(//sys/**)", "Edit(//etc/**)", "Edit(//tmp/**)", "Edit(//root/**)", "Edit(//home/**)", "Edit(//usr/**)"];
+
     private static readonly string[] ForbiddenReads = ["Read(//proc/**)", "Read(//dev/**)", "Read(//sys/**)", "Read(//etc/**)", "Read(//tmp/**)", "Read(//root/**)"];
 
     private readonly PullRequestWorkspace _workspace = new(validation, processes);
@@ -142,7 +145,7 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
         {
             // Never what the agent printed in the reason: it can carry anything. The trace keeps the end of it, cut.
             trace.Add(RunEvents.TaskStep, task.Id, $"agent: exit {run.ExitCode}\n{Tail(run.OutputTail)}");
-            return PullRequestWorkspace.DockerCouldNotRun(run.ExitCode)
+            return PullRequestWorkspace.DockerCouldNotRun(run)
                 ? ValidatePullRequestRunner.Refuse(task, trace, "the agent's container could not be started")
                 : ValidatePullRequestRunner.Finish(task, trace, TaskResult.Failed, "the agent ended with an error");
         }
@@ -318,7 +321,7 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
             // The built-in tools that exist at all are these four (an allow-list that a new version of the tool cannot widen), approved without a prompt, and the rest named below is denied twice
             "--tools", "Read,Edit,Glob,Grep",
             "--allowedTools", "Read", "Edit", "Glob", "Grep",
-            "--disallowedTools", "Bash", "WebFetch", "WebSearch", .. ForbiddenReads,
+            "--disallowedTools", "Bash", "WebFetch", "WebSearch", .. ForbiddenReads, .. ForbiddenEdits,
         ]);
         return arguments;
     }

@@ -87,7 +87,7 @@ public sealed class ValidatePullRequestRunnerTests : IDisposable
         await Run(Options());
 
         var containers = _processes.Calls.Where(call => call.File == "docker").Select(call => call.Arguments).ToList();
-        containers.Should().HaveCount(2).And.OnlyContain(args => args.Contains("--cap-drop") && args.Contains("ALL") && args.Contains("no-new-privileges") && args.Contains("1000:1000") && args.Contains("--pids-limit"));
+        containers.Should().HaveCount(2).And.OnlyContain(args => args.Contains("--cap-drop") && args.Contains("ALL") && args.Contains("no-new-privileges") && args.Contains("1000:1000") && args.Contains("--pids-limit") && args.Contains("--read-only"));
         containers.Should().OnlyContain(args => args.Contains("node:22-alpine"));
         containers.Select(args => string.Join(' ', args)).Should().OnlyContain(line => line.Contains("--cpus 1 ") && line.Contains("--memory 1024m ") && line.Contains("--pids-limit 512"));
         containers[0].Should().NotContain("--network");
@@ -194,17 +194,29 @@ public sealed class ValidatePullRequestRunnerTests : IDisposable
     }
 
     [Theory]
-    [InlineData(125)]
-    [InlineData(126)]
-    [InlineData(127)]
-    public async Task A_container_that_cannot_start_is_a_refusal_not_a_failed_validation(int exitCode)
+    [InlineData(125, false)]
+    [InlineData(127, true)]
+    public async Task A_container_that_cannot_start_is_a_refusal_not_a_failed_validation(int exitCode, bool notStarted)
     {
-        _processes.Script(call => call.File == "docker", new ProcessResult(exitCode, false, "Unable to find image"));
+        _processes.Script(call => call.File == "docker", new ProcessResult(exitCode, false, "Unable to find image", notStarted));
 
         var (outcome, _) = await Run(Options());
 
         outcome.Result.Should().Be(TaskResult.Refused);
         outcome.Reason.Should().Be("the container could not be started");
+    }
+
+    [Theory]
+    [InlineData(126)]
+    [InlineData(127)]
+    public async Task A_step_whose_command_is_missing_or_not_executable_in_the_image_has_failed_it_did_not_fail_to_start(int exitCode)
+    {
+        _processes.Script(call => call.File == "docker", new ProcessResult(exitCode, false, "sh: 1: npm: not found"));
+
+        var (outcome, _) = await Run(Options());
+
+        outcome.Result.Should().Be(TaskResult.Failed);
+        outcome.Reason.Should().Be($"npm ci failed (exit {exitCode})");
     }
 
     [Fact]
