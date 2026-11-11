@@ -98,13 +98,52 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
             return ValidatePullRequestRunner.Refuse(task, trace, "the agent's token could not be read");
         }
         trace.Redact(token);
-        var removed = RemoveInstructions(folders.Work);
+        var removed = ClearTheWorkFolder(folders.Work);
+        if (await RunAgentAsync(task, trace, folders, before, token, cancellationToken) is { } ended)
+        {
+            return ended;
+        }
+
+        // The host reads the work tree only after the agent: a .git that the container made is not trusted, and git is given its own directory
+        PullRequestWorkspace.RemoveGitEntry(folders.Work);
+        // The same walk as before the agent: a .git at any depth, a link or an instruction file that the agent made is gone before git reads the tree
+        removed.AddRange(ClearTheWorkFolder(folders.Work));
+        var (refused, patch, files) = await CollectPatchAsync(task, trace, folders, [.. PatchExcludes, .. removed.Select(path => ":(exclude,literal)" + path)], cancellationToken);
+        if (refused is not null || patch is null)
+        {
+            return refused ?? ValidatePullRequestRunner.Finish(task, trace, TaskResult.Failed, "the patch could not be made");
+        }
+
+        // The executor checks the repair itself, on the approved commit with exactly this patch: the agent saying that it works is not a fact, and neither is a folder
+        // that the steps and the agent left behind
+        if (await _workspace.CleanCopyWithPatchAsync(folders, cancellationToken) is { } notApplied)
+        {
+            trace.Add(RunEvents.TaskStep, task.Id, $"verify: {notApplied}");
+            return ValidatePullRequestRunner.Finish(task, trace, TaskResult.Failed, notApplied);
+        }
+        var after = await _workspace.RunStepsAsync(task, trace, profile, folders.WorkAfter, "after", cancellationToken);
+        if (after.Result != TaskResult.Passed)
+        {
+            return after.Result == TaskResult.Refused
+                ? ValidatePullRequestRunner.Refuse(task, trace, after.Reason)
+                : ValidatePullRequestRunner.Finish(task, trace, TaskResult.Failed, "the agent's change does not make the validation pass: " + after.Reason);
+        }
+
+        AddPatch(task, trace, patch, files);
+        return ValidatePullRequestRunner.Finish(task, trace, TaskResult.Repaired, $"repaired: {files.ToString(CultureInfo.InvariantCulture)} file(s) changed, the validation passes again on a clean checkout (patch in the trace, nothing pushed)");
+    }
+
+    // Runs the agent in its container and writes what it does in the trace as it happens. A task outcome when the run ended there, null when the agent finished.
+    private async Task<TaskOutcome?> RunAgentAsync(TaskSpec task, RunTrace trace, RunFolders folders, StepsOutcome before, string token, CancellationToken cancellationToken)
+    {
         var container = $"orchestrarr-agent-{task.Id:N}";
-        // What the agent does is written in the trace as it happens; the lines may arrive from another thread
+        var minutes = Math.Max(1, repair.TimeoutMinutes).ToString(CultureInfo.InvariantCulture);
         var shown = 0;
         var left = 0;
         (string Text, string Turns, bool IsError)? final = null;
         var finalGate = new Lock();
+
+        // Called from the thread that reads the container's output
         void OnLine(string line)
         {
             if (AgentTranscript.Result(line) is { } result)
@@ -138,8 +177,8 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
             {
                 return ValidatePullRequestRunner.Refuse(task, trace, "the agent's container could not be stopped");
             }
-            trace.Add(RunEvents.TaskStep, task.Id, $"agent: stopped after {Math.Max(1, repair.TimeoutMinutes).ToString(CultureInfo.InvariantCulture)} min");
-            return ValidatePullRequestRunner.Finish(task, trace, TaskResult.Failed, $"the agent took more than {Math.Max(1, repair.TimeoutMinutes).ToString(CultureInfo.InvariantCulture)} min");
+            trace.Add(RunEvents.TaskStep, task.Id, $"agent: stopped after {minutes} min");
+            return ValidatePullRequestRunner.Finish(task, trace, TaskResult.Failed, $"the agent took more than {minutes} min");
         }
         if (run.ExitCode != 0)
         {
@@ -150,66 +189,54 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
                 : ValidatePullRequestRunner.Finish(task, trace, TaskResult.Failed, "the agent ended with an error");
         }
         trace.Add(RunEvents.TaskStep, task.Id, $"agent: done in {final?.Turns ?? "?"} turns{(final is { IsError: true } ? ", with an error" : string.Empty)}\n{final?.Text}");
+        return null;
+    }
 
-        // The host reads the work tree only after the agent: a .git that the container made is not trusted, and git is given its own directory
-        PullRequestWorkspace.RemoveGitEntry(folders.Work);
-        // The same walk as before the agent: a .git at any depth, a link or an instruction file that the agent made is gone before git reads the tree
-        removed.AddRange(RemoveInstructions(folders.Work));
-        var excludes = PatchExcludes.Concat(removed.Select(path => ":(exclude,literal)" + path)).ToArray();
+    // What the agent changed, as a patch: refused (an outcome) when there is none, when it touches a protected file, when it cannot be made or when it holds a secret
+    private async Task<(TaskOutcome? Refused, WrittenPatch? Patch, int Files)> CollectPatchAsync(TaskSpec task, RunTrace trace, RunFolders folders, string[] excludes, CancellationToken cancellationToken)
+    {
         var (paths, error) = await StagedPathsAsync(folders, excludes, cancellationToken);
         if (error is not null)
         {
             // A git that failed, or a list too large to read, is not "no change": it is said
-            return ValidatePullRequestRunner.Finish(task, trace, TaskResult.Failed, error);
+            return (ValidatePullRequestRunner.Finish(task, trace, TaskResult.Failed, error), null, 0);
         }
         if (paths.Count == 0)
         {
-            return ValidatePullRequestRunner.Finish(task, trace, TaskResult.Failed, "the agent made no change");
+            return (ValidatePullRequestRunner.Finish(task, trace, TaskResult.Failed, "the agent made no change"), null, 0);
         }
         if (paths.FirstOrDefault(repair.IsProtected) is { } protectedPath)
         {
             trace.Add(RunEvents.TaskStep, task.Id, $"agent: it changed a protected file, {protectedPath}: the repair is refused");
-            return ValidatePullRequestRunner.Finish(task, trace, TaskResult.Failed, "the agent changed a protected file");
+            return (ValidatePullRequestRunner.Finish(task, trace, TaskResult.Failed, "the agent changed a protected file"), null, 0);
         }
 
         var patch = await WritePatchAsync(folders, excludes, cancellationToken);
         if (patch is null)
         {
-            return ValidatePullRequestRunner.Finish(task, trace, TaskResult.Failed, "the patch could not be made or is too large");
+            return (ValidatePullRequestRunner.Finish(task, trace, TaskResult.Failed, "the patch could not be made or is too large"), null, 0);
         }
-
-        if (trace.Masked(patch.Value.Text) != patch.Value.Text)
+        if (patch.Text.Contains("GIT binary patch", StringComparison.Ordinal))
+        {
+            // A repair of source code has no reason to change a binary file, and a secret in one would not be found in the text of the patch
+            trace.Add(RunEvents.TaskStep, task.Id, "agent: the patch changes a binary file: the repair is refused");
+            return (ValidatePullRequestRunner.Finish(task, trace, TaskResult.Failed, "the patch changes a binary file"), null, 0);
+        }
+        if (trace.Masked(patch.Text) != patch.Text)
         {
             // A patch that holds a secret of the run is an attempt to carry it out, not a repair: nothing is offered and nothing is shown
             trace.Add(RunEvents.TaskStep, task.Id, "agent: the patch contains a secret of the run: the repair is refused");
-            return ValidatePullRequestRunner.Finish(task, trace, TaskResult.Failed, "the patch contains a secret of the run");
+            return (ValidatePullRequestRunner.Finish(task, trace, TaskResult.Failed, "the patch contains a secret of the run"), null, 0);
         }
-
-        // The executor checks the repair itself, on the approved commit with exactly this patch: the agent saying that it works is not a fact, and neither is a folder
-        // that the steps and the agent left behind
-        if (await _workspace.CleanCopyWithPatchAsync(folders, cancellationToken) is { } notApplied)
-        {
-            trace.Add(RunEvents.TaskStep, task.Id, $"verify: {notApplied}");
-            return ValidatePullRequestRunner.Finish(task, trace, TaskResult.Failed, notApplied);
-        }
-        var after = await _workspace.RunStepsAsync(task, trace, profile, folders.WorkAfter, "after", cancellationToken);
-        if (after.Result != TaskResult.Passed)
-        {
-            return after.Result == TaskResult.Refused
-                ? ValidatePullRequestRunner.Refuse(task, trace, after.Reason)
-                : ValidatePullRequestRunner.Finish(task, trace, TaskResult.Failed, "the agent's change does not make the validation pass: " + after.Reason);
-        }
-
-        AddPatch(task, trace, patch.Value, paths.Count);
-        return ValidatePullRequestRunner.Finish(task, trace, TaskResult.Repaired, $"repaired: {paths.Count.ToString(CultureInfo.InvariantCulture)} file(s) changed, the validation passes again on a clean checkout (patch in the trace, nothing pushed)");
+        return (null, patch, paths.Count);
     }
 
     // The files the agent changed, as git sees them (a rename counts as the deletion of the old path and the creation of the new one)
     private async Task<(IReadOnlyList<string> Paths, string? Error)> StagedPathsAsync(RunFolders folders, string[] excludes, CancellationToken cancellationToken)
     {
-        var add = await _workspace.GitAsync(folders, folders.Work, ["add", "-A", "--", ".", .. excludes], network: false, 200, cancellationToken);
+        var add = await _workspace.GitAsync(folders, folders.Work, ["add", "-A", "--", ".", .. excludes], network: false, PullRequestWorkspace.GitOutputCharacters, cancellationToken);
         // Separated by NUL (git quotes a path with a quote or a control character otherwise, and a quoted path would not match a protected pattern). Written to a file by git and read in full: a long list read from the end of an output would lose its start, where the protected paths sort first
-        var names = await _workspace.GitAsync(folders, folders.Work, ["diff", "--cached", "--name-only", "-z", "--no-renames", "--no-ext-diff", "--output", folders.PathsFile, "--", ".", .. excludes], network: false, 200, cancellationToken);
+        var names = await _workspace.GitAsync(folders, folders.Work, ["diff", "--cached", "--name-only", "-z", "--no-renames", "--no-ext-diff", "--output", folders.PathsFile, "--", ".", .. excludes], network: false, PullRequestWorkspace.GitOutputCharacters, cancellationToken);
         if (add.ExitCode != 0 || names.ExitCode != 0 || !File.Exists(folders.PathsFile))
         {
             return ([], "git could not list what the agent changed");
@@ -222,17 +249,17 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
     }
 
     // Written to a file outside every mount, in full: what is shown in the trace may be cut, what is applied is not
-    private async Task<(string Text, long Bytes, string Digest)?> WritePatchAsync(RunFolders folders, string[] excludes, CancellationToken cancellationToken)
+    private async Task<WrittenPatch?> WritePatchAsync(RunFolders folders, string[] excludes, CancellationToken cancellationToken)
     {
         var diff = await _workspace.GitAsync(
-            folders, folders.Work, ["diff", "--cached", "--binary", "--no-renames", "--no-ext-diff", "--no-textconv", "--output", folders.PatchFile, "--", ".", .. excludes], network: false, 200, cancellationToken);
+            folders, folders.Work, ["diff", "--cached", "--binary", "--no-renames", "--no-ext-diff", "--no-textconv", "--output", folders.PatchFile, "--", ".", .. excludes], network: false, PullRequestWorkspace.GitOutputCharacters, cancellationToken);
         if (diff.ExitCode != 0 || !File.Exists(folders.PatchFile) || new FileInfo(folders.PatchFile).Length is 0 or > MaxPatchBytes)
         {
             return null;
         }
         // The digest is of the bytes of the file that was applied and checked, not of the text decoded from it
         var bytes = await File.ReadAllBytesAsync(folders.PatchFile, cancellationToken);
-        return (System.Text.Encoding.UTF8.GetString(bytes), bytes.LongLength, Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes)).ToLowerInvariant());
+        return new WrittenPatch(System.Text.Encoding.UTF8.GetString(bytes), bytes.LongLength, Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes)).ToLowerInvariant());
     }
 
     // The instructions of the pull request are for whoever reads it, not for the agent: they are taken out of the folder it works in. So is every link
@@ -240,7 +267,7 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
     // the agent may read through.
     // Returns the paths (from the folder) of what it removed, so that the removal of a link the pull request tracks is not counted as the agent's change.
     // node_modules is walked too: an install step may leave a link there (and a .git, an instruction file or a folder of instructions is removed there as anywhere).
-    private static List<string> RemoveInstructions(string work)
+    private static List<string> ClearTheWorkFolder(string work)
     {
         var removed = new List<string>();
         var pending = new Stack<string>([work]);
@@ -283,7 +310,7 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
         return removed;
     }
 
-    private static void AddPatch(TaskSpec task, RunTrace trace, (string Text, long Bytes, string Digest) written, int files)
+    private static void AddPatch(TaskSpec task, RunTrace trace, WrittenPatch written, int files)
     {
         // Masked before it is cut into pieces of the trace: a token that falls on the edge of two pieces would not be found in either
         var patch = trace.Masked(written.Text);
@@ -315,7 +342,7 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
             .Replace("{marker}", marker, StringComparison.Ordinal)
             .Replace("{output}", output, StringComparison.Ordinal);
         // The only secret of the container is the token of the subscription, passed by name: its value is in the environment of the docker client only
-        List<string> arguments = [.. _workspace.SandboxArguments(container, folders.Work, repair.Cpus, repair.MemoryMegabytes, network: true, ["CLAUDE_CODE_OAUTH_TOKEN"])];
+        List<string> arguments = [.. _workspace.SandboxArguments(container, folders.Work, repair.Cpus, repair.MemoryMegabytes, ContainerNetwork.Open, ["CLAUDE_CODE_OAUTH_TOKEN"])];
         arguments.AddRange(
         [
             repair.Image,
@@ -330,7 +357,8 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
             // Read and edit the code, nothing else: no shell (the executor runs the steps), no network tool, no reading of the container
             // The built-in tools that exist at all are these four (an allow-list that a new version of the tool cannot widen), approved without a prompt, and the rest named below is denied twice
             "--tools", "Read,Edit,Glob,Grep",
-            "--allowedTools", "Read", "Edit", "Glob", "Grep",
+            // Read and Edit are approved in the work folder only: a call elsewhere needs an approval, and in this mode it is refused (the deny rules are a second layer)
+            "--allowedTools", "Read(//work/**)", "Edit(//work/**)", "Glob", "Grep",
             "--disallowedTools", "Bash", "WebFetch", "WebSearch", .. ForbiddenReads, .. ForbiddenEdits,
         ]);
         return arguments;
@@ -338,3 +366,6 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
 
     private static string Tail(string text) => text.Length > 1500 ? text[^1500..] : text;
 }
+
+/// <summary>The patch an agent made: its text (to show), the size and the digest of the bytes of the file that was applied and checked.</summary>
+internal sealed record WrittenPatch(string Text, long Bytes, string Digest);

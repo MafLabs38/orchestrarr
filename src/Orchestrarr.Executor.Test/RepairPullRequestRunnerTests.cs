@@ -113,6 +113,19 @@ public sealed class RepairPullRequestRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task A_patch_that_changes_a_binary_file_is_refused_because_a_secret_in_it_would_not_be_found()
+    {
+        FailsThenPasses();
+        AgentChanges(patch: "diff --git a/logo.png b/logo.png\nGIT binary patch\nliteral 4\nLcmZQz00001");
+
+        var (outcome, trace) = await Run();
+
+        outcome.Result.Should().Be(TaskResult.Failed);
+        outcome.Reason.Should().Be("the patch changes a binary file");
+        trace.Events.Select(line => line.Type).Should().NotContain(RunEvents.TaskPatch);
+    }
+
+    [Fact]
     public async Task A_patch_that_holds_a_secret_of_the_run_is_refused_and_nothing_of_it_is_offered_or_shown()
     {
         FailsThenPasses();
@@ -185,7 +198,7 @@ public sealed class RepairPullRequestRunnerTests : IDisposable
         var agent = _processes.Calls.Single(IsAgent);
         var arguments = agent.Arguments;
         var allowed = arguments.SkipWhile(argument => argument != "--allowedTools").Skip(1).TakeWhile(argument => !argument.StartsWith("--", StringComparison.Ordinal)).ToList();
-        allowed.Should().Equal("Read", "Edit", "Glob", "Grep");
+        allowed.Should().Equal("Read(//work/**)", "Edit(//work/**)", "Glob", "Grep");
         var denied = arguments.SkipWhile(argument => argument != "--disallowedTools").Skip(1).TakeWhile(argument => !argument.StartsWith("--", StringComparison.Ordinal)).ToList();
         denied.Should().Contain(["Edit(//tmp/**)", "Edit(//home/**)", "Edit(//etc/**)"], "the agent writes in the work folder only");
         denied.Should().Contain(["Bash", "WebFetch", "WebSearch", "Read(//proc/**)", "Read(//dev/**)", "Read(//sys/**)", "Read(//etc/**)", "Read(//tmp/**)", "Read(//root/**)"]);

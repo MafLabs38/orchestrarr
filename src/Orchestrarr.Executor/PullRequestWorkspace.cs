@@ -6,6 +6,13 @@ namespace Orchestrarr.Executor;
 /// <summary>How the steps of a profile ended: a result and, for a failure, which step and the end of its output (what an agent is shown).</summary>
 internal sealed record StepsOutcome(TaskResult Result, string Reason, string? FailedStep = null, string? FailedOutput = null);
 
+/// <summary>What a container can reach: nothing, or the network of the host (an install step, the agent calling the model).</summary>
+internal enum ContainerNetwork
+{
+    None,
+    Open,
+}
+
 /// <summary>
 /// The folders of one run. <c>Work</c> is the only one a container sees. <c>GitDir</c> is outside it, so that nothing a container writes (the code of a
 /// pull request, an agent) can change what git does on the host: git reads its configuration, hooks and filters from the git directory.
@@ -41,6 +48,11 @@ internal sealed class PullRequestWorkspace(ValidationOptions options, IProcessRu
 
     public ValidationProfile? ProfileFor(string repository) =>
         options.Profiles.FirstOrDefault(candidate => candidate.Repositories.Any(pattern => TaskShape.Matches(pattern, repository)) && candidate.Steps.Count > 0 && candidate.Image.Length > 0);
+
+    /// <summary>How much of what a git call printed is kept.</summary>
+    public const int GitOutputCharacters = 200;
+
+    private static readonly TimeSpan KillTimeout = TimeSpan.FromSeconds(30);
 
     public RunFolders FoldersFor(TaskSpec task)
     {
@@ -160,7 +172,7 @@ internal sealed class PullRequestWorkspace(ValidationOptions options, IProcessRu
             var title = label.Length == 0 ? step.Name : $"{step.Name} ({label})";
             var container = $"orchestrarr-{task.Id:N}-{pass}-{index.ToString(CultureInfo.InvariantCulture)}";
             var started = clock.Elapsed;
-            List<string> arguments = [.. SandboxArguments(container, work, options.Cpus, options.MemoryMegabytes, step.Network), profile.Image, "sh", "-c", step.Command];
+            List<string> arguments = [.. SandboxArguments(container, work, options.Cpus, options.MemoryMegabytes, step.Network ? ContainerNetwork.Open : ContainerNetwork.None), profile.Image, "sh", "-c", step.Command];
             var result = await RunContainerAsync(container, arguments, null, options.MaxOutputCharacters, cancellationToken);
             var seconds = (clock.Elapsed - started).TotalSeconds;
             if (result.TimedOut)
@@ -193,7 +205,7 @@ internal sealed class PullRequestWorkspace(ValidationOptions options, IProcessRu
     /// The flags that make a container a sandbox, in one place for the steps and for the agent: bounded CPU, memory and processes, no capability, no
     /// privilege gained, not root, a small temporary folder, the network only where asked, and nothing of the host but the work folder.
     /// </summary>
-    public List<string> SandboxArguments(string container, string work, double cpus, int memoryMegabytes, bool network, IEnumerable<string>? environment = null)
+    public List<string> SandboxArguments(string container, string work, double cpus, int memoryMegabytes, ContainerNetwork network, IEnumerable<string>? environment = null)
     {
         List<string> arguments =
         [
@@ -213,7 +225,7 @@ internal sealed class PullRequestWorkspace(ValidationOptions options, IProcessRu
         {
             arguments.AddRange(["-e", variable]);
         }
-        if (!network)
+        if (network == ContainerNetwork.None)
         {
             arguments.AddRange(["--network", "none"]);
         }
@@ -259,8 +271,8 @@ internal sealed class PullRequestWorkspace(ValidationOptions options, IProcessRu
     /// <summary>Kills the container and makes sure it is gone: true when it no longer exists, so that nothing of it can still write to the folder it was given.</summary>
     public async Task<bool> KillAsync(string container)
     {
-        await processes.RunAsync("docker", ["kill", container], null, new Dictionary<string, string>(), TimeSpan.FromSeconds(30), 200, CancellationToken.None);
-        var removed = await processes.RunAsync("docker", ["rm", "-f", container], null, new Dictionary<string, string>(), TimeSpan.FromSeconds(30), 200, CancellationToken.None);
+        await processes.RunAsync("docker", ["kill", container], null, new Dictionary<string, string>(), KillTimeout, GitOutputCharacters, CancellationToken.None);
+        var removed = await processes.RunAsync("docker", ["rm", "-f", container], null, new Dictionary<string, string>(), KillTimeout, GitOutputCharacters, CancellationToken.None);
         // A container that was started with --rm is already gone after the kill: docker then says so
         return removed.ExitCode == 0 || removed.OutputTail.Contains("No such container", StringComparison.OrdinalIgnoreCase);
     }
