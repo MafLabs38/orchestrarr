@@ -16,7 +16,34 @@ internal sealed class ScriptedProcesses : IProcessRunner
 
     private readonly List<Func<Call, bool>> _hangs = [];
 
-    public List<Call> Calls { get; } = [];
+    private readonly Lock _gate = new();
+    private readonly List<Call> _calls = [];
+
+    /// <summary>The calls so far, as a snapshot: a runner adds to them from its own task while a test reads.</summary>
+    public IReadOnlyList<Call> Calls
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _calls];
+            }
+        }
+    }
+
+    /// <summary>Waits until a call that matches has been made, or fails the test after a few seconds instead of hanging it.</summary>
+    public async Task WaitForCallAsync(Func<Call, bool> when, CancellationToken cancellationToken)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (!Calls.Any(when))
+        {
+            if (DateTime.UtcNow > deadline)
+            {
+                throw new TimeoutException("The call the test waits for was never made.");
+            }
+            await Task.Delay(10, cancellationToken);
+        }
+    }
 
     /// <summary>A call that matches never ends by itself: it waits until it is cancelled, as a hanging container would.</summary>
     public void Hang(Func<Call, bool> when) => _hangs.Add(when);
@@ -36,7 +63,10 @@ internal sealed class ScriptedProcesses : IProcessRunner
     public Task<ProcessResult> RunAsync(string file, IReadOnlyList<string> arguments, string? workingDirectory, IReadOnlyDictionary<string, string> environment, TimeSpan timeout, int maxOutputCharacters, CancellationToken cancellationToken, Action<string>? onLine = null)
     {
         var call = new Call(file, arguments, environment, workingDirectory);
-        Calls.Add(call);
+        lock (_gate)
+        {
+            _calls.Add(call);
+        }
         if (_hangs.Exists(hang => hang(call)))
         {
             return WaitForCancellation(cancellationToken);

@@ -41,7 +41,7 @@ export interface ExecutorStatus {
   kinds: TaskKind[];
   repositories: string[];
   delegations: DelegationInfo[];
-  // Whether this executor checks the code of the authenticator (false only in development, with dry runs only)
+  // Whether this executor checks the code of the authenticator (false only in development, while every runner changes nothing outside its sandbox)
   secondFactorRequired: boolean;
 }
 

@@ -45,7 +45,22 @@ internal sealed class PullRequestWorkspace(ValidationOptions options, IProcessRu
     }
 
     /// <summary>The secrets that must never reach the trace: the token to fetch with.</summary>
-    public string? GitToken() => options.GitTokenFile.Length > 0 ? File.ReadAllText(options.GitTokenFile).Trim() : null;
+    public string? GitToken()
+    {
+        if (options.GitTokenFile.Length == 0)
+        {
+            return null;
+        }
+        try
+        {
+            return File.ReadAllText(options.GitTokenFile).Trim();
+        }
+        catch (Exception unreadable) when (unreadable is IOException or UnauthorizedAccessException)
+        {
+            // No token: the fetch is made without one and is refused by the forge if the repository needs it, which the run reports
+            return null;
+        }
+    }
 
     // The environment of every git call of the host: no system or user configuration, no prompt. The token only goes to the call that fetches.
     // The ceiling keeps git from looking for a repository above the run folders (a work root that sits inside a checkout would otherwise be one)
@@ -76,7 +91,7 @@ internal sealed class PullRequestWorkspace(ValidationOptions options, IProcessRu
     /// Runs git on the host against a git directory and a work tree given explicitly (a <c>.git</c> in the work tree is never read), with the programs a
     /// repository could name switched off. <paramref name="network"/> is true only for the fetch, the one call that gets the token.
     /// </summary>
-    public Task<ProcessResult> GitAsync(RunFolders folders, string workTree, IReadOnlyList<string> arguments, bool network, int maxOutputCharacters, CancellationToken cancellationToken)
+    public Task<ProcessResult> GitAsync(RunFolders folders, string workTree, IReadOnlyList<string> arguments, bool network, int maxOutputCharacters, CancellationToken cancellationToken, string? workingDirectory = null)
     {
         List<string> all =
         [
@@ -84,7 +99,7 @@ internal sealed class PullRequestWorkspace(ValidationOptions options, IProcessRu
             "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "core.quotePath=false", "-c", "http.followRedirects=false", "-c", "advice.detachedHead=false",
             .. arguments,
         ];
-        return processes.RunAsync("git", all, null, network ? FetchEnvironment() : GitEnvironment(), StepTimeout(), maxOutputCharacters, cancellationToken);
+        return processes.RunAsync("git", all, workingDirectory, network ? FetchEnvironment() : GitEnvironment(), StepTimeout(), maxOutputCharacters, cancellationToken);
     }
 
     public TimeSpan StepTimeout() => TimeSpan.FromMinutes(Math.Max(1, options.StepTimeoutMinutes));
@@ -207,8 +222,9 @@ internal sealed class PullRequestWorkspace(ValidationOptions options, IProcessRu
         {
             return "the approved commit could not be checked out again";
         }
-        // Outside any repository: git applies the patch to the files of the folder, and refuses a path outside it or beyond a link
-        var apply = await processes.RunAsync("git", ["-c", "core.fsmonitor=false", "apply", "--whitespace=nowarn", folders.PatchFile], folders.WorkAfter, GitEnvironment(), StepTimeout(), options.MaxOutputCharacters, cancellationToken);
+        // With the git directory given, as every call: the tree may hold files named like a repository's (HEAD, config, objects) and git must not take it for one.
+        // It applies the patch to the files of the folder, and refuses a path outside it or beyond a link.
+        var apply = await GitAsync(folders, folders.WorkAfter, ["apply", "--whitespace=nowarn", folders.PatchFile], network: false, options.MaxOutputCharacters, cancellationToken, folders.WorkAfter);
         return apply.ExitCode == 0 ? null : "the patch does not apply to the approved commit";
     }
 
@@ -233,16 +249,27 @@ internal sealed class PullRequestWorkspace(ValidationOptions options, IProcessRu
         await processes.RunAsync("docker", ["kill", container], null, new Dictionary<string, string>(), TimeSpan.FromSeconds(30), 200, CancellationToken.None);
 
     /// <summary>A <c>.git</c> in a work tree is nothing the host trusts: it is removed before a container is started and before the host reads the tree.</summary>
-    public static void RemoveGitEntry(string work)
+    public static void RemoveGitEntry(string work) => DeleteEntry(Path.Combine(work, ".git"));
+
+    /// <summary>
+    /// Deletes a file, a folder or a link that a pull request or an agent may have made. A link is removed as a link, never followed: a folder named
+    /// <c>.git</c> that is a link to a directory must not have the directory it points at deleted.
+    /// </summary>
+    public static void DeleteEntry(string path)
     {
-        var entry = Path.Combine(work, ".git");
-        if (File.Exists(entry))
+        var info = new FileInfo(path);
+        if (info.LinkTarget is not null)
         {
-            File.Delete(entry);
+            // A link is deleted as a file (a link to a directory included: on Linux unlink removes it, the target is not touched)
+            info.Delete();
         }
-        else if (Directory.Exists(entry))
+        else if (Directory.Exists(path))
         {
-            Directory.Delete(entry, recursive: true);
+            Directory.Delete(path, recursive: true);
+        }
+        else if (File.Exists(path))
+        {
+            File.Delete(path);
         }
     }
 

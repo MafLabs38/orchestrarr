@@ -76,6 +76,16 @@ public static class TaskLimits
     /// executor before it is sent (a trace the control plane refuses as a whole is worse than a cut line).
     /// </summary>
     public const int MaxEventDetail = 4000;
+
+    /// <summary>
+    /// The most lines a run may hold. A repair writes about 170 (the agent's work is capped at 150, then the steps, the patch and the verdict) and a batch holds
+    /// several tasks: the executor keeps room for what must arrive (the end of each task, the patch, the end of the run) by cutting the other lines first,
+    /// see <c>RunTrace</c>.
+    /// </summary>
+    public const int MaxEventsPerRun = 5000;
+
+    /// <summary>The room kept at the end of a run's trace for the lines that must arrive: verdicts, patches, the end of the run.</summary>
+    public const int EventsKeptForTheEnd = 300;
 }
 
 /// <summary>
@@ -192,6 +202,7 @@ public static class RunEvents
     public const string TaskPassed = "task.passed";
     public const string TaskPatch = "task.patch";
     public const string TaskAgent = "task.agent";
+    public const string TraceCut = "trace.cut";
     public const string TaskFailed = "task.failed";
     public const string TaskRefused = "task.refused";
     public const string TaskSkipped = "task.skipped";

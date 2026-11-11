@@ -196,7 +196,7 @@ Still open:
 | Options for development (the authenticator code off): only where the host allows it (never in Production), administrator and password, traced; the executor keeps its own setting, only while every runner changes nothing outside its sandbox ([ADR 0023](adr/0023-options-lower-security-only-where-the-host-allows-it-and-the-executor-keeps-its-own-say.md)) | 🟢 |
 | Sign-in with local accounts, roles, server-side sessions, CSRF header ([ADR 0018](adr/0018-people-sign-in-with-local-accounts-and-permission-based-roles.md)) | 🟢 |
 | Vault dedicated to this purpose | 🔵 manifests in the GitOps repository, not initialised |
-| A real runner in the executor, workshop, certificates, revoking the tokens of a run | 🔵 not built |
+| Vault-issued certificates, a workshop host of its own, revoking the tokens of a run, and a runner that merges, pushes or deploys | 🔵 not built (the validation and repair runners exist, ADR 0024) |
 | The Rust launcher and the conformance vectors of ADR 0014 | ⛔ superseded by the .NET executor (ADR 0017) |
 | The launcher pulling its orders through the control plane's API, with its own grants, its own list of production environments and an in-memory ledger; first a dry run | ⛔ superseded in part by the executor (ADR 0017): it pulls through the API with the bearer token of the host's `Tasks:Executors`; the signed client token and the home launcher are not built |
 | The launcher of the home environment also serving the orders with no environment (a merge), with its own grants and forge role, in a namespace of its own | ⛔ superseded in part by the executor (ADR 0017): it pulls through the API with the bearer token of the host's `Tasks:Executors`; the signed client token and the home launcher are not built |

@@ -41,15 +41,6 @@ public sealed class ExecutorWorkerTests : IDisposable
         _controlPlane.ClaimAsync(Arg.Any<ExecutorHello>(), Arg.Any<CancellationToken>()).Returns(new ClaimResult(ClaimStatus.Claimed, new BatchDelivery(batch, _world.CodeAt())));
         var received = new List<RunEvent>();
         var requests = 0;
-        _controlPlane.AppendEventsAsync(batch.Id, Arg.Any<IReadOnlyList<RunEvent>>(), Arg.Any<CancellationToken>()).Returns(call =>
-        {
-            lock (received)
-            {
-                received.AddRange(call.Arg<IReadOnlyList<RunEvent>>());
-                requests++;
-            }
-            return QueueResult.Ok;
-        });
         var firstSent = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         _controlPlane.AppendEventsAsync(batch.Id, Arg.Any<IReadOnlyList<RunEvent>>(), Arg.Any<CancellationToken>()).Returns(call =>
         {
@@ -81,19 +72,6 @@ public sealed class ExecutorWorkerTests : IDisposable
         _controlPlane.ClaimAsync(Arg.Any<ExecutorHello>(), Arg.Any<CancellationToken>()).Returns(new ClaimResult(ClaimStatus.Claimed, new BatchDelivery(batch, _world.CodeAt())));
         var received = new List<RunEvent>();
         var calls = 0;
-        _controlPlane.AppendEventsAsync(batch.Id, Arg.Any<IReadOnlyList<RunEvent>>(), Arg.Any<CancellationToken>()).Returns(call =>
-        {
-            lock (received)
-            {
-                if (++calls == 1)
-                {
-                    throw new HttpRequestException("down");
-                }
-                received.AddRange(call.Arg<IReadOnlyList<RunEvent>>());
-            }
-            return QueueResult.Ok;
-        });
-
         var failedOnce = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         _controlPlane.AppendEventsAsync(batch.Id, Arg.Any<IReadOnlyList<RunEvent>>(), Arg.Any<CancellationToken>()).Returns(call =>
         {
@@ -171,6 +149,80 @@ public sealed class ExecutorWorkerTests : IDisposable
         await _controlPlane.Received(1).CompleteAsync(batch.Id, Arg.Is<BatchOutcome>(outcome => outcome.Tasks.Single().Result == TaskResult.Skipped), Ct);
     }
 
+    // A task that ends by itself after a short while: it must not be stopped by a watcher that has nothing to report
+    private sealed class EndsByItself : ITaskRunner
+    {
+        public TaskKind Kind => TaskKind.ValidatePullRequest;
+
+        public bool ChangesNothing => true;
+
+        public async ValueTask<TaskOutcome> RunAsync(TaskSpec task, RunTrace trace, CancellationToken cancellationToken)
+        {
+            await Task.Delay(250, cancellationToken);
+            return new TaskOutcome(task.Id, TaskResult.Passed, "done");
+        }
+    }
+
+    [Fact]
+    public async Task A_control_plane_that_says_there_is_no_stop_does_not_stop_the_run()
+    {
+        var batch = await _world.Approved(ExecutorFixture.Batch(kinds: [TaskKind.ValidatePullRequest]));
+        _controlPlane.ClaimAsync(Arg.Any<ExecutorHello>(), Arg.Any<CancellationToken>()).Returns(new ClaimResult(ClaimStatus.Claimed, new BatchDelivery(batch, _world.CodeAt())));
+        _controlPlane.GlobalStopEngagedAsync(Arg.Any<CancellationToken>()).Returns(false);
+
+        await Worker(pipeline: _world.Pipeline([new EndsByItself()]), stopMilliseconds: 20).StepAsync(Ct);
+
+        await _controlPlane.Received(1).CompleteAsync(batch.Id, Arg.Is<BatchOutcome>(outcome => outcome.Tasks.Single().Result == TaskResult.Passed), Ct);
+        await _controlPlane.Received().GlobalStopEngagedAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Failures_to_read_the_stop_that_are_not_three_in_a_row_do_not_stop_the_run()
+    {
+        var batch = await _world.Approved(ExecutorFixture.Batch(kinds: [TaskKind.ValidatePullRequest]));
+        _controlPlane.ClaimAsync(Arg.Any<ExecutorHello>(), Arg.Any<CancellationToken>()).Returns(new ClaimResult(ClaimStatus.Claimed, new BatchDelivery(batch, _world.CodeAt())));
+        // Two failures, an answer, two failures, then answers: the count starts again at each answer
+        _controlPlane.GlobalStopEngagedAsync(Arg.Any<CancellationToken>()).Returns(
+            Task.FromException<bool>(new HttpRequestException("down")), Task.FromException<bool>(new HttpRequestException("down")), Task.FromResult(false),
+            Task.FromException<bool>(new HttpRequestException("down")), Task.FromException<bool>(new HttpRequestException("down")), Task.FromResult(false));
+
+        await Worker(pipeline: _world.Pipeline([new EndsByItself()]), stopMilliseconds: 20).StepAsync(Ct);
+
+        await _controlPlane.Received(1).CompleteAsync(batch.Id, Arg.Is<BatchOutcome>(outcome => outcome.Tasks.Single().Result == TaskResult.Passed), Ct);
+    }
+
+    [Fact]
+    public async Task A_live_send_that_the_control_plane_refuses_is_not_counted_as_sent_and_nothing_is_lost_or_sent_twice()
+    {
+        var batch = await _world.Approved(ExecutorFixture.Batch(kinds: [TaskKind.ValidatePullRequest]));
+        _controlPlane.ClaimAsync(Arg.Any<ExecutorHello>(), Arg.Any<CancellationToken>()).Returns(new ClaimResult(ClaimStatus.Claimed, new BatchDelivery(batch, _world.CodeAt())));
+        var received = new List<RunEvent>();
+        var calls = 0;
+        var refusedOnce = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _controlPlane.AppendEventsAsync(batch.Id, Arg.Any<IReadOnlyList<RunEvent>>(), Arg.Any<CancellationToken>()).Returns(call =>
+        {
+            lock (received)
+            {
+                if (++calls == 1)
+                {
+                    refusedOnce.TrySetResult();
+                    return QueueResult.Invalid;
+                }
+                received.AddRange(call.Arg<IReadOnlyList<RunEvent>>());
+            }
+            return QueueResult.Ok;
+        });
+
+        await Worker(pipeline: _world.Pipeline([new SlowRunner(refusedOnce.Task)]), liveMilliseconds: 20).StepAsync(Ct);
+
+        lock (received)
+        {
+            calls.Should().BeGreaterThanOrEqualTo(2);
+            RunEvent.Continues(batch.Digest(), 0, received).Should().BeTrue("the refused lines were sent again at the end, once, in order");
+            received.Select(line => line.Type).Should().EndWith(RunEvents.RunCompleted);
+        }
+    }
+
     [Fact]
     public async Task The_hello_says_only_the_kinds_the_executor_has_a_runner_for_whatever_its_rights_list_names()
     {
@@ -196,7 +248,7 @@ public sealed class ExecutorWorkerTests : IDisposable
                 trace.Add(RunEvents.TaskStep, task.Id, $"step {step}");
             }
             // Until the control plane has been asked once (or a generous limit), then the last lines
-            await Task.WhenAny(gate, Task.Delay(TimeSpan.FromSeconds(30), cancellationToken));
+            await Task.WhenAny(gate, Task.Delay(TimeSpan.FromSeconds(5), cancellationToken));
             trace.Add(RunEvents.TaskStep, task.Id, "step 3");
             trace.Add(RunEvents.TaskPassed, task.Id, "done");
             return new TaskOutcome(task.Id, TaskResult.Passed, "done");

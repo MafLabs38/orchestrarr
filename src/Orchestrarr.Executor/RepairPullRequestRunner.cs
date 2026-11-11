@@ -140,11 +140,17 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
 
         // The host reads the work tree only after the agent: a .git that the container made is not trusted, and git is given its own directory
         PullRequestWorkspace.RemoveGitEntry(folders.Work);
-        if (await StagedPathsAsync(folders, cancellationToken) is not { } paths || paths.Count == 0)
+        var (paths, error) = await StagedPathsAsync(folders, cancellationToken);
+        if (error is not null)
+        {
+            // A git that failed, or a list too large to read, is not "no change": it is said
+            return ValidatePullRequestRunner.Finish(task, trace, TaskResult.Failed, error);
+        }
+        if (paths.Count == 0)
         {
             return ValidatePullRequestRunner.Finish(task, trace, TaskResult.Failed, "the agent made no change");
         }
-        if (paths.FirstOrDefault(path => repair.ProtectedPaths.Any(pattern => TaskShape.Matches(pattern, path))) is { } protectedPath)
+        if (paths.FirstOrDefault(repair.IsProtected) is { } protectedPath)
         {
             trace.Add(RunEvents.TaskStep, task.Id, $"agent: it changed a protected file, {protectedPath}: the repair is refused");
             return ValidatePullRequestRunner.Finish(task, trace, TaskResult.Failed, "the agent changed a protected file");
@@ -176,16 +182,20 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
     }
 
     // The files the agent changed, as git sees them (a rename counts as the deletion of the old path and the creation of the new one)
-    private async Task<IReadOnlyList<string>?> StagedPathsAsync(RunFolders folders, CancellationToken cancellationToken)
+    private async Task<(IReadOnlyList<string> Paths, string? Error)> StagedPathsAsync(RunFolders folders, CancellationToken cancellationToken)
     {
         var add = await _workspace.GitAsync(folders, folders.Work, ["add", "-A", "--", ".", .. PatchExcludes], network: false, 200, cancellationToken);
         // Written to a file by git and read in full: a long list read from the end of an output would lose its start, where the protected paths sort first
         var names = await _workspace.GitAsync(folders, folders.Work, ["diff", "--cached", "--name-only", "--no-renames", "--no-ext-diff", "--output", folders.PathsFile, "--", ".", .. PatchExcludes], network: false, 200, cancellationToken);
-        if (add.ExitCode != 0 || names.ExitCode != 0 || !File.Exists(folders.PathsFile) || new FileInfo(folders.PathsFile).Length > MaxPatchBytes)
+        if (add.ExitCode != 0 || names.ExitCode != 0 || !File.Exists(folders.PathsFile))
         {
-            return null;
+            return ([], "git could not list what the agent changed");
         }
-        return (await File.ReadAllTextAsync(folders.PathsFile, cancellationToken)).Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (new FileInfo(folders.PathsFile).Length > MaxPatchBytes)
+        {
+            return ([], "the agent changed too many files to be a small repair");
+        }
+        return ((await File.ReadAllTextAsync(folders.PathsFile, cancellationToken)).Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries), null);
     }
 
     // Written to a file outside every mount, in full: what is shown in the trace may be cut, what is applied is not
@@ -200,9 +210,12 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
         return await File.ReadAllTextAsync(folders.PatchFile, cancellationToken);
     }
 
-    // The instructions of the pull request are for whoever reads it, not for the agent: they are taken out of the folder it works in
+    // The instructions of the pull request are for whoever reads it, not for the agent: they are taken out of the folder it works in. So is every link that
+    // leaves the folder (to /proc/self/environ, where the token is, or to anything of the host): what the pull request or its install step made as a link is
+    // not something the agent may read through.
     private static void RemoveInstructions(string work)
     {
+        var root = Path.GetFullPath(work) + Path.DirectorySeparatorChar;
         var pending = new Stack<string>([work]);
         while (pending.Count > 0)
         {
@@ -210,22 +223,45 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
             foreach (var entry in Directory.EnumerateFileSystemEntries(folder))
             {
                 var name = Path.GetFileName(entry);
-                if (Directory.Exists(entry))
+                var info = new FileInfo(entry);
+                if (info.LinkTarget is not null)
+                {
+                    if (LeavesTheFolder(info, root) || InstructionFiles.Contains(name, StringComparer.Ordinal) || InstructionFolders.Contains(name, StringComparer.Ordinal))
+                    {
+                        PullRequestWorkspace.DeleteEntry(entry);
+                    }
+                }
+                else if (Directory.Exists(entry))
                 {
                     if (InstructionFolders.Contains(name, StringComparer.Ordinal))
                     {
-                        Directory.Delete(entry, recursive: true);
+                        PullRequestWorkspace.DeleteEntry(entry);
                     }
-                    else if (name is not ("node_modules" or ".git") && (File.GetAttributes(entry) & FileAttributes.ReparsePoint) == 0)
+                    else if (name is not ("node_modules" or ".git"))
                     {
                         pending.Push(entry);
                     }
                 }
                 else if (InstructionFiles.Contains(name, StringComparer.Ordinal))
                 {
-                    File.Delete(entry);
+                    PullRequestWorkspace.DeleteEntry(entry);
                 }
             }
+        }
+    }
+
+    // Where the link ends, resolved all the way: a link that points back into the folder is harmless, one that goes anywhere else is not
+    private static bool LeavesTheFolder(FileInfo link, string root)
+    {
+        try
+        {
+            var target = link.ResolveLinkTarget(returnFinalTarget: true)?.FullName;
+            return target is null || !(target + Path.DirectorySeparatorChar).StartsWith(root, StringComparison.Ordinal);
+        }
+        catch (IOException)
+        {
+            // A link that cannot be resolved (a loop, a missing target) is not one to keep
+            return true;
         }
     }
 
@@ -246,9 +282,9 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
 
     private List<string> AgentArguments(TaskSpec task, RunFolders folders, string container, StepsOutcome before)
     {
-        // A marker that is different for each run, and that the output cannot contain: the output of the failing step is written by whoever wrote the pull request
+        // A marker that is different for each run, so that the output (written by whoever wrote the pull request) cannot guess it and end the data early
         var marker = $"OUTPUT-{Guid.NewGuid():N}";
-        var output = (before.FailedOutput ?? string.Empty).Replace(marker, string.Empty, StringComparison.Ordinal);
+        var output = before.FailedOutput ?? string.Empty;
         var prompt = repair.Prompt
             .Replace("{repository}", task.Repository, StringComparison.Ordinal)
             .Replace("{number}", task.PullRequest.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal)

@@ -94,7 +94,7 @@ public sealed record TaskOptions
     public bool RequireSecondFactor { get; init; } = true;
 
     /// <summary>The most lines a run may hold, and the longest line: an executor that was taken over cannot fill the store.</summary>
-    public int MaxEventsPerRun { get; init; } = 500;
+    public int MaxEventsPerRun { get; init; } = TaskLimits.MaxEventsPerRun;
 
     public int MaxEventDetail { get; init; } = TaskLimits.MaxEventDetail;
 

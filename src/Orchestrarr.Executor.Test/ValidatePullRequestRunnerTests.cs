@@ -30,6 +30,7 @@ public sealed class ValidatePullRequestRunnerTests : IDisposable
 
     private ValidationOptions Options(params ValidationStep[] steps) => new()
     {
+        Workshop = true,
         WorkRoot = _work,
         GitTokenFile = _tokenFile,
         Profiles = [new ValidationProfile { Repositories = ["example/*"], Image = "node:22-alpine", Steps = steps.Length > 0 ? steps : [Install, Tests] }],
@@ -76,7 +77,8 @@ public sealed class ValidatePullRequestRunnerTests : IDisposable
         git.Where(call => call != fetch).Should().OnlyContain(call => !call.Environment.ContainsKey("GIT_CONFIG_KEY_0"), "only the fetch carries the token");
         git.Should().OnlyContain(call => call.Environment["GIT_TERMINAL_PROMPT"] == "0" && call.Environment["GIT_CONFIG_NOSYSTEM"] == "1" && call.Environment["GIT_CONFIG_GLOBAL"] == "/dev/null");
         git.SelectMany(call => call.Arguments).Should().NotContain(argument => argument.Contains("the-secret-token"));
-        _processes.Calls.IndexOf(git.Single(call => call.Arguments.Contains("rev-parse"))).Should().BeLessThan(_processes.Calls.FindIndex(call => call.File == "docker"));
+        var calls = _processes.Calls.ToList();
+        calls.IndexOf(git.Single(call => call.Arguments.Contains("rev-parse"))).Should().BeLessThan(calls.FindIndex(call => call.File == "docker"));
     }
 
     [Fact]
@@ -283,10 +285,7 @@ public sealed class ValidatePullRequestRunnerTests : IDisposable
         _processes.Hang(IsTestStep);
         using var stop = new CancellationTokenSource();
         var run = new ValidatePullRequestRunner(Options(), _processes).RunAsync(Spec(), Trace(), stop.Token).AsTask();
-        while (!_processes.Calls.Any(IsTestStep))
-        {
-            await Task.Delay(10, Ct);
-        }
+        await _processes.WaitForCallAsync(IsTestStep, Ct);
 
         await stop.CancelAsync();
 

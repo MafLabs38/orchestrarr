@@ -57,5 +57,8 @@ public sealed record RepairOptions
         + "step of the validation passes again and the behaviour stays the same. You cannot run commands: read the code, edit it, and the executor will run the "
         + "steps again itself. You may not change these files: {protected}. Do not commit. Answer in at most four lines: what you changed and why.\n<<<{marker}\n{output}\n{marker}>>>";
 
+    /// <summary>Whether a change to this path (as git writes it, from the root of the repository) is one the agent may not make.</summary>
+    public bool IsProtected(string path) => ProtectedPaths.Any(pattern => TaskShape.Matches(pattern, path));
+
     public bool IsConfigured => Image.Length > 0 && TokenFile.Length > 0;
 }

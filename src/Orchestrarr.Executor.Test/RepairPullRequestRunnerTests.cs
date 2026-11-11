@@ -35,6 +35,7 @@ public sealed class RepairPullRequestRunnerTests : IDisposable
 
     private ValidationOptions Validation() => new()
     {
+        Workshop = true,
         WorkRoot = _work,
         GitTokenFile = _gitToken,
         Profiles = [new ValidationProfile { Repositories = ["example/*"], Image = "node:22-alpine", Steps = [new ValidationStep { Name = "npm test", Command = "npm test" }] }],
@@ -259,22 +260,10 @@ public sealed class RepairPullRequestRunnerTests : IDisposable
     }
 
     [Theory]
-    [InlineData("package.json")]
     [InlineData("web/package.json")]
-    [InlineData("yarn.lock")]
-    [InlineData("server/package-lock.json")]
-    [InlineData("test/api.test.js")]
-    [InlineData("server/test/api.js")]
     [InlineData("src/__tests__/app.js")]
-    [InlineData("src/app.spec.ts")]
-    [InlineData("jest.config.js")]
-    [InlineData("web/vitest.config.ts")]
     [InlineData(".github/workflows/ci.yml")]
-    [InlineData("Dockerfile")]
-    [InlineData("deploy/Dockerfile.prod")]
-    [InlineData(".gitattributes")]
-    [InlineData(".npmrc")]
-    public async Task An_agent_that_changes_a_protected_file_anywhere_has_not_repaired_anything_and_nothing_is_validated_again(string path)
+    public async Task An_agent_that_changes_a_protected_file_has_not_repaired_anything_and_nothing_is_validated_again(string path)
     {
         FailsThenPasses();
         AgentChanges(path);
@@ -284,6 +273,36 @@ public sealed class RepairPullRequestRunnerTests : IDisposable
         outcome.Result.Should().Be(TaskResult.Failed);
         outcome.Reason.Should().Be("the agent changed a protected file");
         _processes.Calls.Count(IsTestStep).Should().Be(1);
+    }
+
+    [Theory]
+    [InlineData("package.json", true)]
+    [InlineData("web/package.json", true)]
+    [InlineData("yarn.lock", true)]
+    [InlineData("server/package-lock.json", true)]
+    [InlineData("test/api.test.js", true)]
+    [InlineData("server/test/api.js", true)]
+    [InlineData("src/__tests__/app.js", true)]
+    [InlineData("src/app.spec.ts", true)]
+    [InlineData("jest.config.js", true)]
+    [InlineData("web/vitest.config.ts", true)]
+    [InlineData("web/vite.config.ts", true)]
+    [InlineData("pyproject.toml", true)]
+    [InlineData("src/App.csproj", true)]
+    [InlineData(".github/workflows/ci.yml", true)]
+    [InlineData("Dockerfile", true)]
+    [InlineData("deploy/Dockerfile.prod", true)]
+    [InlineData(".gitattributes", true)]
+    [InlineData(".npmrc", true)]
+    [InlineData("src/server.js", false)]
+    [InlineData("src/contest/app.js", false)]
+    [InlineData("docs/package.json.md", false)]
+    [InlineData("latest.js", false)]
+    [InlineData("src/specs/x.js", false)]
+    [InlineData("README.md", false)]
+    public void A_path_is_protected_wherever_it_sits_and_a_look_alike_is_not(string path, bool expected)
+    {
+        Repair().IsProtected(path).Should().Be(expected);
     }
 
     [Fact]
@@ -497,10 +516,7 @@ public sealed class RepairPullRequestRunnerTests : IDisposable
         _processes.Hang(IsAgent);
         using var stop = new CancellationTokenSource();
         var run = new RepairPullRequestRunner(Validation(), Repair(), _processes).RunAsync(Spec(), new RunTrace(Guid.NewGuid(), "0", _world.Time, _world.Store), stop.Token).AsTask();
-        while (!_processes.Calls.Any(IsAgent))
-        {
-            await Task.Delay(10, Ct);
-        }
+        await _processes.WaitForCallAsync(IsAgent, Ct);
 
         await stop.CancelAsync();
 
@@ -518,13 +534,17 @@ public sealed class RepairPullRequestRunnerTests : IDisposable
             string Git(params string[] arguments)
             {
                 var start = new System.Diagnostics.ProcessStartInfo("git") { WorkingDirectory = repo, RedirectStandardOutput = true, RedirectStandardError = true };
+                start.Environment["GIT_CONFIG_GLOBAL"] = "/dev/null";
+                start.Environment["GIT_CONFIG_NOSYSTEM"] = "1";
                 foreach (var argument in new[] { "-c", "user.name=t", "-c", "user.email=t@example.test" }.Concat(arguments))
                 {
                     start.ArgumentList.Add(argument);
                 }
                 using var process = System.Diagnostics.Process.Start(start)!;
                 var output = process.StandardOutput.ReadToEnd();
+                var error = process.StandardError.ReadToEnd();
                 process.WaitForExit();
+                process.ExitCode.Should().Be(0, $"git {string.Join(' ', arguments)} said: {error}");
                 return output;
             }
 
@@ -546,5 +566,129 @@ public sealed class RepairPullRequestRunnerTests : IDisposable
         {
             Directory.Delete(repo, recursive: true);
         }
+    }
+
+    [Fact]
+    public void The_trace_of_a_long_run_keeps_room_for_the_end_of_each_task_and_the_patch()
+    {
+        var sent = new List<RunEvent>();
+        var traced = new RunTrace(Guid.NewGuid(), "0", _world.Time, _world.Store, sent.Add);
+        var task = Guid.NewGuid();
+        for (var index = 0; index < TaskLimits.MaxEventsPerRun + 50; index++)
+        {
+            traced.Add(RunEvents.TaskStep, task, "a step");
+        }
+        traced.Add(RunEvents.TaskPatch, task, "the patch");
+        traced.Add(RunEvents.TaskPassed, task, "repaired");
+        traced.Add(RunEvents.RunCompleted, null, "1 tasks");
+
+        traced.Events.Count.Should().BeLessThanOrEqualTo(TaskLimits.MaxEventsPerRun);
+        traced.Events.Count(line => line.Type == RunEvents.TraceCut).Should().Be(1);
+        traced.Events.TakeLast(3).Select(line => line.Type).Should().Equal(RunEvents.TaskPatch, RunEvents.TaskPassed, RunEvents.RunCompleted);
+        sent.Should().Equal(traced.Events, "what is told to the listener is what is in the trace, the cut line included");
+        RunEvent.Continues("0", 0, traced.Events).Should().BeTrue("the chain is unbroken");
+    }
+
+    [Fact]
+    public async Task A_link_that_leaves_the_folder_or_names_an_instruction_is_removed_before_the_agent_and_what_it_points_at_is_untouched()
+    {
+        FailsThenPasses();
+        AgentChanges();
+        var outside = Directory.CreateTempSubdirectory("orchestrarr-outside-").FullName;
+        await File.WriteAllTextAsync(Path.Combine(outside, "secret.txt"), "keep me", Ct);
+        _processes.Script(IsInit, new ProcessResult(0, false, string.Empty), call =>
+        {
+            var work = call.Arguments[^1];
+            Directory.CreateDirectory(Path.Combine(work, "src"));
+            File.WriteAllText(Path.Combine(work, "src", "real.js"), "code");
+            File.CreateSymbolicLink(Path.Combine(work, "environ"), "/proc/self/environ");
+            File.CreateSymbolicLink(Path.Combine(work, "src", "outside-dir"), outside);
+            File.CreateSymbolicLink(Path.Combine(work, ".claude"), outside);
+            File.CreateSymbolicLink(Path.Combine(work, "src", "inside"), Path.Combine(work, "src", "real.js"));
+        });
+        var seen = new List<string>();
+        _processes.Script(IsAgent, new ProcessResult(0, false, string.Join('\n', AgentStream("src/server.js"))), call =>
+            seen.AddRange(Directory.EnumerateFileSystemEntries(call.MountedWork!, "*", SearchOption.AllDirectories).Select(path => Path.GetRelativePath(call.MountedWork!, path))));
+        try
+        {
+            await Run();
+
+            seen.Should().Contain("src/real.js").And.Contain("src/inside", "a link that stays in the folder is harmless").And.NotContain(["environ", "src/outside-dir", ".claude"]);
+            (await File.ReadAllTextAsync(Path.Combine(outside, "secret.txt"), Ct)).Should().Be("keep me", "a link is removed as a link, never followed");
+        }
+        finally
+        {
+            Directory.Delete(outside, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void A_git_entry_that_is_a_link_is_removed_as_a_link_and_the_directory_it_points_at_survives()
+    {
+        var folder = Directory.CreateTempSubdirectory("orchestrarr-link-").FullName;
+        var target = Directory.CreateTempSubdirectory("orchestrarr-target-").FullName;
+        try
+        {
+            File.WriteAllText(Path.Combine(target, "important"), "keep");
+            Directory.CreateSymbolicLink(Path.Combine(folder, ".git"), target);
+
+            PullRequestWorkspace.RemoveGitEntry(folder);
+
+            Directory.Exists(Path.Combine(folder, ".git")).Should().BeFalse();
+            File.Exists(Path.Combine(target, "important")).Should().BeTrue();
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+            Directory.Delete(target, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task A_git_that_cannot_list_the_changes_or_a_list_too_large_is_said_and_is_not_taken_for_no_change()
+    {
+        FailsThenPasses();
+        AgentChanges();
+        _processes.Script(call => call.File == "git" && call.Arguments.Contains("add"), new ProcessResult(1, false, "fatal: unable to index file"));
+
+        var (outcome, _) = await Run();
+
+        outcome.Result.Should().Be(TaskResult.Failed);
+        outcome.Reason.Should().Be("git could not list what the agent changed");
+    }
+
+    [Fact]
+    public async Task The_patch_is_applied_with_the_git_directory_given_in_the_folder_of_the_clean_tree_so_that_files_named_like_a_repository_are_never_one()
+    {
+        FailsThenPasses();
+        AgentChanges();
+
+        await Run();
+
+        var apply = _processes.Calls.Single(IsApply);
+        apply.Arguments.Should().Contain("--git-dir").And.Contain("--work-tree").And.Contain("core.hooksPath=/dev/null");
+        apply.WorkingDirectory.Should().Be(apply.After("--work-tree"));
+        apply.Environment["GIT_CEILING_DIRECTORIES"].Should().Be(_work);
+    }
+
+    [Fact]
+    public void Validation_is_a_dry_run_unless_the_host_is_declared_a_workshop()
+    {
+        var notDeclared = Validation() with { Workshop = false };
+
+        ExecutorProgram.RunnersFor(new ExecutorOptions { Validation = notDeclared, Repair = Repair() }, _processes).Select(runner => runner.GetType()).Should().Equal(typeof(DryRunTaskRunner), typeof(DryRunTaskRunner));
+    }
+
+    [Theory]
+    [InlineData(true, null, true)]
+    [InlineData(true, "Production", true)]
+    [InlineData(false, "Development", true)]
+    [InlineData(false, "Testing", true)]
+    [InlineData(false, "Production", false)]
+    [InlineData(false, null, false)]
+    [InlineData(false, "Staging", false)]
+    public void The_code_of_the_second_factor_may_be_off_on_an_executor_only_in_development_or_testing(bool require, string? environment, bool allowed)
+    {
+        (ExecutorProgram.RelaxationRefusal(new ExecutorOptions { RequireSecondFactor = require }, environment) is null).Should().Be(allowed);
     }
 }

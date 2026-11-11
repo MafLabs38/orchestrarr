@@ -92,18 +92,53 @@ public sealed class RunTrace
         return detail.Length > TaskLimits.MaxEventDetail ? "…" + detail[^(TaskLimits.MaxEventDetail - 1)..] : detail;
     }
 
+    // What must reach the control plane even when the trace is long: where each task ended, the patch, the end of the run
+    private static readonly HashSet<string> Essential =
+    [
+        RunEvents.Stopped, RunEvents.TaskPassed, RunEvents.TaskFailed, RunEvents.TaskRefused, RunEvents.TaskSkipped, RunEvents.TaskPatch, RunEvents.RunCompleted, RunEvents.RunRefused,
+    ];
+
     public void Add(string type, Guid? taskId = null, string? detail = null)
     {
-        RunEvent line;
+        RunEvent? cut = null;
+        RunEvent? line = null;
         lock (_gate)
         {
-            line = RunEvent.Create(_previous, _events.Count + 1L, _time.GetUtcNow(), type, taskId, Cut(detail));
-            _store.AppendTrace(_runId, _batchId, line);
-            _events.Add(line);
-            _previous = line.Hash;
+            // The control plane refuses a trace past its limit, and a refused trace loses the end of the run, patch included. Past the budget, the lines that
+            // only tell how a step went are left out (the executor keeps them in its own file), one line says so, and what must arrive still does.
+            if (_events.Count >= TaskLimits.MaxEventsPerRun - TaskLimits.EventsKeptForTheEnd && !Essential.Contains(type))
+            {
+                if (!_cut)
+                {
+                    _cut = true;
+                    cut = AppendLocked(RunEvents.TraceCut, null, "the trace is long: the lines that only tell how a step went are no longer sent; where each task ended and the patch still are");
+                }
+            }
+            else
+            {
+                line = AppendLocked(type, taskId, detail);
+            }
         }
         // Told outside the lock: whoever listens may take its time (it sends the line to the control plane)
-        _onAdded?.Invoke(line);
+        if (cut is not null)
+        {
+            _onAdded?.Invoke(cut);
+        }
+        if (line is not null)
+        {
+            _onAdded?.Invoke(line);
+        }
+    }
+
+    private bool _cut;
+
+    private RunEvent AppendLocked(string type, Guid? taskId, string? detail)
+    {
+        var line = RunEvent.Create(_previous, _events.Count + 1L, _time.GetUtcNow(), type, taskId, Cut(detail));
+        _store.AppendTrace(_runId, _batchId, line);
+        _events.Add(line);
+        _previous = line.Hash;
+        return line;
     }
 }
 

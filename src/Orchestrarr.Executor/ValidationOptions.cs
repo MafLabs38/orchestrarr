@@ -28,6 +28,12 @@ public sealed record ValidationProfile
 /// </summary>
 public sealed record ValidationOptions
 {
+    /// <summary>
+    /// This executor runs on a host that is a workshop: it may run the code of pull requests in containers, from a user that can start any container. It is
+    /// an explicit choice (D-25: the workshop is apart from the target environments), never a default; without it the validation is not configured.
+    /// </summary>
+    public bool Workshop { get; init; }
+
     /// <summary>Where the folders of the runs are made (and removed). Empty: validation is not configured and the dry run stays.</summary>
     public string WorkRoot { get; init; } = string.Empty;
 
@@ -60,5 +66,5 @@ public sealed record ValidationOptions
 
     public IReadOnlyList<ValidationProfile> Profiles { get; init; } = [];
 
-    public bool IsConfigured => WorkRoot.Length > 0 && Profiles.Count > 0;
+    public bool IsConfigured => Workshop && WorkRoot.Length > 0 && Profiles.Count > 0;
 }

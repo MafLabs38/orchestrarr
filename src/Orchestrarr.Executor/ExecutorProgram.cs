@@ -40,7 +40,7 @@ public static class ExecutorProgram
                 "operators" => Commands(options, io).ListOperators(),
                 "acts" => Commands(options, io).ListActs(),
                 "delegations" => await DelegationsAsync(args, named, Commands(options, io), io, cancel.Token),
-                "run" => await HostAsync(options, cancel.Token),
+                "run" => RelaxationRefusal(options, Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT") ?? Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")) is { } refusal ? Fail(io, refusal) : await HostAsync(options, cancel.Token),
                 _ => Fail(io, "Unknown command. Known: run, enroll-operator, operators, acts, delegations."),
             };
         }
@@ -49,6 +49,15 @@ public static class ExecutorProgram
             return Fail(io, failure.Message);
         }
     }
+
+    /// <summary>
+    /// The code of the second factor may be off on an executor only in Development or Testing, as it may be on the host (ADR 0023): an executor that is run
+    /// with no environment named, or as Production (the default), refuses to start without it. A reason, or null when it may start.
+    /// </summary>
+    internal static string? RelaxationRefusal(ExecutorOptions options, string? environment) =>
+        options.RequireSecondFactor || environment is "Development" or "Testing"
+            ? null
+            : "Executor:RequireSecondFactor=false is for development and tests: set DOTNET_ENVIRONMENT=Development (or Testing) to run without the code, or ask for it.";
 
     private static int Fail(IConsoleIo io, string message)
     {

@@ -98,7 +98,7 @@ app.UseRateLimiter();
 // For a probe of the deployment: it says the host is up and nothing else
 app.MapGet("/health", () => Results.Ok(new HealthStatus("ok"))).AllowAnonymous();
 
-// The decision cards waiting for the operator, and the approvals recorded for the launcher. Approving records a decision; nothing runs.
+// The decision cards waiting for the operator, and the approvals recorded for the launcher. Approving records a decision; the executor takes it from the queue.
 api.MapGet("/work-items", async (WorkItemCatalog catalog, bool? refresh, CancellationToken ct) =>
     Results.Ok(await catalog.GetAsync(refresh ?? false, ct))).RequireAuthorization(Permissions.FleetRead);
 

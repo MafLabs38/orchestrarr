@@ -144,7 +144,9 @@ public sealed class ExecutorWorker(IControlPlane controlPlane, ExecutorPipeline 
                     }
                     try
                     {
-                        failures = await controlPlane.GlobalStopEngagedAsync(CancellationToken.None) ? FailuresBeforeStop : 0;
+                        // A request that hangs is a failure after a few seconds, not after the 30 of the client: three of them make a stop
+                        using var limit = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                        failures = await controlPlane.GlobalStopEngagedAsync(limit.Token) ? FailuresBeforeStop : 0;
                     }
                     catch (Exception failure)
                     {
@@ -198,7 +200,7 @@ public sealed class ExecutorWorker(IControlPlane controlPlane, ExecutorPipeline 
                 while (!_failed)
                 {
                     await Task.Delay(interval, stop);
-                    await FlushAsync(CancellationToken.None);
+                    await FlushAsync();
                 }
             }
             catch (OperationCanceledException)
@@ -207,7 +209,7 @@ public sealed class ExecutorWorker(IControlPlane controlPlane, ExecutorPipeline 
             }
         }
 
-        private async Task FlushAsync(CancellationToken cancellationToken)
+        private async Task FlushAsync()
         {
             List<RunEvent> chunk;
             lock (_gate)
@@ -220,7 +222,8 @@ public sealed class ExecutorWorker(IControlPlane controlPlane, ExecutorPipeline 
             }
             try
             {
-                if (await controlPlane.AppendEventsAsync(batchId, chunk, cancellationToken) != QueueResult.Ok)
+                using var limit = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                if (await controlPlane.AppendEventsAsync(batchId, chunk, limit.Token) != QueueResult.Ok)
                 {
                     _failed = true;
                     return;
