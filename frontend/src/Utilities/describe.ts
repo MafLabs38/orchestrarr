@@ -169,6 +169,8 @@ const taskResults = {
   dryRun: 'TaskResultDryRun',
   refused: 'TaskResultRefused',
   skipped: 'TaskResultSkipped',
+  passed: 'TaskResultPassed',
+  failed: 'TaskResultFailed',
 } as const satisfies Record<TaskResult, string>;
 
 export function describeTaskResult(result: TaskResult | null): string {
@@ -184,6 +186,10 @@ const runEvents = {
   'run.rights': 'RunEventRights',
   'run.double-control': 'RunEventDoubleControl',
   'task.dry-run': 'RunEventTaskDryRun',
+  'task.started': 'RunEventTaskStarted',
+  'task.step': 'RunEventTaskStep',
+  'task.passed': 'RunEventTaskPassed',
+  'task.failed': 'RunEventTaskFailed',
   'task.refused': 'RunEventTaskRefused',
   'task.skipped': 'RunEventTaskSkipped',
   'run.completed': 'RunEventCompleted',

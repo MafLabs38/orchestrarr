@@ -96,7 +96,7 @@ describe('Runs', () => {
 
     renderWithProviders(<Runs />);
 
-    expect(await screen.findByText('Done (dry run)')).toBeInTheDocument();
+    expect(await screen.findByText('Done')).toBeInTheDocument();
     expect(screen.getByText('Refused')).toBeInTheDocument();
     expect(screen.getByText('Waiting for the executor')).toBeInTheDocument();
     expect(screen.getByText('Refused: the code of the second factor was not accepted')).toBeInTheDocument();
@@ -154,6 +154,39 @@ describe('RunDetail', () => {
     expect(screen.getByText('aaaaaaaa')).toHaveAttribute('title', 'aaaaaaaa11111111');
     expect(screen.getByText('something.new')).toBeInTheDocument();
     expect(screen.getByText(/breaks the chain/)).toBeInTheDocument();
+  });
+
+  it('shows a validation that ran: the result of the task and the end of each step with its line breaks', async () => {
+    const types = ['task.started', 'task.step', 'task.failed'];
+    const details = [
+      'validating example/shop#7 at ccccccc in node:22-alpine',
+      'npm test: failed, exit 1, 2 s\n1 failing\n  expected 200',
+      'npm test failed (exit 1)',
+    ];
+    stubApi({
+      '/api/v1/runs/': {
+        ...detail,
+        tasks: detail.tasks.map((task, index) =>
+          index === 0
+            ? { ...task, result: 'passed', reason: '2 steps passed' }
+            : { ...task, result: 'failed', reason: 'npm test failed (exit 1)' },
+        ),
+        events: detail.events.map((event, index) => ({
+          ...event,
+          type: types[index] ?? event.type,
+          detail: details[index] ?? event.detail,
+        })),
+      },
+    });
+
+    renderAt();
+
+    expect(await screen.findByText('passed')).toBeInTheDocument();
+    expect(screen.getByText('failed')).toBeInTheDocument();
+    expect(screen.getByText('Task started')).toBeInTheDocument();
+    expect(screen.getByText('Step')).toBeInTheDocument();
+    expect(screen.getByText('Task failed')).toBeInTheDocument();
+    expect(screen.getByText(/1 failing/)).toHaveTextContent('npm test: failed, exit 1, 2 s 1 failing expected 200');
   });
 
   it('says who approved it and which executor took it', async () => {

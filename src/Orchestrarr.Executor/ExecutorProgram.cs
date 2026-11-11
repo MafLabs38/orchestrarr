@@ -102,7 +102,9 @@ public static class ExecutorProgram
         builder.Services.AddSingleton(provider => new SecondFactorGuard(provider.GetRequiredService<ExecutorStore>(), provider.GetRequiredService<ExecutorStore>(), provider.GetRequiredService<TimeProvider>(), SecondFactor()));
         // With no journal configured the double control has nothing to read, so every batch is refused: that is the safe state
         builder.Services.AddSingleton<IApprovalJournalReader>(new FileApprovalJournal(options.JournalPath.Length > 0 ? options.JournalPath : Path.Combine(AppContext.BaseDirectory, "no-journal.jsonl")));
-        builder.Services.AddSingleton<IEnumerable<ITaskRunner>>([new DryRunTaskRunner(TaskKind.ValidatePullRequest), new DryRunTaskRunner(TaskKind.MergePullRequest)]);
+        // Validating runs for real when profiles are configured; merging stays a dry run (no write power yet)
+        ITaskRunner validate = options.Validation.IsConfigured ? new ValidatePullRequestRunner(options.Validation, new SystemProcessRunner()) : new DryRunTaskRunner(TaskKind.ValidatePullRequest);
+        builder.Services.AddSingleton<IEnumerable<ITaskRunner>>([validate, new DryRunTaskRunner(TaskKind.MergePullRequest)]);
         builder.Services.AddSingleton(provider => new ExecutorPipeline(
             provider.GetRequiredService<ExecutorStore>(),
             provider.GetRequiredService<SecondFactorGuard>(),

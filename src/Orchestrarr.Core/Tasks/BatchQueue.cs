@@ -90,7 +90,7 @@ public sealed record TaskOptions
     /// <summary>The most lines a run may hold, and the longest line: an executor that was taken over cannot fill the store.</summary>
     public int MaxEventsPerRun { get; init; } = 500;
 
-    public int MaxEventDetail { get; init; } = 500;
+    public int MaxEventDetail { get; init; } = TaskLimits.MaxEventDetail;
 
     /// <summary>How often the host ends the batches that are past their time, whether or not an executor asks for work.</summary>
     public TimeSpan ExpirySweepInterval { get; init; } = TimeSpan.FromSeconds(15);

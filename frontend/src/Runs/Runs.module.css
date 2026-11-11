@@ -63,6 +63,9 @@
 
 .eventDetail {
   overflow-wrap: anywhere;
+
+  /* The end of a command's output has its line breaks */
+  white-space: pre-wrap;
 }
 
 .hash {

@@ -42,6 +42,9 @@ public sealed record ExecutorOptions
 
     public RightsOptions Rights { get; init; } = new();
 
+    /// <summary>The real validation of pull requests. Not configured: validating stays a dry run.</summary>
+    public ValidationOptions Validation { get; init; } = new();
+
     /// <summary>The executor's own file: the operators' secrets, the codes used, the batches run, the delegations and the trace of the runs.</summary>
     public string DataPath { get; init; } = "executor.db";
 

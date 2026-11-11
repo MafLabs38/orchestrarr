@@ -40,9 +40,13 @@ public sealed class RunTrace
 
     public IReadOnlyList<RunEvent> Events => _events;
 
+    // The end of a long line is what matters (the last lines of an output): the start is dropped, and the cut is visible
+    private static string? Cut(string? detail) =>
+        detail is { Length: > TaskLimits.MaxEventDetail } ? "…" + detail[^(TaskLimits.MaxEventDetail - 1)..] : detail;
+
     public void Add(string type, Guid? taskId = null, string? detail = null)
     {
-        var line = RunEvent.Create(_previous, _events.Count + 1L, _time.GetUtcNow(), type, taskId, detail);
+        var line = RunEvent.Create(_previous, _events.Count + 1L, _time.GetUtcNow(), type, taskId, Cut(detail));
         _store.AppendTrace(_runId, _batchId, line);
         _events.Add(line);
         _previous = line.Hash;
@@ -132,7 +136,7 @@ public sealed class ExecutorPipeline(
             {
                 var outcome = await runner.RunAsync(task, trace, cancellationToken);
                 outcomes.Add(outcome);
-                if (outcome.Result == TaskResult.Refused)
+                if (outcome.Result is TaskResult.Refused or TaskResult.Failed)
                 {
                     stoppedApprovals.Add(task.ApprovalId);
                 }

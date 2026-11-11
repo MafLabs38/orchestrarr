@@ -50,7 +50,7 @@ describe('Queue', () => {
 
     expect(await screen.findByText('Waiting for the executor')).toBeInTheDocument();
     expect(screen.getByText('With the executor')).toBeInTheDocument();
-    expect(screen.getByText('Dry run done: nothing was started')).toBeInTheDocument();
+    expect(screen.getByText('Run ended: see the run')).toBeInTheDocument();
     expect(screen.getByText('Refused by the executor')).toBeInTheDocument();
     expect(screen.getByText('Expired: approve again')).toBeInTheDocument();
   });

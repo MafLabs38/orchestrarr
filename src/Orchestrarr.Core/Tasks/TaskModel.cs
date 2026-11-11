@@ -34,6 +34,12 @@ public enum TaskResult
     DryRun,
     Refused,
     Skipped,
+
+    /// <summary>The task ran and every check passed (a validation: the build and the tests are green).</summary>
+    Passed,
+
+    /// <summary>The task ran and a check did not pass. It is a result, not an error: what follows for the same approval does not run.</summary>
+    Failed,
 }
 
 /// <summary>Why the executor refused a batch or a task. A code, never a sentence (an attacker learns nothing from the difference).</summary>
@@ -58,6 +64,12 @@ public static class TaskLimits
 {
     /// <summary>The most tasks one batch may hold (two per pull request when validating and merging).</summary>
     public const int MaxTasksPerBatch = 200;
+
+    /// <summary>
+    /// The most characters of the detail of one trace line. A line that carries the end of a command's output needs room; a longer one is cut by the
+    /// executor before it is sent (a trace the control plane refuses as a whole is worse than a cut line).
+    /// </summary>
+    public const int MaxEventDetail = 4000;
 }
 
 /// <summary>
@@ -169,6 +181,10 @@ public static class RunEvents
     public const string RightsChecked = "run.rights";
     public const string DoubleControl = "run.double-control";
     public const string TaskDryRun = "task.dry-run";
+    public const string TaskStarted = "task.started";
+    public const string TaskStep = "task.step";
+    public const string TaskPassed = "task.passed";
+    public const string TaskFailed = "task.failed";
     public const string TaskRefused = "task.refused";
     public const string TaskSkipped = "task.skipped";
     public const string RunCompleted = "run.completed";
