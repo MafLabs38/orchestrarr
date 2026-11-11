@@ -338,7 +338,7 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
             .Replace("{repository}", task.Repository, StringComparison.Ordinal)
             .Replace("{number}", task.PullRequest.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal)
             .Replace("{step}", before.FailedStep ?? "validation", StringComparison.Ordinal)
-            .Replace("{protected}", string.Join(", ", repair.ProtectedPaths), StringComparison.Ordinal)
+            .Replace("{protected}", repair.ProtectedSummary, StringComparison.Ordinal)
             .Replace("{marker}", marker, StringComparison.Ordinal)
             .Replace("{output}", output, StringComparison.Ordinal);
         // The only secret of the container is the token of the subscription, passed by name: its value is in the environment of the docker client only
