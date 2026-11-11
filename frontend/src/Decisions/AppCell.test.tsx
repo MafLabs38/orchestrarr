@@ -5,10 +5,10 @@ import AppCell, { initialsOf, shortName } from './AppCell';
 
 describe('AppCell', () => {
   it('shows the repository without its owner and gives the full name when the pointer rests on it', () => {
-    render(<AppCell application="MafLabs38/orchestrarr-testbed" />);
+    render(<AppCell application="example/shop" />);
 
-    expect(screen.getByText('orchestrarr-testbed')).toBeInTheDocument();
-    expect(screen.getByTitle('MafLabs38/orchestrarr-testbed')).toBeInTheDocument();
+    expect(screen.getByText('shop')).toBeInTheDocument();
+    expect(screen.getByTitle('example/shop')).toBeInTheDocument();
   });
 
   it.each([

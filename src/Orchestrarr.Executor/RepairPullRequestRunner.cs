@@ -278,7 +278,8 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
 
     private static void AddPatch(TaskSpec task, RunTrace trace, (string Text, long Bytes, string Digest) written, int files)
     {
-        var patch = written.Text;
+        // Masked before it is cut into pieces of the trace: a token that falls on the edge of two pieces would not be found in either
+        var patch = trace.Masked(written.Text);
         var chunks = Math.Min(MaxPatchChunks, (patch.Length + PatchChunk - 1) / PatchChunk);
         // What identifies the whole patch, shown or not: the next step (applying it) binds an approval to these bytes
         trace.Add(RunEvents.TaskPatch, task.Id, $"patch: {written.Bytes.ToString(CultureInfo.InvariantCulture)} bytes, sha256 {written.Digest}");

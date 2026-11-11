@@ -78,6 +78,20 @@ public sealed class RunTrace
         }
     }
 
+    /// <summary>The text with every registered secret masked, before it is cut into pieces: a secret split between two pieces would no longer be found.</summary>
+    public string Masked(string text)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        lock (_gate)
+        {
+            foreach (var secret in _secrets)
+            {
+                text = text.Replace(secret, "***", StringComparison.Ordinal);
+            }
+        }
+        return text;
+    }
+
     // The end of a long line is what matters (the last lines of an output): the start is dropped, and the cut is visible
     private string? Cut(string? detail)
     {

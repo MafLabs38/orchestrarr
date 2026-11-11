@@ -113,6 +113,20 @@ public sealed class RepairPullRequestRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task A_token_that_falls_on_the_edge_of_two_pieces_of_the_patch_is_masked_before_the_patch_is_cut()
+    {
+        FailsThenPasses();
+        var patch = new string('a', 3490) + SecretToken + new string('b', 200);
+        AgentChanges(patch: patch);
+
+        var (_, trace) = await Run();
+
+        var shown = trace.Events.Where(line => line.Type == RunEvents.TaskPatch).Select(line => line.Detail ?? string.Empty).ToList();
+        shown.Should().NotBeEmpty().And.NotContain(detail => detail.Contains("the-subscr", StringComparison.Ordinal) || detail.Contains("ption-token", StringComparison.Ordinal));
+        string.Concat(shown).Should().Contain("***");
+    }
+
+    [Fact]
     public async Task A_pull_request_that_already_passes_has_nothing_to_repair_and_no_agent_is_started()
     {
         var (outcome, _) = await Run();

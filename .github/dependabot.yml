@@ -28,6 +28,11 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+  # The image that holds the subscription token while a repair runs: its base is pinned by digest, and the bump is proposed here
+  - package-ecosystem: "docker"
+    directory: "/docker/agent"
+    schedule:
+      interval: "weekly"
     # The Node baseline (CI, README, image) changes everywhere at once, as a decision.
     ignore:
       - dependency-name: "node"
