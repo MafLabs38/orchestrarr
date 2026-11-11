@@ -111,6 +111,20 @@ public sealed class ExecutorWorkerTests : IDisposable
     }
 
     [Fact]
+    public async Task A_batch_that_the_control_plane_no_longer_holds_ends_the_task_and_the_poll_tells_it_that_the_executor_is_alive()
+    {
+        var batch = await _world.Approved(ExecutorFixture.Batch(kinds: [TaskKind.ValidatePullRequest]));
+        _controlPlane.ClaimAsync(Arg.Any<ExecutorHello>(), Arg.Any<CancellationToken>()).Returns(new ClaimResult(ClaimStatus.Claimed, new BatchDelivery(batch, _world.CodeAt())));
+        _controlPlane.GlobalStopEngagedAsync(Arg.Any<CancellationToken>()).Returns(false);
+        _controlPlane.AppendEventsAsync(batch.Id, Arg.Is<IReadOnlyList<RunEvent>>(events => events.Count == 0), Arg.Any<CancellationToken>()).Returns(QueueResult.NotYours);
+
+        await Worker(pipeline: _world.Pipeline([new BlockedUntilStopped()]), stopMilliseconds: 20).StepAsync(Ct);
+
+        await _controlPlane.Received(1).CompleteAsync(batch.Id, Arg.Is<BatchOutcome>(outcome => outcome.Tasks.Single().Result == TaskResult.Skipped), Ct);
+        await _controlPlane.Received().AppendEventsAsync(batch.Id, Arg.Is<IReadOnlyList<RunEvent>>(events => events.Count == 0), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task The_global_stop_engaged_while_a_task_runs_ends_the_task_and_the_run_is_reported()
     {
         var batch = await _world.Approved(ExecutorFixture.Batch(kinds: [TaskKind.ValidatePullRequest]));

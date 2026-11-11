@@ -140,6 +140,37 @@ public sealed class SqliteBatchQueueTests : IDisposable
     }
 
     [Fact]
+    public async Task A_send_that_is_all_held_is_taken_and_a_gap_or_an_empty_send_behaves()
+    {
+        var batch = await Queue();
+        await _queue.ClaimAsync("executor-1", Ct);
+        var lines = Chain(batch, RunEvents.Claimed, RunEvents.SecondFactorChecked, RunEvents.RunCompleted);
+        await _queue.AppendEventsAsync(batch.Id, "executor-1", lines[..2], Ct);
+
+        (await _queue.AppendEventsAsync(batch.Id, "executor-1", lines[..2], Ct)).Should().Be(QueueResult.Ok, "all held: nothing added");
+        (await _queue.AppendEventsAsync(batch.Id, "executor-1", [], Ct)).Should().Be(QueueResult.Ok, "an empty send says the executor is alive");
+        (await _queue.AppendEventsAsync(batch.Id, "executor-2", [], Ct)).Should().Be(QueueResult.NotYours);
+        _queue.Find(batch.Id)!.Events.Should().HaveCount(2);
+        var gap = Chain(batch, RunEvents.Claimed, RunEvents.SecondFactorChecked, RunEvents.BatchChecked, RunEvents.RunCompleted);
+        (await _queue.AppendEventsAsync(batch.Id, "executor-1", [gap[3]], Ct)).Should().Be(QueueResult.Invalid, "sequence 4 when two are held");
+    }
+
+    [Fact]
+    public async Task A_refused_send_does_not_renew_the_delivery_and_an_empty_send_does()
+    {
+        var batch = await Queue();
+        await _queue.ClaimAsync("executor-1", Ct);
+        var lines = Chain(batch, RunEvents.Claimed, RunEvents.SecondFactorChecked);
+        _time.Advance(Options.DeliveryTimeout - TimeSpan.FromMinutes(1));
+        (await _queue.AppendEventsAsync(batch.Id, "executor-1", [lines[1]], Ct)).Should().Be(QueueResult.Invalid);
+        _time.Advance(TimeSpan.FromMinutes(2));
+
+        await _queue.ClaimAsync("executor-1", Ct);
+
+        _queue.Find(batch.Id)!.Summary.State.Should().Be(BatchState.Expired, "junk does not keep a batch alive");
+    }
+
+    [Fact]
     public async Task A_run_that_keeps_sending_lines_is_not_expired_however_long_it_lasts()
     {
         var batch = await Queue();

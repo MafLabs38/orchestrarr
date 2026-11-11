@@ -72,7 +72,7 @@ public sealed class ExecutorWorker(IControlPlane controlPlane, ExecutorPipeline 
         using var running = new CancellationTokenSource();
         // The stop is read while the run goes on, not only between tasks: it cancels the task that is running (its runner kills the container)
         using var stopSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var watcher = new StopWatcher(controlPlane, options, logger, stopSource);
+        var watcher = new StopWatcher(controlPlane, options, logger, stopSource, delivery.Batch.Id);
         var flushing = live.RunAsync(TimeSpan.FromMilliseconds(Math.Max(10, options.LiveSendMilliseconds)), running.Token);
         var watching = watcher.RunAsync(TimeSpan.FromMilliseconds(Math.Max(10, options.StopPollMilliseconds)), running.Token);
         PipelineResult result;
@@ -121,7 +121,7 @@ public sealed class ExecutorWorker(IControlPlane controlPlane, ExecutorPipeline 
     /// that the task that is running ends (its runner kills its container) and nothing after it starts. A control plane that cannot be asked three times
     /// in a row counts as a stop engaged: unknown means stopped, as everywhere else in the product.
     /// </summary>
-    private sealed class StopWatcher(IControlPlane controlPlane, ExecutorOptions options, ILogger logger, CancellationTokenSource stopSource)
+    private sealed class StopWatcher(IControlPlane controlPlane, ExecutorOptions options, ILogger logger, CancellationTokenSource stopSource, Guid batchId)
     {
         private const int FailuresBeforeStop = 3;
 
@@ -149,6 +149,13 @@ public sealed class ExecutorWorker(IControlPlane controlPlane, ExecutorPipeline 
                         if (await controlPlane.GlobalStopEngagedAsync(limit.Token))
                         {
                             Engage("the global stop is engaged");
+                            return;
+                        }
+                        // The same poll tells the control plane that this executor is alive (an empty send renews the delivery, whatever the run prints), and learns
+                        // that it no longer holds the batch (it expired, or the stop ended it): a run the host has given up on is not carried on
+                        if (await controlPlane.AppendEventsAsync(batchId, [], limit.Token) is QueueResult.NotYours or QueueResult.NotFound)
+                        {
+                            Engage("the control plane no longer holds this batch for this executor");
                             return;
                         }
                         failures = 0;

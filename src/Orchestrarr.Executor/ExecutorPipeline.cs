@@ -13,7 +13,7 @@ public interface ITaskRunner
 
     /// <summary>
     /// True when the runner only says what it would have done and changes nothing. The default is false: a runner is taken for a real one until it
-    /// says otherwise, because the code of the second factor may be switched off only on an executor whose every runner is a dry run (ADR 0023).
+    /// says otherwise, because the code of the second factor may be switched off only on an executor whose every runner changes nothing outside its sandbox (ADR 0023, ADR 0024); a dry run is the default case of that.
     /// </summary>
     bool IsDryRun => false;
 
@@ -353,6 +353,7 @@ public sealed class ExecutorPipeline(
             || delegation.RevokedAt is not null
             || delegation.ExpiresAt <= now
             || batch.ApproverSubject != $"delegation:{delegation.Id:D}"
+            || delegation.Kind == TaskKind.RepairPullRequest
             || batch.Tasks.Any(task => task.Kind != delegation.Kind || !TaskShape.Matches(delegation.Repository, task.Repository)))
         {
             trace.Add(RunEvents.DelegationChecked, null, "refused: no delegation in force covers this batch");

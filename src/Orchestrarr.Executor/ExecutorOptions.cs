@@ -67,7 +67,7 @@ public sealed record ExecutorOptions
 
     /// <summary>
     /// Whether this executor checks the code of the authenticator. On by default. It can be turned off here only, by the person who runs the executor
-    /// (the control plane cannot ask for it), and the executor then refuses to start unless every runner is a dry run (ADR 0023).
+    /// (the control plane cannot ask for it), and the executor then refuses to start unless every runner changes nothing outside its sandbox (a dry run, a validation or a repair; ADR 0023, ADR 0024) and the environment is Development or Testing.
     /// </summary>
     public bool RequireSecondFactor { get; init; } = true;
 

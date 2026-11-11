@@ -71,7 +71,14 @@ internal static class ExecutorEndpoints
         group.MapGet("/stop", (Orchestrarr.Core.Approvals.IKillSwitchControl killSwitch) => Results.Ok(new StopStatus(killSwitch.Engaged)));
 
         group.MapPost("/runs/{id:guid}/events", async (Guid id, AppendEventsRequest request, HttpContext context, IBatchQueue queue, ILiveNotifier live, CancellationToken ct) =>
-            Answer(await queue.AppendEventsAsync(id, (string)context.Items[ExecutorItem]!, request.Events ?? [], ct), () => live.Publish(LiveTopics.Runs, id.ToString("D"))));
+            Answer(await queue.AppendEventsAsync(id, (string)context.Items[ExecutorItem]!, request.Events ?? [], ct), () =>
+            {
+                // An empty send is the executor saying that it is alive: nothing changed for the screens
+                if (request.Events is { Count: > 0 })
+                {
+                    live.Publish(LiveTopics.Runs, id.ToString("D"));
+                }
+            }));
 
         group.MapPost("/runs/{id:guid}/complete", async (Guid id, CompleteRequest request, HttpContext context, IBatchQueue queue, ILiveNotifier live, CancellationToken ct) =>
             Answer(await queue.CompleteAsync(id, (string)context.Items[ExecutorItem]!, request.Outcome, ct), () =>
