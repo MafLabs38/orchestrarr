@@ -20,6 +20,9 @@ public sealed class ValidatePullRequestRunner(ValidationOptions options, IProces
 
     public TaskKind Kind => TaskKind.ValidatePullRequest;
 
+    // The container is thrown away, nothing is written to the repository: this runner may run on an executor that does not ask for the code (development)
+    public bool ChangesNothing => true;
+
     public async ValueTask<TaskOutcome> RunAsync(TaskSpec task, RunTrace trace, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(task);

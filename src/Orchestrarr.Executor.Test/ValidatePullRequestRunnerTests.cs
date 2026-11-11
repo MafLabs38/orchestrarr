@@ -209,13 +209,30 @@ public sealed class ValidatePullRequestRunnerTests : IDisposable
     }
 
     [Fact]
-    public void A_real_validation_makes_the_executor_ask_for_the_code_of_the_second_factor()
+    public void A_validation_changes_nothing_outside_its_container_so_an_executor_that_only_validates_may_run_without_the_code()
     {
         var runners = new ITaskRunner[] { new ValidatePullRequestRunner(Options(), _processes), new DryRunTaskRunner(TaskKind.MergePullRequest) };
+
+        var pipeline = _world.Pipeline(runners, requireSecondFactor: false);
+
+        pipeline.SecondFactorRequired.Should().BeFalse();
+    }
+
+    [Fact]
+    public void A_runner_that_writes_makes_the_executor_ask_for_the_code_of_the_second_factor()
+    {
+        var runners = new ITaskRunner[] { new ValidatePullRequestRunner(Options(), _processes), new WritingRunner() };
 
         var withoutCode = () => _world.Pipeline(runners, requireSecondFactor: false);
 
         withoutCode.Should().Throw<InvalidOperationException>();
+    }
+
+    private sealed class WritingRunner : ITaskRunner
+    {
+        public TaskKind Kind => TaskKind.MergePullRequest;
+
+        public ValueTask<TaskOutcome> RunAsync(TaskSpec task, RunTrace trace, CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 
     private sealed record Call(string File, IReadOnlyList<string> Arguments, IReadOnlyDictionary<string, string> Environment);

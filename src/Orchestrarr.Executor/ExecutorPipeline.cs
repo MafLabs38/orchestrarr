@@ -17,6 +17,13 @@ public interface ITaskRunner
     /// </summary>
     bool IsDryRun => false;
 
+    /// <summary>
+    /// True when the runner changes nothing outside its own sandbox: a dry run, or a validation that builds and tests in a throwaway container and
+    /// writes nowhere. The code of the second factor may be switched off only while every runner is like this (ADR 0023). The default follows
+    /// <see cref="IsDryRun"/>: a runner is taken for one that changes things until it says otherwise.
+    /// </summary>
+    bool ChangesNothing => IsDryRun;
+
     ValueTask<TaskOutcome> RunAsync(TaskSpec task, RunTrace trace, CancellationToken cancellationToken);
 }
 
@@ -69,7 +76,7 @@ public sealed class ExecutorPipeline(
     string executorName,
     bool requireSecondFactor = true)
 {
-    // Without the code of the second factor nothing stops a taken-over control plane from queueing a task, so it can be switched off only while no runner can change anything
+    // Without the code of the second factor nothing stops a taken-over control plane from queueing a task, so it can be switched off only while no runner can change anything outside its sandbox
     private readonly bool _requireSecondFactor = Resolve(requireSecondFactor, runners);
 
     private readonly Dictionary<TaskKind, ITaskRunner> _runners = runners.ToDictionary(runner => runner.Kind);
@@ -79,9 +86,9 @@ public sealed class ExecutorPipeline(
 
     private static bool Resolve(bool require, IEnumerable<ITaskRunner> runners)
     {
-        if (!require && runners.Any(runner => !runner.IsDryRun))
+        if (!require && runners.Any(runner => !runner.ChangesNothing))
         {
-            throw new InvalidOperationException("The code of the second factor can be switched off only on an executor whose every runner is a dry run.");
+            throw new InvalidOperationException("The code of the second factor can be switched off only on an executor whose every runner changes nothing outside its sandbox (a dry run, or a validation).");
         }
         return require;
     }
@@ -202,7 +209,7 @@ public sealed class ExecutorPipeline(
             if (!_requireSecondFactor)
             {
                 // Development only: the journal, the rights and the time were checked above, the code is not asked for
-                trace.Add(RunEvents.SecondFactorChecked, null, "not required on this executor (development: only dry runs)");
+                trace.Add(RunEvents.SecondFactorChecked, null, "not required on this executor (development: its runners change nothing outside their sandbox)");
                 return null;
             }
             return await CheckSecondFactorAsync(delivery, trace, cancellationToken);
