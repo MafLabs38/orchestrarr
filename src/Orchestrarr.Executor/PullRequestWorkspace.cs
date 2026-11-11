@@ -162,7 +162,11 @@ internal sealed class PullRequestWorkspace(ValidationOptions options, IProcessRu
             if (result.TimedOut)
             {
                 // Stopping the client does not stop the container
-                await KillAsync(container);
+                if (!await KillAsync(container))
+                {
+                    trace.Add(RunEvents.TaskStep, task.Id, $"{title}: the container could not be stopped");
+                    return new StepsOutcome(TaskResult.Refused, "a container could not be stopped");
+                }
                 trace.Add(RunEvents.TaskStep, task.Id, $"{title}: stopped after {StepTimeout().TotalMinutes.ToString(CultureInfo.InvariantCulture)} min\n{result.OutputTail}");
                 return new StepsOutcome(TaskResult.Failed, $"{step.Name} took more than {StepTimeout().TotalMinutes.ToString(CultureInfo.InvariantCulture)} min", step.Name, result.OutputTail);
             }
@@ -246,8 +250,14 @@ internal sealed class PullRequestWorkspace(ValidationOptions options, IProcessRu
         }
     }
 
-    public async Task KillAsync(string container) =>
+    /// <summary>Kills the container and makes sure it is gone: true when it no longer exists, so that nothing of it can still write to the folder it was given.</summary>
+    public async Task<bool> KillAsync(string container)
+    {
         await processes.RunAsync("docker", ["kill", container], null, new Dictionary<string, string>(), TimeSpan.FromSeconds(30), 200, CancellationToken.None);
+        var removed = await processes.RunAsync("docker", ["rm", "-f", container], null, new Dictionary<string, string>(), TimeSpan.FromSeconds(30), 200, CancellationToken.None);
+        // A container that was started with --rm is already gone after the kill: docker then says so
+        return removed.ExitCode == 0 || removed.OutputTail.Contains("No such container", StringComparison.OrdinalIgnoreCase);
+    }
 
     /// <summary>A <c>.git</c> in a work tree is nothing the host trusts: it is removed before a container is started and before the host reads the tree.</summary>
     public static void RemoveGitEntry(string work) => DeleteEntry(Path.Combine(work, ".git"));

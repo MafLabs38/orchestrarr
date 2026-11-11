@@ -79,6 +79,7 @@ const approvalErrors = {
   noPullRequests: 'ApprovalErrorNoPullRequests',
   alreadyApproved: 'ApprovalErrorAlreadyApproved',
   tooManyPullRequests: 'ApprovalErrorTooManyPullRequests',
+  tooManyRepairs: 'ApprovalErrorTooManyRepairs',
   secondFactorRequired: 'ApprovalErrorSecondFactorRequired',
   storeFull: 'ApprovalErrorStoreFull',
   auditUnavailable: 'ApprovalErrorAuditUnavailable',

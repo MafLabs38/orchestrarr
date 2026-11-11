@@ -101,9 +101,16 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
         var shown = 0;
         var left = 0;
         (string Text, string Turns, bool IsError)? final = null;
+        var finalGate = new Lock();
         void OnLine(string line)
         {
-            final ??= AgentTranscript.Result(line);
+            if (AgentTranscript.Result(line) is { } result)
+            {
+                lock (finalGate)
+                {
+                    final ??= result;
+                }
+            }
             foreach (var text in AgentTranscript.Describe(line))
             {
                 if (Interlocked.Increment(ref shown) <= repair.MaxTraceLines)
@@ -124,7 +131,10 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
         }
         if (run.TimedOut)
         {
-            await _workspace.KillAsync(container);
+            if (!await _workspace.KillAsync(container))
+            {
+                return ValidatePullRequestRunner.Refuse(task, trace, "the agent's container could not be stopped");
+            }
             trace.Add(RunEvents.TaskStep, task.Id, $"agent: stopped after {Math.Max(1, repair.TimeoutMinutes).ToString(CultureInfo.InvariantCulture)} min");
             return ValidatePullRequestRunner.Finish(task, trace, TaskResult.Failed, $"the agent took more than {Math.Max(1, repair.TimeoutMinutes).ToString(CultureInfo.InvariantCulture)} min");
         }

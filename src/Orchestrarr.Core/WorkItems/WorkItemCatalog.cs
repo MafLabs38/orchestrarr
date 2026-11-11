@@ -267,6 +267,9 @@ public sealed class WorkItemCatalog : IDisposable
                 })],
             };
         }
+
+        // The rows that were waiting say so now: the screens are told, not left to the next poll
+        Changed?.Invoke();
     }
 
     // A repository name comes from another system: it goes into the log without anything that could forge a line

@@ -10,7 +10,7 @@ internal static class TaskShape
     /// <summary>True when every field of the batch has the shape of a real one. The fields come from the queue, so they are checked like any outside input.</summary>
     public static bool IsWellFormed(TaskBatch batch)
     {
-        if (batch.Tasks.Count is 0 or > TaskLimits.MaxTasksPerBatch || !OrderValidation.IsValidSubject(batch.ApproverSubject) || !OrderValidation.IsValidWorkItem(batch.WorkItemId))
+        if (batch.Tasks.Count is 0 or > TaskLimits.MaxTasksPerBatch || batch.Tasks.Count(task => task.Kind == TaskKind.RepairPullRequest) > TaskLimits.MaxRepairsPerBatch || !OrderValidation.IsValidSubject(batch.ApproverSubject) || !OrderValidation.IsValidWorkItem(batch.WorkItemId))
         {
             return false;
         }

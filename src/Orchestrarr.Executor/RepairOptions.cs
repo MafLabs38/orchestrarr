@@ -43,7 +43,7 @@ public sealed record RepairOptions
         // Where tests and builds are configured in the other ecosystems: a repair that weakens them has repaired nothing (an allow-list per profile is the stricter way, later)
         "*vite.config.*", "*webpack.config.*", "*babel.config.*", "*.babelrc*", "*.eslintrc*", "*eslint.config.*", "*playwright.config.*", "*cypress.config.*", "*karma.conf*",
         "*conftest.py", "*pytest.ini", "*tox.ini", "*setup.cfg", "*pyproject.toml", "*requirements*.txt", "*.csproj", "*.sln*", "*Directory.Build.*", "*Directory.Packages.props",
-        "*Makefile", "*.yarnrc*", "*.pnpmfile.cjs", "*pnpm-workspace.yaml", "*bunfig.toml", "*pip.conf", "*NuGet.config", "*nuget.config", "*global.json", "*go.mod", "*go.sum", "*Cargo.toml", "*Cargo.lock", "*.claude/*", "CLAUDE.md",
+        "*Makefile", "spec/*", "*/spec/*", "*_spec.rb", "*__snapshots__*", "*.gradle*", "*pom.xml", "*Gemfile*", "*Pipfile*", "*poetry.lock", "*uv.lock", "*setup.py", "*composer.json", "*composer.lock", "*packages.lock.json", "*.props", "*.targets", "*dotnet-tools.json", "*.yarnrc*", "*.pnpmfile.cjs", "*pnpm-workspace.yaml", "*bunfig.toml", "*pip.conf", "*NuGet.config", "*nuget.config", "*global.json", "*go.mod", "*go.sum", "*Cargo.toml", "*Cargo.lock", "*.claude/*", "CLAUDE.md",
     ];
 
     /// <summary>

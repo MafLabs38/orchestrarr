@@ -186,6 +186,18 @@ public sealed class ApprovalSelectionTests
     }
 
     [Fact]
+    public async Task A_selection_with_more_repairs_than_one_approval_may_start_is_refused_now()
+    {
+        var many = Enumerable.Range(1, TaskLimits.MaxRepairsPerBatch + 1).Select(number => PullRequest("example/shop", number, new string((char)('a' + (number % 6)), 40))).ToList();
+        _forge.Set("example/shop", many);
+        var service = await ServiceWithoutReset(["example/shop"], new ConfiguredPowerPolicy([new PowerGrant(PowerGrant.Wildcard, [StepKind.Validate, StepKind.MergePullRequests, StepKind.Repair])]));
+
+        var result = await Approve(service, [.. many.Select(pullRequest => Problem(Shop, pullRequest.Number, pullRequest.HeadSha, [StepKind.Repair], "goesUpTo=Qualification repair=True"))]);
+
+        result.Refusal.Should().Be(ApprovalRefusal.TooManyRepairs);
+    }
+
+    [Fact]
     public async Task A_selection_too_big_for_one_batch_is_refused_now_and_not_in_the_runs_screen_later()
     {
         var many = Enumerable.Range(1, 101).Select(number => PullRequest("example/shop", number, new string((char)('a' + (number % 6)), 40))).ToList();

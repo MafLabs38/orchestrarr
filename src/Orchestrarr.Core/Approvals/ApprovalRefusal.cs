@@ -32,6 +32,9 @@ public enum ApprovalRefusal
     /// <summary>The card holds more pull requests than one batch can carry: the executor would refuse it for its size.</summary>
     TooManyPullRequests,
 
+    /// <summary>The selection asks for more repairs than one approval may start (each is an agent run that spends the subscription).</summary>
+    TooManyRepairs,
+
     /// <summary>The code of the second factor is missing or is not six digits. Whether it is right is for the executor to say.</summary>
     SecondFactorRequired,
     StoreFull,

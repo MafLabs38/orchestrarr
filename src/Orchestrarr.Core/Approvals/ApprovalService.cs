@@ -133,6 +133,10 @@ public sealed class ApprovalService(
         {
             return ([], null, null, ApprovalRefusal.TooManyPullRequests);
         }
+        if (approvals.Sum(approval => approval.Steps.Count(step => step is StepKind.Repair)) > TaskLimits.MaxRepairsPerBatch)
+        {
+            return ([], null, null, ApprovalRefusal.TooManyRepairs);
+        }
         // A batch of one application is named after it; one of several is a selection
         var workItemId = selection.Select(problem => problem.WorkItemId).Distinct().Count() == 1 ? selection[0].WorkItemId : $"selection:{batchId:N}";
         return (approvals, fresh => BuildBatch(batchId, workItemId, approver, now, fresh), notes, null);
@@ -177,6 +181,10 @@ public sealed class ApprovalService(
         if (approvals.Count * steps.Count(step => step is StepKind.Validate or StepKind.MergePullRequests or StepKind.Repair) > TaskLimits.MaxTasksPerBatch)
         {
             return ([], null, ApprovalRefusal.TooManyPullRequests);
+        }
+        if (approvals.Count * steps.Count(step => step is StepKind.Repair) > TaskLimits.MaxRepairsPerBatch)
+        {
+            return ([], null, ApprovalRefusal.TooManyRepairs);
         }
         // The same pull request twice (a list that shifted while it was read) is not a list that can be approved: read it again
         if (approvals.Select(approval => approval.PullRequest).Distinct().Count() != approvals.Count)

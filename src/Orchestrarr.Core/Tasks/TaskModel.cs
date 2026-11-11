@@ -83,6 +83,12 @@ public static class TaskLimits
     public const int MaxTasksPerBatch = 200;
 
     /// <summary>
+    /// The most repairs one batch may hold: each is an agent run of up to a quarter of an hour that spends the subscription, so one code starts a few, not
+    /// two hundred (the budget of an approval, F-SAF-01). A trace of a batch of repairs also has to fit in the limit of a run.
+    /// </summary>
+    public const int MaxRepairsPerBatch = 5;
+
+    /// <summary>
     /// The most characters of the detail of one trace line. A line that carries the end of a command's output needs room; a longer one is cut by the
     /// executor before it is sent (a trace the control plane refuses as a whole is worse than a cut line).
     /// </summary>

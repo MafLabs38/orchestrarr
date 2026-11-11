@@ -181,6 +181,18 @@ public sealed class ValidatePullRequestRunnerTests : IDisposable
         _processes.Calls.Should().Contain(call => call.File == "docker" && call.Arguments[0] == "kill" && call.Arguments[1].StartsWith("orchestrarr-", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task A_container_that_cannot_be_stopped_refuses_the_task_instead_of_going_on_beside_it()
+    {
+        _processes.Script(call => call.Arguments.Contains("npm test"), new ProcessResult(-1, true, "still running"));
+        _processes.Script(call => call.File == "docker" && call.Arguments[0] == "rm", new ProcessResult(1, false, "Error response from daemon: cannot kill container"));
+
+        var (outcome, _) = await Run(Options());
+
+        outcome.Result.Should().Be(TaskResult.Refused);
+        outcome.Reason.Should().Be("a container could not be stopped");
+    }
+
     [Theory]
     [InlineData(125)]
     [InlineData(126)]

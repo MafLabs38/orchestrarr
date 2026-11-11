@@ -195,6 +195,7 @@ export type ApprovalError =
   | 'noPullRequests'
   | 'alreadyApproved'
   | 'tooManyPullRequests'
+  | 'tooManyRepairs'
   | 'secondFactorRequired'
   | 'storeFull'
   | 'auditUnavailable'

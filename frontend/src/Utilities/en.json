@@ -99,6 +99,7 @@
   "KillSwitchCannotBeReleased": "The global stop could not be released: its state cannot be saved, so it stays engaged.",
   "KillSwitchCannotBeTraced": "The global stop could not be released: the release cannot be written to the audit trail, so it stays engaged.",
   "KillSwitchNotSaved": "The global stop is engaged, but its state could not be saved or read: do not count on it across a restart.",
+  "ApprovalErrorTooManyRepairs": "Too many repairs for one approval: each is an agent run that spends the subscription. Select fewer (five at most) and approve again.",
   "ApprovalErrorTooManyPullRequests": "This card holds too many pull requests for one batch: approve it after some are merged or closed.",
   "ApprovalErrorSecondFactorRequired": "Type the 6-digit code of your authenticator app.",
   "Runs": "Runs",
