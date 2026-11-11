@@ -75,6 +75,9 @@ public sealed class WorkItemCatalog : IDisposable
     /// <summary>Completes when the pull requests of the last read are all read or failed. For tests.</summary>
     internal Task EnrichmentIdle => _enrichment;
 
+    /// <summary>Raised when the table has new things to show: a read of the fleet, a pull request list that arrived or timed out. The handler must not wait.</summary>
+    public event Action? Changed;
+
     /// <summary>What was read last, without reading anything: null before the first read. The status page uses it.</summary>
     public WorkItemReport? Peek() => _last;
 
@@ -99,6 +102,7 @@ public sealed class WorkItemCatalog : IDisposable
                 lock (_state)
                 {
                     _last = new WorkItemReport(fleet.ReadAt, _source.Kind, items, Error: null, Stale: false);
+                    Changed?.Invoke();
                     _generation++;
                     _enrichment = StartEnrichment(_generation, items, refresh);
                     enrichment = _enrichment;
@@ -234,6 +238,8 @@ public sealed class WorkItemCatalog : IDisposable
                     WaitsForPullRequests(item) && string.Equals(item.RepositoryFullName, repository, StringComparison.OrdinalIgnoreCase) ? item with { PullRequests = read } : item)],
             };
         }
+
+        Changed?.Invoke();
     }
 
     private void ApplyTimeout(int generation)

@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.AspNetCore.Http.Features;
 using Orchestrarr.Core.Tasks;
+using Orchestrarr.Host.Live;
 using Orchestrarr.Host.Approvals;
 
 namespace Orchestrarr.Host.Tasks;
@@ -49,7 +50,7 @@ internal static class ExecutorEndpoints
         // The routes of the executors carry their own token, not a session: the sign-in of people does not apply to them
         group.AllowAnonymous();
 
-        group.MapPost("/claim", async (ClaimRequest request, HttpContext context, IBatchQueue queue, ExecutorRegistry registry, CancellationToken ct) =>
+        group.MapPost("/claim", async (ClaimRequest request, HttpContext context, IBatchQueue queue, ExecutorRegistry registry, ILiveNotifier live, CancellationToken ct) =>
         {
             if (request.Hello is null)
             {
@@ -58,14 +59,24 @@ internal static class ExecutorEndpoints
             var name = (string)context.Items[ExecutorItem]!;
             registry.Seen(name, request.Hello);
             var claim = await queue.ClaimAsync(name, ct);
+            if (claim.Status == ClaimStatus.Claimed && claim.Delivery is { } delivery)
+            {
+                live.Publish(LiveTopics.Runs, delivery.Batch.Id.ToString("D"));
+                live.Publish(LiveTopics.Approvals);
+            }
             return claim.Status == ClaimStatus.Unavailable ? Results.Json(new ErrorResponse(ApiErrors.StorageUnavailable), statusCode: StatusCodes.Status503ServiceUnavailable) : Results.Ok(claim);
         });
 
-        group.MapPost("/runs/{id:guid}/events", async (Guid id, AppendEventsRequest request, HttpContext context, IBatchQueue queue, CancellationToken ct) =>
-            Answer(await queue.AppendEventsAsync(id, (string)context.Items[ExecutorItem]!, request.Events ?? [], ct)));
+        group.MapPost("/runs/{id:guid}/events", async (Guid id, AppendEventsRequest request, HttpContext context, IBatchQueue queue, ILiveNotifier live, CancellationToken ct) =>
+            Answer(await queue.AppendEventsAsync(id, (string)context.Items[ExecutorItem]!, request.Events ?? [], ct), () => live.Publish(LiveTopics.Runs, id.ToString("D"))));
 
-        group.MapPost("/runs/{id:guid}/complete", async (Guid id, CompleteRequest request, HttpContext context, IBatchQueue queue, CancellationToken ct) =>
-            Answer(await queue.CompleteAsync(id, (string)context.Items[ExecutorItem]!, request.Outcome, ct)));
+        group.MapPost("/runs/{id:guid}/complete", async (Guid id, CompleteRequest request, HttpContext context, IBatchQueue queue, ILiveNotifier live, CancellationToken ct) =>
+            Answer(await queue.CompleteAsync(id, (string)context.Items[ExecutorItem]!, request.Outcome, ct), () =>
+            {
+                live.Publish(LiveTopics.Runs, id.ToString("D"));
+                live.Publish(LiveTopics.Approvals);
+                live.Publish(LiveTopics.Audit);
+            }));
     }
 
     private static string? ExecutorNamed(HttpContext http, TasksSettings settings)
@@ -85,7 +96,16 @@ internal static class ExecutorEndpoints
         return name;
     }
 
-    private static IResult Answer(QueueResult result) => result switch
+    private static IResult Answer(QueueResult result, Action? whenOk = null)
+    {
+        if (result == QueueResult.Ok)
+        {
+            whenOk?.Invoke();
+        }
+        return AnswerOf(result);
+    }
+
+    private static IResult AnswerOf(QueueResult result) => result switch
     {
         QueueResult.Ok => Results.NoContent(),
         QueueResult.NotFound => Results.NotFound(),
