@@ -120,6 +120,7 @@ public sealed class DecisionTableTests
 
         row.GoesUpTo.Should().Be(Ceiling.Repair);
         row.Why.Should().Be(CeilingReason.QualificationFailed);
+        row.Workshop.Should().Be(WorkshopVerdict.Fails);
     }
 
     [Fact]
@@ -148,6 +149,7 @@ public sealed class DecisionTableTests
 
         row.GoesUpTo.Should().Be(Ceiling.NoAction);
         row.Why.Should().Be(CeilingReason.PatchReady);
+        row.Workshop.Should().Be(WorkshopVerdict.Repaired);
     }
 
     [Fact]
@@ -157,6 +159,13 @@ public sealed class DecisionTableTests
 
         row.GoesUpTo.Should().Be(Ceiling.Qualification);
         row.Why.Should().Be(CeilingReason.PassesHereChecksFailing);
+        row.Workshop.Should().Be(WorkshopVerdict.Passes);
+    }
+
+    [Fact]
+    public void A_commit_the_workshop_never_ran_has_no_verdict()
+    {
+        Only(TableWith(Item())).Workshop.Should().Be(WorkshopVerdict.Unknown);
     }
 
     [Theory]

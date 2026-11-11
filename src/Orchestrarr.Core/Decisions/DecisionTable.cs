@@ -51,6 +51,20 @@ public enum CeilingReason
     PassesHereChecksFailing,
 }
 
+/// <summary>What the workshop last said about this very commit of a pull request, for the column that sits beside the forge's checks.</summary>
+public enum WorkshopVerdict
+{
+    /// <summary>The workshop never ran this commit.</summary>
+    Unknown,
+
+    Passes,
+
+    Fails,
+
+    /// <summary>An agent repaired it: the patch is in the trace of its run.</summary>
+    Repaired,
+}
+
 /// <summary>The kinds of problem the table shows (one row each).</summary>
 public enum ProblemKind
 {
@@ -83,7 +97,8 @@ public sealed record ProblemRow(
     string? HeadSha,
     Ceiling GoesUpTo,
     CeilingReason Why,
-    bool CanStopBeforeProduction);
+    bool CanStopBeforeProduction,
+    WorkshopVerdict Workshop = WorkshopVerdict.Unknown);
 
 /// <summary>What a connected executor accepts, as it reported it. The table never promises more than they would run: with none connected, nothing can be run, and every row says so.</summary>
 public sealed record ExecutorAcceptance(IReadOnlyList<TaskKind> Kinds, IReadOnlyList<string> Repositories)
@@ -133,34 +148,34 @@ public static class DecisionTable
         foreach (var pullRequest in reads.Items.Where(pullRequest => !pullRequest.Draft))
         {
             var (ceiling, why, canStop) = CeilingOf(item, pullRequest, applications, executors);
-            (ceiling, why, canStop) = WorkshopWord(item, pullRequest, ceiling, why, canStop, executors, results);
+            var mine = results.Where(row => string.Equals(row.Repository, item.RepositoryFullName, StringComparison.OrdinalIgnoreCase) && row.PullRequest == pullRequest.Number && row.HeadSha == pullRequest.HeadSha)
+                .OrderByDescending(row => row.At).ToList();
+            (ceiling, why, canStop) = WorkshopWord(item, pullRequest, ceiling, why, canStop, executors, mine);
             var change = pullRequest.Changes.Count == 1 ? pullRequest.Changes[0] : null;
             var description = change is { From: not null, To: not null } ? $"{change.Package} {change.From} → {change.To}" : pullRequest.Title;
             rows.Add(new ProblemRow(
                 $"pr:{item.RepositoryFullName}#{pullRequest.Number}", item.Id, item.RepositoryFullName, ProblemKind.DependencyUpdate, description,
-                null, null, change?.Kind ?? UpdateKind.Unknown, pullRequest.Checks, pullRequest.Url, pullRequest.Number, pullRequest.HeadSha, ceiling, why, canStop));
+                null, null, change?.Kind ?? UpdateKind.Unknown, pullRequest.Checks, pullRequest.Url, pullRequest.Number, pullRequest.HeadSha, ceiling, why, canStop, VerdictOf(mine)));
         }
     }
 
     // The next thing for a pull request is not always the next level: when it fails, on the forge or in the workshop, it is to repair it. The workshop's
     // latest word on this very commit counts (a new commit starts again): a failure makes the row a repair, a repair that worked leaves a patch to apply.
     private static (Ceiling Ceiling, CeilingReason Why, bool CanStop) WorkshopWord(
-        WorkItem item, PullRequestInfo pullRequest, Ceiling ceiling, CeilingReason why, bool canStop, IReadOnlyList<ExecutorAcceptance> executors, IReadOnlyList<TaskResultRow> results)
+        WorkItem item, PullRequestInfo pullRequest, Ceiling ceiling, CeilingReason why, bool canStop, IReadOnlyList<ExecutorAcceptance> executors, IReadOnlyList<TaskResultRow> mine)
     {
         if (ceiling == Ceiling.NoAction)
         {
             return (ceiling, why, canStop);
         }
         var repository = item.RepositoryFullName!;
-        var mine = results.Where(row => string.Equals(row.Repository, repository, StringComparison.OrdinalIgnoreCase) && row.PullRequest == pullRequest.Number && row.HeadSha == pullRequest.HeadSha)
-            .OrderByDescending(row => row.At).ToList();
         var canRepair = item.Plan.FirstOrDefault(step => step.Kind == StepKind.Repair && step.EnvironmentId is null) is { Available: true, Granted: true }
             && executors.Any(executor => executor.Accepts(TaskKind.RepairPullRequest, repository));
-        if (mine.Find(row => row.Kind == TaskKind.RepairPullRequest) is { Result: TaskResult.Passed, Reason: { } said } && said.StartsWith("repaired", StringComparison.Ordinal))
+        if (mine.FirstOrDefault(row => row.Kind == TaskKind.RepairPullRequest) is { Result: TaskResult.Passed, Reason: { } said } && said.StartsWith("repaired", StringComparison.Ordinal))
         {
             return (Ceiling.NoAction, CeilingReason.PatchReady, false);
         }
-        var latest = mine.Find(row => row.Kind is TaskKind.ValidatePullRequest or TaskKind.RepairPullRequest && row.Result is TaskResult.Passed or TaskResult.Failed);
+        var latest = mine.FirstOrDefault(row => row.Kind is TaskKind.ValidatePullRequest or TaskKind.RepairPullRequest && row.Result is TaskResult.Passed or TaskResult.Failed);
         if (latest is { Result: TaskResult.Failed })
         {
             var reason = latest.Kind == TaskKind.RepairPullRequest ? CeilingReason.RepairFailed : CeilingReason.QualificationFailed;
@@ -178,6 +193,22 @@ public static class DecisionTable
             }
         }
         return (ceiling, why, canStop);
+    }
+
+    // The workshop's latest word on the commit, newest first in <paramref name="mine"/>: a repair that worked, else the last verdict of a validation or a repair
+    private static WorkshopVerdict VerdictOf(IReadOnlyList<TaskResultRow> mine)
+    {
+        if (mine.Any(row => row.Kind == TaskKind.RepairPullRequest && row.Result == TaskResult.Passed && row.Reason is { } said && said.StartsWith("repaired", StringComparison.Ordinal)))
+        {
+            return WorkshopVerdict.Repaired;
+        }
+        var latest = mine.FirstOrDefault(row => row.Kind is TaskKind.ValidatePullRequest or TaskKind.RepairPullRequest && row.Result is TaskResult.Passed or TaskResult.Failed);
+        return latest?.Result switch
+        {
+            TaskResult.Passed => WorkshopVerdict.Passes,
+            TaskResult.Failed => WorkshopVerdict.Fails,
+            _ => WorkshopVerdict.Unknown,
+        };
     }
 
     private static (Ceiling Ceiling, CeilingReason Why, bool CanStop) CeilingOf(WorkItem item, PullRequestInfo pullRequest, IApplicationCatalog applications, IReadOnlyList<ExecutorAcceptance> executors)

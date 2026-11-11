@@ -8,10 +8,12 @@ import type {
   ProblemKind,
   ProblemRow,
   RunRefusal,
+  Severity,
   SourceError,
   StepKind,
   TaskKind,
   TaskResult,
+  WorkshopVerdict,
 } from 'typings/api';
 
 import translate from './translate';
@@ -275,4 +277,65 @@ export function describeProblem(row: ProblemRow): string {
     default:
       return row.description;
   }
+}
+
+// The same, in two to four words, for the column of the table: the sentence is in the bubble beside it
+const whyShorts = {
+  none: 'WhyShortNone',
+  noDescription: 'WhyShortNoDescription',
+  noActionDefined: 'WhyShortNoActionDefined',
+  pullRequestsNotCurrent: 'WhyShortPullRequestsNotCurrent',
+  notGranted: 'WhyShortNotGranted',
+  noExecutor: 'WhyShortNoExecutor',
+  qualificationNotDescribed: 'WhyShortQualificationNotDescribed',
+  checksFailing: 'WhyShortChecksFailing',
+  checksNotPassing: 'WhyShortChecksNotPassing',
+  cannotBeMergedNow: 'WhyShortCannotBeMergedNow',
+  noRollbackDescribed: 'WhyShortNoRollbackDescribed',
+  noCheckAfterDeployDescribed: 'WhyShortNoCheckAfterDeployDescribed',
+  updateClassStopsBeforeProduction: 'WhyShortUpdateClassStopsBeforeProduction',
+  qualificationFailed: 'WhyShortQualificationFailed',
+  repairFailed: 'WhyShortRepairFailed',
+  patchReady: 'WhyShortPatchReady',
+  passesHereChecksFailing: 'WhyShortPassesHereChecksFailing',
+} as const satisfies Record<CeilingReason, string>;
+
+export function describeWhyShort(reason: CeilingReason): string {
+  return translate(whyShorts[reason]);
+}
+
+const problemKindShorts = {
+  dependencyUpdate: 'KindShortDependencyUpdate',
+  dependencyAlert: 'KindShortDependencyAlert',
+  codeScanningAlert: 'KindShortCodeScanningAlert',
+  exposedSecret: 'KindShortExposedSecret',
+  failingCi: 'KindShortFailingCi',
+  imageUpdate: 'KindShortImageUpdate',
+  dependencyScanUnavailable: 'KindShortDependencyScanUnavailable',
+  pullRequestsNotRead: 'KindShortPullRequestsNotRead',
+} as const satisfies Record<ProblemKind, string>;
+
+export function describeProblemKindShort(kind: ProblemKind): string {
+  return translate(problemKindShorts[kind]);
+}
+
+const workshops = {
+  unknown: 'WorkshopUnknown',
+  passes: 'WorkshopPasses',
+  fails: 'WorkshopFails',
+  repaired: 'WorkshopRepaired',
+} as const satisfies Record<WorkshopVerdict, string>;
+
+export function describeWorkshop(verdict: WorkshopVerdict): string {
+  return translate(workshops[verdict]);
+}
+
+const severities = {
+  danger: 'SeverityDanger',
+  warning: 'SeverityWarning',
+  info: 'SeverityInfo',
+} as const satisfies Record<Severity, string>;
+
+export function describeSeverity(severity: Severity): string {
+  return translate(severities[severity]);
 }

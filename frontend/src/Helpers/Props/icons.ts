@@ -2,6 +2,7 @@
 export {
   Users as ACCOUNTS,
   History as ACTIVITY,
+  Sparkles as AI,
   Bell as BELL,
   ChevronRight as COLLAPSED,
   CircleAlert as DANGER,

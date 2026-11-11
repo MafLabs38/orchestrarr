@@ -1,0 +1,25 @@
+.cell {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  max-width: 150px;
+}
+
+.avatar {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--inkOnAccent);
+  border-radius: var(--radiusSmall);
+}
+
+.name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

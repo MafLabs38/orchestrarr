@@ -233,6 +233,9 @@ export type CeilingReason =
   | 'patchReady'
   | 'passesHereChecksFailing';
 
+// What the workshop last said about this very commit: the column beside the forge's checks
+export type WorkshopVerdict = 'unknown' | 'passes' | 'fails' | 'repaired';
+
 export type ProblemKind =
   | 'dependencyUpdate'
   | 'dependencyAlert'
@@ -260,6 +263,7 @@ export interface ProblemRow {
   goesUpTo: Ceiling;
   why: CeilingReason;
   canStopBeforeProduction: boolean;
+  workshop: WorkshopVerdict;
 }
 
 export interface ProblemsReport {
