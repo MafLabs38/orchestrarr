@@ -51,11 +51,13 @@ public sealed class WorkItemsApiTests : IClassFixture<SampleApiFactory>
         var item = await factory.CreateClient().GetFromJsonAsync<JsonElement>("/api/v1/work-items/repository:example/shop", TestContext.Current.CancellationToken);
 
         var plan = item.GetProperty("plan").EnumerateArray().ToList();
-        plan.Select(s => s.GetProperty("kind").GetString()).Should().Equal("validate", "mergePullRequests", "deploy");
-        plan.Should().OnlyContain(s => s.GetProperty("ticked").GetBoolean() && s.GetProperty("available").GetBoolean());
+        plan.Select(s => s.GetProperty("kind").GetString()).Should().Equal("validate", "mergePullRequests", "repair", "deploy");
+        plan.Should().OnlyContain(s => s.GetProperty("available").GetBoolean());
+        plan.Where(s => s.GetProperty("kind").GetString() != "repair").Should().OnlyContain(s => s.GetProperty("ticked").GetBoolean());
+        plan.Single(s => s.GetProperty("kind").GetString() == "repair").GetProperty("ticked").GetBoolean().Should().BeFalse("it calls an agent, so it is chosen");
         plan.Should().OnlyContain(s => !s.GetProperty("granted").GetBoolean());
-        plan[2].GetProperty("environmentId").GetString().Should().Be("cluster");
-        plan[2].GetProperty("environmentName").GetString().Should().Be("Kubernetes cluster");
+        plan[3].GetProperty("environmentId").GetString().Should().Be("cluster");
+        plan[3].GetProperty("environmentName").GetString().Should().Be("Kubernetes cluster");
     }
 
     [Fact]

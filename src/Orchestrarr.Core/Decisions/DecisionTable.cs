@@ -68,7 +68,8 @@ public sealed record ProblemRow(
     string? HeadSha,
     Ceiling GoesUpTo,
     CeilingReason Why,
-    bool CanStopBeforeProduction);
+    bool CanStopBeforeProduction,
+    bool CanRepair = false);
 
 /// <summary>What a connected executor accepts, as it reported it. The table never promises more than they would run: with none connected, nothing can be run, and every row says so.</summary>
 public sealed record ExecutorAcceptance(IReadOnlyList<TaskKind> Kinds, IReadOnlyList<string> Repositories)
@@ -117,11 +118,16 @@ public static class DecisionTable
         foreach (var pullRequest in reads.Items.Where(pullRequest => !pullRequest.Draft))
         {
             var (ceiling, why, canStop) = CeilingOf(item, pullRequest, applications, executors);
+            // A repair is offered where the forge's checks fail and an agent may be tried: it needs the grant and an executor that accepts it
+            var canRepair = ceiling != Ceiling.NoAction
+                && pullRequest.Checks == ChecksState.Failing
+                && item.Plan.FirstOrDefault(step => step.Kind == StepKind.Repair && step.EnvironmentId is null) is { Available: true, Granted: true }
+                && executors.Any(executor => executor.Accepts(TaskKind.RepairPullRequest, item.RepositoryFullName));
             var change = pullRequest.Changes.Count == 1 ? pullRequest.Changes[0] : null;
             var description = change is { From: not null, To: not null } ? $"{change.Package} {change.From} → {change.To}" : pullRequest.Title;
             rows.Add(new ProblemRow(
                 $"pr:{item.RepositoryFullName}#{pullRequest.Number}", item.Id, item.RepositoryFullName, ProblemKind.DependencyUpdate, description,
-                null, null, change?.Kind ?? UpdateKind.Unknown, pullRequest.Checks, pullRequest.Url, pullRequest.Number, pullRequest.HeadSha, ceiling, why, canStop));
+                null, null, change?.Kind ?? UpdateKind.Unknown, pullRequest.Checks, pullRequest.Url, pullRequest.Number, pullRequest.HeadSha, ceiling, why, canStop, canRepair));
         }
     }
 

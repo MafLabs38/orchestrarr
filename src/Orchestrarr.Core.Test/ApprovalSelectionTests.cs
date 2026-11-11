@@ -64,6 +64,18 @@ public sealed class ApprovalSelectionTests
         service.ApproveSelectionAsync(approver ?? Operator, selection, code, Ct);
 
     [Fact]
+    public async Task A_repair_becomes_one_repair_task_with_no_validation_or_merge_beside_it()
+    {
+        var service = await Service(new ConfiguredPowerPolicy([new PowerGrant(PowerGrant.Wildcard, [StepKind.Validate, StepKind.MergePullRequests, StepKind.Repair])]));
+
+        var result = await Approve(service, [Problem(Shop, 1, HeadA, [StepKind.Repair], "goesUpTo=Qualification repair=True")]);
+
+        result.Recorded.Should().BeTrue();
+        var batch = (await _queue.ClaimAsync("executor-1", Ct)).Delivery!.Batch;
+        batch.Tasks.Select(task => task.Kind).Should().Equal(TaskKind.RepairPullRequest);
+    }
+
+    [Fact]
     public async Task Problems_of_two_applications_become_one_batch_checked_once_with_the_steps_each_row_stands_for()
     {
         var service = await Service();

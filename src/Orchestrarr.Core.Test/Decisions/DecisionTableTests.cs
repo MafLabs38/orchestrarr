@@ -20,9 +20,9 @@ public sealed class DecisionTableTests
 
     private static PlanStep Step(StepKind kind, bool available = true, bool granted = true) => new(kind, null, null, true, available, granted, null);
 
-    private static WorkItem Item(IReadOnlyList<PullRequestInfo>? pulls = null, IReadOnlyList<Finding>? findings = null, PullRequestsRead? read = null, bool grantMerge = true, bool grantValidate = true, string id = Id) =>
+    private static WorkItem Item(IReadOnlyList<PullRequestInfo>? pulls = null, IReadOnlyList<Finding>? findings = null, PullRequestsRead? read = null, bool grantMerge = true, bool grantValidate = true, string id = Id, bool grantRepair = true) =>
         new(id, "example/shop", "example/shop", [], Severity.Info, findings ?? [new Finding(FindingKind.OpenDependencyPullRequests, Severity.Info, (pulls ?? [Pull()]).Count)],
-            [Step(StepKind.Validate, granted: grantValidate), Step(StepKind.MergePullRequests, granted: grantMerge)], [],
+            [Step(StepKind.Validate, granted: grantValidate), Step(StepKind.MergePullRequests, granted: grantMerge), Step(StepKind.Repair, granted: grantRepair)], [],
             read ?? new PullRequestsRead(PullRequestsStatus.Read, pulls ?? [Pull()]));
 
     private static IApplicationCatalog Described(string mode = "smoke", bool rollback = true, bool check = true, string promote = "\"patch\", \"minor\"") =>
@@ -37,6 +37,8 @@ public sealed class DecisionTableTests
         DecisionTable.Build([item], applications ?? Described(), executors ?? [Everything]);
 
     private static readonly ExecutorAcceptance Everything = new([TaskKind.ValidatePullRequest, TaskKind.MergePullRequest], ["example/*"]);
+
+    private static readonly ExecutorAcceptance Repairing = new([TaskKind.ValidatePullRequest, TaskKind.MergePullRequest, TaskKind.RepairPullRequest], ["example/*"]);
 
     private static ProblemRow Only(IReadOnlyList<ProblemRow> rows) => rows.Single(row => row.Kind == ProblemKind.DependencyUpdate);
 
@@ -86,6 +88,21 @@ public sealed class DecisionTableTests
 
         row.GoesUpTo.Should().Be(Ceiling.Qualification);
         row.Why.Should().Be(CeilingReason.QualificationNotDescribed);
+    }
+
+    [Fact]
+    public void A_repair_is_offered_where_the_checks_fail_and_it_is_granted_and_an_executor_accepts_it()
+    {
+        Only(Table(Item([Pull(checks: ChecksState.Failing)]), executors: [Repairing])).CanRepair.Should().BeTrue();
+    }
+
+    [Fact]
+    public void A_repair_is_not_offered_when_the_checks_pass_it_is_not_granted_or_no_executor_accepts_it()
+    {
+        Only(Table(Item([Pull(checks: ChecksState.Passing)]), executors: [Repairing])).CanRepair.Should().BeFalse("nothing fails");
+        Only(Table(Item([Pull(checks: ChecksState.Failing)], grantRepair: false), executors: [Repairing])).CanRepair.Should().BeFalse("not granted");
+        Only(Table(Item([Pull(checks: ChecksState.Failing)]), executors: [Everything])).CanRepair.Should().BeFalse("no executor accepts it");
+        Only(DecisionTable.Build([Item([Pull(checks: ChecksState.Failing)])], ApplicationCatalog.Parse("""{ "applications": [] }"""), [Repairing])).CanRepair.Should().BeFalse("the application is not described: the row has no action");
     }
 
     [Theory]

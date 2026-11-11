@@ -45,6 +45,9 @@ public sealed record ExecutorOptions
     /// <summary>The real validation of pull requests. Not configured: validating stays a dry run.</summary>
     public ValidationOptions Validation { get; init; } = new();
 
+    /// <summary>The agent that tries to repair a pull request that fails. Not configured: the task is not offered by this executor.</summary>
+    public RepairOptions Repair { get; init; } = new();
+
     /// <summary>The executor's own file: the operators' secrets, the codes used, the batches run, the delegations and the trace of the runs.</summary>
     public string DataPath { get; init; } = "executor.db";
 

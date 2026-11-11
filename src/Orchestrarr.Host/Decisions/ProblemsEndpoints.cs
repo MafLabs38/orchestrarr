@@ -12,7 +12,7 @@ namespace Orchestrarr.Host.Decisions;
 public sealed record ProblemsReport(DateTimeOffset? ReadAt, string SourceKind, bool Stale, SourceError? Error, string DescriptionsVersion, IReadOnlyList<ProblemRow> Rows);
 
 /// <summary><c>GoesUpTo</c> is how far the row went when the operator saw it: the approval is for that, and for no more.</summary>
-public sealed record SelectedRow(string? Id, string? HeadSha, Ceiling? GoesUpTo, bool StopBeforeProduction);
+public sealed record SelectedRow(string? Id, string? HeadSha, Ceiling? GoesUpTo, bool StopBeforeProduction, bool TryRepair = false);
 
 public sealed record ApproveProblemsRequest(List<SelectedRow>? Rows, string? SecondFactorCode, string? DescriptionsVersion);
 
@@ -41,7 +41,7 @@ internal static class ProblemsEndpoints
             var report = await catalog.GetAsync(refresh: false, ct);
             var table = DecisionTable.Build(report.Items, applications, Acceptance(executors)).ToDictionary(row => row.Id, StringComparer.Ordinal);
             // What the operator saw is what is approved: the rule lives once, in Core
-            var resolution = DecisionSelection.Resolve(table, [.. (request.Rows ?? []).Select(row => new ChosenRow(row.Id, row.HeadSha, row.GoesUpTo, row.StopBeforeProduction))], request.DescriptionsVersion, applications.Version);
+            var resolution = DecisionSelection.Resolve(table, [.. (request.Rows ?? []).Select(row => new ChosenRow(row.Id, row.HeadSha, row.GoesUpTo, row.StopBeforeProduction, row.TryRepair))], request.DescriptionsVersion, applications.Version);
             if (resolution.Refused)
             {
                 await service.TraceRefusalAsync(approver, resolution.Mismatch?.WorkItemId ?? string.Empty, ApprovalRefusal.PlanChanged);

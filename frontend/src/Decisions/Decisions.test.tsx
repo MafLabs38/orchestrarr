@@ -17,6 +17,7 @@ const rows: ProblemRow[] = [
     goesUpTo: 'qualification',
     why: 'checksFailing',
     canStopBeforeProduction: false,
+    canRepair: true,
     pullRequest: 1,
     headSha: head('b'),
   }),
@@ -181,6 +182,24 @@ describe('Decisions', () => {
     expect(screen.getByText(/example\/shop: .*merge into develop → stops before production/)).toBeInTheDocument();
   });
 
+  it('offers a repair only where the checks fail, says what it does and sends the choice', async () => {
+    const fetchMock = stub(problemsReport(rows), { requiresSecondFactor: false });
+    renderWithProviders(<Decisions />);
+    await userEvent.click(await screen.findByLabelText(/Select example\/shop lodash/));
+    expect(screen.getAllByLabelText(/Try to repair:/)).toHaveLength(1);
+
+    await userEvent.click(screen.getByLabelText(/Try to repair: example\/shop lodash/));
+
+    expect(
+      screen.getByText(/example\/shop: an agent tries to repair 1 in the workshop.*nothing is pushed/),
+    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Validate the selection' }));
+    await waitFor(() => expect(posted(fetchMock)).toBeDefined());
+    expect(posted(fetchMock)).toMatchObject({
+      rows: [{ id: 'pr:example/shop#1', goesUpTo: 'qualification', tryRepair: true }],
+    });
+  });
+
   it('selects every problem shown that can be done, and none of the others', async () => {
     stub();
     renderWithProviders(<Decisions />);
@@ -206,12 +225,19 @@ describe('Decisions', () => {
     await waitFor(() => expect(posted(fetchMock)).toBeDefined());
     expect(posted(fetchMock)).toEqual({
       rows: [
-        { id: 'pr:example/shop#2', headSha: head('a'), goesUpTo: 'production', stopBeforeProduction: true },
+        {
+          id: 'pr:example/shop#2',
+          headSha: head('a'),
+          goesUpTo: 'production',
+          stopBeforeProduction: true,
+          tryRepair: false,
+        },
         {
           id: 'pr:example/web-portal#4',
           headSha: head('c'),
           goesUpTo: 'mergeIntoDevelop',
           stopBeforeProduction: false,
+          tryRepair: false,
         },
       ],
       secondFactorCode: '123 456',

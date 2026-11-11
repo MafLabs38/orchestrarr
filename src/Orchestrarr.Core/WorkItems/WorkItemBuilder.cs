@@ -139,6 +139,11 @@ public static class WorkItemBuilder
             Step(StepKind.Validate, repository.FullName, null, null, available: true, reason: null, powers),
             Step(merge, repository.FullName, null, null, available: true, reason: null, powers),
         };
+        if (repository.OpenDependencyPullRequests > 0)
+        {
+            // Never ticked by default: it calls an agent, so it is chosen
+            plan.Add(new PlanStep(StepKind.Repair, null, null, Ticked: false, Available: true, Granted: powers.IsGranted(StepKind.Repair, repository.FullName, null), null));
+        }
         plan.AddRange(DeploySteps(placements, repository.FullName, powers));
         return plan;
     }

@@ -10,6 +10,9 @@ public enum TaskKind
 {
     ValidatePullRequest,
     MergePullRequest,
+
+    /// <summary>Validate the pull request in the workshop and, if it fails, let an agent try to make it pass. The result is a patch in the trace: nothing is pushed.</summary>
+    RepairPullRequest,
 }
 
 /// <summary>Where a batch is: waiting for the executor, with it, or ended. A batch that ends never starts again; a new approval makes a new batch.</summary>
@@ -184,6 +187,7 @@ public static class RunEvents
     public const string TaskStarted = "task.started";
     public const string TaskStep = "task.step";
     public const string TaskPassed = "task.passed";
+    public const string TaskPatch = "task.patch";
     public const string TaskFailed = "task.failed";
     public const string TaskRefused = "task.refused";
     public const string TaskSkipped = "task.skipped";

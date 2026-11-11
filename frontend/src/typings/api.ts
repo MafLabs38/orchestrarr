@@ -3,7 +3,7 @@
 
 export type Severity = 'info' | 'warning' | 'danger';
 
-export type StepKind = 'validate' | 'mergePullRequests' | 'mergeFix' | 'deploy';
+export type StepKind = 'validate' | 'mergePullRequests' | 'mergeFix' | 'deploy' | 'repair';
 
 export type ChecksState = 'unknown' | 'pending' | 'passing' | 'failing';
 
@@ -22,7 +22,7 @@ export interface SystemStatus {
   executors: ExecutorStatus[];
 }
 
-export type TaskKind = 'validatePullRequest' | 'mergePullRequest';
+export type TaskKind = 'validatePullRequest' | 'mergePullRequest' | 'repairPullRequest';
 
 export interface DelegationInfo {
   id: string;
@@ -256,6 +256,7 @@ export interface ProblemRow {
   goesUpTo: Ceiling;
   why: CeilingReason;
   canStopBeforeProduction: boolean;
+  canRepair: boolean;
 }
 
 export interface ProblemsReport {

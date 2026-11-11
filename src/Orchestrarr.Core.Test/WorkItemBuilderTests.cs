@@ -95,6 +95,7 @@ public sealed class WorkItemBuilderTests
         item.Plan.Select(s => (s.Kind, s.EnvironmentName, s.Ticked, s.Available)).Should().Equal(
             (StepKind.Validate, null, true, true),
             (StepKind.MergePullRequests, null, true, true),
+            (StepKind.Repair, null, false, true),
             (StepKind.Deploy, "Server A", true, true),
             (StepKind.Deploy, "Server B", true, true));
     }
@@ -141,6 +142,7 @@ public sealed class WorkItemBuilderTests
         item.Plan.Select(s => (s.Kind, s.EnvironmentId, s.Granted)).Should().Equal(
             (StepKind.Validate, null, true),
             (StepKind.MergePullRequests, null, false),
+            (StepKind.Repair, null, false),
             (StepKind.Deploy, "a", true),
             (StepKind.Deploy, "b", false));
     }

@@ -24,7 +24,7 @@ public sealed class ApprovalService(
     ISecondFactorPolicy? secondFactor = null) : IDisposable
 {
     // What this vertical records. The other steps are shown and can be granted, but run with later verticals.
-    private static readonly StepKind[] Supported = [StepKind.Validate, StepKind.MergePullRequests];
+    private static readonly StepKind[] Supported = [StepKind.Validate, StepKind.MergePullRequests, StepKind.Repair];
 
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly RefusalTraceThrottle _refusals = new(time);
@@ -129,7 +129,7 @@ public sealed class ApprovalService(
                 }
             }
         }
-        if (approvals.Sum(approval => approval.Steps.Count(step => step is StepKind.Validate or StepKind.MergePullRequests)) > TaskLimits.MaxTasksPerBatch)
+        if (approvals.Sum(approval => approval.Steps.Count(step => step is StepKind.Validate or StepKind.MergePullRequests or StepKind.Repair)) > TaskLimits.MaxTasksPerBatch)
         {
             return ([], null, null, ApprovalRefusal.TooManyPullRequests);
         }
@@ -174,7 +174,7 @@ public sealed class ApprovalService(
             return ([], null, ApprovalRefusal.NoPullRequests);
         }
         // A batch the executor would always refuse for its size is not recorded: the operator is told now, not in the Runs screen later
-        if (approvals.Count * steps.Count(step => step is StepKind.Validate or StepKind.MergePullRequests) > TaskLimits.MaxTasksPerBatch)
+        if (approvals.Count * steps.Count(step => step is StepKind.Validate or StepKind.MergePullRequests or StepKind.Repair) > TaskLimits.MaxTasksPerBatch)
         {
             return ([], null, ApprovalRefusal.TooManyPullRequests);
         }
@@ -213,7 +213,7 @@ public sealed class ApprovalService(
         var tasks = new List<TaskSpec>();
         foreach (var approval in approvals.OrderBy(approval => approval.Repository, StringComparer.Ordinal).ThenBy(approval => approval.PullRequest))
         {
-            foreach (var (step, kind) in new[] { (StepKind.Validate, TaskKind.ValidatePullRequest), (StepKind.MergePullRequests, TaskKind.MergePullRequest) })
+            foreach (var (step, kind) in new[] { (StepKind.Validate, TaskKind.ValidatePullRequest), (StepKind.MergePullRequests, TaskKind.MergePullRequest), (StepKind.Repair, TaskKind.RepairPullRequest) })
             {
                 if (approval.Steps.Contains(step))
                 {
@@ -252,6 +252,11 @@ public sealed class ApprovalService(
             {
                 return ApprovalRefusal.StepNotGranted;
             }
+        }
+        // A repair validates by itself first and its patch is not pushed, so it is never combined with a merge (which would merge what it did not repair)
+        if (ticked.Contains(StepKind.Repair) && ticked.Distinct().Count() > 1)
+        {
+            return ApprovalRefusal.StepNotSupported;
         }
         return ticked.Contains(StepKind.MergePullRequests) && !ticked.Contains(StepKind.Validate) ? ApprovalRefusal.MergeNeedsValidation : null;
     }

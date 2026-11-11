@@ -104,7 +104,13 @@ public static class ExecutorProgram
         builder.Services.AddSingleton<IApprovalJournalReader>(new FileApprovalJournal(options.JournalPath.Length > 0 ? options.JournalPath : Path.Combine(AppContext.BaseDirectory, "no-journal.jsonl")));
         // Validating runs for real when profiles are configured; merging stays a dry run (no write power yet)
         ITaskRunner validate = options.Validation.IsConfigured ? new ValidatePullRequestRunner(options.Validation, new SystemProcessRunner()) : new DryRunTaskRunner(TaskKind.ValidatePullRequest);
-        builder.Services.AddSingleton<IEnumerable<ITaskRunner>>([validate, new DryRunTaskRunner(TaskKind.MergePullRequest)]);
+        List<ITaskRunner> runners = [validate, new DryRunTaskRunner(TaskKind.MergePullRequest)];
+        // The repair needs the validation (its profile says how to check a repair) and the agent's image and token
+        if (options.Validation.IsConfigured && options.Repair.IsConfigured)
+        {
+            runners.Add(new RepairPullRequestRunner(options.Validation, options.Repair, new SystemProcessRunner()));
+        }
+        builder.Services.AddSingleton<IEnumerable<ITaskRunner>>(runners);
         builder.Services.AddSingleton(provider => new ExecutorPipeline(
             provider.GetRequiredService<ExecutorStore>(),
             provider.GetRequiredService<SecondFactorGuard>(),

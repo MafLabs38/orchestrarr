@@ -22,6 +22,7 @@ const stepKinds = {
   mergePullRequests: 'StepMergePullRequests',
   mergeFix: 'StepMergeFix',
   deploy: 'StepDeployAnywhere',
+  repair: 'StepRepair',
 } as const satisfies Record<StepKind, string>;
 
 // The label of a kind of step, where no environment is shown (the queue).
@@ -159,6 +160,7 @@ export function describeRunRefusal(refusal: string): string {
 const taskKinds = {
   validatePullRequest: 'TaskKindValidatePullRequest',
   mergePullRequest: 'TaskKindMergePullRequest',
+  repairPullRequest: 'TaskKindRepairPullRequest',
 } as const satisfies Record<TaskKind, string>;
 
 export function describeTaskKind(kind: TaskKind): string {
@@ -189,6 +191,7 @@ const runEvents = {
   'task.started': 'RunEventTaskStarted',
   'task.step': 'RunEventTaskStep',
   'task.passed': 'RunEventTaskPassed',
+  'task.patch': 'RunEventTaskPatch',
   'task.failed': 'RunEventTaskFailed',
   'task.refused': 'RunEventTaskRefused',
   'task.skipped': 'RunEventTaskSkipped',

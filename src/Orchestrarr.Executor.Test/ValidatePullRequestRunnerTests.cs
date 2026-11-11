@@ -234,30 +234,4 @@ public sealed class ValidatePullRequestRunnerTests : IDisposable
 
         public ValueTask<TaskOutcome> RunAsync(TaskSpec task, RunTrace trace, CancellationToken cancellationToken) => throw new NotSupportedException();
     }
-
-    private sealed record Call(string File, IReadOnlyList<string> Arguments, IReadOnlyDictionary<string, string> Environment);
-
-    private sealed class ScriptedProcesses : IProcessRunner
-    {
-        private readonly List<(Func<Call, bool> When, ProcessResult Result)> _scripts = [];
-
-        public List<Call> Calls { get; } = [];
-
-        public void Script(Func<Call, bool> when, ProcessResult result) => _scripts.Insert(0, (when, result));
-
-        public Task<ProcessResult> RunAsync(string file, IReadOnlyList<string> arguments, string? workingDirectory, IReadOnlyDictionary<string, string> environment, TimeSpan timeout, int maxOutputCharacters, CancellationToken cancellationToken)
-        {
-            var call = new Call(file, arguments, environment);
-            Calls.Add(call);
-            foreach (var (when, result) in _scripts)
-            {
-                if (when(call))
-                {
-                    return Task.FromResult(result);
-                }
-            }
-            // By default: a fetch that works, at the approved commit, and a container that passes
-            return Task.FromResult(arguments.Contains("rev-parse") ? new ProcessResult(0, false, ExecutorFixture.Head) : new ProcessResult(0, false, "ok"));
-        }
-    }
 }

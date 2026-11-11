@@ -18,9 +18,11 @@ interface ProblemTableProps {
   rows: ProblemRow[];
   selected: ReadonlySet<string>;
   stops: Readonly<Record<string, boolean>>;
+  repairs: Readonly<Record<string, boolean>>;
   onSelect: (row: ProblemRow, selected: boolean) => void;
   onSelectAll: (selected: boolean) => void;
   onStop: (row: ProblemRow, stop: boolean) => void;
+  onRepair: (row: ProblemRow, repair: boolean) => void;
 }
 
 export const isActionable = (row: ProblemRow) => row.goesUpTo !== 'noAction' && row.headSha !== null;
@@ -30,9 +32,11 @@ export default function ProblemTable({
   rows,
   selected,
   stops,
+  repairs,
   onSelect,
   onSelectAll,
   onStop,
+  onRepair,
 }: Readonly<ProblemTableProps>) {
   const actionable = rows.filter(isActionable);
   const allSelected = actionable.length > 0 && actionable.every((row) => selected.has(row.id));
@@ -57,7 +61,7 @@ export default function ProblemTable({
             <th>{translate('ColumnSeverity')}</th>
             <th>{translate('ColumnChecks')}</th>
             <th>{translate('ColumnGoesUp')}</th>
-            <th>{translate('ColumnStop')}</th>
+            <th>{translate('ColumnOptions')}</th>
           </tr>
         </thead>
         <tbody>
@@ -67,8 +71,10 @@ export default function ProblemTable({
               row={row}
               isSelected={selected.has(row.id)}
               stops={stops[row.id] ?? false}
+              repairs={repairs[row.id] ?? false}
               onSelect={onSelect}
               onStop={onStop}
+              onRepair={onRepair}
             />
           ))}
         </tbody>
@@ -88,14 +94,18 @@ function ProblemTableRow({
   row,
   isSelected,
   stops,
+  repairs,
   onSelect,
   onStop,
+  onRepair,
 }: Readonly<{
   row: ProblemRow;
   isSelected: boolean;
   stops: boolean;
+  repairs: boolean;
   onSelect: (row: ProblemRow, selected: boolean) => void;
   onStop: (row: ProblemRow, stop: boolean) => void;
+  onRepair: (row: ProblemRow, repair: boolean) => void;
 }>) {
   const sentence = describeProblem(row);
   const actionable = isActionable(row);
@@ -146,9 +156,19 @@ function ProblemTableRow({
             />
             {translate('ColumnStop')}
           </label>
-        ) : (
-          <span className={styles.none}>—</span>
-        )}
+        ) : null}
+        {row.canRepair ? (
+          <label className={styles.stop}>
+            <input
+              type="checkbox"
+              aria-label={translate('RepairOf', { problem: `${row.application} ${sentence}` })}
+              checked={repairs}
+              onChange={(event) => onRepair(row, event.target.checked)}
+            />
+            {translate('ColumnRepair')}
+          </label>
+        ) : null}
+        {row.canStopBeforeProduction || row.canRepair ? null : <span className={styles.none}>—</span>}
       </td>
     </tr>
   );

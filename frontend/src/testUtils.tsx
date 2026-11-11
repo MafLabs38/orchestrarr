@@ -54,6 +54,7 @@ export function problem(overrides: Partial<ProblemRow> = {}): ProblemRow {
     goesUpTo: 'production',
     why: 'none',
     canStopBeforeProduction: true,
+    canRepair: false,
     ...overrides,
   };
 }
