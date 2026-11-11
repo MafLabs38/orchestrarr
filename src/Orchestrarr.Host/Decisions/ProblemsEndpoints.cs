@@ -3,8 +3,10 @@ using Orchestrarr.Core.Applications;
 using Orchestrarr.Core.Approvals;
 using Orchestrarr.Core.Decisions;
 using Orchestrarr.Core.WorkItems;
+using Orchestrarr.Core.Tasks;
 using Orchestrarr.Host.Approvals;
 using Orchestrarr.Host.Tasks;
+using Orchestrarr.Storage;
 
 namespace Orchestrarr.Host.Decisions;
 
@@ -12,7 +14,7 @@ namespace Orchestrarr.Host.Decisions;
 public sealed record ProblemsReport(DateTimeOffset? ReadAt, string SourceKind, bool Stale, SourceError? Error, string DescriptionsVersion, IReadOnlyList<ProblemRow> Rows);
 
 /// <summary><c>GoesUpTo</c> is how far the row went when the operator saw it: the approval is for that, and for no more.</summary>
-public sealed record SelectedRow(string? Id, string? HeadSha, Ceiling? GoesUpTo, bool StopBeforeProduction, bool TryRepair = false);
+public sealed record SelectedRow(string? Id, string? HeadSha, Ceiling? GoesUpTo, bool StopBeforeProduction);
 
 public sealed record ApproveProblemsRequest(List<SelectedRow>? Rows, string? SecondFactorCode, string? DescriptionsVersion);
 
@@ -24,13 +26,13 @@ internal static class ProblemsEndpoints
 {
     public static void MapProblemsEndpoints(this RouteGroupBuilder api)
     {
-        api.MapGet("/problems", async (WorkItemCatalog catalog, IApplicationCatalog applications, ExecutorRegistry executors, bool? refresh, CancellationToken ct) =>
+        api.MapGet("/problems", async (WorkItemCatalog catalog, IApplicationCatalog applications, ExecutorRegistry executors, IBatchQueue queue, bool? refresh, CancellationToken ct) =>
         {
             var report = await catalog.GetAsync(refresh ?? false, ct);
-            return Results.Ok(new ProblemsReport(report.ReadAt, report.SourceKind, report.Stale, report.Error, applications.Version, DecisionTable.Build(report.Items, applications, Acceptance(executors))));
+            return Results.Ok(new ProblemsReport(report.ReadAt, report.SourceKind, report.Stale, report.Error, applications.Version, DecisionTable.Build(report.Items, applications, Acceptance(executors), WorkshopResults(queue))));
         }).RequireAuthorization(Permissions.FleetRead);
 
-        api.MapPost("/problems/approve", async (ApproveProblemsRequest request, HttpContext context, IApproverAccessor accessor, WorkItemCatalog catalog, IApplicationCatalog applications, ExecutorRegistry executors, ApprovalService service, CancellationToken ct) =>
+        api.MapPost("/problems/approve", async (ApproveProblemsRequest request, HttpContext context, IApproverAccessor accessor, WorkItemCatalog catalog, IApplicationCatalog applications, ExecutorRegistry executors, IBatchQueue queue, ApprovalService service, CancellationToken ct) =>
         {
             var (approver, refusal) = ApprovalEndpoints.Authorize(accessor, context);
             if (approver is null)
@@ -39,9 +41,9 @@ internal static class ProblemsEndpoints
             }
 
             var report = await catalog.GetAsync(refresh: false, ct);
-            var table = DecisionTable.Build(report.Items, applications, Acceptance(executors)).ToDictionary(row => row.Id, StringComparer.Ordinal);
+            var table = DecisionTable.Build(report.Items, applications, Acceptance(executors), WorkshopResults(queue)).ToDictionary(row => row.Id, StringComparer.Ordinal);
             // What the operator saw is what is approved: the rule lives once, in Core
-            var resolution = DecisionSelection.Resolve(table, [.. (request.Rows ?? []).Select(row => new ChosenRow(row.Id, row.HeadSha, row.GoesUpTo, row.StopBeforeProduction, row.TryRepair))], request.DescriptionsVersion, applications.Version);
+            var resolution = DecisionSelection.Resolve(table, [.. (request.Rows ?? []).Select(row => new ChosenRow(row.Id, row.HeadSha, row.GoesUpTo, row.StopBeforeProduction))], request.DescriptionsVersion, applications.Version);
             if (resolution.Refused)
             {
                 await service.TraceRefusalAsync(approver, resolution.Mismatch?.WorkItemId ?? string.Empty, ApprovalRefusal.PlanChanged);
@@ -53,6 +55,19 @@ internal static class ProblemsEndpoints
                 ? ApprovalEndpoints.RefusalResult(code)
                 : Results.Json(new ApproveResponse([.. result.Approvals.Select(ApprovalEndpoints.ToDto)]), statusCode: StatusCodes.Status201Created);
         }).RequireAuthorization(Permissions.ApprovalsCreate).RequireRateLimiting(ApprovalsServiceCollectionExtensions.ApprovingPolicy);
+    }
+
+    // What the workshop said lately about each commit. A store that cannot be read gives none: the table still shows the problems, from the forge alone.
+    private static IReadOnlyList<TaskResultRow> WorkshopResults(IBatchQueue queue)
+    {
+        try
+        {
+            return queue.TaskResults(500);
+        }
+        catch (StorageUnavailableException)
+        {
+            return [];
+        }
     }
 
     // Only the executors that asked for work lately: one that is gone promises nothing

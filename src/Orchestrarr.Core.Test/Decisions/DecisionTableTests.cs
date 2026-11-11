@@ -90,19 +90,73 @@ public sealed class DecisionTableTests
         row.Why.Should().Be(CeilingReason.QualificationNotDescribed);
     }
 
+    private static TaskResultRow Said(TaskKind kind, TaskResult result, string? reason = null, int minutes = 0, string? head = null) =>
+        new("example/shop", 1, head ?? Head, kind, result, reason, At.AddMinutes(minutes));
+
+    private static IReadOnlyList<ProblemRow> TableWith(WorkItem item, params TaskResultRow[] results) =>
+        DecisionTable.Build([item], Described(), [Repairing], results);
+
     [Fact]
-    public void A_repair_is_offered_where_the_checks_fail_and_it_is_granted_and_an_executor_accepts_it()
+    public void A_pull_request_whose_checks_fail_on_the_forge_goes_up_to_the_repair_where_one_can_be_tried()
     {
-        Only(Table(Item([Pull(checks: ChecksState.Failing)]), executors: [Repairing])).CanRepair.Should().BeTrue();
+        var row = Only(TableWith(Item([Pull(checks: ChecksState.Failing)])));
+
+        row.GoesUpTo.Should().Be(Ceiling.Repair);
+        row.Why.Should().Be(CeilingReason.ChecksFailing);
+        DecisionTable.StepsOf(row.GoesUpTo).Should().Equal(StepKind.Repair);
     }
 
     [Fact]
-    public void A_repair_is_not_offered_when_the_checks_pass_it_is_not_granted_or_no_executor_accepts_it()
+    public void Where_no_repair_can_be_tried_a_failing_pull_request_stays_at_the_qualification()
     {
-        Only(Table(Item([Pull(checks: ChecksState.Passing)]), executors: [Repairing])).CanRepair.Should().BeFalse("nothing fails");
-        Only(Table(Item([Pull(checks: ChecksState.Failing)], grantRepair: false), executors: [Repairing])).CanRepair.Should().BeFalse("not granted");
-        Only(Table(Item([Pull(checks: ChecksState.Failing)]), executors: [Everything])).CanRepair.Should().BeFalse("no executor accepts it");
-        Only(DecisionTable.Build([Item([Pull(checks: ChecksState.Failing)])], ApplicationCatalog.Parse("""{ "applications": [] }"""), [Repairing])).CanRepair.Should().BeFalse("the application is not described: the row has no action");
+        Only(Table(Item([Pull(checks: ChecksState.Failing)]), executors: [Everything])).GoesUpTo.Should().Be(Ceiling.Qualification, "no executor accepts the repair");
+        Only(TableWith(Item([Pull(checks: ChecksState.Failing)], grantRepair: false))).GoesUpTo.Should().Be(Ceiling.Qualification, "the repair is not granted");
+    }
+
+    [Fact]
+    public void A_pull_request_that_passes_on_the_forge_but_failed_in_the_workshop_becomes_a_repair()
+    {
+        var row = Only(TableWith(Item(), Said(TaskKind.ValidatePullRequest, TaskResult.Failed, "npm test failed (exit 1)")));
+
+        row.GoesUpTo.Should().Be(Ceiling.Repair);
+        row.Why.Should().Be(CeilingReason.QualificationFailed);
+    }
+
+    [Fact]
+    public void The_latest_word_of_the_workshop_on_the_commit_counts_and_a_new_commit_starts_again()
+    {
+        var failedThenPassed = TableWith(Item(), Said(TaskKind.ValidatePullRequest, TaskResult.Failed, minutes: 0), Said(TaskKind.ValidatePullRequest, TaskResult.Passed, minutes: 5));
+        var other = TableWith(Item(), Said(TaskKind.ValidatePullRequest, TaskResult.Failed, head: new string('f', 40)));
+
+        Only(failedThenPassed).GoesUpTo.Should().Be(Ceiling.Production, "it passed since");
+        Only(other).GoesUpTo.Should().Be(Ceiling.Production, "the failure was on another commit");
+    }
+
+    [Fact]
+    public void A_repair_that_did_not_work_can_be_tried_again()
+    {
+        var row = Only(TableWith(Item([Pull(checks: ChecksState.Failing)]), Said(TaskKind.RepairPullRequest, TaskResult.Failed, "the agent made no change")));
+
+        row.GoesUpTo.Should().Be(Ceiling.Repair);
+        row.Why.Should().Be(CeilingReason.RepairFailed);
+    }
+
+    [Fact]
+    public void A_repair_that_worked_leaves_a_patch_and_nothing_to_select_because_applying_it_is_not_built()
+    {
+        var row = Only(TableWith(Item([Pull(checks: ChecksState.Failing)]), Said(TaskKind.RepairPullRequest, TaskResult.Passed, "repaired: 1 file(s) changed, the validation passes again (patch in the trace, nothing pushed)")));
+
+        row.GoesUpTo.Should().Be(Ceiling.NoAction);
+        row.Why.Should().Be(CeilingReason.PatchReady);
+    }
+
+    [Fact]
+    public void A_pull_request_that_passes_in_the_workshop_while_the_forge_fails_points_at_the_pipeline_not_at_a_repair()
+    {
+        var row = Only(TableWith(Item([Pull(checks: ChecksState.Failing)]), Said(TaskKind.RepairPullRequest, TaskResult.Passed, "nothing to repair: the validation passes")));
+
+        row.GoesUpTo.Should().Be(Ceiling.Qualification);
+        row.Why.Should().Be(CeilingReason.PassesHereChecksFailing);
     }
 
     [Theory]

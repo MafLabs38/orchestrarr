@@ -43,6 +43,9 @@ public sealed record RunSummary(
 
 public sealed record RunTask(TaskSpec Spec, TaskResult? Result, string? Reason);
 
+/// <summary>What became of one task of an ended batch, on one commit of one pull request.</summary>
+public sealed record TaskResultRow(string Repository, int PullRequest, string HeadSha, TaskKind Kind, TaskResult Result, string? Reason, DateTimeOffset At);
+
 /// <summary>A run with everything it left: its tasks, what became of each, and the chained lines of its trace.</summary>
 public sealed record RunDetail(RunSummary Summary, IReadOnlyList<RunTask> Tasks, IReadOnlyList<RunEvent> Events);
 
@@ -74,6 +77,9 @@ public interface IBatchQueue
     IReadOnlyList<RunSummary> Runs(int limit);
 
     RunDetail? Find(Guid batchId);
+
+    /// <summary>What became of the tasks that ended, newest first: the workshop's latest word on a pull request, which the table reads.</summary>
+    IReadOnlyList<TaskResultRow> TaskResults(int limit);
 }
 
 public sealed record TaskOptions

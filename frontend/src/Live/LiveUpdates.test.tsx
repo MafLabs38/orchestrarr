@@ -106,7 +106,7 @@ describe('invalidateTopic', () => {
 
     await invalidateTopic(queryClient, 'runs', 'run-1');
 
-    expect(stale()).toEqual(['/api/v1/runs', '/api/v1/runs/run-1']);
+    expect(stale()).toEqual(['/api/v1/problems', '/api/v1/runs', '/api/v1/runs/run-1']);
   });
 
   it('reads every run again when the change does not say which', async () => {
@@ -114,7 +114,7 @@ describe('invalidateTopic', () => {
 
     await invalidateTopic(queryClient, 'runs');
 
-    expect(stale()).toEqual(['/api/v1/runs', '/api/v1/runs/run-1', '/api/v1/runs/run-2']);
+    expect(stale()).toEqual(['/api/v1/problems', '/api/v1/runs', '/api/v1/runs/run-1', '/api/v1/runs/run-2']);
   });
 
   it('reads again the accounts and the options when they change', async () => {
@@ -164,13 +164,13 @@ describe('LiveUpdates', () => {
     await vi.waitFor(() => expect(liveStatus.get()).toBe('live'));
     // Opening reads everything once; start from a clean state
     await queryClient.resetQueries();
-    for (const key of ['/api/v1/runs', '/api/v1/runs/run-1', '/api/v1/approvals']) {
+    for (const key of ['/api/v1/runs', '/api/v1/runs/run-1', '/api/v1/approvals', '/api/v1/problems']) {
       queryClient.setQueryData([key], {});
     }
 
     fake.handlers.changed?.('runs', 'run-1');
 
-    await vi.waitFor(() => expect(stale()).toEqual(['/api/v1/runs', '/api/v1/runs/run-1']));
+    await vi.waitFor(() => expect(stale()).toEqual(['/api/v1/problems', '/api/v1/runs', '/api/v1/runs/run-1']));
   });
 
   it('says it is reconnecting while the channel is down, and reads everything again when it is back', async () => {

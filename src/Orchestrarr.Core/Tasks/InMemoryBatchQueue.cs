@@ -176,6 +176,19 @@ public sealed class InMemoryBatchQueue(InMemoryApprovalStore approvals, IAuditSi
         }
     }
 
+    public IReadOnlyList<TaskResultRow> TaskResults(int limit)
+    {
+        lock (_gate)
+        {
+            return [.. _entries
+                .Where(entry => entry.EndedAt is not null)
+                .OrderByDescending(entry => entry.EndedAt)
+                .SelectMany(entry => entry.Batch.Tasks.Where(task => entry.Outcomes.ContainsKey(task.Id))
+                    .Select(task => new TaskResultRow(task.Repository, task.PullRequest, task.HeadSha, task.Kind, entry.Outcomes[task.Id].Result, entry.Outcomes[task.Id].Reason, entry.EndedAt!.Value)))
+                .Take(limit)];
+        }
+    }
+
     public RunDetail? Find(Guid batchId)
     {
         lock (_gate)

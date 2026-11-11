@@ -212,7 +212,7 @@ export interface OptionState {
 
 // How far a problem can go by itself, and why it stops there (ADR 0019): computed by the server from the description of the application,
 // what the connected executors accept and the state of the problem.
-export type Ceiling = 'noAction' | 'qualification' | 'mergeIntoDevelop' | 'production';
+export type Ceiling = 'noAction' | 'qualification' | 'mergeIntoDevelop' | 'production' | 'repair';
 
 export type CeilingReason =
   | 'none'
@@ -227,7 +227,11 @@ export type CeilingReason =
   | 'cannotBeMergedNow'
   | 'noRollbackDescribed'
   | 'noCheckAfterDeployDescribed'
-  | 'updateClassStopsBeforeProduction';
+  | 'updateClassStopsBeforeProduction'
+  | 'qualificationFailed'
+  | 'repairFailed'
+  | 'patchReady'
+  | 'passesHereChecksFailing';
 
 export type ProblemKind =
   | 'dependencyUpdate'
@@ -256,7 +260,6 @@ export interface ProblemRow {
   goesUpTo: Ceiling;
   why: CeilingReason;
   canStopBeforeProduction: boolean;
-  canRepair: boolean;
 }
 
 export interface ProblemsReport {

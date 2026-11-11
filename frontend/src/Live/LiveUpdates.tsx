@@ -8,7 +8,8 @@ export const livePath = '/api/v1/live';
 
 // What each topic the host announces makes the screens read again. A key is the path of the query; a run's detail starts with the same path.
 const topicPaths: Readonly<Record<string, readonly string[]>> = {
-  runs: ['/api/v1/runs'],
+  // What a run ended with changes what the table offers for that pull request
+  runs: ['/api/v1/runs', '/api/v1/problems'],
   approvals: ['/api/v1/approvals'],
   audit: ['/api/v1/audit'],
   status: ['/api/v1/system/status'],

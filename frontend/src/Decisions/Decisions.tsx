@@ -21,7 +21,7 @@ import ProblemTable, { isActionable } from './ProblemTable';
 import SelectionBar from './SelectionBar';
 import useProblems, { useRefreshProblems } from './useProblems';
 
-const ceilingOrder: Ceiling[] = ['production', 'mergeIntoDevelop', 'qualification', 'noAction'];
+const ceilingOrder: Ceiling[] = ['production', 'mergeIntoDevelop', 'repair', 'qualification', 'noAction'];
 
 export default function Decisions() {
   const { data: report, error, isPending } = useProblems();
@@ -69,7 +69,6 @@ function Table({ report }: Readonly<{ report: ProblemsReport }>) {
   // The selection remembers the commit that was shown: a row whose pull request moved since is no longer what was chosen
   const [chosenAt, setChosenAt] = useState<Record<string, string>>({});
   const [stops, setStops] = useState<Record<string, boolean>>({});
-  const [repairs, setRepairs] = useState<Record<string, boolean>>({});
 
   if (report.error && report.rows.length === 0) {
     return <Alert kind={kinds.DANGER}>{translate('CannotReadFleet', { error: describeError(report.error) })}</Alert>;
@@ -166,18 +165,15 @@ function Table({ report }: Readonly<{ report: ProblemsReport }>) {
               rows={shown}
               selected={selected}
               stops={stops}
-              repairs={repairs}
               onSelect={select}
               onSelectAll={selectAll}
               onStop={(row, stop) => setStops((current) => ({ ...current, [row.id]: stop }))}
-              onRepair={(row, repair) => setRepairs((current) => ({ ...current, [row.id]: repair }))}
             />
           )}
           <SelectionBar
             chosen={chosen}
             descriptionsVersion={report.descriptionsVersion}
             stops={stops}
-            repairs={repairs}
             requiresSecondFactor={status?.approvals.requiresSecondFactor ?? true}
             isOperator={status?.approvals.isOperator ?? false}
             onDone={() => setChosenAt({})}

@@ -2,6 +2,7 @@ import BrandLogo from 'Components/BrandLogo';
 import translate from 'Utilities/translate';
 
 import LiveBadge from './LiveBadge';
+import NotificationBell from './NotificationBell';
 import styles from './PageHeader.module.css';
 import SignedInUser from './SignedInUser';
 import SourceBadge from './SourceBadge';
@@ -14,6 +15,7 @@ export default function PageHeader() {
       <span className={styles.spacer} />
       <LiveBadge />
       <SourceBadge />
+      <NotificationBell />
       <SignedInUser />
     </header>
   );

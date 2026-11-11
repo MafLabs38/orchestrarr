@@ -336,6 +336,23 @@ public sealed class SqliteBatchQueue(SqliteDatabase database, IKillSwitch killSw
         return runs;
     });
 
+    public IReadOnlyList<TaskResultRow> TaskResults(int limit) => SqliteDatabase.Guard<IReadOnlyList<TaskResultRow>>(() =>
+    {
+        using var connection = database.Connect();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT t.repository, t.pull_request, t.head_sha, t.kind, t.result, t.reason, b.ended_at FROM tasks t JOIN batches b ON b.id = t.batch_id WHERE t.result IS NOT NULL AND b.ended_at IS NOT NULL ORDER BY b.ended_at DESC, t.sequence DESC LIMIT $limit;";
+        command.Parameters.AddWithValue("$limit", limit);
+        using var reader = command.ExecuteReader();
+        var rows = new List<TaskResultRow>();
+        while (reader.Read())
+        {
+            rows.Add(new TaskResultRow(
+                reader.GetString(0), reader.GetInt32(1), reader.GetString(2), Enum.Parse<TaskKind>(reader.GetString(3)), Enum.Parse<TaskResult>(reader.GetString(4)),
+                reader.IsDBNull(5) ? null : reader.GetString(5), SqliteDatabase.Parse(reader.GetString(6))));
+        }
+        return rows;
+    });
+
     public RunDetail? Find(Guid batchId) => SqliteDatabase.Guard(() =>
     {
         using var connection = database.Connect();

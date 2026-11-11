@@ -15,6 +15,9 @@ public enum Ceiling
     Qualification,
     MergeIntoDevelop,
     Production,
+
+    /// <summary>The pull request fails (on the forge, or when the workshop ran it): the next thing is to repair it. An agent tries, and the patch is shown; nothing is pushed.</summary>
+    Repair,
 }
 
 /// <summary>Why a problem stops where it does. The interface words each one.</summary>
@@ -34,6 +37,18 @@ public enum CeilingReason
     NoRollbackDescribed,
     NoCheckAfterDeployDescribed,
     UpdateClassStopsBeforeProduction,
+
+    /// <summary>The workshop ran this commit and the build or the tests failed.</summary>
+    QualificationFailed,
+
+    /// <summary>An agent tried to repair this commit and did not succeed: it can be tried again.</summary>
+    RepairFailed,
+
+    /// <summary>An agent repaired this commit and a patch is in the trace of its run. Applying it is a write power that is not built yet.</summary>
+    PatchReady,
+
+    /// <summary>The workshop passes this commit while the forge's checks fail: the pipeline of the repository is what to look at.</summary>
+    PassesHereChecksFailing,
 }
 
 /// <summary>The kinds of problem the table shows (one row each).</summary>
@@ -68,8 +83,7 @@ public sealed record ProblemRow(
     string? HeadSha,
     Ceiling GoesUpTo,
     CeilingReason Why,
-    bool CanStopBeforeProduction,
-    bool CanRepair = false);
+    bool CanStopBeforeProduction);
 
 /// <summary>What a connected executor accepts, as it reported it. The table never promises more than they would run: with none connected, nothing can be run, and every row says so.</summary>
 public sealed record ExecutorAcceptance(IReadOnlyList<TaskKind> Kinds, IReadOnlyList<string> Repositories)
@@ -80,7 +94,7 @@ public sealed record ExecutorAcceptance(IReadOnlyList<TaskKind> Kinds, IReadOnly
 /// <summary>Builds the rows of the table from the work items, the descriptions and the executors. A pure function: the same input gives the same table.</summary>
 public static class DecisionTable
 {
-    public static IReadOnlyList<ProblemRow> Build(IReadOnlyList<WorkItem> items, IApplicationCatalog applications, IReadOnlyList<ExecutorAcceptance> executors)
+    public static IReadOnlyList<ProblemRow> Build(IReadOnlyList<WorkItem> items, IApplicationCatalog applications, IReadOnlyList<ExecutorAcceptance> executors, IReadOnlyList<TaskResultRow>? results = null)
     {
         ArgumentNullException.ThrowIfNull(items);
         ArgumentNullException.ThrowIfNull(applications);
@@ -88,7 +102,7 @@ public static class DecisionTable
         var rows = new List<ProblemRow>();
         foreach (var item in items)
         {
-            AddDependencyUpdates(rows, item, applications, executors);
+            AddDependencyUpdates(rows, item, applications, executors, results ?? []);
             AddOtherProblems(rows, item);
         }
         return rows;
@@ -99,10 +113,11 @@ public static class DecisionTable
     {
         Ceiling.Qualification => [StepKind.Validate],
         Ceiling.MergeIntoDevelop or Ceiling.Production => [StepKind.Validate, StepKind.MergePullRequests],
+        Ceiling.Repair => [StepKind.Repair],
         _ => [],
     };
 
-    private static void AddDependencyUpdates(List<ProblemRow> rows, WorkItem item, IApplicationCatalog applications, IReadOnlyList<ExecutorAcceptance> executors)
+    private static void AddDependencyUpdates(List<ProblemRow> rows, WorkItem item, IApplicationCatalog applications, IReadOnlyList<ExecutorAcceptance> executors, IReadOnlyList<TaskResultRow> results)
     {
         if (item.RepositoryFullName is null)
         {
@@ -118,17 +133,51 @@ public static class DecisionTable
         foreach (var pullRequest in reads.Items.Where(pullRequest => !pullRequest.Draft))
         {
             var (ceiling, why, canStop) = CeilingOf(item, pullRequest, applications, executors);
-            // A repair is offered where the forge's checks fail and an agent may be tried: it needs the grant and an executor that accepts it
-            var canRepair = ceiling != Ceiling.NoAction
-                && pullRequest.Checks == ChecksState.Failing
-                && item.Plan.FirstOrDefault(step => step.Kind == StepKind.Repair && step.EnvironmentId is null) is { Available: true, Granted: true }
-                && executors.Any(executor => executor.Accepts(TaskKind.RepairPullRequest, item.RepositoryFullName));
+            (ceiling, why, canStop) = WorkshopWord(item, pullRequest, ceiling, why, canStop, executors, results);
             var change = pullRequest.Changes.Count == 1 ? pullRequest.Changes[0] : null;
             var description = change is { From: not null, To: not null } ? $"{change.Package} {change.From} → {change.To}" : pullRequest.Title;
             rows.Add(new ProblemRow(
                 $"pr:{item.RepositoryFullName}#{pullRequest.Number}", item.Id, item.RepositoryFullName, ProblemKind.DependencyUpdate, description,
-                null, null, change?.Kind ?? UpdateKind.Unknown, pullRequest.Checks, pullRequest.Url, pullRequest.Number, pullRequest.HeadSha, ceiling, why, canStop, canRepair));
+                null, null, change?.Kind ?? UpdateKind.Unknown, pullRequest.Checks, pullRequest.Url, pullRequest.Number, pullRequest.HeadSha, ceiling, why, canStop));
         }
+    }
+
+    // The next thing for a pull request is not always the next level: when it fails, on the forge or in the workshop, it is to repair it. The workshop's
+    // latest word on this very commit counts (a new commit starts again): a failure makes the row a repair, a repair that worked leaves a patch to apply.
+    private static (Ceiling Ceiling, CeilingReason Why, bool CanStop) WorkshopWord(
+        WorkItem item, PullRequestInfo pullRequest, Ceiling ceiling, CeilingReason why, bool canStop, IReadOnlyList<ExecutorAcceptance> executors, IReadOnlyList<TaskResultRow> results)
+    {
+        if (ceiling == Ceiling.NoAction)
+        {
+            return (ceiling, why, canStop);
+        }
+        var repository = item.RepositoryFullName!;
+        var mine = results.Where(row => string.Equals(row.Repository, repository, StringComparison.OrdinalIgnoreCase) && row.PullRequest == pullRequest.Number && row.HeadSha == pullRequest.HeadSha)
+            .OrderByDescending(row => row.At).ToList();
+        var canRepair = item.Plan.FirstOrDefault(step => step.Kind == StepKind.Repair && step.EnvironmentId is null) is { Available: true, Granted: true }
+            && executors.Any(executor => executor.Accepts(TaskKind.RepairPullRequest, repository));
+        if (mine.Find(row => row.Kind == TaskKind.RepairPullRequest) is { Result: TaskResult.Passed, Reason: { } said } && said.StartsWith("repaired", StringComparison.Ordinal))
+        {
+            return (Ceiling.NoAction, CeilingReason.PatchReady, false);
+        }
+        var latest = mine.Find(row => row.Kind is TaskKind.ValidatePullRequest or TaskKind.RepairPullRequest && row.Result is TaskResult.Passed or TaskResult.Failed);
+        if (latest is { Result: TaskResult.Failed })
+        {
+            var reason = latest.Kind == TaskKind.RepairPullRequest ? CeilingReason.RepairFailed : CeilingReason.QualificationFailed;
+            return canRepair ? (Ceiling.Repair, reason, false) : (Ceiling.Qualification, CeilingReason.QualificationFailed, false);
+        }
+        if (pullRequest.Checks == ChecksState.Failing)
+        {
+            if (latest is { Result: TaskResult.Passed })
+            {
+                return (Ceiling.Qualification, CeilingReason.PassesHereChecksFailing, false);
+            }
+            if (canRepair)
+            {
+                return (Ceiling.Repair, CeilingReason.ChecksFailing, false);
+            }
+        }
+        return (ceiling, why, canStop);
     }
 
     private static (Ceiling Ceiling, CeilingReason Why, bool CanStop) CeilingOf(WorkItem item, PullRequestInfo pullRequest, IApplicationCatalog applications, IReadOnlyList<ExecutorAcceptance> executors)

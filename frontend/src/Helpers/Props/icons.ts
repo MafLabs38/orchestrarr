@@ -2,6 +2,7 @@
 export {
   Users as ACCOUNTS,
   History as ACTIVITY,
+  Bell as BELL,
   ChevronRight as COLLAPSED,
   CircleAlert as DANGER,
   ScrollText as DECISIONS,

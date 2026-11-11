@@ -5,20 +5,11 @@ import useSession from 'Account/useSession';
 import Alert from 'Components/Alert';
 import { ApiError } from 'Helpers/Hooks/useApiQuery';
 import { kinds } from 'Helpers/Props/kinds';
-import useSystemStatus from 'System/useSystemStatus';
 import translate from 'Utilities/translate';
 
 import styles from './Page.module.css';
 import PageHeader from './PageHeader';
 import PageSidebar from './PageSidebar';
-
-// When approving asks for no code, every screen says so: it must not be forgotten that security is lowered (development and tests only)
-function SecondFactorBanner() {
-  const { data: status } = useSystemStatus();
-  return status && !status.approvals.requiresSecondFactor ? (
-    <Alert kind={kinds.WARNING}>{translate('SecondFactorOffBanner')}</Alert>
-  ) : null;
-}
 
 // Nothing of the fleet is shown to somebody who has not signed in: the sign-in comes first, and the shell only exists for a session.
 export default function Page({ children }: Readonly<{ children: ReactNode }>) {
@@ -46,7 +37,6 @@ export default function Page({ children }: Readonly<{ children: ReactNode }>) {
       <div className={styles.body}>
         <PageSidebar />
         <main id="main" className={styles.main}>
-          <SecondFactorBanner />
           {children}
         </main>
       </div>

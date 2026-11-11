@@ -194,6 +194,21 @@ public sealed class SqliteBatchQueueTests : IDisposable
     }
 
     [Fact]
+    public async Task What_became_of_the_tasks_that_ended_is_listed_newest_first_for_the_table_and_a_running_batch_has_none()
+    {
+        var batch = await Queue();
+        await _queue.ClaimAsync("executor-1", Ct);
+        _queue.TaskResults(10).Should().BeEmpty("nothing has ended");
+
+        await _queue.CompleteAsync(batch.Id, "executor-1", Done(batch), Ct);
+
+        var rows = _queue.TaskResults(10);
+        rows.Should().HaveCount(2).And.OnlyContain(row => row.Result == TaskResult.DryRun && row.At == Start);
+        rows.Select(row => (row.Repository, row.PullRequest, row.HeadSha)).Should().OnlyContain(key => key.Repository == batch.Tasks[0].Repository && key.HeadSha == batch.Tasks[0].HeadSha);
+        _queue.TaskResults(1).Should().HaveCount(1);
+    }
+
+    [Fact]
     public async Task A_batch_that_ended_done_spends_its_approvals_keeps_each_outcome_and_may_be_approved_again()
     {
         var batch = await Queue();

@@ -4,7 +4,7 @@ using Orchestrarr.Core.WorkItems;
 namespace Orchestrarr.Core.Decisions;
 
 /// <summary>A row as the operator chose it: what they saw (the commit and how far it went) and the switch.</summary>
-public sealed record ChosenRow(string? Id, string? HeadSha, Ceiling? GoesUpTo, bool StopBeforeProduction, bool TryRepair = false);
+public sealed record ChosenRow(string? Id, string? HeadSha, Ceiling? GoesUpTo, bool StopBeforeProduction);
 
 /// <summary>What became of a selection against the current table: the problems to approve, or the first row that is not what the operator saw.</summary>
 public sealed record SelectionResolution(IReadOnlyList<SelectedProblem> Selection, ProblemRow? Mismatch, bool Refused)
@@ -40,15 +40,9 @@ public static class DecisionSelection
             {
                 return SelectionResolution.Moved(current);
             }
-            // A repair that is not offered on the row now is a row that is not what the operator saw
-            if (row.TryRepair && !current.CanRepair)
-            {
-                return SelectionResolution.Moved(current);
-            }
             var stops = row.StopBeforeProduction && current.CanStopBeforeProduction;
-            IReadOnlyList<StepKind> steps = row.TryRepair ? [StepKind.Repair] : [.. DecisionTable.StepsOf(current.GoesUpTo)];
-            selection.Add(new SelectedProblem(current.WorkItemId, current.PullRequest.Value, current.HeadSha!, steps,
-                $"goesUpTo={current.GoesUpTo} stopBeforeProduction={stops} repair={row.TryRepair} descriptions={(currentDescriptions.Length == 0 ? "none" : currentDescriptions)}"));
+            selection.Add(new SelectedProblem(current.WorkItemId, current.PullRequest.Value, current.HeadSha!, [.. DecisionTable.StepsOf(current.GoesUpTo)],
+                $"goesUpTo={current.GoesUpTo} stopBeforeProduction={stops} descriptions={(currentDescriptions.Length == 0 ? "none" : currentDescriptions)}"));
         }
         return SelectionResolution.Ok(selection);
     }

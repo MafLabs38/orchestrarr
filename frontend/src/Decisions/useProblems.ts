@@ -38,7 +38,6 @@ export interface SelectedRow {
   headSha: string;
   goesUpTo: Ceiling;
   stopBeforeProduction: boolean;
-  tryRepair: boolean;
 }
 
 // Approves the selection with one code. The client says which rows it selected, at which commit, and the switches; the server computes the

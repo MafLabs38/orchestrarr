@@ -210,6 +210,7 @@ const ceilings = {
   qualification: 'GoesUpQualification',
   mergeIntoDevelop: 'GoesUpMergeIntoDevelop',
   production: 'GoesUpProduction',
+  repair: 'GoesUpRepair',
 } as const satisfies Record<Ceiling, string>;
 
 export function describeCeiling(ceiling: Ceiling): string {
@@ -230,6 +231,10 @@ const whys = {
   noRollbackDescribed: 'WhyNoRollbackDescribed',
   noCheckAfterDeployDescribed: 'WhyNoCheckAfterDeployDescribed',
   updateClassStopsBeforeProduction: 'WhyUpdateClassStopsBeforeProduction',
+  qualificationFailed: 'WhyQualificationFailed',
+  repairFailed: 'WhyRepairFailed',
+  patchReady: 'WhyPatchReady',
+  passesHereChecksFailing: 'WhyPassesHereChecksFailing',
 } as const satisfies Record<CeilingReason, string>;
 
 // Why a problem stops where it does, from the code of the server

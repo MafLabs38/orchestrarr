@@ -17,7 +17,6 @@ const rows: ProblemRow[] = [
     goesUpTo: 'qualification',
     why: 'checksFailing',
     canStopBeforeProduction: false,
-    canRepair: true,
     pullRequest: 1,
     headSha: head('b'),
   }),
@@ -102,7 +101,7 @@ describe('Decisions', () => {
     const table = within(screen.getByRole('table'));
     expect(table.getByText('Production')).toBeInTheDocument();
     expect(table.getByText('Qualification')).toBeInTheDocument();
-    expect(table.getByText(/checks fail on the pull request/)).toBeInTheDocument();
+    expect(table.getByText(/checks fail on the forge/)).toBeInTheDocument();
     expect(table.getByText('Merge into develop')).toBeInTheDocument();
     expect(table.getByText(/stops before production by default/)).toBeInTheDocument();
     expect(table.getByText('No action defined')).toBeInTheDocument();
@@ -182,22 +181,32 @@ describe('Decisions', () => {
     expect(screen.getByText(/example\/shop: .*merge into develop → stops before production/)).toBeInTheDocument();
   });
 
-  it('offers a repair only where the checks fail, says what it does and sends the choice', async () => {
-    const fetchMock = stub(problemsReport(rows), { requiresSecondFactor: false });
+  it('shows a pull request that fails as a repair, says what it will do and sends the ceiling it saw', async () => {
+    const failing = problem({
+      id: 'pr:example/shop#9',
+      description: 'express 4.16.0 → 5.3.0',
+      updateClass: 'major',
+      checks: 'failing',
+      goesUpTo: 'repair',
+      why: 'qualificationFailed',
+      canStopBeforeProduction: false,
+      pullRequest: 9,
+      headSha: head('d'),
+    });
+    const fetchMock = stub(problemsReport([failing]), { requiresSecondFactor: false });
     renderWithProviders(<Decisions />);
-    await userEvent.click(await screen.findByLabelText(/Select example\/shop lodash/));
-    expect(screen.getAllByLabelText(/Try to repair:/)).toHaveLength(1);
 
-    await userEvent.click(screen.getByLabelText(/Try to repair: example\/shop lodash/));
+    await userEvent.click(await screen.findByLabelText(/Select example\/shop express/));
 
+    expect(within(screen.getByRole('table')).getByText('Repair')).toBeInTheDocument();
+    expect(screen.getByText(/fails: an agent can try to repair it/)).toBeInTheDocument();
     expect(
       screen.getByText(/example\/shop: an agent tries to repair 1 in the workshop.*nothing is pushed/),
     ).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Try to repair/)).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Validate the selection' }));
     await waitFor(() => expect(posted(fetchMock)).toBeDefined());
-    expect(posted(fetchMock)).toMatchObject({
-      rows: [{ id: 'pr:example/shop#1', goesUpTo: 'qualification', tryRepair: true }],
-    });
+    expect(posted(fetchMock)).toMatchObject({ rows: [{ id: 'pr:example/shop#9', goesUpTo: 'repair' }] });
   });
 
   it('selects every problem shown that can be done, and none of the others', async () => {
@@ -230,14 +239,12 @@ describe('Decisions', () => {
           headSha: head('a'),
           goesUpTo: 'production',
           stopBeforeProduction: true,
-          tryRepair: false,
         },
         {
           id: 'pr:example/web-portal#4',
           headSha: head('c'),
           goesUpTo: 'mergeIntoDevelop',
           stopBeforeProduction: false,
-          tryRepair: false,
         },
       ],
       secondFactorCode: '123 456',
