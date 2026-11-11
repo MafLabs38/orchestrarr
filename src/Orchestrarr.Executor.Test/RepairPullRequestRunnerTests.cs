@@ -627,6 +627,9 @@ public sealed class RepairPullRequestRunnerTests : IDisposable
             // What an install step may leave: a link inside node_modules
             Directory.CreateDirectory(Path.Combine(work, "node_modules", "pkg"));
             File.CreateSymbolicLink(Path.Combine(work, "node_modules", "pkg", "leak"), "/proc/self/environ");
+            // A repository the code of the pull request wrote, deep in the tree: the agent's git must find none
+            Directory.CreateDirectory(Path.Combine(work, "src", ".git"));
+            File.WriteAllText(Path.Combine(work, "src", ".git", "config"), "[core]\n\tfsmonitor = x");
         });
         var seen = new List<string>();
         _processes.Script(IsAgent, new ProcessResult(0, false, string.Join('\n', AgentStream("src/server.js"))), call =>
@@ -635,7 +638,7 @@ public sealed class RepairPullRequestRunnerTests : IDisposable
         {
             await Run();
 
-            seen.Should().Contain("src/real.js").And.Contain("src/inside", "a link that stays in the folder is harmless").And.NotContain(["environ", "src/outside-dir", ".claude", "node_modules/pkg/leak"]);
+            seen.Should().Contain("src/real.js").And.Contain("src/inside", "a link that stays in the folder is harmless").And.NotContain(["environ", "src/outside-dir", ".claude", "node_modules/pkg/leak", "src/.git", "src/.git/config"]);
             (await File.ReadAllTextAsync(Path.Combine(outside, "secret.txt"), Ct)).Should().Be("keep me", "a link is removed as a link, never followed");
             // The removal of a link the pull request tracks is not the agent's change: its path is kept out of what is staged
             _processes.Calls.Single(call => call.File == "git" && call.Arguments.Contains("add")).Arguments.Should().Contain([":(exclude,literal)environ", ":(exclude,literal)node_modules/pkg/leak"]);

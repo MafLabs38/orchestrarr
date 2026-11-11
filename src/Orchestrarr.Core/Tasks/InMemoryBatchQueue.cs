@@ -119,6 +119,8 @@ public sealed class InMemoryBatchQueue(InMemoryApprovalStore approvals, IAuditSi
                 return ValueTask.FromResult(QueueResult.Invalid);
             }
             entry.Events.AddRange(events);
+            // A run that keeps sending lines is alive: the delivery timeout means "the executor went silent", not "the run is long"
+            entry.DeliveredAt = time.GetUtcNow();
             return ValueTask.FromResult(QueueResult.Ok);
         }
     }

@@ -27,8 +27,8 @@ public sealed partial class TasksOptions
     /// </summary>
     public int BatchLifetimeMinutes { get; set; } = 2;
 
-    /// <summary>How long a batch may stay with an executor that does not answer, in minutes.</summary>
-    public int DeliveryTimeoutMinutes { get; set; } = 10;
+    /// <summary>How long a batch may stay with an executor that goes silent, in minutes: every line a run sends starts the count again, and a quiet step of a validation can last ten.</summary>
+    public int DeliveryTimeoutMinutes { get; set; } = 30;
 
     /// <summary>
     /// Whether approving needs the code of the second factor, which the executor checks. Unset: yes. Only the tests of the control plane

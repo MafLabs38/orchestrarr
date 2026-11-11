@@ -8,7 +8,7 @@ namespace Orchestrarr.Executor;
 /// </summary>
 public sealed record RepairOptions
 {
-    /// <summary>The image that holds Claude Code (<c>docker/agent/Dockerfile</c>). Empty: no repair.</summary>
+    /// <summary>The image that holds Claude Code (<c>docker/agent/Dockerfile</c>). Empty: no repair. It must not need git: the work folder is given with no repository in it, and an image whose git read one could run what it names.</summary>
     public string Image { get; init; } = string.Empty;
 
     /// <summary>A file that holds the token of the subscription (<c>CLAUDE_CODE_OAUTH_TOKEN</c>). It goes to the agent's container as an environment variable, never in an argument or the trace.</summary>

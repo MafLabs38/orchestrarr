@@ -126,6 +126,22 @@ public sealed class SqliteBatchQueueTests : IDisposable
     }
 
     [Fact]
+    public async Task A_run_that_keeps_sending_lines_is_not_expired_however_long_it_lasts()
+    {
+        var batch = await Queue();
+        await _queue.ClaimAsync("executor-1", Ct);
+        var lines = Chain(batch, RunEvents.Claimed, RunEvents.SecondFactorChecked, RunEvents.RunCompleted);
+        _time.Advance(Options.DeliveryTimeout - TimeSpan.FromMinutes(1));
+        (await _queue.AppendEventsAsync(batch.Id, "executor-1", lines[..1], Ct)).Should().Be(QueueResult.Ok);
+        _time.Advance(Options.DeliveryTimeout - TimeSpan.FromMinutes(1));
+        (await _queue.AppendEventsAsync(batch.Id, "executor-1", lines[1..2], Ct)).Should().Be(QueueResult.Ok, "the line before renewed the delivery");
+
+        await _queue.ClaimAsync("executor-1", Ct);
+
+        _queue.Find(batch.Id)!.Summary.State.Should().Be(BatchState.Delivered);
+    }
+
+    [Fact]
     public async Task A_batch_handed_out_and_never_answered_ends_as_expired()
     {
         var batch = await Queue();

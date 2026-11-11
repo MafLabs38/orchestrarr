@@ -163,8 +163,8 @@ internal sealed class PullRequestWorkspace(ValidationOptions options, IProcessRu
             {
                 // Stopping the client does not stop the container
                 await KillAsync(container);
-                trace.Add(RunEvents.TaskStep, task.Id, $"{title}: stopped after {StepTimeout().TotalMinutes.ToString(System.Globalization.CultureInfo.InvariantCulture)} min\n{result.OutputTail}");
-                return new StepsOutcome(TaskResult.Failed, $"{step.Name} took more than {StepTimeout().TotalMinutes.ToString(System.Globalization.CultureInfo.InvariantCulture)} min", step.Name, result.OutputTail);
+                trace.Add(RunEvents.TaskStep, task.Id, $"{title}: stopped after {StepTimeout().TotalMinutes.ToString(CultureInfo.InvariantCulture)} min\n{result.OutputTail}");
+                return new StepsOutcome(TaskResult.Failed, $"{step.Name} took more than {StepTimeout().TotalMinutes.ToString(CultureInfo.InvariantCulture)} min", step.Name, result.OutputTail);
             }
             if (DockerCouldNotRun(result.ExitCode))
             {

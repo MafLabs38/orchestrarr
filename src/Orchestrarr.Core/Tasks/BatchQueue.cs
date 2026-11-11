@@ -88,7 +88,7 @@ public sealed record TaskOptions
     public TimeSpan BatchLifetime { get; init; } = TimeSpan.FromHours(1);
 
     /// <summary>How long a batch may stay with an executor that does not answer, before it ends as expired.</summary>
-    public TimeSpan DeliveryTimeout { get; init; } = TimeSpan.FromMinutes(10);
+    public TimeSpan DeliveryTimeout { get; init; } = TimeSpan.FromMinutes(30);
 
     /// <summary>Whether an approval needs the code of the second factor (the executor checks it). Off only for a sandbox with no executor.</summary>
     public bool RequireSecondFactor { get; init; } = true;

@@ -125,8 +125,8 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
         if (run.TimedOut)
         {
             await _workspace.KillAsync(container);
-            trace.Add(RunEvents.TaskStep, task.Id, $"agent: stopped after {repair.TimeoutMinutes} min");
-            return ValidatePullRequestRunner.Finish(task, trace, TaskResult.Failed, $"the agent took more than {repair.TimeoutMinutes} min");
+            trace.Add(RunEvents.TaskStep, task.Id, $"agent: stopped after {Math.Max(1, repair.TimeoutMinutes).ToString(CultureInfo.InvariantCulture)} min");
+            return ValidatePullRequestRunner.Finish(task, trace, TaskResult.Failed, $"the agent took more than {Math.Max(1, repair.TimeoutMinutes).ToString(CultureInfo.InvariantCulture)} min");
         }
         if (run.ExitCode != 0)
         {
@@ -178,7 +178,7 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
                 : ValidatePullRequestRunner.Finish(task, trace, TaskResult.Failed, "the agent's change does not make the validation pass: " + after.Reason);
         }
 
-        AddPatch(task, trace, patch, paths.Count);
+        AddPatch(task, trace, patch.Value, paths.Count);
         return ValidatePullRequestRunner.Finish(task, trace, TaskResult.Repaired, $"repaired: {paths.Count.ToString(CultureInfo.InvariantCulture)} file(s) changed, the validation passes again on a clean checkout (patch in the trace, nothing pushed)");
     }
 
@@ -200,7 +200,7 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
     }
 
     // Written to a file outside every mount, in full: what is shown in the trace may be cut, what is applied is not
-    private async Task<string?> WritePatchAsync(RunFolders folders, string[] excludes, CancellationToken cancellationToken)
+    private async Task<(string Text, long Bytes, string Digest)?> WritePatchAsync(RunFolders folders, string[] excludes, CancellationToken cancellationToken)
     {
         var diff = await _workspace.GitAsync(
             folders, folders.Work, ["diff", "--cached", "--binary", "--no-renames", "--no-ext-diff", "--no-textconv", "--output", folders.PatchFile, "--", ".", .. excludes], network: false, 200, cancellationToken);
@@ -208,14 +208,16 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
         {
             return null;
         }
-        return await File.ReadAllTextAsync(folders.PatchFile, cancellationToken);
+        // The digest is of the bytes of the file that was applied and checked, not of the text decoded from it
+        var bytes = await File.ReadAllBytesAsync(folders.PatchFile, cancellationToken);
+        return (System.Text.Encoding.UTF8.GetString(bytes), bytes.LongLength, Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes)).ToLowerInvariant());
     }
 
     // The instructions of the pull request are for whoever reads it, not for the agent: they are taken out of the folder it works in. So is every link that
     // leaves the folder (to /proc/self/environ, where the token is, or to anything of the host): what the pull request or its install step made as a link is
     // not something the agent may read through.
     // Returns the paths (from the folder) of what it removed, so that the removal of a link the pull request tracks is not counted as the agent's change.
-    // node_modules is walked too: an install step may leave a link there, and only links are looked for in it.
+    // node_modules is walked too: an install step may leave a link there (and a .git, an instruction file or a folder of instructions is removed there as anywhere).
     private static List<string> RemoveInstructions(string work)
     {
         var removed = new List<string>();
@@ -230,7 +232,7 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
                 var info = new FileInfo(entry);
                 if (info.LinkTarget is not null)
                 {
-                    if (LeavesTheFolder(info, root) || InstructionFiles.Contains(name, StringComparer.Ordinal) || InstructionFolders.Contains(name, StringComparer.Ordinal))
+                    if (LeavesTheFolder(info, root) || name == ".git" || InstructionFiles.Contains(name, StringComparer.Ordinal) || InstructionFolders.Contains(name, StringComparer.Ordinal))
                     {
                         PullRequestWorkspace.DeleteEntry(entry);
                         removed.Add(Path.GetRelativePath(work, entry));
@@ -238,16 +240,17 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
                 }
                 else if (Directory.Exists(entry))
                 {
-                    if (InstructionFolders.Contains(name, StringComparer.Ordinal))
+                    if (InstructionFolders.Contains(name, StringComparer.Ordinal) || name == ".git")
                     {
+                        // A .git that the code of the pull request wrote is a repository the agent's own git would read (and run what it names)
                         PullRequestWorkspace.DeleteEntry(entry);
                     }
-                    else if (name is not ".git")
+                    else
                     {
                         pending.Push(entry);
                     }
                 }
-                else if (InstructionFiles.Contains(name, StringComparer.Ordinal))
+                else if (InstructionFiles.Contains(name, StringComparer.Ordinal) || name == ".git")
                 {
                     PullRequestWorkspace.DeleteEntry(entry);
                 }
@@ -271,12 +274,12 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
         }
     }
 
-    private static void AddPatch(TaskSpec task, RunTrace trace, string patch, int files)
+    private static void AddPatch(TaskSpec task, RunTrace trace, (string Text, long Bytes, string Digest) written, int files)
     {
+        var patch = written.Text;
         var chunks = Math.Min(MaxPatchChunks, (patch.Length + PatchChunk - 1) / PatchChunk);
         // What identifies the whole patch, shown or not: the next step (applying it) binds an approval to these bytes
-        var digest = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(patch))).ToLowerInvariant();
-        trace.Add(RunEvents.TaskPatch, task.Id, $"patch: {System.Text.Encoding.UTF8.GetByteCount(patch).ToString(CultureInfo.InvariantCulture)} bytes, sha256 {digest}");
+        trace.Add(RunEvents.TaskPatch, task.Id, $"patch: {written.Bytes.ToString(CultureInfo.InvariantCulture)} bytes, sha256 {written.Digest}");
         if (patch.Length > chunks * PatchChunk)
         {
             // What is shown is not the whole patch: it says so (the whole patch was applied and checked)

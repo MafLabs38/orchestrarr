@@ -19,7 +19,8 @@ import { useApprovals } from './useApprovals';
 const stateKinds: Record<ApprovalState, Kind> = {
   waiting: kinds.INFO,
   taken: kinds.WARNING,
-  dryRunDone: kinds.SUCCESS,
+  // The run ended: whether it passed or failed is in the run (a failed run must not look like a success here)
+  dryRunDone: kinds.DEFAULT,
   refused: kinds.DANGER,
   expired: kinds.DEFAULT,
 };

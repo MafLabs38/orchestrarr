@@ -253,6 +253,12 @@ public sealed class SqliteBatchQueue(SqliteDatabase database, IKillSwitch killSw
             command.Parameters.AddWithValue("$hash", line.Hash);
             command.ExecuteNonQuery();
         }
+        // A run that keeps sending lines is alive: the delivery timeout means "the executor went silent", not "the run is long"
+        using var renew = connection.CreateCommand();
+        renew.CommandText = "UPDATE batches SET delivered_at = $now WHERE id = $id AND state = 'Delivered';";
+        renew.Parameters.AddWithValue("$now", SqliteDatabase.Format(time.GetUtcNow()));
+        renew.Parameters.AddWithValue("$id", batchId.ToString("D"));
+        renew.ExecuteNonQuery();
         return (true, QueueResult.Ok);
     }
 

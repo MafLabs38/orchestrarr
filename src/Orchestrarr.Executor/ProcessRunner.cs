@@ -88,9 +88,9 @@ public sealed partial class SystemProcessRunner : IProcessRunner
             {
                 process.Kill(entireProcessTree: true);
             }
-            catch (InvalidOperationException)
+            catch (Exception ended) when (ended is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException)
             {
-                // It ended between the timeout and the kill: the timeout is still what happened
+                // It ended between the timeout and the kill, or part of its tree could not be killed: the timeout is still what happened
             }
             await process.WaitForExitAsync(CancellationToken.None);
             await Drained(pumps);
@@ -119,6 +119,8 @@ public sealed partial class SystemProcessRunner : IProcessRunner
     /// <summary>The longest line kept whole: what comes after it, up to the end of the line, is dropped and a marker says so.</summary>
     internal const int MaxLineCharacters = 65536;
 
+    private static string Finished(StringBuilder line, bool cut) => cut ? line.Append(" [line cut]").ToString() : line.ToString();
+
     private static async Task PumpAsync(StreamReader reader, Action<string> onLine)
     {
         var buffer = new char[4096];
@@ -135,7 +137,7 @@ public sealed partial class SystemProcessRunner : IProcessRunner
                     {
                         line.Length--;
                     }
-                    onLine(dropping ? line + " [line cut]" : line.ToString());
+                    onLine(Finished(line, dropping));
                     line.Clear();
                     dropping = false;
                 }
@@ -151,7 +153,7 @@ public sealed partial class SystemProcessRunner : IProcessRunner
         }
         if (line.Length > 0)
         {
-            onLine(dropping ? line + " [line cut]" : line.ToString());
+            onLine(Finished(line, dropping));
         }
     }
 

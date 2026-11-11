@@ -31,7 +31,7 @@ public static class AgentTranscript
             {
                 return [];
             }
-            return [.. content.EnumerateArray().Select(Block).Where(text => text is not null).Select(text => text!)];
+            return [.. content.EnumerateArray().Select(Block).OfType<string>()];
         }
         catch (Exception unexpected) when (unexpected is JsonException or InvalidOperationException)
         {
