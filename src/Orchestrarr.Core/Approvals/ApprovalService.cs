@@ -44,7 +44,7 @@ public sealed class ApprovalService(
         // Everything that reads or checks comes first, without the gate: a slow read of the forge must not block the other approvals.
         var (candidates, batchFor, refusal) = await CandidatesAsync(approver, workItemId, ticked, seen, secondFactorCode, cancellationToken);
         var result = refusal is null
-            ? await RecordAsync(candidates, batchFor!, secondFactorCode, cancellationToken)
+            ? await RecordAsync(candidates, batchFor!, secondFactorCode, null, cancellationToken)
             : ApprovalResult.Refused(refusal.Value);
         if (!result.Recorded)
         {
@@ -53,25 +53,97 @@ public sealed class ApprovalService(
         return result;
     }
 
+    /// <summary>
+    /// Approves a selection of problems with one code (ADR 0019): the dependency updates of several applications, each with the steps its row stands for,
+    /// become <b>one batch</b> that the executor checks once. Each pull request is bound to the commit the operator saw, as with a card.
+    /// </summary>
+    public async Task<ApprovalResult> ApproveSelectionAsync(Approver approver, IReadOnlyList<SelectedProblem> selection, string? secondFactorCode, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(approver);
+        ArgumentNullException.ThrowIfNull(selection);
+
+        var (candidates, batchFor, notes, refusal) = await SelectionCandidatesAsync(approver, selection, secondFactorCode, cancellationToken);
+        var result = refusal is null
+            ? await RecordAsync(candidates, batchFor!, secondFactorCode, notes, cancellationToken)
+            : ApprovalResult.Refused(refusal.Value);
+        if (!result.Recorded)
+        {
+            await RecordRefusalAsync(approver, selection.Count > 0 ? selection[0].WorkItemId : string.Empty, result.Refusal!.Value);
+        }
+        return result;
+    }
+
+    private async Task<(IReadOnlyList<Approval> Candidates, Func<IReadOnlyList<Approval>, TaskBatch>? BatchFor, IReadOnlyDictionary<Guid, string>? Notes, ApprovalRefusal? Refusal)> SelectionCandidatesAsync(
+        Approver approver, IReadOnlyList<SelectedProblem> selection, string? secondFactorCode, CancellationToken cancellationToken)
+    {
+        if (await FrontRefusalAsync(approver, secondFactorCode, cancellationToken) is { } front)
+        {
+            return ([], null, null, front);
+        }
+        if (selection.Count == 0)
+        {
+            return ([], null, null, ApprovalRefusal.NoPullRequests);
+        }
+        // The same pull request twice is not a selection that can be approved
+        if (selection.Select(problem => (problem.WorkItemId, problem.PullRequest)).Distinct().Count() != selection.Count)
+        {
+            return ([], null, null, ApprovalRefusal.PlanChanged);
+        }
+
+        var now = time.GetUtcNow();
+        var batchId = Guid.NewGuid();
+        var approvals = new List<Approval>();
+        var notes = new Dictionary<Guid, string>();
+        foreach (var group in selection.GroupBy(problem => problem.WorkItemId, StringComparer.Ordinal))
+        {
+            var item = await catalog.FindAsync(group.Key, cancellationToken);
+            if (item?.RepositoryFullName is null)
+            {
+                return ([], null, null, ApprovalRefusal.UnknownWorkItem);
+            }
+            // What is approved must be what the operator sees now: a list that is still being read, failed, or only an old read is refused
+            if (item.PullRequests is not { Status: PullRequestsStatus.Read, Stale: false })
+            {
+                return ([], null, null, ApprovalRefusal.PullRequestsNotRead);
+            }
+            foreach (var problem in group)
+            {
+                if (CheckSteps(item, problem.Steps) is { } stepsRefusal)
+                {
+                    return ([], null, null, stepsRefusal);
+                }
+                var pullRequest = item.PullRequests.Items.FirstOrDefault(candidate => candidate.Number == problem.PullRequest && !candidate.Draft && string.Equals(candidate.HeadSha, problem.HeadSha, StringComparison.Ordinal));
+                if (pullRequest is null)
+                {
+                    return ([], null, null, ApprovalRefusal.PlanChanged);
+                }
+                var approval = new Approval(Guid.NewGuid(), item.Id, item.RepositoryFullName, pullRequest.Number, pullRequest.HeadSha, [.. problem.Steps.Distinct().Order()], approver.Subject, now, approver.StepUpAt, ApprovalState.Waiting, batchId);
+                if (!IsRecordable(approval))
+                {
+                    return ([], null, null, ApprovalRefusal.PlanChanged);
+                }
+                approvals.Add(approval);
+                if (problem.Note is not null)
+                {
+                    notes[approval.Id] = problem.Note;
+                }
+            }
+        }
+        if (approvals.Sum(approval => approval.Steps.Count(step => step is StepKind.Validate or StepKind.MergePullRequests)) > TaskLimits.MaxTasksPerBatch)
+        {
+            return ([], null, null, ApprovalRefusal.TooManyPullRequests);
+        }
+        // A batch of one application is named after it; one of several is a selection
+        var workItemId = selection.Select(problem => problem.WorkItemId).Distinct().Count() == 1 ? selection[0].WorkItemId : $"selection:{batchId:N}";
+        return (approvals, fresh => BuildBatch(batchId, workItemId, approver, now, fresh), notes, null);
+    }
+
     private async Task<(IReadOnlyList<Approval> Candidates, Func<IReadOnlyList<Approval>, TaskBatch>? BatchFor, ApprovalRefusal? Refusal)> CandidatesAsync(
         Approver approver, string workItemId, IReadOnlyList<StepKind> ticked, IReadOnlyList<SeenPullRequest> seen, string? secondFactorCode, CancellationToken cancellationToken)
     {
-        if (await killSwitch.IsEngagedAsync(cancellationToken))
+        if (await FrontRefusalAsync(approver, secondFactorCode, cancellationToken) is { } front)
         {
-            return ([], null, ApprovalRefusal.KillSwitchEngaged);
-        }
-        if (!approver.IsPerson)
-        {
-            return ([], null, ApprovalRefusal.NotAPerson);
-        }
-        if (!approver.IsOperator)
-        {
-            return ([], null, ApprovalRefusal.NotAnOperator);
-        }
-        // Whether the code is right is for the executor to say: here only that there is one, so that nobody is queued who cannot be checked
-        if ((secondFactor?.Required ?? taskOptions.RequireSecondFactor) && !IsCodeShaped(secondFactorCode))
-        {
-            return ([], null, ApprovalRefusal.SecondFactorRequired);
+            return ([], null, front);
         }
 
         var item = await catalog.FindAsync(workItemId, cancellationToken);
@@ -112,19 +184,38 @@ public sealed class ApprovalService(
             return ([], null, ApprovalRefusal.PlanChanged);
         }
         return seen.All(pullRequest => pullRequest is not null) && SameAsSeen(approvals, seen)
-            ? (approvals, fresh => BuildBatch(batchId, item.Id, approver, now, fresh, steps), null)
+            ? (approvals, fresh => BuildBatch(batchId, item.Id, approver, now, fresh), null)
             : ([], null, ApprovalRefusal.PlanChanged);
     }
 
+    // What is checked first, for one card and for a whole selection: the stop, who asks, and that there is a code to check
+    private async Task<ApprovalRefusal?> FrontRefusalAsync(Approver approver, string? secondFactorCode, CancellationToken cancellationToken)
+    {
+        if (await killSwitch.IsEngagedAsync(cancellationToken))
+        {
+            return ApprovalRefusal.KillSwitchEngaged;
+        }
+        if (!approver.IsPerson)
+        {
+            return ApprovalRefusal.NotAPerson;
+        }
+        if (!approver.IsOperator)
+        {
+            return ApprovalRefusal.NotAnOperator;
+        }
+        // Whether the code is right is for the executor to say: here only that there is one, so that nobody is queued who cannot be checked
+        return (secondFactor?.Required ?? taskOptions.RequireSecondFactor) && !IsCodeShaped(secondFactorCode) ? ApprovalRefusal.SecondFactorRequired : null;
+    }
+
     // Each pull request is validated, then merged if that was ticked: the order of a batch is the order of its tasks
-    private TaskBatch BuildBatch(Guid batchId, string workItemId, Approver approver, DateTimeOffset now, IReadOnlyList<Approval> approvals, StepKind[] steps)
+    private TaskBatch BuildBatch(Guid batchId, string workItemId, Approver approver, DateTimeOffset now, IReadOnlyList<Approval> approvals)
     {
         var tasks = new List<TaskSpec>();
-        foreach (var approval in approvals.OrderBy(approval => approval.PullRequest))
+        foreach (var approval in approvals.OrderBy(approval => approval.Repository, StringComparer.Ordinal).ThenBy(approval => approval.PullRequest))
         {
             foreach (var (step, kind) in new[] { (StepKind.Validate, TaskKind.ValidatePullRequest), (StepKind.MergePullRequests, TaskKind.MergePullRequest) })
             {
-                if (steps.Contains(step))
+                if (approval.Steps.Contains(step))
                 {
                     tasks.Add(new TaskSpec(Guid.NewGuid(), tasks.Count + 1, kind, approval.Repository, approval.PullRequest, approval.HeadSha, approval.Id));
                 }
@@ -171,7 +262,7 @@ public sealed class ApprovalService(
         && OrderValidation.IsValidApproval(approval.WorkItemId, approval.Repository, approval.HeadSha, approval.Steps, approval.ApproverSubject);
 
     // Under the gate: the check for a decision already there, the trace and the recording are one step, all or nothing.
-    private async Task<ApprovalResult> RecordAsync(IReadOnlyList<Approval> candidates, Func<IReadOnlyList<Approval>, TaskBatch> batchFor, string? secondFactorCode, CancellationToken cancellationToken)
+    private async Task<ApprovalResult> RecordAsync(IReadOnlyList<Approval> candidates, Func<IReadOnlyList<Approval>, TaskBatch> batchFor, string? secondFactorCode, IReadOnlyDictionary<Guid, string>? notes, CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken);
         try
@@ -204,7 +295,7 @@ public sealed class ApprovalService(
 
             // The trace, the approvals and the batch are written together, all or nothing: no trace without its approval, no approval without its trace.
             List<AuditEntry> entries = [.. fresh.Select(approval => new AuditEntry(approval.ApprovedAt, AuditEvents.ApprovalRecorded, approval.ApproverSubject, approval.Id.ToString("D"),
-                $"{approval.Repository}#{approval.PullRequest}@{approval.HeadSha} steps={string.Join(',', approval.Steps)}"))];
+                $"{approval.Repository}#{approval.PullRequest}@{approval.HeadSha} steps={string.Join(',', approval.Steps)}{(notes is not null && notes.TryGetValue(approval.Id, out var note) ? " " + note : string.Empty)}"))];
             entries.Add(new AuditEntry(batch.CreatedAt, AuditEvents.BatchQueued, batch.ApproverSubject, batch.Id.ToString("D"), $"{batch.Tasks.Count} tasks, digest {batch.Digest()[..16]}"));
             return await ledger.TryRecordAsync(fresh, batch, secondFactorCode, entries, cancellationToken) switch
             {
@@ -227,6 +318,13 @@ public sealed class ApprovalService(
     }
 
     public void Dispose() => _gate.Dispose();
+
+    /// <summary>Traces a refusal that was decided before the service was reached (a row of the table that is not what the operator saw): refusals are worth a trace too.</summary>
+    public Task TraceRefusalAsync(Approver approver, string workItemId, ApprovalRefusal refusal)
+    {
+        ArgumentNullException.ThrowIfNull(approver);
+        return RecordRefusalAsync(approver, workItemId, refusal);
+    }
 
     private async Task RecordRefusalAsync(Approver approver, string workItemId, ApprovalRefusal refusal)
     {

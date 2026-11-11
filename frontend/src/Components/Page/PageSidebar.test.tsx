@@ -1,6 +1,6 @@
 import { screen, waitFor } from '@testing-library/react';
 
-import { renderWithProviders, report, stubApi, workItem } from 'testUtils';
+import { problem, problemsReport, renderWithProviders, stubApi } from 'testUtils';
 
 import PageSidebar from './PageSidebar';
 
@@ -10,7 +10,7 @@ afterEach(() => {
 
 describe('PageSidebar', () => {
   it('counts the decisions waiting', async () => {
-    stubApi({ '/api/v1/work-items': report({ items: [workItem, { ...workItem, id: 'b' }] }) });
+    stubApi({ '/api/v1/problems': problemsReport([problem(), problem({ id: 'pr:example/shop#3' })]) });
 
     renderWithProviders(<PageSidebar />);
 
@@ -20,7 +20,7 @@ describe('PageSidebar', () => {
   });
 
   it('shows no counter when nothing is waiting, once the answer has arrived', async () => {
-    const fetchMock = stubApi({ '/api/v1/work-items': report({ items: [] }) });
+    const fetchMock = stubApi({ '/api/v1/problems': problemsReport([]) });
 
     renderWithProviders(<PageSidebar />);
 
@@ -33,7 +33,7 @@ describe('PageSidebar', () => {
 
   it('counts the approvals in the queue and links to the activity', async () => {
     stubApi({
-      '/api/v1/work-items': report({ items: [] }),
+      '/api/v1/problems': problemsReport([]),
       '/api/v1/approvals': [{ id: 'a' }, { id: 'b' }, { id: 'c' }],
     });
 

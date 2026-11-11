@@ -1,211 +1,314 @@
-import { screen } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-import {
-  finding,
-  pullRequest,
-  pullRequestsRead,
-  readerOnly,
-  renderWithProviders,
-  report,
-  status,
-  stubApi,
-  workItem,
-} from 'testUtils';
+import { problem, problemsReport, renderWithProviders, status } from 'testUtils';
+import type { ProblemRow, ProblemsReport } from 'typings/api';
 
 import Decisions from './Decisions';
-import { intervalFor } from './useWorkItems';
 
-const path = '/api/v1/work-items';
+const head = (letter: string) => letter.repeat(40);
+const rows: ProblemRow[] = [
+  problem(),
+  problem({
+    id: 'pr:example/shop#1',
+    description: 'lodash 4.17.4 → 4.17.21',
+    updateClass: 'patch',
+    checks: 'failing',
+    goesUpTo: 'qualification',
+    why: 'checksFailing',
+    canStopBeforeProduction: false,
+    pullRequest: 1,
+    headSha: head('b'),
+  }),
+  problem({
+    id: 'pr:example/web-portal#4',
+    application: 'example/web-portal',
+    workItemId: 'repository:example/web-portal',
+    description: 'react 17.0.2 → 18.3.1',
+    updateClass: 'major',
+    goesUpTo: 'mergeIntoDevelop',
+    why: 'updateClassStopsBeforeProduction',
+    canStopBeforeProduction: false,
+    pullRequest: 4,
+    headSha: head('c'),
+  }),
+  problem({
+    id: 'finding:repository:example/api:SecretScanningAlerts',
+    workItemId: 'repository:example/api',
+    application: 'example/api',
+    kind: 'exposedSecret',
+    description: '1',
+    severity: 'danger',
+    count: 1,
+    updateClass: null,
+    checks: null,
+    url: null,
+    pullRequest: null,
+    headSha: null,
+    goesUpTo: 'noAction',
+    why: 'noActionDefined',
+    canStopBeforeProduction: false,
+  }),
+];
+
+function stub(
+  report: ProblemsReport = problemsReport(rows),
+  approvals: Record<string, unknown> = {},
+  refused?: Response,
+) {
+  const fetchMock = vi.fn((input: string, init?: RequestInit) => {
+    const path = String(input);
+    const method = init?.method ?? 'GET';
+    if (method === 'POST' && path === '/api/v1/problems/approve') {
+      return Promise.resolve(refused ?? new Response(JSON.stringify({ approvals: [{}, {}] }), { status: 201 }));
+    }
+    const bodies: Record<string, unknown> = {
+      '/api/v1/problems': report,
+      '/api/v1/system/status': status({}, { requiresSecondFactor: true, ...approvals }),
+    };
+    return Promise.resolve(
+      path in bodies
+        ? new Response(JSON.stringify(bodies[path]), { status: 200 })
+        : new Response('{}', { status: 404 }),
+    );
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  return fetchMock;
+}
+
+const posted = (fetchMock: ReturnType<typeof stub>) => {
+  const call = fetchMock.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === 'POST');
+  return call
+    ? (JSON.parse(String((call[1] as RequestInit).body)) as {
+        rows: unknown[];
+        secondFactorCode?: string;
+        descriptionsVersion?: string;
+      })
+    : undefined;
+};
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
 describe('Decisions', () => {
-  it('shows a card per work item', async () => {
-    stubApi({ [path]: report({ items: [workItem, { ...workItem, id: 'image:x', title: 'grafana/grafana:11' }] }) });
+  it('shows one row per problem with how far it goes and why it stops', async () => {
+    stub();
 
     renderWithProviders(<Decisions />);
 
-    expect(await screen.findByRole('button', { name: /example\/shop/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /grafana\/grafana:11/ })).toBeInTheDocument();
+    expect(await screen.findByText('express 4.16.0 → 4.21.2')).toBeInTheDocument();
+    const table = within(screen.getByRole('table'));
+    expect(table.getByText('Production')).toBeInTheDocument();
+    expect(table.getByText('Qualification')).toBeInTheDocument();
+    expect(table.getByText(/checks fail on the pull request/)).toBeInTheDocument();
+    expect(table.getByText('Merge into develop')).toBeInTheDocument();
+    expect(table.getByText(/stops before production by default/)).toBeInTheDocument();
+    expect(table.getByText('No action defined')).toBeInTheDocument();
+    expect(table.getByText('Exposed secret')).toBeInTheDocument();
   });
 
-  it('says nothing needs a decision when the fleet is fine', async () => {
-    stubApi({ [path]: report({ items: [] }) });
-
+  it('cannot select a problem that has no action', async () => {
+    stub();
     renderWithProviders(<Decisions />);
 
-    expect(await screen.findByText(/Nothing needs a decision/)).toBeInTheDocument();
+    const secret = await screen.findByLabelText(/Select example\/api/);
+
+    expect(secret).toBeDisabled();
   });
 
-  it('says no source is configured instead of claiming the fleet is fine', async () => {
-    stubApi({ [path]: report({ items: [], sourceKind: 'none' }) });
-
+  it('offers the stop switch only to a row that can reach production', async () => {
+    stub();
     renderWithProviders(<Decisions />);
 
+    await screen.findByText('express 4.16.0 → 4.21.2');
+
+    expect(screen.getAllByLabelText(/Stop before production:/)).toHaveLength(1);
+  });
+
+  it('filters by application, type, goes up to and text', async () => {
+    stub();
+    renderWithProviders(<Decisions />);
+    await screen.findByText('express 4.16.0 → 4.21.2');
+
+    await userEvent.selectOptions(screen.getByLabelText('Application'), 'example/web-portal');
+    expect(screen.queryByText('express 4.16.0 → 4.21.2')).not.toBeInTheDocument();
+    expect(screen.getByText('react 17.0.2 → 18.3.1')).toBeInTheDocument();
+
+    await userEvent.selectOptions(screen.getByLabelText('Application'), '');
+    await userEvent.selectOptions(screen.getByLabelText('Goes up to'), 'noAction');
+    expect(within(screen.getByRole('table')).getByText('Exposed secret')).toBeInTheDocument();
+    expect(screen.queryByText('react 17.0.2 → 18.3.1')).not.toBeInTheDocument();
+
+    await userEvent.selectOptions(screen.getByLabelText('Goes up to'), '');
+    await userEvent.selectOptions(screen.getByLabelText('Type'), 'exposedSecret');
+    expect(screen.getAllByRole('row')).toHaveLength(2);
+
+    await userEvent.selectOptions(screen.getByLabelText('Type'), '');
+    await userEvent.type(screen.getByLabelText('Search a package or a text'), 'lodash');
+    expect(screen.getByText('lodash 4.17.4 → 4.17.21')).toBeInTheDocument();
+    expect(screen.queryByText('react 17.0.2 → 18.3.1')).not.toBeInTheDocument();
+  });
+
+  it('says there is no match when the filters leave nothing', async () => {
+    stub();
+    renderWithProviders(<Decisions />);
+    await screen.findByText('express 4.16.0 → 4.21.2');
+
+    await userEvent.type(screen.getByLabelText('Search a package or a text'), 'nothing like this');
+
+    expect(screen.getByText('No problem matches these filters.')).toBeInTheDocument();
+  });
+
+  it('groups the selection by application, one batch each, and says what each batch does', async () => {
+    stub();
+    renderWithProviders(<Decisions />);
+    await userEvent.click(await screen.findByLabelText(/Select example\/shop express/));
+    await userEvent.click(screen.getByLabelText(/Select example\/web-portal react/));
+
+    expect(screen.getByText('2 problems in 2 applications → 2 batches, one code')).toBeInTheDocument();
+    expect(screen.getByText(/example\/shop: .*production allowed, not built yet/)).toBeInTheDocument();
+    expect(screen.getByText(/example\/web-portal: .*merge into develop → stops before production/)).toBeInTheDocument();
+    expect(screen.getByText('4 of 4 problems · 2 selected')).toBeInTheDocument();
+  });
+
+  it('says a row that stops before production no longer promotes', async () => {
+    stub();
+    renderWithProviders(<Decisions />);
+    await userEvent.click(await screen.findByLabelText(/Select example\/shop express/));
+    await userEvent.click(screen.getByLabelText(/Stop before production: example\/shop/));
+
+    expect(screen.getByText(/example\/shop: .*merge into develop → stops before production/)).toBeInTheDocument();
+  });
+
+  it('selects every problem shown that can be done, and none of the others', async () => {
+    stub();
+    renderWithProviders(<Decisions />);
+
+    await userEvent.click(await screen.findByLabelText('Select every problem shown that can be done'));
+
+    expect(screen.getByText(/3 problems in 2 applications/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Select example\/api/)).not.toBeChecked();
+  });
+
+  it('validates the selection with one code, sends the commit that was shown and the switches, then clears it', async () => {
+    const fetchMock = stub();
+    renderWithProviders(<Decisions />);
+    await userEvent.click(await screen.findByLabelText(/Select example\/shop express/));
+    await userEvent.click(screen.getByLabelText(/Select example\/web-portal react/));
+    await userEvent.click(screen.getByLabelText(/Stop before production: example\/shop/));
+    const validate = screen.getByRole('button', { name: 'Validate the selection' });
+    expect(validate).toBeDisabled();
+
+    await userEvent.type(screen.getByLabelText('Authenticator code'), '123 456');
+    await userEvent.click(validate);
+
+    await waitFor(() => expect(posted(fetchMock)).toBeDefined());
+    expect(posted(fetchMock)).toEqual({
+      rows: [
+        { id: 'pr:example/shop#2', headSha: head('a'), goesUpTo: 'production', stopBeforeProduction: true },
+        {
+          id: 'pr:example/web-portal#4',
+          headSha: head('c'),
+          goesUpTo: 'mergeIntoDevelop',
+          stopBeforeProduction: false,
+        },
+      ],
+      secondFactorCode: '123 456',
+      descriptionsVersion: 'abc123',
+    });
+    expect(await screen.findByText(/Approved: 2 pull requests in one batch/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('Select problems to validate them together.')).toBeInTheDocument());
+  });
+
+  it('asks for no code when the option is off, and sends none', async () => {
+    const fetchMock = stub(problemsReport(rows), { requiresSecondFactor: false });
+    renderWithProviders(<Decisions />);
+    await userEvent.click(await screen.findByLabelText(/Select example\/shop express/));
+
+    expect(screen.queryByLabelText('Authenticator code')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Validate the selection' }));
+
+    await waitFor(() => expect(posted(fetchMock)).toBeDefined());
+    expect(posted(fetchMock)?.secondFactorCode).toBeUndefined();
+  });
+
+  it('says why when the server refuses, and keeps the selection', async () => {
+    stub(
+      problemsReport(rows),
+      { requiresSecondFactor: false },
+      new Response(JSON.stringify({ error: 'planChanged' }), { status: 409 }),
+    );
+    renderWithProviders(<Decisions />);
+    await userEvent.click(await screen.findByLabelText(/Select example\/shop express/));
+
+    await userEvent.click(screen.getByRole('button', { name: 'Validate the selection' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/changed since you looked at them/);
+    expect(screen.getByLabelText(/Select example\/shop express/)).toBeChecked();
+  });
+
+  it('lets only an operator validate', async () => {
+    stub(problemsReport(rows), { requiresSecondFactor: false, isOperator: false });
+    renderWithProviders(<Decisions />);
+
+    await userEvent.click(await screen.findByLabelText(/Select example\/shop express/));
+
+    expect(screen.getByText('Only an operator can validate.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Validate the selection' })).toBeDisabled();
+  });
+
+  it('drops a selected row whose pull request moved to another commit', async () => {
+    const moved = [{ ...rows[0], headSha: head('f') }, ...rows.slice(1)];
+    let call = 0;
+    const fetchMock = vi.fn((input: string) => {
+      const path = String(input);
+      if (path.startsWith('/api/v1/problems')) {
+        call += 1;
+        return Promise.resolve(
+          new Response(JSON.stringify(problemsReport(call === 1 ? rows : moved)), { status: 200 }),
+        );
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify(status({}, { requiresSecondFactor: false })), { status: 200 }),
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    renderWithProviders(<Decisions />);
+    await userEvent.click(await screen.findByLabelText(/Select example\/shop express/));
+    expect(screen.getByLabelText(/Select example\/shop express/)).toBeChecked();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+
+    await waitFor(() => expect(screen.getByLabelText(/Select example\/shop express/)).not.toBeChecked());
+  });
+
+  it('says the pull requests are being read, the source is missing, or nothing needs deciding', async () => {
+    stub(problemsReport([], { sourceKind: 'none' }));
+    const none = renderWithProviders(<Decisions />);
     expect(await screen.findByText(/No source of findings is configured/)).toBeInTheDocument();
-    expect(screen.queryByText(/Nothing needs a decision/)).not.toBeInTheDocument();
-  });
+    none.unmount();
 
-  it('words the code of the error when the source cannot be read and there is nothing to show', async () => {
-    stubApi({ [path]: report({ items: [], error: 'unreachable' }) });
-
+    stub(problemsReport([]));
     renderWithProviders(<Decisions />);
-
-    expect(await screen.findByRole('alert')).toHaveTextContent('Cannot read the fleet: The source cannot be reached');
-  });
-
-  it('keeps the cards of the last read and warns when the last read failed', async () => {
-    stubApi({ [path]: report({ error: 'timeout', stale: true }) });
-
-    renderWithProviders(<Decisions />);
-
-    expect(await screen.findByRole('button', { name: /example\/shop/ })).toBeInTheDocument();
-    expect(screen.getByRole('status')).toHaveTextContent('The last read failed: The source did not answer in time');
-  });
-
-  it('shows an error when the API itself answers with a failure', async () => {
-    stubApi({});
-
-    renderWithProviders(<Decisions />);
-
-    expect(await screen.findByRole('alert')).toHaveTextContent('404');
-  });
-
-  it('reads the source again when asked to refresh', async () => {
-    const fetchMock = stubApi({ [path]: report(), [`${path}?refresh=true`]: report({ items: [] }) });
-
-    renderWithProviders(<Decisions />);
-    await screen.findByRole('button', { name: /example\/shop/ });
-    await userEvent.click(screen.getByRole('button', { name: 'Refresh' }));
-
     expect(await screen.findByText(/Nothing needs a decision/)).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledWith(`${path}?refresh=true`, expect.anything());
   });
 
-  it('sends nothing but reads while approving is turned off, whatever the operator does', async () => {
-    const waiting = { ...finding, kind: 'openDependencyPullRequests' as const, count: 2, alerts: null };
-    const withPullRequests = {
-      ...workItem,
-      findings: [waiting],
-      pullRequests: pullRequestsRead({ items: [pullRequest(1), pullRequest(2)] }),
-    };
-    const fetchMock = stubApi({
-      [path]: report({ items: [withPullRequests] }),
-      [`${path}?refresh=true`]: report({ items: [withPullRequests] }),
-      '/api/v1/system/status': status({}, readerOnly),
-    });
-
-    renderWithProviders(<Decisions />);
-    await screen.findByRole('link', { name: 'Pull request #1' });
-    await userEvent.click(screen.getByRole('checkbox', { name: 'Build and test the change' }));
-    await userEvent.click(screen.getByRole('button', { name: 'Approve' }));
-    await userEvent.click(screen.getByRole('button', { name: 'Refresh' }));
-
-    expect(fetchMock.mock.calls.length).toBeGreaterThan(1);
-    const calls = fetchMock.mock.calls as unknown as [string, RequestInit | undefined][];
-    expect(calls.every(([, init]) => !init?.method || init.method === 'GET')).toBe(true);
-  });
-
-  it('reads again soon while pull requests are being read, and at the usual pace otherwise', () => {
-    const pending = { ...workItem, pullRequests: pullRequestsRead({ status: 'pending', items: [] }) };
-
-    expect(intervalFor(report({ items: [pending] }))).toBe(3000);
-    expect(intervalFor(report({ items: [workItem] }))).toBe(30000);
-    expect(intervalFor(undefined)).toBe(30000);
-  });
-
-  describe('as a list of many applications', () => {
-    const many = [
-      { ...workItem, id: 'a', title: 'example/a', severity: 'danger' as const },
-      { ...workItem, id: 'b', title: 'example/b', severity: 'danger' as const },
-      { ...workItem, id: 'c', title: 'example/c', severity: 'warning' as const },
-      { ...workItem, id: 'd', title: 'example/d', severity: 'info' as const },
-      { ...workItem, id: 'e', title: 'example/e', severity: 'info' as const },
-    ];
-
-    const renderMany = () => {
-      stubApi({ [path]: report({ items: many }) });
-      return renderWithProviders(<Decisions />);
-    };
-
-    it('shows a line per application, all closed, grouped by severity with their counts', async () => {
-      renderMany();
-
-      expect(await screen.findByRole('button', { name: /example\/a/ })).toHaveAttribute('aria-expanded', 'false');
-      expect(screen.getAllByRole('button', { expanded: false })).toHaveLength(5);
-      expect(screen.getByRole('heading', { level: 2, name: 'Urgent · 2' })).toBeInTheDocument();
-      expect(screen.getByRole('heading', { level: 2, name: 'Attention · 1' })).toBeInTheDocument();
-      expect(screen.getByRole('heading', { level: 2, name: 'Routine · 2' })).toBeInTheDocument();
-      expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
-      expect(screen.getByText('5 of 5 applications')).toBeInTheDocument();
-    });
-
-    it('opens one application at a time', async () => {
-      renderMany();
-
-      await userEvent.click(await screen.findByRole('button', { name: /example\/c/ }));
-
-      expect(screen.getByRole('button', { name: /example\/c/ })).toHaveAttribute('aria-expanded', 'true');
-      expect(screen.getByRole('button', { name: /example\/a/ })).toHaveAttribute('aria-expanded', 'false');
-      expect(screen.getAllByRole('checkbox')).toHaveLength(1);
-
-      await userEvent.click(screen.getByRole('button', { name: /example\/c/ }));
-      expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
-    });
-
-    it('opens and closes them all', async () => {
-      renderMany();
-      await screen.findByRole('button', { name: /example\/a/ });
-
-      await userEvent.click(screen.getByRole('button', { name: 'Expand all' }));
-      expect(screen.getAllByRole('checkbox')).toHaveLength(5);
-
-      await userEvent.click(screen.getByRole('button', { name: 'Collapse all' }));
-      expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
-    });
-
-    it('shows only one severity when asked, and says how many of the total', async () => {
-      renderMany();
-      await screen.findByRole('button', { name: /example\/a/ });
-
-      await userEvent.selectOptions(screen.getByLabelText('Show'), 'info');
-
-      expect(screen.getAllByRole('button', { expanded: false })).toHaveLength(2);
-      expect(screen.queryByRole('button', { name: /example\/a/ })).not.toBeInTheDocument();
-      expect(screen.queryByRole('heading', { level: 2, name: /Urgent/ })).not.toBeInTheDocument();
-      expect(screen.getByText('2 of 5 applications')).toBeInTheDocument();
-    });
-
-    it('expands only what is shown when a filter is on', async () => {
-      renderMany();
-      await screen.findByRole('button', { name: /example\/a/ });
-
-      await userEvent.selectOptions(screen.getByLabelText('Show'), 'danger');
-      await userEvent.click(screen.getByRole('button', { name: 'Expand all' }));
-      await userEvent.selectOptions(screen.getByLabelText('Show'), 'all');
-
-      expect(screen.getAllByRole('checkbox')).toHaveLength(2);
-      expect(screen.getByRole('button', { name: /example\/e/ })).toHaveAttribute('aria-expanded', 'false');
-    });
-
-    it('cannot filter on a severity nobody has', async () => {
-      stubApi({ [path]: report({ items: many.filter((m) => m.severity !== 'warning') }) });
-      renderWithProviders(<Decisions />);
-      await screen.findByRole('button', { name: /example\/a/ });
-
-      expect(screen.getByRole('option', { name: 'Attention · 0' })).toBeDisabled();
-    });
-  });
-
-  it('opens the cards by default when there are only a few applications', async () => {
-    stubApi({ [path]: report({ items: [workItem, { ...workItem, id: 'b', title: 'example/b' }] }) });
-
+  it('warns when what is shown is the last read and the last read failed', async () => {
+    stub(problemsReport(rows, { stale: true, error: 'unreachable' }));
     renderWithProviders(<Decisions />);
 
-    expect(await screen.findByRole('button', { name: /example\/b/ })).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getAllByRole('checkbox')).toHaveLength(2);
+    expect(await screen.findByText(/Showing what was read at/)).toBeInTheDocument();
+  });
+
+  it('shows the error when the table cannot be read at all', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(new Response('{}', { status: 500 }))),
+    );
+    renderWithProviders(<Decisions />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Cannot read the fleet/);
+    expect(within(screen.getByRole('alert')).queryByText('undefined')).not.toBeInTheDocument();
   });
 });

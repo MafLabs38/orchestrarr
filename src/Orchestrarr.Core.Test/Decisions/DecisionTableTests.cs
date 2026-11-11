@@ -1,0 +1,224 @@
+using Orchestrarr.Core.Applications;
+using Orchestrarr.Core.Decisions;
+using Orchestrarr.Core.Fleet;
+using Orchestrarr.Core.Forge;
+using Orchestrarr.Core.Tasks;
+using Orchestrarr.Core.WorkItems;
+
+namespace Orchestrarr.Core.Test.Decisions;
+
+/// <summary>The table: one row per problem, and how far each goes is the lowest of what the description allows, what the executors accept and the state of the problem (ADR 0019).</summary>
+public sealed class DecisionTableTests
+{
+    private const string Id = "repository:example/shop";
+    private static readonly DateTimeOffset At = new(2026, 11, 10, 12, 0, 0, TimeSpan.Zero);
+    private static readonly string Head = new('a', 40);
+
+    private static PullRequestInfo Pull(int number = 1, UpdateKind kind = UpdateKind.Minor, ChecksState checks = ChecksState.Passing, MergeState merge = MergeState.Clean, bool draft = false, string head = "") =>
+        new(number, $"Bump a from 1.0.0 to 2.0.{number}", new Uri($"https://github.com/example/shop/pull/{number}"), "dependabot[bot]", "dependabot/npm", draft, checks, merge, [],
+            [new DependencyChange("lodash", "1.0.0", "1.1.0", kind)], At, head.Length == 0 ? Head : head);
+
+    private static PlanStep Step(StepKind kind, bool available = true, bool granted = true) => new(kind, null, null, true, available, granted, null);
+
+    private static WorkItem Item(IReadOnlyList<PullRequestInfo>? pulls = null, IReadOnlyList<Finding>? findings = null, PullRequestsRead? read = null, bool grantMerge = true, bool grantValidate = true, string id = Id) =>
+        new(id, "example/shop", "example/shop", [], Severity.Info, findings ?? [new Finding(FindingKind.OpenDependencyPullRequests, Severity.Info, (pulls ?? [Pull()]).Count)],
+            [Step(StepKind.Validate, granted: grantValidate), Step(StepKind.MergePullRequests, granted: grantMerge)], [],
+            read ?? new PullRequestsRead(PullRequestsStatus.Read, pulls ?? [Pull()]));
+
+    private static IApplicationCatalog Described(string mode = "smoke", bool rollback = true, bool check = true, string promote = "\"patch\", \"minor\"") =>
+        ApplicationCatalog.Parse($$"""
+            { "applications": [ { "id": "{{Id}}", "kind": "own", "source": "example/shop",
+              "qualify": { "mode": "{{mode}}" },
+              "promote": { {{(rollback ? "\"rollback\": \"previous-tag\"" : "\"backup\": \"x\"")}}{{(check ? ", \"check\": \"/health\"" : string.Empty)}} },
+              "update": { "promote": [{{promote}}] } } ] }
+            """);
+
+    private static IReadOnlyList<ProblemRow> Table(WorkItem item, IApplicationCatalog? applications = null, IReadOnlyList<ExecutorAcceptance>? executors = null) =>
+        DecisionTable.Build([item], applications ?? Described(), executors ?? [Everything]);
+
+    private static readonly ExecutorAcceptance Everything = new([TaskKind.ValidatePullRequest, TaskKind.MergePullRequest], ["example/*"]);
+
+    private static ProblemRow Only(IReadOnlyList<ProblemRow> rows) => rows.Single(row => row.Kind == ProblemKind.DependencyUpdate);
+
+    [Fact]
+    public void A_passing_update_of_a_class_that_may_go_by_itself_goes_up_to_production_and_can_be_stopped()
+    {
+        var row = Only(Table(Item()));
+
+        row.GoesUpTo.Should().Be(Ceiling.Production);
+        row.Why.Should().Be(CeilingReason.None);
+        row.CanStopBeforeProduction.Should().BeTrue();
+        row.Id.Should().Be("pr:example/shop#1");
+        row.Description.Should().Be("lodash 1.0.0 → 1.1.0");
+        row.PullRequest.Should().Be(1);
+        row.HeadSha.Should().Be(Head);
+        row.UpdateClass.Should().Be(UpdateKind.Minor);
+    }
+
+    [Fact]
+    public void A_class_of_update_that_is_not_promoted_by_itself_stops_at_the_merge()
+    {
+        var row = Only(Table(Item([Pull(kind: UpdateKind.Major)])));
+
+        row.GoesUpTo.Should().Be(Ceiling.MergeIntoDevelop);
+        row.Why.Should().Be(CeilingReason.UpdateClassStopsBeforeProduction);
+        row.CanStopBeforeProduction.Should().BeFalse("it already stops before production");
+    }
+
+    [Fact]
+    public void Production_needs_a_rollback_and_a_check_after_the_deployment_to_be_described()
+    {
+        var noRollback = Only(Table(Item(), Described(rollback: false)));
+        noRollback.GoesUpTo.Should().Be(Ceiling.MergeIntoDevelop);
+        noRollback.Why.Should().Be(CeilingReason.NoRollbackDescribed);
+
+        var noCheck = Only(Table(Item(), Described(check: false)));
+        noCheck.GoesUpTo.Should().Be(Ceiling.MergeIntoDevelop);
+        noCheck.Why.Should().Be(CeilingReason.NoCheckAfterDeployDescribed);
+    }
+
+    [Theory]
+    [InlineData("none")]
+    [InlineData("unknown")]
+    public void An_application_that_cannot_say_how_to_know_it_works_is_qualified_but_never_merged(string mode)
+    {
+        var row = Only(Table(Item(), Described(mode)));
+
+        row.GoesUpTo.Should().Be(Ceiling.Qualification);
+        row.Why.Should().Be(CeilingReason.QualificationNotDescribed);
+    }
+
+    [Theory]
+    [InlineData(ChecksState.Failing, CeilingReason.ChecksFailing)]
+    [InlineData(ChecksState.Pending, CeilingReason.ChecksNotPassing)]
+    [InlineData(ChecksState.Unknown, CeilingReason.ChecksNotPassing)]
+    public void Checks_that_do_not_pass_keep_the_update_at_the_qualification(ChecksState checks, CeilingReason why)
+    {
+        var row = Only(Table(Item([Pull(checks: checks)])));
+
+        row.GoesUpTo.Should().Be(Ceiling.Qualification);
+        row.Why.Should().Be(why);
+    }
+
+    [Theory]
+    [InlineData(MergeState.Conflicting)]
+    [InlineData(MergeState.Behind)]
+    [InlineData(MergeState.Blocked)]
+    [InlineData(MergeState.Unstable)]
+    public void A_pull_request_the_forge_will_not_merge_as_it_stands_stays_at_the_qualification(MergeState merge)
+    {
+        var row = Only(Table(Item([Pull(merge: merge)])));
+
+        row.GoesUpTo.Should().Be(Ceiling.Qualification);
+        row.Why.Should().Be(CeilingReason.CannotBeMergedNow);
+    }
+
+    [Fact]
+    public void An_application_with_no_description_has_no_action_and_the_row_says_why()
+    {
+        var row = Only(Table(Item(), new EmptyApplicationCatalog()));
+
+        row.GoesUpTo.Should().Be(Ceiling.NoAction);
+        row.Why.Should().Be(CeilingReason.NoDescription);
+    }
+
+    [Fact]
+    public void The_powers_granted_to_orchestrarr_bound_the_row()
+    {
+        var noValidate = Only(Table(Item(grantValidate: false)));
+        noValidate.GoesUpTo.Should().Be(Ceiling.NoAction);
+        noValidate.Why.Should().Be(CeilingReason.NotGranted);
+
+        var noMerge = Only(Table(Item(grantMerge: false)));
+        noMerge.GoesUpTo.Should().Be(Ceiling.Qualification);
+        noMerge.Why.Should().Be(CeilingReason.NotGranted);
+    }
+
+    [Fact]
+    public void The_executors_that_are_connected_bound_the_row_to_what_they_accept()
+    {
+        var all = new ExecutorAcceptance([TaskKind.ValidatePullRequest, TaskKind.MergePullRequest], ["example/*"]);
+        var validateOnly = new ExecutorAcceptance([TaskKind.ValidatePullRequest], ["example/shop"]);
+        var elsewhere = new ExecutorAcceptance([TaskKind.ValidatePullRequest, TaskKind.MergePullRequest], ["other/*"]);
+
+        Only(Table(Item(), executors: [all])).GoesUpTo.Should().Be(Ceiling.Production);
+        var nobody = Only(Table(Item(), executors: []));
+        nobody.GoesUpTo.Should().Be(Ceiling.NoAction, "with no executor connected nothing can be run, and the row says so");
+        nobody.Why.Should().Be(CeilingReason.NoExecutor);
+        var capped = Only(Table(Item(), executors: [validateOnly]));
+        capped.GoesUpTo.Should().Be(Ceiling.Qualification);
+        capped.Why.Should().Be(CeilingReason.NoExecutor);
+        var none = Only(Table(Item(), executors: [elsewhere]));
+        none.GoesUpTo.Should().Be(Ceiling.NoAction);
+        none.Why.Should().Be(CeilingReason.NoExecutor);
+        Only(Table(Item(), executors: [validateOnly, all])).GoesUpTo.Should().Be(Ceiling.Production, "it is enough that one executor accepts");
+    }
+
+    [Fact]
+    public void A_pull_request_list_that_is_stale_or_without_a_commit_cannot_be_acted_on()
+    {
+        var stale = Table(Item(read: new PullRequestsRead(PullRequestsStatus.Failed, [Pull()], Stale: true)));
+        Only(stale).GoesUpTo.Should().Be(Ceiling.NoAction);
+        Only(stale).Why.Should().Be(CeilingReason.PullRequestsNotCurrent);
+
+        Only(Table(Item([Pull(head: "x")]))).GoesUpTo.Should().Be(Ceiling.Production, "a commit is whatever the forge reads");
+        var noCommit = Pull() with { HeadSha = string.Empty };
+        Only(Table(Item([noCommit]))).GoesUpTo.Should().Be(Ceiling.NoAction);
+    }
+
+    [Fact]
+    public void A_draft_is_not_a_problem_to_decide()
+    {
+        Table(Item([Pull(1), Pull(2, draft: true)])).Where(row => row.Kind == ProblemKind.DependencyUpdate).Should().ContainSingle().Which.PullRequest.Should().Be(1);
+    }
+
+    [Fact]
+    public void A_pull_request_that_changes_several_packages_is_worded_by_its_title()
+    {
+        var several = Pull() with { Changes = [new DependencyChange("a", null, null, UpdateKind.Minor), new DependencyChange("b", null, null, UpdateKind.Minor)] };
+
+        Only(Table(Item([several]))).Description.Should().Be(several.Title);
+        Only(Table(Item([several]))).UpdateClass.Should().Be(UpdateKind.Unknown);
+    }
+
+    [Fact]
+    public void The_other_findings_are_rows_with_no_action_defined_yet()
+    {
+        var findings = new[]
+        {
+            new Finding(FindingKind.DependencyAlerts, Severity.Danger, 2, new AlertCounts(1, 1, 0, 0)),
+            new Finding(FindingKind.CodeScanningAlerts, Severity.Warning, 1),
+            new Finding(FindingKind.SecretScanningAlerts, Severity.Danger, 1),
+            new Finding(FindingKind.FailingCi, Severity.Warning, 1),
+            new Finding(FindingKind.OutdatedImage, Severity.Info, 1, Image: new ImageUpdate("ghcr.io/example/app:1", "1", "2", ImageChange.Major)),
+            new Finding(FindingKind.DependencyScanUnavailable, Severity.Info, 1),
+        };
+
+        var rows = Table(Item(pulls: [], findings: findings, read: PullRequestsRead.NotNeeded));
+
+        rows.Select(row => row.Kind).Should().Equal(ProblemKind.DependencyAlert, ProblemKind.CodeScanningAlert, ProblemKind.ExposedSecret, ProblemKind.FailingCi, ProblemKind.ImageUpdate, ProblemKind.DependencyScanUnavailable);
+        rows.Should().OnlyContain(row => row.GoesUpTo == Ceiling.NoAction && row.Why == CeilingReason.NoActionDefined && row.PullRequest == null && !row.CanStopBeforeProduction);
+        rows.Single(row => row.Kind == ProblemKind.DependencyAlert).Should().Match<ProblemRow>(row => row.Count == 2 && row.Severity == Severity.Danger);
+        rows.Single(row => row.Kind == ProblemKind.ImageUpdate).Description.Should().Be("ghcr.io/example/app:1 → 2");
+        rows.Select(row => row.Id).Should().OnlyHaveUniqueItems();
+    }
+
+    [Fact]
+    public void Pull_requests_that_wait_but_were_not_read_are_a_row_that_says_so_and_a_read_that_worked_adds_none()
+    {
+        var waiting = Table(Item(pulls: [], read: PullRequestsRead.Pending, findings: [new Finding(FindingKind.OpenDependencyPullRequests, Severity.Info, 3)]));
+        waiting.Should().ContainSingle().Which.Should().Match<ProblemRow>(row => row.Kind == ProblemKind.PullRequestsNotRead && row.Count == 3 && row.GoesUpTo == Ceiling.NoAction);
+
+        Table(Item()).Should().OnlyContain(row => row.Kind == ProblemKind.DependencyUpdate);
+    }
+
+    [Theory]
+    [InlineData(Ceiling.NoAction, new StepKind[0])]
+    [InlineData(Ceiling.Qualification, new[] { StepKind.Validate })]
+    [InlineData(Ceiling.MergeIntoDevelop, new[] { StepKind.Validate, StepKind.MergePullRequests })]
+    [InlineData(Ceiling.Production, new[] { StepKind.Validate, StepKind.MergePullRequests })]
+    public void The_steps_a_ceiling_stands_for(Ceiling ceiling, StepKind[] steps)
+    {
+        DecisionTable.StepsOf(ceiling).Should().Equal(steps);
+    }
+}

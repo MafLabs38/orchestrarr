@@ -107,18 +107,20 @@ internal static class ApprovalEndpoints
     }
 
     // Who may call the two routes that record something: somebody signed in (the permission is checked by the route's policy first).
-    private static (Approver? Approver, IResult? Refusal) Authorize(IApproverAccessor accessor, HttpContext context)
+    internal static (Approver? Approver, IResult? Refusal) Authorize(IApproverAccessor accessor, HttpContext context)
     {
         return accessor.Current(context) is { } approver
             ? (approver, null)
             : (null, Error(ApiErrors.NotSignedIn, StatusCodes.Status401Unauthorized));
     }
 
+    internal static IResult RefusalResult(ApprovalRefusal code) => Error(JsonCode(code), Statuses.GetValueOrDefault(code, StatusCodes.Status422UnprocessableEntity));
+
     private static IResult Error(string code, int status) => Results.Json(new ErrorResponse(code), statusCode: status);
 
     // The wire code of a refusal: its name in camelCase, as the interface expects it
     private static string JsonCode(ApprovalRefusal refusal) => JsonNamingPolicy.CamelCase.ConvertName(refusal.ToString());
 
-    private static ApprovalDto ToDto(Approval approval) =>
+    internal static ApprovalDto ToDto(Approval approval) =>
         new(approval.Id, approval.WorkItemId, approval.Repository, approval.PullRequest, approval.HeadSha, approval.Steps, approval.ApproverSubject, approval.ApprovedAt, approval.State, approval.BatchId, approval.EndedAt);
 }

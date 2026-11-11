@@ -3,16 +3,7 @@ import { render } from '@testing-library/react';
 import type { ReactElement, ReactNode } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 
-import type {
-  ApprovalStatus,
-  Finding,
-  PlanStep,
-  PullRequest,
-  PullRequestsRead,
-  SystemStatus,
-  WorkItem,
-  WorkItemReport,
-} from 'typings/api';
+import type { ApprovalStatus, ProblemRow, ProblemsReport, SystemStatus } from 'typings/api';
 
 // The providers are a wrapper, so that a rerender keeps them.
 export function renderWithProviders(ui: ReactElement) {
@@ -46,46 +37,38 @@ export function stubPendingApi() {
   );
 }
 
-export const finding: Finding = {
-  kind: 'dependencyAlerts',
-  severity: 'danger',
-  count: 1,
-  alerts: { critical: 1, high: 0, medium: 0, low: 0 },
-  image: null,
-};
-
-export function step(overrides: Partial<PlanStep> = {}): PlanStep {
+export function problem(overrides: Partial<ProblemRow> = {}): ProblemRow {
   return {
-    kind: 'validate',
-    environmentId: null,
-    environmentName: null,
-    ticked: true,
-    available: true,
-    granted: false,
-    reason: null,
+    id: 'pr:example/shop#2',
+    workItemId: 'repository:example/shop',
+    application: 'example/shop',
+    kind: 'dependencyUpdate',
+    description: 'express 4.16.0 → 4.21.2',
+    severity: null,
+    count: null,
+    updateClass: 'minor',
+    checks: 'passing',
+    url: 'https://forge.example/example/shop/pull/2',
+    pullRequest: 2,
+    headSha: 'a'.repeat(40),
+    goesUpTo: 'production',
+    why: 'none',
+    canStopBeforeProduction: true,
     ...overrides,
   };
 }
 
-export const workItem: WorkItem = {
-  id: 'repository:example/shop',
-  title: 'example/shop',
-  repositoryFullName: 'example/shop',
-  appIds: ['shop'],
-  severity: 'danger',
-  findings: [finding],
-  plan: [step()],
-  placements: [],
-  pullRequests: { status: 'notNeeded', items: [], truncated: false, error: null, stale: false },
-};
-
-export function report(overrides: Partial<WorkItemReport> = {}): WorkItemReport {
+export function problemsReport(
+  rows: ProblemRow[] = [problem()],
+  overrides: Partial<ProblemsReport> = {},
+): ProblemsReport {
   return {
     readAt: '2026-11-01T08:00:00Z',
     sourceKind: 'sample',
-    items: [workItem],
-    error: null,
     stale: false,
+    error: null,
+    descriptionsVersion: 'abc123',
+    rows,
     ...overrides,
   };
 }
@@ -125,27 +108,4 @@ export function status(
     storage: { kind: 'memory' },
     executors: [],
   };
-}
-
-export function pullRequest(number: number, overrides: Partial<PullRequest> = {}): PullRequest {
-  return {
-    number,
-    title: `Bump a from 1.0.0 to 1.0.${number}`,
-    url: `https://forge.example/o/r/pull/${number}`,
-    author: 'dependabot[bot]',
-    headBranch: 'bot/a',
-    draft: false,
-    checks: 'passing',
-    merge: 'clean',
-    labels: [],
-    changes: [{ package: 'a', from: '1.0.0', to: `1.0.${number}`, kind: 'patch' }],
-    createdAt: '2026-11-01T09:38:16Z',
-    headSha: 'abcdef0123456789abcdef0123456789abcdef01',
-    readyToMerge: true,
-    ...overrides,
-  };
-}
-
-export function pullRequestsRead(overrides: Partial<PullRequestsRead> = {}): PullRequestsRead {
-  return { status: 'read', items: [pullRequest(1)], truncated: false, error: null, stale: false, ...overrides };
 }

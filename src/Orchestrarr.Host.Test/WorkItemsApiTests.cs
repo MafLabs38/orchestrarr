@@ -86,11 +86,11 @@ public sealed class WorkItemsApiTests : IClassFixture<SampleApiFactory>
 
         routes.Should().NotBeEmpty();
         var withMethods = routes.Where(e => e.Metadata.GetMetadata<HttpMethodMetadata>() is not null).ToList();
-        // The only routes that change something: record an approval, set the global stop (neither runs anything), sign in and out, and the accounts.
+        // The only routes that change something: record an approval (a card, or a selection of the table), set the global stop (neither runs anything), sign in and out, and the accounts.
         var writes = withMethods.Where(e => e.Metadata.GetMetadata<HttpMethodMetadata>()!.HttpMethods.Any(m => m != HttpMethods.Get))
             .Select(e => $"{string.Join(',', e.Metadata.GetMetadata<HttpMethodMetadata>()!.HttpMethods)} {e.RoutePattern.RawText}");
         writes.Should().BeEquivalentTo(
-            "POST /api/v1/approvals", "PUT /api/v1/safety/kill-switch", "PUT /api/v1/options/{id}",
+            "POST /api/v1/approvals", "POST /api/v1/problems/approve", "PUT /api/v1/safety/kill-switch", "PUT /api/v1/options/{id}",
             "POST /api/v1/auth/login", "POST /api/v1/auth/logout", "POST /api/v1/auth/password",
             "POST /api/v1/accounts/", "PUT /api/v1/accounts/{id:guid}", "POST /api/v1/accounts/{id:guid}/password", "DELETE /api/v1/accounts/{id:guid}");
         routes.Except(withMethods).Should().ContainSingle().Which.RoutePattern.RawText.Should().Contain("{*path");

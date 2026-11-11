@@ -3,32 +3,13 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import sendJson from 'Helpers/Hooks/sendJson';
 import useApiQuery, { refreshIntervalMs } from 'Helpers/Hooks/useApiQuery';
 import { systemStatusPath } from 'System/useSystemStatus';
-import type { Approval, StepKind } from 'typings/api';
+import type { Approval } from 'typings/api';
 
 export const approvalsPath = '/api/v1/approvals';
 export const auditPath = '/api/v1/audit';
 
 export function useApprovals() {
   return useApiQuery<Approval[]>(approvalsPath, { refetchInterval: refreshIntervalMs });
-}
-
-// Approves a decision card: the server decides the commits, the repository and the powers; the client only says which steps it ticked.
-export function useApprove() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (request: {
-      workItemId: string;
-      steps: StepKind[];
-      pullRequests: { number: number; headSha: string }[];
-      secondFactorCode?: string;
-    }) => sendJson<{ approvals: Approval[] }>('POST', approvalsPath, request),
-    onSettled: () =>
-      Promise.all([
-        queryClient.invalidateQueries({ queryKey: [approvalsPath] }),
-        queryClient.invalidateQueries({ queryKey: [auditPath] }),
-        queryClient.invalidateQueries({ queryKey: [systemStatusPath] }),
-      ]),
-  });
 }
 
 export function useKillSwitch() {
