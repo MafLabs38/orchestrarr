@@ -62,6 +62,17 @@ public enum RunRefusal
     Malformed,
 }
 
+/// <summary>Which results a kind of task can have: what an executor reports is checked against what it was asked to do, because the table reads these results.</summary>
+public static class TaskResultRules
+{
+    public static bool Fits(TaskKind kind, TaskResult result) => result switch
+    {
+        TaskResult.Repaired => kind == TaskKind.RepairPullRequest,
+        TaskResult.DryRun => kind != TaskKind.RepairPullRequest,
+        _ => true,
+    };
+}
+
 /// <summary>One thing to do, in the order of its batch. <c>ApprovalId</c> ties it to the decision of the operator that it carries out.</summary>
 public sealed record TaskSpec(Guid Id, int Sequence, TaskKind Kind, string Repository, int PullRequest, string HeadSha, Guid ApprovalId);
 

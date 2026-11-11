@@ -70,7 +70,7 @@ public sealed class LiveBroadcaster(IHubContext<LiveHub> hub, ILogger<LiveBroadc
             {
                 await hub.Clients.All.SendAsync(LiveHub.Changed, key.Topic, key.Id, cancellationToken);
             }
-            catch (Exception failure) when (failure is InvalidOperationException or OperationCanceledException or IOException)
+            catch (Exception failure) when (failure is not OperationCanceledException)
             {
                 // A client that went away is not the host's problem; the next change is sent as usual
                 logger.LogDebug(failure, "A change could not be sent to the screens");

@@ -27,6 +27,20 @@ public sealed class ProcessRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task A_line_with_no_end_is_cut_where_it_is_read_so_it_cannot_fill_the_memory()
+    {
+        var lines = new List<string>();
+
+        var result = await Sh("head -c 300000 /dev/zero | tr '\\0' a; echo; echo after", maxOutput: 1_000_000, onLine: lines.Add, cancellationToken: Ct);
+
+        lines.Should().HaveCount(2);
+        lines[0].Length.Should().BeLessThan(70_000);
+        lines[0].Should().EndWith("[line cut]");
+        lines[1].Should().Be("after");
+        result.ExitCode.Should().Be(0);
+    }
+
+    [Fact]
     public async Task The_colours_of_a_terminal_are_taken_out_of_the_output_and_only_the_end_of_a_long_output_is_kept()
     {
         var coloured = await Sh("printf '\\033[32mgreen\\033[0m\\n'", cancellationToken: Ct);

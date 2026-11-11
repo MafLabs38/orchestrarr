@@ -82,7 +82,7 @@ public sealed class RepairPullRequestRunnerTests : IDisposable
     private void AgentChanges(string path = "src/server.js", string patch = "diff --git a/src/server.js b/src/server.js\n-app.get('*')\n+app.get('/{*splat}')", string[]? stream = null)
     {
         _processes.Script(IsAgent, new ProcessResult(0, false, string.Join('\n', stream ?? AgentStream(path))));
-        _processes.Script(IsNames, new ProcessResult(0, false, string.Empty), call => File.WriteAllText(call.After("--output")!, path + "\n"));
+        _processes.Script(IsNames, new ProcessResult(0, false, string.Empty), call => File.WriteAllText(call.After("--output")!, path + "\0"));
         // The patch is written to a file by git: here, by the script
         _processes.Script(IsPatch, new ProcessResult(0, false, string.Empty), call => File.WriteAllText(call.After("--output")!, patch));
     }
@@ -108,7 +108,7 @@ public sealed class RepairPullRequestRunnerTests : IDisposable
         outcome.Result.Should().Be(TaskResult.Repaired);
         outcome.Reason.Should().StartWith("repaired: 1 file(s) changed").And.Contain("clean checkout").And.Contain("nothing pushed");
         trace.Events.Select(line => line.Type).Should().Contain(RunEvents.TaskPatch).And.EndWith(RunEvents.TaskPassed);
-        trace.Events.Single(line => line.Type == RunEvents.TaskPatch).Detail.Should().Contain("+app.get('/{*splat}')");
+        trace.Events.Where(line => line.Type == RunEvents.TaskPatch).Select(line => line.Detail).Should().ContainSingle(detail => detail.StartsWith("patch: ", StringComparison.Ordinal) && detail.Contains("sha256", StringComparison.Ordinal), "the digest of the whole patch comes first").And.Contain(detail => detail.Contains("+app.get('/{*splat}')", StringComparison.Ordinal));
         var steps = _processes.Calls.Where(IsTestStep).ToList();
         steps.Should().HaveCount(2);
         steps[0].MountedWork.Should().EndWith("/work");
@@ -208,7 +208,7 @@ public sealed class RepairPullRequestRunnerTests : IDisposable
         git.Where(call => !call.Arguments.Contains("fetch")).Should().OnlyContain(call => !call.Environment.ContainsKey("GIT_CONFIG_KEY_0"), "no token reaches the git calls that read what a container wrote");
         var diff = _processes.Calls.Single(IsPatch);
         diff.Arguments.Should().Contain("--no-ext-diff").And.Contain("--no-textconv").And.Contain("--no-renames").And.Contain("--binary");
-        _processes.Calls.Single(IsNames).Arguments.Should().Contain("--no-renames").And.Contain("--output");
+        _processes.Calls.Single(IsNames).Arguments.Should().Contain("--no-renames").And.Contain("--output").And.Contain("-z");
     }
 
     [Fact]
@@ -389,8 +389,8 @@ public sealed class RepairPullRequestRunnerTests : IDisposable
         var (outcome, trace) = await Run();
 
         outcome.Result.Should().Be(TaskResult.Repaired);
-        trace.Events.Count(line => line.Type == RunEvents.TaskPatch).Should().Be(9, "eight parts and the line that says the rest is not shown");
-        trace.Events.First(line => line.Type == RunEvents.TaskPatch).Detail.Should().StartWith("patch cut: 28000 of 40000 characters").And.Contain("the whole patch was applied and checked");
+        trace.Events.Count(line => line.Type == RunEvents.TaskPatch).Should().Be(10, "the digest, the line that says the rest is not shown, and eight parts");
+        trace.Events.Where(line => line.Type == RunEvents.TaskPatch).ElementAt(1).Detail.Should().StartWith("patch cut: 28000 of 40000 characters").And.Contain("the whole patch was applied and checked");
         _processes.Calls.Single(IsApply).Arguments[^1].Should().EndWith("repair.patch");
     }
 
@@ -477,12 +477,25 @@ public sealed class RepairPullRequestRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task A_path_with_a_quote_in_it_is_still_matched_against_the_protected_patterns()
+    {
+        FailsThenPasses();
+        AgentChanges();
+        _processes.Script(IsNames, new ProcessResult(0, false, string.Empty), call => File.WriteAllText(call.After("--output")!, "tests/test_x\".py\0src/server.js\0"));
+
+        var (outcome, _) = await Run();
+
+        outcome.Result.Should().Be(TaskResult.Failed);
+        outcome.Reason.Should().Be("the agent changed a protected file");
+    }
+
+    [Fact]
     public async Task A_long_list_of_changed_paths_is_read_in_full_so_a_protected_path_that_sorts_first_is_never_lost()
     {
         FailsThenPasses();
         AgentChanges();
-        var many = string.Join('\n', [".github/workflows/ci.yml", .. Enumerable.Range(0, 3000).Select(index => $"src/generated/file-{index.ToString(System.Globalization.CultureInfo.InvariantCulture)}.js")]);
-        _processes.Script(IsNames, new ProcessResult(0, false, string.Empty), call => File.WriteAllText(call.After("--output")!, many + "\n"));
+        var many = string.Join('\0', [".github/workflows/ci.yml", .. Enumerable.Range(0, 3000).Select(index => $"src/generated/file-{index.ToString(System.Globalization.CultureInfo.InvariantCulture)}.js")]);
+        _processes.Script(IsNames, new ProcessResult(0, false, string.Empty), call => File.WriteAllText(call.After("--output")!, many + "\0"));
 
         var (outcome, _) = await Run();
 

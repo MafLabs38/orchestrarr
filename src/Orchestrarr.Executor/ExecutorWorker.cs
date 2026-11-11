@@ -146,7 +146,12 @@ public sealed class ExecutorWorker(IControlPlane controlPlane, ExecutorPipeline 
                     {
                         // A request that hangs is a failure after a few seconds, not after the 30 of the client: three of them make a stop
                         using var limit = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-                        failures = await controlPlane.GlobalStopEngagedAsync(limit.Token) ? FailuresBeforeStop : 0;
+                        if (await controlPlane.GlobalStopEngagedAsync(limit.Token))
+                        {
+                            Engage("the global stop is engaged");
+                            return;
+                        }
+                        failures = 0;
                     }
                     catch (Exception failure)
                     {
@@ -155,7 +160,7 @@ public sealed class ExecutorWorker(IControlPlane controlPlane, ExecutorPipeline 
                     }
                     if (failures >= FailuresBeforeStop)
                     {
-                        Engage("the global stop is engaged or cannot be read");
+                        Engage("the global stop cannot be read");
                     }
                 }
             }

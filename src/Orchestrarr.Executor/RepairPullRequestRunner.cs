@@ -34,7 +34,7 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
     ];
 
     // The agent reads the code, not the container: its own state, the process table, the system
-    private static readonly string[] ForbiddenReads = ["Read(//proc/**)", "Read(//sys/**)", "Read(//etc/**)", "Read(//tmp/**)", "Read(//root/**)"];
+    private static readonly string[] ForbiddenReads = ["Read(//proc/**)", "Read(//dev/**)", "Read(//sys/**)", "Read(//etc/**)", "Read(//tmp/**)", "Read(//root/**)"];
 
     private readonly PullRequestWorkspace _workspace = new(validation, processes);
 
@@ -186,8 +186,8 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
     private async Task<(IReadOnlyList<string> Paths, string? Error)> StagedPathsAsync(RunFolders folders, string[] excludes, CancellationToken cancellationToken)
     {
         var add = await _workspace.GitAsync(folders, folders.Work, ["add", "-A", "--", ".", .. excludes], network: false, 200, cancellationToken);
-        // Written to a file by git and read in full: a long list read from the end of an output would lose its start, where the protected paths sort first
-        var names = await _workspace.GitAsync(folders, folders.Work, ["diff", "--cached", "--name-only", "--no-renames", "--no-ext-diff", "--output", folders.PathsFile, "--", ".", .. excludes], network: false, 200, cancellationToken);
+        // Separated by NUL (git quotes a path with a quote or a control character otherwise, and a quoted path would not match a protected pattern). Written to a file by git and read in full: a long list read from the end of an output would lose its start, where the protected paths sort first
+        var names = await _workspace.GitAsync(folders, folders.Work, ["diff", "--cached", "--name-only", "-z", "--no-renames", "--no-ext-diff", "--output", folders.PathsFile, "--", ".", .. excludes], network: false, 200, cancellationToken);
         if (add.ExitCode != 0 || names.ExitCode != 0 || !File.Exists(folders.PathsFile))
         {
             return ([], "git could not list what the agent changed");
@@ -196,7 +196,7 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
         {
             return ([], "the agent changed too many files to be a small repair");
         }
-        return ((await File.ReadAllTextAsync(folders.PathsFile, cancellationToken)).Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries), null);
+        return ((await File.ReadAllTextAsync(folders.PathsFile, cancellationToken)).Split('\0', StringSplitOptions.RemoveEmptyEntries), null);
     }
 
     // Written to a file outside every mount, in full: what is shown in the trace may be cut, what is applied is not
@@ -274,6 +274,9 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
     private static void AddPatch(TaskSpec task, RunTrace trace, string patch, int files)
     {
         var chunks = Math.Min(MaxPatchChunks, (patch.Length + PatchChunk - 1) / PatchChunk);
+        // What identifies the whole patch, shown or not: the next step (applying it) binds an approval to these bytes
+        var digest = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(patch))).ToLowerInvariant();
+        trace.Add(RunEvents.TaskPatch, task.Id, $"patch: {System.Text.Encoding.UTF8.GetByteCount(patch).ToString(CultureInfo.InvariantCulture)} bytes, sha256 {digest}");
         if (patch.Length > chunks * PatchChunk)
         {
             // What is shown is not the whole patch: it says so (the whole patch was applied and checked)

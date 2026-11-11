@@ -148,7 +148,7 @@ public static class DecisionTable
         foreach (var pullRequest in reads.Items.Where(pullRequest => !pullRequest.Draft))
         {
             var (ceiling, why, canStop) = CeilingOf(item, pullRequest, applications, executors);
-            var mine = results.Where(row => string.Equals(row.Repository, item.RepositoryFullName, StringComparison.OrdinalIgnoreCase) && row.PullRequest == pullRequest.Number && row.HeadSha == pullRequest.HeadSha)
+            var mine = results.Where(row => string.Equals(row.Repository, item.RepositoryFullName, StringComparison.OrdinalIgnoreCase) && row.PullRequest == pullRequest.Number && string.Equals(row.HeadSha, pullRequest.HeadSha, StringComparison.OrdinalIgnoreCase))
                 .OrderByDescending(row => row.At).ToList();
             (ceiling, why, canStop) = WorkshopWord(item, pullRequest, ceiling, why, canStop, executors, mine);
             var change = pullRequest.Changes.Count == 1 ? pullRequest.Changes[0] : null;

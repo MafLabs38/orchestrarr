@@ -280,8 +280,8 @@ public sealed class SqliteBatchQueue(SqliteDatabase database, IKillSwitch killSw
         {
             return (false, QueueResult.NotYours);
         }
-        var known = ReadTasks(connection, batchId).Select(task => task.Spec.Id).ToHashSet();
-        if (outcome.Final is not (BatchState.Done or BatchState.Refused) || outcome.Tasks.Any(task => !known.Contains(task.TaskId)))
+        var known = ReadTasks(connection, batchId).ToDictionary(task => task.Spec.Id, task => task.Spec.Kind);
+        if (outcome.Final is not (BatchState.Done or BatchState.Refused) || outcome.Tasks.Any(task => !known.TryGetValue(task.TaskId, out var kind) || !TaskResultRules.Fits(kind, task.Result)))
         {
             return (false, QueueResult.Invalid);
         }

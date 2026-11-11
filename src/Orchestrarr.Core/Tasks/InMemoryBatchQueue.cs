@@ -135,12 +135,12 @@ public sealed class InMemoryBatchQueue(InMemoryApprovalStore approvals, IAuditSi
         {
             return QueueResult.NotFound;
         }
-        var known = entry.Batch.Tasks.Select(task => task.Id).ToHashSet();
+        var known = entry.Batch.Tasks.ToDictionary(task => task.Id, task => task.Kind);
         if (entry.State != BatchState.Delivered || entry.Executor != executor)
         {
             return QueueResult.NotYours;
         }
-        if (outcome.Final is not (BatchState.Done or BatchState.Refused) || outcome.Tasks.Any(task => !known.Contains(task.TaskId)))
+        if (outcome.Final is not (BatchState.Done or BatchState.Refused) || outcome.Tasks.Any(task => !known.TryGetValue(task.TaskId, out var kind) || !TaskResultRules.Fits(kind, task.Result)))
         {
             return QueueResult.Invalid;
         }

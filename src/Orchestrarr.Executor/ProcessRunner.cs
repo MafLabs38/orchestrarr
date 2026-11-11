@@ -57,16 +57,6 @@ public sealed partial class SystemProcessRunner : IProcessRunner
 
         using var process = new Process { StartInfo = start };
         var tail = new TailBuffer(maxOutputCharacters);
-        process.OutputDataReceived += (_, data) =>
-        {
-            tail.Add(data.Data);
-            if (data.Data is not null)
-            {
-                // A line of standard output as it arrives: what an agent says is shown while it works
-                onLine?.Invoke(data.Data);
-            }
-        };
-        process.ErrorDataReceived += (_, data) => tail.Add(data.Data);
         try
         {
             process.Start();
@@ -76,8 +66,15 @@ public sealed partial class SystemProcessRunner : IProcessRunner
             return new ProcessResult(127, false, $"{file}: not found or not executable");
         }
         process.StandardInput.Close();
-        process.BeginOutputReadLine();
-        process.BeginErrorReadLine();
+        // The lines are cut as they are read, so that a program that prints without ever ending a line cannot fill the memory of the executor.
+        // A line of standard output is passed on as it arrives: what an agent says is shown while it works.
+        var pumps = Task.WhenAll(
+            PumpAsync(process.StandardOutput, line =>
+            {
+                tail.Add(line);
+                onLine?.Invoke(line);
+            }),
+            PumpAsync(process.StandardError, line => tail.Add(line)));
 
         using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         limit.CancelAfter(timeout);
@@ -96,12 +93,66 @@ public sealed partial class SystemProcessRunner : IProcessRunner
                 // It ended between the timeout and the kill: the timeout is still what happened
             }
             await process.WaitForExitAsync(CancellationToken.None);
+            await Drained(pumps);
             cancellationToken.ThrowIfCancellationRequested();
             return new ProcessResult(-1, true, tail.ToString());
         }
         // The streams are drained once the process is gone: a last line may still be on its way
         await process.WaitForExitAsync(CancellationToken.None);
+        await Drained(pumps);
         return new ProcessResult(process.ExitCode, false, tail.ToString());
+    }
+
+    // A grandchild that keeps the pipe open must not keep the executor waiting
+    private static async Task Drained(Task pumps)
+    {
+        try
+        {
+            await pumps.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        catch (TimeoutException)
+        {
+            // What was read is kept; the rest is not waited for
+        }
+    }
+
+    /// <summary>The longest line kept whole: what comes after it, up to the end of the line, is dropped and a marker says so.</summary>
+    internal const int MaxLineCharacters = 65536;
+
+    private static async Task PumpAsync(StreamReader reader, Action<string> onLine)
+    {
+        var buffer = new char[4096];
+        var line = new StringBuilder();
+        var dropping = false;
+        int read;
+        while ((read = await reader.ReadAsync(buffer)) > 0)
+        {
+            foreach (var character in buffer.AsSpan(0, read))
+            {
+                if (character == '\n')
+                {
+                    if (line.Length > 0 && line[^1] == '\r')
+                    {
+                        line.Length--;
+                    }
+                    onLine(dropping ? line + " [line cut]" : line.ToString());
+                    line.Clear();
+                    dropping = false;
+                }
+                else if (line.Length < MaxLineCharacters)
+                {
+                    line.Append(character);
+                }
+                else
+                {
+                    dropping = true;
+                }
+            }
+        }
+        if (line.Length > 0)
+        {
+            onLine(dropping ? line + " [line cut]" : line.ToString());
+        }
     }
 
     /// <summary>The last characters of what a command printed, without the colour codes of a terminal. A command that prints a lot costs nothing but a moving window.</summary>

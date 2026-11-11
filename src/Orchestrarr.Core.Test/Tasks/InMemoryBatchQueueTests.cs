@@ -225,14 +225,14 @@ public sealed class InMemoryBatchQueueTests
         _time.Advance(TimeSpan.FromMinutes(5));
         var second = await Queue();
         await _queue.ClaimAsync("executor-1", Ct);
-        await _queue.CompleteAsync(second.Id, "executor-1", Outcome(second, TaskResult.Repaired, "repaired: 1 file(s) changed"), Ct);
+        await _queue.CompleteAsync(second.Id, "executor-1", Outcome(second, TaskResult.Passed, "the validation passes"), Ct);
 
         var rows = _queue.TaskResults(10);
         var lastTask = second.Tasks[^1];
 
         rows.Should().HaveCount(4);
-        rows.Select(row => row.Result).Distinct().Should().Equal(TaskResult.Repaired, TaskResult.Failed);
-        rows[0].Should().Match<TaskResultRow>(row => row.Reason == "repaired: 1 file(s) changed" && row.At == Start.AddMinutes(5) && row.Repository == lastTask.Repository && row.HeadSha == lastTask.HeadSha && row.Kind == lastTask.Kind, "the last task of the newest batch is the first row");
+        rows.Select(row => row.Result).Distinct().Should().Equal(TaskResult.Passed, TaskResult.Failed);
+        rows[0].Should().Match<TaskResultRow>(row => row.Reason == "the validation passes" && row.At == Start.AddMinutes(5) && row.Repository == lastTask.Repository && row.HeadSha == lastTask.HeadSha && row.Kind == lastTask.Kind, "the last task of the newest batch is the first row");
         rows[^1].At.Should().Be(Start);
         _queue.TaskResults(1).Should().HaveCount(1);
     }
@@ -279,6 +279,18 @@ public sealed class InMemoryBatchQueueTests
 
         (await _queue.CompleteAsync(batch.Id, "executor-1", new BatchOutcome(BatchState.Done, null, [new TaskOutcome(Guid.NewGuid(), TaskResult.DryRun, null)]), Ct)).Should().Be(QueueResult.Invalid);
         (await _queue.CompleteAsync(batch.Id, "executor-1", new BatchOutcome(BatchState.Waiting, null, []), Ct)).Should().Be(QueueResult.Invalid);
+    }
+
+    [Theory]
+    [InlineData(TaskKind.ValidatePullRequest, TaskResult.Repaired, false)]
+    [InlineData(TaskKind.MergePullRequest, TaskResult.Repaired, false)]
+    [InlineData(TaskKind.RepairPullRequest, TaskResult.DryRun, false)]
+    [InlineData(TaskKind.ValidatePullRequest, TaskResult.Passed, true)]
+    [InlineData(TaskKind.RepairPullRequest, TaskResult.Repaired, true)]
+    [InlineData(TaskKind.MergePullRequest, TaskResult.DryRun, true)]
+    public void A_result_that_does_not_fit_the_kind_of_the_task_is_not_accepted(TaskKind kind, TaskResult result, bool fits)
+    {
+        TaskResultRules.Fits(kind, result).Should().Be(fits);
     }
 
     [Fact]

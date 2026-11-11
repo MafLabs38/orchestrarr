@@ -100,8 +100,6 @@ public sealed class RunTrace
 
     public void Add(string type, Guid? taskId = null, string? detail = null)
     {
-        RunEvent? cut = null;
-        RunEvent? line = null;
         lock (_gate)
         {
             // The control plane refuses a trace past its limit, and a refused trace loses the end of the run, patch included. Past the budget, the lines that
@@ -111,24 +109,24 @@ public sealed class RunTrace
                 if (!_cut)
                 {
                     _cut = true;
-                    cut = AppendLocked(RunEvents.TraceCut, null, "the trace is long: the lines that only tell how a step went are no longer sent; where each task ended and the patch still are");
+                    Told(AppendLocked(RunEvents.TraceCut, null, "the trace is long: the lines that only tell how a step went are no longer sent; where each task ended and the patch still are"));
                 }
             }
-            else
+            else if (_events.Count < TaskLimits.MaxEventsPerRun - EndOfTheRun || EndsTheRun.Contains(type))
             {
-                line = AppendLocked(type, taskId, detail);
+                // Even what is essential has a ceiling: the control plane refuses a trace past its limit, and the end of the run must always fit
+                Told(AppendLocked(type, taskId, detail));
             }
         }
-        // Told outside the lock: whoever listens may take its time (it sends the line to the control plane)
-        if (cut is not null)
-        {
-            _onAdded?.Invoke(cut);
-        }
-        if (line is not null)
-        {
-            _onAdded?.Invoke(line);
-        }
     }
+
+    // Told under the lock, so that the lines reach the listener in the order of the chain whatever thread added them; the listener only queues the line
+    private void Told(RunEvent line) => _onAdded?.Invoke(line);
+
+    // The last places are kept for the lines that end the run
+    private const int EndOfTheRun = 3;
+
+    private static readonly HashSet<string> EndsTheRun = [RunEvents.Stopped, RunEvents.RunCompleted, RunEvents.RunRefused];
 
     private bool _cut;
 
