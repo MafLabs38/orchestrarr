@@ -113,17 +113,18 @@ public sealed class RepairPullRequestRunnerTests : IDisposable
     }
 
     [Fact]
-    public async Task A_token_that_falls_on_the_edge_of_two_pieces_of_the_patch_is_masked_before_the_patch_is_cut()
+    public async Task A_patch_that_holds_a_secret_of_the_run_is_refused_and_nothing_of_it_is_offered_or_shown()
     {
         FailsThenPasses();
-        var patch = new string('a', 3490) + SecretToken + new string('b', 200);
-        AgentChanges(patch: patch);
+        AgentChanges(patch: new string('a', 3490) + SecretToken + new string('b', 200));
 
-        var (_, trace) = await Run();
+        var (outcome, trace) = await Run();
 
-        var shown = trace.Events.Where(line => line.Type == RunEvents.TaskPatch).Select(line => line.Detail ?? string.Empty).ToList();
-        shown.Should().NotBeEmpty().And.NotContain(detail => detail.Contains("the-subscr", StringComparison.Ordinal) || detail.Contains("ption-token", StringComparison.Ordinal));
-        string.Concat(shown).Should().Contain("***");
+        outcome.Result.Should().Be(TaskResult.Failed);
+        outcome.Reason.Should().Be("the patch contains a secret of the run");
+        trace.Events.Select(line => line.Type).Should().NotContain(RunEvents.TaskPatch);
+        trace.Events.Select(line => line.Detail).Should().NotContain(detail => detail != null && detail.Contains("the-subscription", StringComparison.Ordinal));
+        _processes.Calls.Count(IsTestStep).Should().Be(1, "the after pass does not run on a patch that is refused");
     }
 
     [Fact]

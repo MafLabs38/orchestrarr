@@ -178,6 +178,13 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
             return ValidatePullRequestRunner.Finish(task, trace, TaskResult.Failed, "the patch could not be made or is too large");
         }
 
+        if (trace.Masked(patch.Value.Text) != patch.Value.Text)
+        {
+            // A patch that holds a secret of the run is an attempt to carry it out, not a repair: nothing is offered and nothing is shown
+            trace.Add(RunEvents.TaskStep, task.Id, "agent: the patch contains a secret of the run: the repair is refused");
+            return ValidatePullRequestRunner.Finish(task, trace, TaskResult.Failed, "the patch contains a secret of the run");
+        }
+
         // The executor checks the repair itself, on the approved commit with exactly this patch: the agent saying that it works is not a fact, and neither is a folder
         // that the steps and the agent left behind
         if (await _workspace.CleanCopyWithPatchAsync(folders, cancellationToken) is { } notApplied)
