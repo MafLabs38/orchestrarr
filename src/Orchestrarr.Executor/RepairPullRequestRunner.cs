@@ -33,10 +33,10 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
         ":(exclude,glob)**/CLAUDE.md", ":(exclude,glob)**/CLAUDE.local.md", ":(exclude,glob)**/.mcp.json", ":(exclude,glob)**/.claude/**",
     ];
 
-    // The agent reads the code, not the container: its own state, the process table, the system
-    // And not to write where the container keeps its own state or the system's files: the work folder is the only place the agent edits
+    // The agent does not write where the container keeps its own state or the system's files: the work folder is the only place it edits
     private static readonly string[] ForbiddenEdits = ["Edit(//proc/**)", "Edit(//dev/**)", "Edit(//sys/**)", "Edit(//etc/**)", "Edit(//tmp/**)", "Edit(//root/**)", "Edit(//home/**)", "Edit(//usr/**)"];
 
+    // And it reads the code, not the container: its own state, the process table, the system
     private static readonly string[] ForbiddenReads = ["Read(//proc/**)", "Read(//dev/**)", "Read(//sys/**)", "Read(//etc/**)", "Read(//tmp/**)", "Read(//root/**)"];
 
     private readonly PullRequestWorkspace _workspace = new(validation, processes);
@@ -216,7 +216,7 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
         {
             return (ValidatePullRequestRunner.Finish(task, trace, TaskResult.Failed, "the patch could not be made or is too large"), null, 0);
         }
-        if (patch.Text.Contains("GIT binary patch", StringComparison.Ordinal))
+        if (patch.Text.StartsWith("GIT binary patch\n", StringComparison.Ordinal) || patch.Text.Contains("\nGIT binary patch\n", StringComparison.Ordinal))
         {
             // A repair of source code has no reason to change a binary file, and a secret in one would not be found in the text of the patch
             trace.Add(RunEvents.TaskStep, task.Id, "agent: the patch changes a binary file: the repair is refused");
@@ -357,8 +357,8 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
             // Read and edit the code, nothing else: no shell (the executor runs the steps), no network tool, no reading of the container
             // The built-in tools that exist at all are these four (an allow-list that a new version of the tool cannot widen), approved without a prompt, and the rest named below is denied twice
             "--tools", "Read,Edit,Glob,Grep",
-            // Read and Edit are approved in the work folder only: a call elsewhere needs an approval, and in this mode it is refused (the deny rules are a second layer)
-            "--allowedTools", "Read(//work/**)", "Edit(//work/**)", "Glob", "Grep",
+            // Read and Edit are approved in the work folder only (Glob and Grep need no approval inside it, and outside it a call needs one, which this mode refuses); the deny rules are a second layer
+            "--allowedTools", $"Read(/{PullRequestWorkspace.ContainerWork}/**)", $"Edit(/{PullRequestWorkspace.ContainerWork}/**)",
             "--disallowedTools", "Bash", "WebFetch", "WebSearch", .. ForbiddenReads, .. ForbiddenEdits,
         ]);
         return arguments;

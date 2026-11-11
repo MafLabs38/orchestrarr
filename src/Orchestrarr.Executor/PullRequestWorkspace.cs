@@ -39,7 +39,6 @@ internal sealed class PullRequestWorkspace(ValidationOptions options, IProcessRu
     /// <summary>The folder of the run, as the container sees it.</summary>
     public const string ContainerWork = "/work";
 
-    // The exit codes with which docker itself says that it could not run the container, as opposed to the command inside it failing
     /// <summary>
     /// Docker itself failed (125) or could not be started. 126 and 127 are the container's own command (not executable, not found): a step whose tool is missing
     /// from the image has failed, it is not a container that did not start.

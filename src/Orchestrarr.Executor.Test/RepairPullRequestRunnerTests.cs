@@ -198,7 +198,7 @@ public sealed class RepairPullRequestRunnerTests : IDisposable
         var agent = _processes.Calls.Single(IsAgent);
         var arguments = agent.Arguments;
         var allowed = arguments.SkipWhile(argument => argument != "--allowedTools").Skip(1).TakeWhile(argument => !argument.StartsWith("--", StringComparison.Ordinal)).ToList();
-        allowed.Should().Equal("Read(//work/**)", "Edit(//work/**)", "Glob", "Grep");
+        allowed.Should().Equal("Read(//work/**)", "Edit(//work/**)");
         var denied = arguments.SkipWhile(argument => argument != "--disallowedTools").Skip(1).TakeWhile(argument => !argument.StartsWith("--", StringComparison.Ordinal)).ToList();
         denied.Should().Contain(["Edit(//tmp/**)", "Edit(//home/**)", "Edit(//etc/**)"], "the agent writes in the work folder only");
         denied.Should().Contain(["Bash", "WebFetch", "WebSearch", "Read(//proc/**)", "Read(//dev/**)", "Read(//sys/**)", "Read(//etc/**)", "Read(//tmp/**)", "Read(//root/**)"]);
