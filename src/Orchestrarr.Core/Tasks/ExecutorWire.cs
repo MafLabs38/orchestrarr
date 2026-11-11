@@ -11,6 +11,9 @@ public sealed record DelegationInfo(Guid Id, string Subject, TaskKind Kind, stri
 
 public sealed record ClaimRequest(ExecutorHello Hello);
 
+/// <summary>Whether the global stop is engaged: what an executor reads while it runs, so that the stop reaches a task that is going on.</summary>
+public sealed record StopStatus(bool Engaged);
+
 public sealed record AppendEventsRequest(IReadOnlyList<RunEvent> Events);
 
 public sealed record CompleteRequest(BatchOutcome Outcome);

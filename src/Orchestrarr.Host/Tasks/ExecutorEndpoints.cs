@@ -67,6 +67,9 @@ internal static class ExecutorEndpoints
             return claim.Status == ClaimStatus.Unavailable ? Results.Json(new ErrorResponse(ApiErrors.StorageUnavailable), statusCode: StatusCodes.Status503ServiceUnavailable) : Results.Ok(claim);
         });
 
+        // What an executor reads while it runs: the global stop reaches a task that is going on, not only the next one
+        group.MapGet("/stop", (Orchestrarr.Core.Approvals.IKillSwitchControl killSwitch) => Results.Ok(new StopStatus(killSwitch.Engaged)));
+
         group.MapPost("/runs/{id:guid}/events", async (Guid id, AppendEventsRequest request, HttpContext context, IBatchQueue queue, ILiveNotifier live, CancellationToken ct) =>
             Answer(await queue.AppendEventsAsync(id, (string)context.Items[ExecutorItem]!, request.Events ?? [], ct), () => live.Publish(LiveTopics.Runs, id.ToString("D"))));
 

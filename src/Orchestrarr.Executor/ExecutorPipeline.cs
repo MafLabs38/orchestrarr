@@ -18,8 +18,8 @@ public interface ITaskRunner
     bool IsDryRun => false;
 
     /// <summary>
-    /// True when the runner changes nothing outside its own sandbox: a dry run, or a validation that builds and tests in a throwaway container and
-    /// writes nowhere. The code of the second factor may be switched off only while every runner is like this (ADR 0023). The default follows
+    /// True when the runner writes nothing to a repository or to the host: a dry run, or a validation that builds and tests in a throwaway container and
+    /// writes nowhere (it may still run code in that container, with network access where a step asks for it; a repair also holds a credential). The code of the second factor may be switched off only while every runner is like this (ADR 0023). The default follows
     /// <see cref="IsDryRun"/>: a runner is taken for one that changes things until it says otherwise.
     /// </summary>
     bool ChangesNothing => IsDryRun;
@@ -128,14 +128,17 @@ public sealed class ExecutorPipeline(
 
     private readonly Dictionary<TaskKind, ITaskRunner> _runners = runners.ToDictionary(runner => runner.Kind);
 
-    /// <summary>Whether the code of the second factor is checked on this executor: false only by its own setting, and only with dry runs.</summary>
+    /// <summary>The kinds of task that have a runner here: what the executor can say it accepts, whatever its rights list names.</summary>
+    public IReadOnlyCollection<TaskKind> RunnerKinds => _runners.Keys;
+
+    /// <summary>Whether the code of the second factor is checked on this executor: false only by its own setting, and only while every runner changes nothing outside its sandbox.</summary>
     public bool SecondFactorRequired => _requireSecondFactor;
 
     private static bool Resolve(bool require, IEnumerable<ITaskRunner> runners)
     {
         if (!require && runners.Any(runner => !runner.ChangesNothing))
         {
-            throw new InvalidOperationException("The code of the second factor can be switched off only on an executor whose every runner changes nothing outside its sandbox (a dry run, or a validation).");
+            throw new InvalidOperationException("The code of the second factor can be switched off only on an executor whose every runner changes nothing outside its sandbox (a dry run, a validation or a repair: ADR 0023, ADR 0024).");
         }
         return require;
     }
@@ -194,6 +197,18 @@ public sealed class ExecutorPipeline(
                 {
                     stoppedApprovals.Add(task.ApprovalId);
                 }
+            }
+            catch (OperationCanceledException) when (isStopped())
+            {
+                // The stop was engaged while the task ran (the runner has killed its container): the task ends as skipped, and what follows for this approval does not run
+                if (!stopNoted)
+                {
+                    trace.Add(RunEvents.Stopped, null, "the stop was engaged while a task ran");
+                    stopNoted = true;
+                }
+                trace.Add(RunEvents.TaskSkipped, task.Id, "the stop was engaged while this task ran");
+                outcomes.Add(new TaskOutcome(task.Id, TaskResult.Skipped, "stopped while it ran"));
+                stoppedApprovals.Add(task.ApprovalId);
             }
             catch (Exception failure) when (failure is not OperationCanceledException)
             {

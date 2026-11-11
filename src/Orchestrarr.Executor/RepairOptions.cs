@@ -40,6 +40,10 @@ public sealed record RepairOptions
         "*package.json", "*package-lock.json", "*yarn.lock", "*pnpm-lock.yaml", "*.npmrc", "*.nvmrc", "*tsconfig*.json",
         "test/*", "*/test/*", "tests/*", "*/tests/*", "*__tests__*", "*.test.*", "*.spec.*", "*jest.config.*", "*vitest.config.*", "*.mocharc*",
         ".github/*", "*Dockerfile*", "*docker-compose*", ".gitattributes", "*.gitattributes", ".git/*", "*/.git/*",
+        // Where tests and builds are configured in the other ecosystems: a repair that weakens them has repaired nothing (an allow-list per profile is the stricter way, later)
+        "*vite.config.*", "*webpack.config.*", "*babel.config.*", "*.babelrc*", "*.eslintrc*", "*eslint.config.*", "*playwright.config.*", "*cypress.config.*", "*karma.conf*",
+        "*conftest.py", "*pytest.ini", "*tox.ini", "*setup.cfg", "*pyproject.toml", "*requirements*.txt", "*.csproj", "*.sln*", "*Directory.Build.*", "*Directory.Packages.props",
+        "*Makefile", "*go.mod", "*go.sum", "*Cargo.toml", "*Cargo.lock", "*.claude/*", "CLAUDE.md",
     ];
 
     /// <summary>

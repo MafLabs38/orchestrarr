@@ -6,6 +6,8 @@ namespace Orchestrarr.Host.Tasks;
 /// <summary>What the control plane knows of the executors: the last time each asked for work, and what it said of itself. In memory: it is only for the screen.</summary>
 public sealed class ExecutorRegistry(TimeProvider time)
 {
+    private readonly Lock _gate = new();
+
     private readonly ConcurrentDictionary<string, (ExecutorHello Hello, DateTimeOffset At)> _seen = new(StringComparer.Ordinal);
 
     /// <summary>An executor that has not asked for work for this long is shown as gone.</summary>
@@ -17,8 +19,13 @@ public sealed class ExecutorRegistry(TimeProvider time)
     public void Seen(string name, ExecutorHello hello)
     {
         var now = time.GetUtcNow();
-        var changed = !_seen.TryGetValue(name, out var before) || now - before.At > ConnectedFor || !Same(before.Hello, hello);
-        _seen[name] = (hello, now);
+        bool changed;
+        // One compare and set: two claims at once from the same executor announce one change, not two
+        lock (_gate)
+        {
+            changed = !_seen.TryGetValue(name, out var before) || now - before.At > ConnectedFor || !Same(before.Hello, hello);
+            _seen[name] = (hello, now);
+        }
         if (changed)
         {
             Changed?.Invoke();

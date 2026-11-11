@@ -13,6 +13,9 @@ public interface IControlPlane
     Task<QueueResult> AppendEventsAsync(Guid batchId, IReadOnlyList<RunEvent> events, CancellationToken cancellationToken);
 
     Task<QueueResult> CompleteAsync(Guid batchId, BatchOutcome outcome, CancellationToken cancellationToken);
+
+    /// <summary>Whether the global stop is engaged. Read while a run goes on, so that the stop reaches the task that is running.</summary>
+    Task<bool> GlobalStopEngagedAsync(CancellationToken cancellationToken);
 }
 
 public sealed class ControlPlaneClient : IControlPlane
@@ -66,6 +69,13 @@ public sealed class ControlPlaneClient : IControlPlane
     {
         using var response = await _http.PostAsJsonAsync($"/api/v1/executor/runs/{batchId:D}/complete", new CompleteRequest(outcome), ExecutorWire.Json, cancellationToken);
         return Result(response);
+    }
+
+    public async Task<bool> GlobalStopEngagedAsync(CancellationToken cancellationToken)
+    {
+        using var response = await _http.GetAsync("/api/v1/executor/stop", cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<StopStatus>(ExecutorWire.Json, cancellationToken))?.Engaged ?? true;
     }
 
     private static QueueResult Result(HttpResponseMessage response) => response.StatusCode switch

@@ -119,12 +119,15 @@ public sealed class ValidatePullRequestRunnerTests : IDisposable
     [Fact]
     public async Task The_token_of_the_forge_is_masked_in_every_line_of_the_trace_even_when_a_command_prints_it()
     {
-        _processes.Script(call => IsTestStep(call), new ProcessResult(1, false, "leak: the-secret-token and bGVhaw== " + Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes("x-access-token:the-secret-token"))[..4]));
+        var header = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes("x-access-token:the-secret-token"));
+        var plainBase64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes("the-secret-token"));
+        _processes.Script(call => IsTestStep(call), new ProcessResult(1, false, $"leak: the-secret-token and {plainBase64} and a header {header}"));
 
         var (_, trace) = await Run(Options());
 
         trace.Events.Select(line => line.Detail).Should().NotContain(detail => detail != null && detail.Contains("the-secret-token"));
-        trace.Events.Should().Contain(line => line.Detail!.Contains("leak: *** and"));
+        trace.Events.Select(line => line.Detail).Should().NotContain(detail => detail != null && detail.Contains(plainBase64));
+        trace.Events.Should().Contain(line => line.Detail!.Contains("leak: *** and *** and a header"));
     }
 
     private static bool IsTestStep(Call call) => call.File == "docker" && call.Arguments.Contains("npm test");
@@ -274,4 +277,22 @@ public sealed class ValidatePullRequestRunnerTests : IDisposable
 
         public ValueTask<TaskOutcome> RunAsync(TaskSpec task, RunTrace trace, CancellationToken cancellationToken) => throw new NotSupportedException();
     }
+    [Fact]
+    public async Task A_stop_while_a_step_runs_kills_its_container_by_name_and_the_folders_are_removed()
+    {
+        _processes.Hang(IsTestStep);
+        using var stop = new CancellationTokenSource();
+        var run = new ValidatePullRequestRunner(Options(), _processes).RunAsync(Spec(), Trace(), stop.Token).AsTask();
+        while (!_processes.Calls.Any(IsTestStep))
+        {
+            await Task.Delay(10, Ct);
+        }
+
+        await stop.CancelAsync();
+
+        await run.Awaiting(task => task).Should().ThrowAsync<OperationCanceledException>();
+        _processes.Calls.Should().Contain(call => call.File == "docker" && call.Arguments[0] == "kill" && call.Arguments[1].StartsWith("orchestrarr-", StringComparison.Ordinal));
+        Directory.GetDirectories(_work).Should().BeEmpty();
+    }
+
 }

@@ -76,6 +76,9 @@ public sealed record ExecutorOptions
     /// <summary>How often the lines of a run that goes on are sent to the control plane, in milliseconds.</summary>
     public int LiveSendMilliseconds { get; init; } = 1000;
 
+    /// <summary>How often the global stop and the local stop file are read while a run goes on, in milliseconds: a stop reaches the task that is running within this time.</summary>
+    public int StopPollMilliseconds { get; init; } = 3000;
+
     /// <summary>The name shown in the authenticator app next to the account.</summary>
     public string Issuer { get; init; } = "Orchestrarr";
 }

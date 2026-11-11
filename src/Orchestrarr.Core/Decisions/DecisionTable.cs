@@ -179,7 +179,7 @@ public static class DecisionTable
         if (latest is { Result: TaskResult.Failed })
         {
             var reason = latest.Kind == TaskKind.RepairPullRequest ? CeilingReason.RepairFailed : CeilingReason.QualificationFailed;
-            return canRepair ? (Ceiling.Repair, reason, false) : (Ceiling.Qualification, CeilingReason.QualificationFailed, false);
+            return canRepair ? (Ceiling.Repair, reason, false) : (Ceiling.Qualification, reason, false);
         }
         if (pullRequest.Checks == ChecksState.Failing)
         {

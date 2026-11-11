@@ -33,8 +33,9 @@ public static class AgentTranscript
             }
             return [.. content.EnumerateArray().Select(Block).Where(text => text is not null).Select(text => text!)];
         }
-        catch (JsonException)
+        catch (Exception unexpected) when (unexpected is JsonException or InvalidOperationException)
         {
+            // A shape this parser does not know (a text that is not a string, an element that is not an object): no line, and never an error on a reader thread
             return [];
         }
     }
@@ -57,7 +58,7 @@ public static class AgentTranscript
                 return (text, turns, root.TryGetProperty("is_error", out var error) && error.ValueKind == JsonValueKind.True);
             }
         }
-        catch (JsonException)
+        catch (Exception unexpected) when (unexpected is JsonException or InvalidOperationException)
         {
             // Not a line of the stream
         }

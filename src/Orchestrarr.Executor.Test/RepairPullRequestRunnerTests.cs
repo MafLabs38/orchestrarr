@@ -58,7 +58,7 @@ public sealed class RepairPullRequestRunnerTests : IDisposable
 
     private static bool IsNames(Call call) => call.File == "git" && call.Arguments.Contains("--name-only");
 
-    private static bool IsPatch(Call call) => call.File == "git" && call.Arguments.Contains("--output");
+    private static bool IsPatch(Call call) => call.File == "git" && call.Arguments.Contains("--output") && !call.Arguments.Contains("--name-only");
 
     private static bool IsApply(Call call) => call.File == "git" && call.Arguments.Contains("apply");
 
@@ -81,7 +81,7 @@ public sealed class RepairPullRequestRunnerTests : IDisposable
     private void AgentChanges(string path = "src/server.js", string patch = "diff --git a/src/server.js b/src/server.js\n-app.get('*')\n+app.get('/{*splat}')", string[]? stream = null)
     {
         _processes.Script(IsAgent, new ProcessResult(0, false, string.Join('\n', stream ?? AgentStream(path))));
-        _processes.Script(IsNames, new ProcessResult(0, false, path + "\n"));
+        _processes.Script(IsNames, new ProcessResult(0, false, string.Empty), call => File.WriteAllText(call.After("--output")!, path + "\n"));
         // The patch is written to a file by git: here, by the script
         _processes.Script(IsPatch, new ProcessResult(0, false, string.Empty), call => File.WriteAllText(call.After("--output")!, patch));
     }
@@ -146,7 +146,7 @@ public sealed class RepairPullRequestRunnerTests : IDisposable
         var allowed = arguments.SkipWhile(argument => argument != "--allowedTools").Skip(1).TakeWhile(argument => !argument.StartsWith("--", StringComparison.Ordinal)).ToList();
         allowed.Should().Equal("Read", "Edit", "Glob", "Grep");
         var denied = arguments.SkipWhile(argument => argument != "--disallowedTools").Skip(1).TakeWhile(argument => !argument.StartsWith("--", StringComparison.Ordinal)).ToList();
-        denied.Should().Contain(["Bash", "WebFetch", "WebSearch", "Read(//proc/**)", "Read(//sys/**)", "Read(//etc/**)", "Read(//tmp/**)"]);
+        denied.Should().Contain(["Bash", "WebFetch", "WebSearch", "Read(//proc/**)", "Read(//sys/**)", "Read(//etc/**)", "Read(//tmp/**)", "Read(//root/**)"]);
         arguments.Should().NotContain("--dangerously-skip-permissions").And.NotContain(argument => argument.StartsWith("Bash(", StringComparison.Ordinal));
         agent.After("--permission-mode").Should().Be("acceptEdits");
         agent.After("--setting-sources").Should().Be("user");
@@ -207,7 +207,7 @@ public sealed class RepairPullRequestRunnerTests : IDisposable
         git.Where(call => !call.Arguments.Contains("fetch")).Should().OnlyContain(call => !call.Environment.ContainsKey("GIT_CONFIG_KEY_0"), "no token reaches the git calls that read what a container wrote");
         var diff = _processes.Calls.Single(IsPatch);
         diff.Arguments.Should().Contain("--no-ext-diff").And.Contain("--no-textconv").And.Contain("--no-renames").And.Contain("--binary");
-        _processes.Calls.Single(IsNames).Arguments.Should().Contain("--no-renames");
+        _processes.Calls.Single(IsNames).Arguments.Should().Contain("--no-renames").And.Contain("--output");
     }
 
     [Fact]
@@ -291,7 +291,7 @@ public sealed class RepairPullRequestRunnerTests : IDisposable
     {
         FailsThenPasses();
         _processes.Script(IsAgent, new ProcessResult(0, false, """{"type":"result","subtype":"success","is_error":false,"num_turns":2,"result":"I could not find the problem."}"""));
-        _processes.Script(IsNames, new ProcessResult(0, false, string.Empty));
+        _processes.Script(IsNames, new ProcessResult(0, false, string.Empty), call => File.WriteAllText(call.After("--output")!, string.Empty));
 
         var (outcome, _) = await Run();
 
@@ -364,12 +364,13 @@ public sealed class RepairPullRequestRunnerTests : IDisposable
         var (outcome, trace) = await Run();
 
         outcome.Result.Should().Be(TaskResult.Repaired);
-        trace.Events.Count(line => line.Type == RunEvents.TaskPatch).Should().Be(8);
+        trace.Events.Count(line => line.Type == RunEvents.TaskPatch).Should().Be(9, "eight parts and the line that says the rest is not shown");
+        trace.Events.First(line => line.Type == RunEvents.TaskPatch).Detail.Should().StartWith("patch cut: 28000 of 40000 characters").And.Contain("the whole patch was applied and checked");
         _processes.Calls.Single(IsApply).Arguments[^1].Should().EndWith("repair.patch");
     }
 
     [Fact]
-    public async Task A_patch_that_is_too_large_or_empty_is_a_failure()
+    public async Task A_patch_that_is_too_large_is_a_failure()
     {
         FailsThenPasses();
         AgentChanges(patch: new string('+', 1_100_000));
@@ -427,12 +428,12 @@ public sealed class RepairPullRequestRunnerTests : IDisposable
     }
 
     [Fact]
-    public async Task A_repair_changes_nothing_outside_its_sandbox_so_an_executor_that_only_validates_and_repairs_may_run_without_the_code()
+    public void A_repair_changes_nothing_outside_its_sandbox_so_an_executor_that_only_validates_and_repairs_may_run_without_the_code()
     {
         var runners = new ITaskRunner[] { new RepairPullRequestRunner(Validation(), Repair(), _processes), new DryRunTaskRunner(TaskKind.MergePullRequest) };
 
         _world.Pipeline(runners, requireSecondFactor: false).SecondFactorRequired.Should().BeFalse();
-        (await Task.FromResult(runners[0].ChangesNothing)).Should().BeTrue();
+        runners[0].ChangesNothing.Should().BeTrue();
     }
 
     [Fact]
@@ -448,5 +449,102 @@ public sealed class RepairPullRequestRunnerTests : IDisposable
         validationOnly.Select(runner => runner.GetType()).Should().Equal(typeof(ValidatePullRequestRunner), typeof(DryRunTaskRunner));
         repairWithoutValidation.Select(runner => runner.Kind).Should().NotContain(TaskKind.RepairPullRequest);
         both.Select(runner => runner.Kind).Should().Contain(TaskKind.RepairPullRequest);
+    }
+
+    [Fact]
+    public async Task A_long_list_of_changed_paths_is_read_in_full_so_a_protected_path_that_sorts_first_is_never_lost()
+    {
+        FailsThenPasses();
+        AgentChanges();
+        var many = string.Join('\n', [".github/workflows/ci.yml", .. Enumerable.Range(0, 3000).Select(index => $"src/generated/file-{index.ToString(System.Globalization.CultureInfo.InvariantCulture)}.js")]);
+        _processes.Script(IsNames, new ProcessResult(0, false, string.Empty), call => File.WriteAllText(call.After("--output")!, many + "\n"));
+
+        var (outcome, _) = await Run();
+
+        outcome.Result.Should().Be(TaskResult.Failed);
+        outcome.Reason.Should().Be("the agent changed a protected file");
+    }
+
+    [Fact]
+    public async Task An_unreadable_token_of_the_agent_is_a_refusal_and_no_container_is_started()
+    {
+        FailsThenPasses();
+        File.Delete(_agentToken);
+
+        var (outcome, _) = await Run();
+
+        outcome.Result.Should().Be(TaskResult.Refused);
+        outcome.Reason.Should().Be("the agent's token could not be read");
+        _processes.Calls.Should().NotContain(call => IsAgent(call));
+    }
+
+    [Fact]
+    public async Task When_the_container_of_the_second_check_cannot_start_the_repair_is_refused_and_no_patch_is_shown()
+    {
+        _processes.Sequence(IsTestStep, new ProcessResult(1, false, "1 failing"), new ProcessResult(125, false, "docker: daemon error"));
+        AgentChanges();
+
+        var (outcome, trace) = await Run();
+
+        outcome.Result.Should().Be(TaskResult.Refused);
+        trace.Events.Select(line => line.Type).Should().NotContain(RunEvents.TaskPatch);
+    }
+
+    [Fact]
+    public async Task A_stop_while_the_agent_runs_kills_its_container_by_name_and_the_folders_are_removed()
+    {
+        FailsThenPasses();
+        _processes.Hang(IsAgent);
+        using var stop = new CancellationTokenSource();
+        var run = new RepairPullRequestRunner(Validation(), Repair(), _processes).RunAsync(Spec(), new RunTrace(Guid.NewGuid(), "0", _world.Time, _world.Store), stop.Token).AsTask();
+        while (!_processes.Calls.Any(IsAgent))
+        {
+            await Task.Delay(10, Ct);
+        }
+
+        await stop.CancelAsync();
+
+        await run.Awaiting(task => task).Should().ThrowAsync<OperationCanceledException>();
+        _processes.Calls.Should().Contain(call => call.File == "docker" && call.Arguments[0] == "kill" && call.Arguments[1].StartsWith("orchestrarr-agent-", StringComparison.Ordinal));
+        Directory.GetDirectories(_work).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void The_paths_of_the_instructions_are_left_out_of_what_git_stages_and_diffs_with_a_real_git()
+    {
+        var repo = Directory.CreateTempSubdirectory("orchestrarr-git-").FullName;
+        try
+        {
+            string Git(params string[] arguments)
+            {
+                var start = new System.Diagnostics.ProcessStartInfo("git") { WorkingDirectory = repo, RedirectStandardOutput = true, RedirectStandardError = true };
+                foreach (var argument in new[] { "-c", "user.name=t", "-c", "user.email=t@example.test" }.Concat(arguments))
+                {
+                    start.ArgumentList.Add(argument);
+                }
+                using var process = System.Diagnostics.Process.Start(start)!;
+                var output = process.StandardOutput.ReadToEnd();
+                process.WaitForExit();
+                return output;
+            }
+
+            Git("init", "--quiet");
+            Directory.CreateDirectory(Path.Combine(repo, "sub", ".claude"));
+            Directory.CreateDirectory(Path.Combine(repo, "src"));
+            File.WriteAllText(Path.Combine(repo, "CLAUDE.md"), "x");
+            File.WriteAllText(Path.Combine(repo, ".mcp.json"), "x");
+            File.WriteAllText(Path.Combine(repo, "sub", "CLAUDE.md"), "x");
+            File.WriteAllText(Path.Combine(repo, "sub", ".claude", "settings.json"), "x");
+            File.WriteAllText(Path.Combine(repo, "src", "a.js"), "x");
+
+            Git(["add", "-A", "--", ".", .. RepairPullRequestRunner.PatchExcludes]);
+            var names = Git(["diff", "--cached", "--name-only", "--", ".", .. RepairPullRequestRunner.PatchExcludes]);
+
+            names.Trim().Should().Be("src/a.js");
+        }
+        finally
+        {
+            Directory.Delete(repo, recursive: true);
+        }
     }
 }

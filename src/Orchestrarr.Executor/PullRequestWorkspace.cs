@@ -17,6 +17,9 @@ internal sealed record RunFolders(string Root, string GitDir, string Work)
 
     /// <summary>Where the patch is kept, outside every mount.</summary>
     public string PatchFile => Path.Combine(Root, "repair.patch");
+
+    /// <summary>The paths the agent changed, written by git in full (a list read from the tail of an output would lose its start).</summary>
+    public string PathsFile => Path.Combine(Root, "changed-paths.txt");
 }
 
 /// <summary>
@@ -45,12 +48,14 @@ internal sealed class PullRequestWorkspace(ValidationOptions options, IProcessRu
     public string? GitToken() => options.GitTokenFile.Length > 0 ? File.ReadAllText(options.GitTokenFile).Trim() : null;
 
     // The environment of every git call of the host: no system or user configuration, no prompt. The token only goes to the call that fetches.
-    private static Dictionary<string, string> GitEnvironment() => new()
+    // The ceiling keeps git from looking for a repository above the run folders (a work root that sits inside a checkout would otherwise be one)
+    private Dictionary<string, string> GitEnvironment() => new()
     {
         ["GIT_TERMINAL_PROMPT"] = "0",
         ["GIT_CONFIG_NOSYSTEM"] = "1",
         ["GIT_CONFIG_GLOBAL"] = "/dev/null",
         ["GIT_ATTR_NOSYSTEM"] = "1",
+        ["GIT_CEILING_DIRECTORIES"] = Path.GetFullPath(options.WorkRoot),
     };
 
     private Dictionary<string, string> FetchEnvironment()
@@ -136,7 +141,7 @@ internal sealed class PullRequestWorkspace(ValidationOptions options, IProcessRu
             var container = $"orchestrarr-{task.Id:N}-{pass}-{index.ToString(CultureInfo.InvariantCulture)}";
             var started = clock.Elapsed;
             List<string> arguments = [.. SandboxArguments(container, work, options.Cpus, options.MemoryMegabytes, step.Network), profile.Image, "sh", "-c", step.Command];
-            var result = await processes.RunAsync("docker", arguments, null, new Dictionary<string, string>(), StepTimeout(), options.MaxOutputCharacters, cancellationToken);
+            var result = await RunContainerAsync(container, arguments, null, options.MaxOutputCharacters, cancellationToken);
             var seconds = (clock.Elapsed - started).TotalSeconds;
             if (result.TimedOut)
             {
@@ -205,6 +210,23 @@ internal sealed class PullRequestWorkspace(ValidationOptions options, IProcessRu
         // Outside any repository: git applies the patch to the files of the folder, and refuses a path outside it or beyond a link
         var apply = await processes.RunAsync("git", ["-c", "core.fsmonitor=false", "apply", "--whitespace=nowarn", folders.PatchFile], folders.WorkAfter, GitEnvironment(), StepTimeout(), options.MaxOutputCharacters, cancellationToken);
         return apply.ExitCode == 0 ? null : "the patch does not apply to the approved commit";
+    }
+
+    /// <summary>
+    /// Runs a container and, when the run is cancelled (a stop, a shutdown), kills the container by name: stopping the docker client does not stop it, and
+    /// a container that holds a token or runs a hanging step must not outlive the executor's decision.
+    /// </summary>
+    public async Task<ProcessResult> RunContainerAsync(string container, IReadOnlyList<string> arguments, Action<string>? onLine, int maxOutputCharacters, CancellationToken cancellationToken, IReadOnlyDictionary<string, string>? environment = null, TimeSpan? timeout = null)
+    {
+        try
+        {
+            return await processes.RunAsync("docker", arguments, null, environment ?? new Dictionary<string, string>(), timeout ?? StepTimeout(), maxOutputCharacters, cancellationToken, onLine);
+        }
+        catch (OperationCanceledException)
+        {
+            await KillAsync(container);
+            throw;
+        }
     }
 
     public async Task KillAsync(string container) =>

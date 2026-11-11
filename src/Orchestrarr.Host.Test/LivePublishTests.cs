@@ -100,6 +100,8 @@ public sealed class LivePublishTests
         var response = await factory.CreateClient().GetAsync("/api/v1/problems", Ct);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var rows = (await response.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>(Ct)).GetProperty("rows").EnumerateArray().ToList();
+        rows.Should().NotBeEmpty().And.OnlyContain(row => row.GetProperty("workshop").GetString() == "unknown", "with no result, the workshop has said nothing of any commit");
     }
 
     private static ExecutorHello Hello(string version = "1", params string[] repositories) =>

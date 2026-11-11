@@ -15,6 +15,50 @@ public sealed class ExecutorPipelineTests : IDisposable
 
     private static string[] Types(PipelineResult result) => [.. result.Events.Select(line => line.Type)];
 
+    // A task that, while it runs, finds the stop engaged: it cancels as a runner does when its container is killed
+    private sealed class StoppedWhileRunning(Action stop) : ITaskRunner
+    {
+        public TaskKind Kind => TaskKind.ValidatePullRequest;
+
+        public ValueTask<TaskOutcome> RunAsync(TaskSpec task, RunTrace trace, CancellationToken cancellationToken)
+        {
+            stop();
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult(new TaskOutcome(task.Id, TaskResult.Passed, null));
+        }
+    }
+
+    [Fact]
+    public async Task A_stop_engaged_while_a_task_runs_ends_it_as_skipped_and_nothing_after_it_for_the_same_approval_runs()
+    {
+        var batch = await _world.Approved(ExecutorFixture.Batch());
+        var stopped = false;
+        using var cancel = new CancellationTokenSource();
+        var pipeline = _world.Pipeline([new StoppedWhileRunning(() =>
+        {
+            stopped = true;
+            cancel.Cancel();
+        }), new DryRunTaskRunner(TaskKind.MergePullRequest)]);
+
+        var result = await pipeline.RunAsync(new BatchDelivery(batch, _world.CodeAt()), () => stopped, cancel.Token);
+
+        result.Outcome.Final.Should().Be(BatchState.Done, "the run ends with a result, not with an exception that leaves the batch taken and never ended");
+        result.Outcome.Tasks.Select(task => task.Result).Should().Equal(TaskResult.Skipped, TaskResult.Skipped);
+        result.Events.Select(line => line.Type).Should().Contain(RunEvents.Stopped).And.Contain(RunEvents.TaskSkipped).And.EndWith(RunEvents.RunCompleted);
+    }
+
+    [Fact]
+    public async Task A_cancellation_that_is_not_a_stop_is_a_shutdown_and_is_not_hidden_as_a_result()
+    {
+        var batch = await _world.Approved(ExecutorFixture.Batch());
+        using var cancel = new CancellationTokenSource();
+        var pipeline = _world.Pipeline([new StoppedWhileRunning(cancel.Cancel), new DryRunTaskRunner(TaskKind.MergePullRequest)]);
+
+        var run = async () => await pipeline.RunAsync(new BatchDelivery(batch, _world.CodeAt()), () => false, cancel.Token);
+
+        await run.Should().ThrowAsync<OperationCanceledException>();
+    }
+
     [Fact]
     public async Task A_batch_that_was_approved_within_the_rights_with_the_right_code_is_dry_run_task_by_task()
     {

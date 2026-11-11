@@ -18,7 +18,7 @@ This file is read automatically by Claude Code. It applies to every task in this
 
 Same as Portarr, so the three products share conventions:
 
-- **Backend**: .NET 10 (LTS), C# 14, ASP.NET Core (SignalR and FluentValidation planned, not used yet)
+- **Backend**: .NET 10 (LTS), C# 14, ASP.NET Core (SignalR for the live screens, [ADR 0025](docs/adr/0025-everything-that-changes-is-pushed-to-the-screens-as-it-changes.md); FluentValidation planned, not used yet)
 - **Frontend**: React, TypeScript (strict), Vite, TanStack Query, CSS Modules
 - **Executor**: .NET, a separate process per environment that takes the approved tasks and runs them (`src/Orchestrarr.Executor`, it checks everything, then validating a pull request runs for real in a throwaway container and `RepairPullRequest` starts an agent in a container (both only when configured, [ADR 0024](docs/adr/0024-a-pull-request-is-validated-for-real-and-an-agent-may-try-to-repair-it-on-paper.md)); merging is a dry run and nothing is written to a repository; [ADR 0017](docs/adr/0017-orders-are-typed-tasks-approved-with-a-second-factor-that-the-executor-checks.md)). The earlier plan of a Rust launcher held by shared vectors (ADR 0014) is superseded
 - **Tests**: xUnit v3 + NSubstitute + AwesomeAssertions, Vitest + Testing Library, Playwright (by hand against the sandbox, no committed suite yet; see [docs/TESTING.md](docs/TESTING.md) §6)

@@ -28,7 +28,7 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
 
     private static readonly string[] InstructionFolders = [".claude"];
 
-    private static readonly string[] PatchExcludes =
+    internal static readonly string[] PatchExcludes =
     [
         ":(exclude,glob)**/CLAUDE.md", ":(exclude,glob)**/CLAUDE.local.md", ":(exclude,glob)**/.mcp.json", ":(exclude,glob)**/.claude/**",
     ];
@@ -85,7 +85,15 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
 
     private async Task<TaskOutcome> TryRepairAsync(TaskSpec task, RunTrace trace, ValidationProfile profile, RunFolders folders, StepsOutcome before, CancellationToken cancellationToken)
     {
-        var token = (await File.ReadAllTextAsync(repair.TokenFile, cancellationToken)).Trim();
+        string token;
+        try
+        {
+            token = (await File.ReadAllTextAsync(repair.TokenFile, cancellationToken)).Trim();
+        }
+        catch (Exception unreadable) when (unreadable is IOException or UnauthorizedAccessException)
+        {
+            return ValidatePullRequestRunner.Refuse(task, trace, "the agent's token could not be read");
+        }
         trace.Redact(token);
         RemoveInstructions(folders.Work);
         var container = $"orchestrarr-agent-{task.Id:N}";
@@ -109,7 +117,7 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
             }
         }
 
-        var run = await processes.RunAsync("docker", AgentArguments(task, folders, container, before), null, new Dictionary<string, string> { ["CLAUDE_CODE_OAUTH_TOKEN"] = token }, TimeSpan.FromMinutes(Math.Max(1, repair.TimeoutMinutes)), repair.MaxOutputCharacters, cancellationToken, OnLine);
+        var run = await _workspace.RunContainerAsync(container, AgentArguments(task, folders, container, before), OnLine, repair.MaxOutputCharacters, cancellationToken, new Dictionary<string, string> { ["CLAUDE_CODE_OAUTH_TOKEN"] = token }, TimeSpan.FromMinutes(Math.Max(1, repair.TimeoutMinutes)));
         if (left > 0)
         {
             trace.Add(RunEvents.TaskAgent, task.Id, $"{left.ToString(CultureInfo.InvariantCulture)} more line(s) of the agent's work are not shown");
@@ -171,8 +179,13 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
     private async Task<IReadOnlyList<string>?> StagedPathsAsync(RunFolders folders, CancellationToken cancellationToken)
     {
         var add = await _workspace.GitAsync(folders, folders.Work, ["add", "-A", "--", ".", .. PatchExcludes], network: false, 200, cancellationToken);
-        var names = await _workspace.GitAsync(folders, folders.Work, ["diff", "--cached", "--name-only", "--no-renames", "--no-ext-diff", "--", ".", .. PatchExcludes], network: false, 4000, cancellationToken);
-        return add.ExitCode != 0 || names.ExitCode != 0 ? null : names.OutputTail.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        // Written to a file by git and read in full: a long list read from the end of an output would lose its start, where the protected paths sort first
+        var names = await _workspace.GitAsync(folders, folders.Work, ["diff", "--cached", "--name-only", "--no-renames", "--no-ext-diff", "--output", folders.PathsFile, "--", ".", .. PatchExcludes], network: false, 200, cancellationToken);
+        if (add.ExitCode != 0 || names.ExitCode != 0 || !File.Exists(folders.PathsFile) || new FileInfo(folders.PathsFile).Length > MaxPatchBytes)
+        {
+            return null;
+        }
+        return (await File.ReadAllTextAsync(folders.PathsFile, cancellationToken)).Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
     }
 
     // Written to a file outside every mount, in full: what is shown in the trace may be cut, what is applied is not
@@ -219,6 +232,11 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
     private static void AddPatch(TaskSpec task, RunTrace trace, string patch, int files)
     {
         var chunks = Math.Min(MaxPatchChunks, (patch.Length + PatchChunk - 1) / PatchChunk);
+        if (patch.Length > chunks * PatchChunk)
+        {
+            // What is shown is not the whole patch: it says so (the whole patch was applied and checked)
+            trace.Add(RunEvents.TaskPatch, task.Id, $"patch cut: {(chunks * PatchChunk).ToString(CultureInfo.InvariantCulture)} of {patch.Length.ToString(CultureInfo.InvariantCulture)} characters are shown; the whole patch was applied and checked");
+        }
         for (var index = 0; index < chunks; index++)
         {
             var part = patch.Substring(index * PatchChunk, Math.Min(PatchChunk, patch.Length - (index * PatchChunk)));

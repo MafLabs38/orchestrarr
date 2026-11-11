@@ -34,6 +34,21 @@ public sealed class AgentTranscriptTests
         AgentTranscript.Describe(line).Should().BeEmpty();
     }
 
+    [Theory]
+    [InlineData("""{"type":"assistant","message":{"content":[{"type":"text","text":5}]}}""")]
+    [InlineData("""{"type":"assistant","message":{"content":["a string", 5, null]}}""")]
+    [InlineData("""{"type":"assistant","message":{"content":[{"type":"tool_use","name":5,"input":"x"}]}}""")]
+    [InlineData("""{"type":"user","message":{"content":[{"type":"tool_result","content":[5,"x"]}]}}""")]
+    [InlineData("""{"type":"result","is_error":"no","result":5,"num_turns":{}}""")]
+    public void A_shape_the_parser_does_not_know_never_throws_on_the_reader_thread(string line)
+    {
+        var describe = () => AgentTranscript.Describe(line);
+        var result = () => AgentTranscript.Result(line);
+
+        describe.Should().NotThrow();
+        result.Should().NotThrow();
+    }
+
     [Fact]
     public void The_result_gives_the_answer_the_turns_and_whether_it_is_an_error()
     {
