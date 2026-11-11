@@ -15,7 +15,7 @@ internal sealed class ScriptedProcesses : IProcessRunner
     /// <summary>Answers the calls that match one after the other with these results; the last one repeats.</summary>
     public void Sequence(Func<Call, bool> when, params ProcessResult[] results) => _scripts.Insert(0, (when, new Queue<ProcessResult>(results)));
 
-    public Task<ProcessResult> RunAsync(string file, IReadOnlyList<string> arguments, string? workingDirectory, IReadOnlyDictionary<string, string> environment, TimeSpan timeout, int maxOutputCharacters, CancellationToken cancellationToken)
+    public Task<ProcessResult> RunAsync(string file, IReadOnlyList<string> arguments, string? workingDirectory, IReadOnlyDictionary<string, string> environment, TimeSpan timeout, int maxOutputCharacters, CancellationToken cancellationToken, Action<string>? onLine = null)
     {
         var call = new Call(file, arguments, environment);
         Calls.Add(call);
@@ -23,7 +23,13 @@ internal sealed class ScriptedProcesses : IProcessRunner
         {
             if (when(call))
             {
-                return Task.FromResult(results.Count > 1 ? results.Dequeue() : results.Peek());
+                var answer = results.Count > 1 ? results.Dequeue() : results.Peek();
+                // The lines of the output reach the listener as they would from a real process
+                foreach (var line in answer.OutputTail.Split('\n'))
+                {
+                    onLine?.Invoke(line);
+                }
+                return Task.FromResult(answer);
             }
         }
         // By default: a fetch that works, at the approved commit, and a container that passes

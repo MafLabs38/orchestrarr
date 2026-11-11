@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Text.Json;
 using Orchestrarr.Core.Tasks;
 
 namespace Orchestrarr.Executor;
@@ -64,7 +63,31 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
     {
         var token = (await File.ReadAllTextAsync(repair.TokenFile, cancellationToken)).Trim();
         var container = $"orchestrarr-agent-{task.Id:N}";
-        var run = await processes.RunAsync("docker", AgentArguments(task, profile, folder, container, before), null, new Dictionary<string, string> { ["CLAUDE_CODE_OAUTH_TOKEN"] = token }, TimeSpan.FromMinutes(Math.Max(1, repair.TimeoutMinutes)), 20000, cancellationToken);
+        // What the agent does is written in the trace as it happens; the lines may arrive from another thread
+        var shown = 0;
+        var left = 0;
+        (string Text, string Turns, bool IsError)? final = null;
+        void OnLine(string line)
+        {
+            final ??= AgentTranscript.Result(line);
+            foreach (var text in AgentTranscript.Describe(line))
+            {
+                if (Interlocked.Increment(ref shown) <= repair.MaxTraceLines)
+                {
+                    trace.Add(RunEvents.TaskAgent, task.Id, text);
+                }
+                else
+                {
+                    Interlocked.Increment(ref left);
+                }
+            }
+        }
+
+        var run = await processes.RunAsync("docker", AgentArguments(task, profile, folder, container, before), null, new Dictionary<string, string> { ["CLAUDE_CODE_OAUTH_TOKEN"] = token }, TimeSpan.FromMinutes(Math.Max(1, repair.TimeoutMinutes)), 20000, cancellationToken, OnLine);
+        if (left > 0)
+        {
+            trace.Add(RunEvents.TaskAgent, task.Id, $"{left.ToString(CultureInfo.InvariantCulture)} more line(s) of the agent's work are not shown");
+        }
         if (run.TimedOut)
         {
             await _workspace.Kill(container);
@@ -79,7 +102,7 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
                 ? ValidatePullRequestRunner.Refuse(task, trace, "the agent's container could not be started")
                 : ValidatePullRequestRunner.Finish(task, trace, TaskResult.Failed, "the agent ended with an error");
         }
-        trace.Add(RunEvents.TaskStep, task.Id, "agent: " + Summary(run.OutputTail));
+        trace.Add(RunEvents.TaskStep, task.Id, $"agent: done in {final?.Turns ?? "?"} turns{(final is { IsError: true } ? ", with an error" : string.Empty)}\n{final?.Text}");
 
         var git = _workspace.GitEnvironment();
         var gitTimeout = _workspace.StepTimeout();
@@ -145,28 +168,12 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
             "--model", repair.Model,
             "--permission-mode", "acceptEdits",
             "--max-turns", repair.MaxTurns.ToString(CultureInfo.InvariantCulture),
-            "--output-format", "json",
+            "--output-format", "stream-json", "--verbose",
             "--allowedTools", "Read", "Edit", "Glob", "Grep",
         ];
         // The agent may run the steps of the profile, exactly as they are written, and nothing else
         arguments.AddRange(profile.Steps.Select(step => $"Bash({step.Command})"));
         return arguments;
-    }
-
-    private static string Summary(string json)
-    {
-        try
-        {
-            using var document = JsonDocument.Parse(json);
-            var root = document.RootElement;
-            var turns = root.TryGetProperty("num_turns", out var turnCount) ? turnCount.ToString() : "?";
-            var result = root.TryGetProperty("result", out var text) ? text.GetString() ?? string.Empty : string.Empty;
-            return $"{turns} turns\n{result}";
-        }
-        catch (JsonException)
-        {
-            return Tail(json);
-        }
     }
 
     private static string Tail(string text) => text.Length > 1500 ? text[^1500..] : text;

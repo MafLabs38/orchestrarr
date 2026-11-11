@@ -63,9 +63,50 @@ public sealed class RepairPullRequestRunnerTests : IDisposable
 
     private void AgentChanges(string path = "src/server.js", string patch = "diff --git a/src/server.js b/src/server.js\n-app.get('*')\n+app.get('/{*splat}')")
     {
-        _processes.Script(IsAgent, new ProcessResult(0, false, """{"num_turns":6,"result":"I changed the catch-all route."}"""));
+        _processes.Script(IsAgent, new ProcessResult(0, false, string.Join('\n', AgentStream(path))));
         _processes.Script(IsNames, new ProcessResult(0, false, path + "\n"));
         _processes.Script(IsPatch, new ProcessResult(0, false, patch));
+    }
+
+    // What Claude Code writes as it works: a line per message, then the result
+    private static string[] AgentStream(string path) =>
+    [
+        """{"type":"system","subtype":"init","session_id":"s1","model":"sonnet"}""",
+        """{"type":"assistant","message":{"content":[{"type":"text","text":"The route uses a bare star."},{"type":"tool_use","name":"Read","input":{"file_path":"/work/src/server.js"}}]}}""",
+        """{"type":"user","message":{"content":[{"type":"tool_result","content":"app.get('*', handler)","is_error":false}]}}""",
+        """{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/work/PATH","old_string":"app.get('*')","new_string":"app.get('/{*splat}')"}},{"type":"tool_use","name":"Bash","input":{"command":"npm test"}}]}}""".Replace("PATH", path, StringComparison.Ordinal),
+        """{"type":"result","subtype":"success","is_error":false,"num_turns":6,"result":"I changed the catch-all route."}""",
+    ];
+
+    [Fact]
+    public async Task What_the_agent_says_reads_edits_and_runs_is_written_in_the_trace_as_it_happens()
+    {
+        FailsThenPasses();
+        AgentChanges();
+
+        var (_, trace) = await Run();
+
+        var work = trace.Events.Where(line => line.Type == RunEvents.TaskAgent).Select(line => line.Detail!).ToList();
+        work.Should().Contain("says: The route uses a bare star.").And.Contain("reads src/server.js").And.Contain("got: app.get('*', handler)").And.Contain("runs npm test");
+        work.Should().Contain(line => line.StartsWith("edits src/server.js\n- app.get('*')\n+ app.get('/{*splat}')", StringComparison.Ordinal));
+        trace.Events.Single(line => line.Detail!.StartsWith("agent: done in 6 turns", StringComparison.Ordinal)).Detail.Should().Contain("I changed the catch-all route.");
+        trace.Events.Select(line => line.Type).Should().ContainInOrder(RunEvents.TaskAgent, RunEvents.TaskStep);
+    }
+
+    [Fact]
+    public async Task The_work_of_an_agent_that_does_a_lot_is_cut_to_the_limit_with_a_line_that_says_how_much_was_left_out()
+    {
+        FailsThenPasses();
+        var chatty = Enumerable.Range(0, 200).Select(index => """{"type":"assistant","message":{"content":[{"type":"text","text":"step N"}]}}""".Replace("N", index.ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal));
+        _processes.Script(IsAgent, new ProcessResult(0, false, string.Join('\n', chatty) + "\n" + """{"type":"result","is_error":false,"num_turns":3,"result":"done"}"""));
+        _processes.Script(IsNames, new ProcessResult(0, false, "src/app.js\n"));
+        _processes.Script(IsPatch, new ProcessResult(0, false, "diff"));
+
+        var (_, trace) = await Run();
+
+        var work = trace.Events.Where(line => line.Type == RunEvents.TaskAgent).ToList();
+        work.Should().HaveCount(151);
+        work[^1].Detail.Should().Be("50 more line(s) of the agent's work are not shown");
     }
 
     [Fact]
@@ -128,7 +169,7 @@ public sealed class RepairPullRequestRunnerTests : IDisposable
     public async Task An_agent_that_changes_nothing_has_failed()
     {
         FailsThenPasses();
-        _processes.Script(IsAgent, new ProcessResult(0, false, """{"num_turns":2,"result":"I could not find the problem."}"""));
+        _processes.Script(IsAgent, new ProcessResult(0, false, """{"type":"result","subtype":"success","is_error":false,"num_turns":2,"result":"I could not find the problem."}"""));
         _processes.Script(IsNames, new ProcessResult(0, false, string.Empty));
 
         var (outcome, _) = await Run();

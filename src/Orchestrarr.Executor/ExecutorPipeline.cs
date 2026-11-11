@@ -35,17 +35,30 @@ public sealed class RunTrace
     private readonly TimeProvider _time;
     private readonly ExecutorStore _store;
     private readonly List<RunEvent> _events = [];
+    private readonly Lock _gate = new();
+    private readonly Action<RunEvent>? _onAdded;
     private string _previous;
 
-    internal RunTrace(Guid batchId, string digest, TimeProvider time, ExecutorStore store)
+    internal RunTrace(Guid batchId, string digest, TimeProvider time, ExecutorStore store, Action<RunEvent>? onAdded = null)
     {
         _batchId = batchId;
         _previous = digest;
         _time = time;
         _store = store;
+        _onAdded = onAdded;
     }
 
-    public IReadOnlyList<RunEvent> Events => _events;
+    /// <summary>The lines so far. A copy: the lines of an agent arrive from another thread while the run goes on.</summary>
+    public IReadOnlyList<RunEvent> Events
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _events];
+            }
+        }
+    }
 
     // The end of a long line is what matters (the last lines of an output): the start is dropped, and the cut is visible
     private static string? Cut(string? detail) =>
@@ -53,10 +66,16 @@ public sealed class RunTrace
 
     public void Add(string type, Guid? taskId = null, string? detail = null)
     {
-        var line = RunEvent.Create(_previous, _events.Count + 1L, _time.GetUtcNow(), type, taskId, Cut(detail));
-        _store.AppendTrace(_runId, _batchId, line);
-        _events.Add(line);
-        _previous = line.Hash;
+        RunEvent line;
+        lock (_gate)
+        {
+            line = RunEvent.Create(_previous, _events.Count + 1L, _time.GetUtcNow(), type, taskId, Cut(detail));
+            _store.AppendTrace(_runId, _batchId, line);
+            _events.Add(line);
+            _previous = line.Hash;
+        }
+        // Told outside the lock: whoever listens may take its time (it sends the line to the control plane)
+        _onAdded?.Invoke(line);
     }
 }
 
@@ -94,12 +113,12 @@ public sealed class ExecutorPipeline(
     }
 
     // isStopped is read before the batch is accepted and again before each task: a stop engaged during a run ends it before the next task
-    public async Task<PipelineResult> RunAsync(BatchDelivery delivery, Func<bool> isStopped, CancellationToken cancellationToken)
+    public async Task<PipelineResult> RunAsync(BatchDelivery delivery, Func<bool> isStopped, CancellationToken cancellationToken, Action<RunEvent>? onEvent = null)
     {
         ArgumentNullException.ThrowIfNull(delivery);
         ArgumentNullException.ThrowIfNull(isStopped);
         var batch = delivery.Batch;
-        var trace = new RunTrace(batch.Id, batch.Digest(), time, store);
+        var trace = new RunTrace(batch.Id, batch.Digest(), time, store, onEvent);
         trace.Add(RunEvents.Claimed, null, $"executor {executorName}, {batch.Tasks.Count} tasks");
 
         var refusal = await FirstRefusalAsync(delivery, isStopped(), trace, cancellationToken);

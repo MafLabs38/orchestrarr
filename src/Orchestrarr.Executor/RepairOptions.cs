@@ -20,6 +20,9 @@ public sealed record RepairOptions
 
     public int TimeoutMinutes { get; init; } = 15;
 
+    /// <summary>The most lines of the agent's work kept in the trace (what it said, read, edited, ran). Past it, one line says how many were left out.</summary>
+    public int MaxTraceLines { get; init; } = 150;
+
     public double Cpus { get; init; } = 2;
 
     public int MemoryMegabytes { get; init; } = 2048;

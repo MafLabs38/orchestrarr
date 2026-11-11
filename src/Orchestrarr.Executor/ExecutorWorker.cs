@@ -67,10 +67,23 @@ public sealed class ExecutorWorker(IControlPlane controlPlane, ExecutorPipeline 
         }
 
         var delivery = claim.Delivery;
-        var result = await pipeline.RunAsync(delivery, options.IsLocallyStopped, cancellationToken);
+        // The lines go to the control plane while the run goes on, so that a person sees what happens as it happens
+        var live = new LiveSender(controlPlane, delivery.Batch.Id, logger);
+        using var running = new CancellationTokenSource();
+        var flushing = live.RunAsync(TimeSpan.FromMilliseconds(Math.Max(10, options.LiveSendMilliseconds)), running.Token);
+        PipelineResult result;
+        try
+        {
+            result = await pipeline.RunAsync(delivery, options.IsLocallyStopped, cancellationToken, live.Add);
+        }
+        finally
+        {
+            await running.CancelAsync();
+            await flushing;
+        }
         logger.LogInformation("Batch {Batch} ended {State}", delivery.Batch.Id, result.Outcome.Final);
         // The batch is registered as seen: it cannot be run again, so what became of it is kept until the control plane has been told
-        _unreported = new Unreported(delivery.Batch.Id, result);
+        _unreported = new Unreported(delivery.Batch.Id, result) { Sent = live.Sent };
         await ReportAsync(_unreported, cancellationToken);
         _unreported = null;
         return true;
@@ -96,6 +109,75 @@ public sealed class ExecutorWorker(IControlPlane controlPlane, ExecutorPipeline 
         if (completed != QueueResult.Ok)
         {
             logger.LogError("The control plane did not accept the end of {Batch}: {Result}", report.BatchId, completed);
+        }
+    }
+
+    /// <summary>
+    /// Sends the lines of a run as they are written: every interval, what is waiting goes in one request, in order. A request that does not
+    /// succeed ends the live sending for this run (the rest is sent when the run ends, as before), so that a line is never sent twice or out of order.
+    /// </summary>
+    private sealed class LiveSender(IControlPlane controlPlane, Guid batchId, ILogger logger)
+    {
+        private readonly Lock _gate = new();
+        private readonly List<RunEvent> _waiting = [];
+        private bool _failed;
+
+        public int Sent { get; private set; }
+
+        public void Add(RunEvent line)
+        {
+            lock (_gate)
+            {
+                _waiting.Add(line);
+            }
+        }
+
+        public async Task RunAsync(TimeSpan interval, CancellationToken stop)
+        {
+            try
+            {
+                while (!_failed)
+                {
+                    await Task.Delay(interval, stop);
+                    await FlushAsync(CancellationToken.None);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // The run ended: what is still waiting is sent with the end of the run
+            }
+        }
+
+        private async Task FlushAsync(CancellationToken cancellationToken)
+        {
+            List<RunEvent> chunk;
+            lock (_gate)
+            {
+                chunk = [.. _waiting.Take(EventsPerRequest)];
+            }
+            if (chunk.Count == 0)
+            {
+                return;
+            }
+            try
+            {
+                if (await controlPlane.AppendEventsAsync(batchId, chunk, cancellationToken) != QueueResult.Ok)
+                {
+                    _failed = true;
+                    return;
+                }
+            }
+            catch (HttpRequestException failure)
+            {
+                logger.LogWarning(failure, "A line of the trace could not be sent while the run goes on; the rest is sent at its end");
+                _failed = true;
+                return;
+            }
+            lock (_gate)
+            {
+                _waiting.RemoveRange(0, chunk.Count);
+            }
+            Sent += chunk.Count;
         }
     }
 

@@ -73,6 +73,9 @@ public sealed record ExecutorOptions
 
     public int PollSeconds { get; init; } = 3;
 
+    /// <summary>How often the lines of a run that goes on are sent to the control plane, in milliseconds.</summary>
+    public int LiveSendMilliseconds { get; init; } = 1000;
+
     /// <summary>The name shown in the authenticator app next to the account.</summary>
     public string Issuer { get; init; } = "Orchestrarr";
 }

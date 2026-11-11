@@ -188,6 +188,7 @@ public static class RunEvents
     public const string TaskStep = "task.step";
     public const string TaskPassed = "task.passed";
     public const string TaskPatch = "task.patch";
+    public const string TaskAgent = "task.agent";
     public const string TaskFailed = "task.failed";
     public const string TaskRefused = "task.refused";
     public const string TaskSkipped = "task.skipped";

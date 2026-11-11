@@ -17,7 +17,8 @@ public interface IProcessRunner
         IReadOnlyDictionary<string, string> environment,
         TimeSpan timeout,
         int maxOutputCharacters,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        Action<string>? onLine = null);
 }
 
 public sealed partial class SystemProcessRunner : IProcessRunner
@@ -32,7 +33,8 @@ public sealed partial class SystemProcessRunner : IProcessRunner
         IReadOnlyDictionary<string, string> environment,
         TimeSpan timeout,
         int maxOutputCharacters,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action<string>? onLine = null)
     {
         ArgumentNullException.ThrowIfNull(arguments);
         ArgumentNullException.ThrowIfNull(environment);
@@ -55,7 +57,15 @@ public sealed partial class SystemProcessRunner : IProcessRunner
 
         using var process = new Process { StartInfo = start };
         var tail = new TailBuffer(maxOutputCharacters);
-        process.OutputDataReceived += (_, data) => tail.Add(data.Data);
+        process.OutputDataReceived += (_, data) =>
+        {
+            tail.Add(data.Data);
+            if (data.Data is not null)
+            {
+                // A line of standard output as it arrives: what an agent says is shown while it works
+                onLine?.Invoke(data.Data);
+            }
+        };
         process.ErrorDataReceived += (_, data) => tail.Add(data.Data);
         try
         {
