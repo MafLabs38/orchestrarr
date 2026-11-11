@@ -71,6 +71,8 @@ Run the **`review-vertical`** skill: the five review agents run in parallel on t
 
 ### Looking at it in a browser, yourself
 
+This is **my own feedback loop**, used freely while building, not a gate at the end: a headless Chromium of the machine, with no tunnel and nothing asked of the maintainer. The maintainer's browser (the shared one) is for looking at something together, when they choose to open it. Once it is validated, the hand-over does not change: the address in the chat, and they look on their side.
+
 Unit tests do not see what a person sees. Before a vertical goes to the maintainer, run it in the sandbox and **drive it in a real browser, the whole path of the vertical**: sign in, read the screen, click what a person clicks (a sort, a bubble, the bell, selecting a row and validating it), follow what happens next (a run that fills while the page stays open), and read the console. A first pass of this found, within minutes, a live channel that stayed closed after the sign-in, a text that named a column that no longer existed and a name cut too short; none of them had a failing test.
 
 - **Playwright, headless Chromium, one browser and one page at a time** (a shared, small machine: check `uptime` and `free -m` first). Use any Playwright install of the machine from a script kept **outside the repository** (a scratch folder on disk, not `/tmp`): the script carries the address and the accounts of the sandbox, which are never committed.
