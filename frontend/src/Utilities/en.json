@@ -128,7 +128,7 @@
   "BatchExpired": "Expired",
   "ApprovalStateWaiting": "Waiting for the executor",
   "ApprovalStateTaken": "With the executor",
-  "ApprovalStateDryRunDone": "Run ended: see the run",
+  "ApprovalStateEnded": "Run ended: see the run",
   "ApprovalStateRefused": "Refused by the executor",
   "ApprovalStateExpired": "Expired: approve again",
   "RefusalStopped": "the global stop was engaged",

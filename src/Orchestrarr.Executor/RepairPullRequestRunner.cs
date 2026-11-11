@@ -28,9 +28,11 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
 
     private static readonly string[] InstructionFolders = [".claude"];
 
+    // Made from the two lists above, so that what is removed and what is left out of the patch cannot drift apart
     internal static readonly string[] PatchExcludes =
     [
-        ":(exclude,glob)**/CLAUDE.md", ":(exclude,glob)**/CLAUDE.local.md", ":(exclude,glob)**/.mcp.json", ":(exclude,glob)**/.claude/**",
+        .. InstructionFiles.Select(name => $":(exclude,glob)**/{name}"),
+        .. InstructionFolders.Select(name => $":(exclude,glob)**/{name}/**"),
     ];
 
     // The agent does not write where the container keeps its own state or the system's files: the work folder is the only place it edits
@@ -195,7 +197,7 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
     // What the agent changed, as a patch: refused (an outcome) when there is none, when it touches a protected file, when it cannot be made or when it holds a secret
     private async Task<(TaskOutcome? Refused, WrittenPatch? Patch, int Files)> CollectPatchAsync(TaskSpec task, RunTrace trace, RunFolders folders, string[] excludes, CancellationToken cancellationToken)
     {
-        var (paths, error) = await StagedPathsAsync(folders, excludes, cancellationToken);
+        var (paths, error) = await StageAndListAsync(folders, excludes, cancellationToken);
         if (error is not null)
         {
             // A git that failed, or a list too large to read, is not "no change": it is said
@@ -231,8 +233,8 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
         return (null, patch, paths.Count);
     }
 
-    // The files the agent changed, as git sees them (a rename counts as the deletion of the old path and the creation of the new one)
-    private async Task<(IReadOnlyList<string> Paths, string? Error)> StagedPathsAsync(RunFolders folders, string[] excludes, CancellationToken cancellationToken)
+    // Stages what the agent changed and lists it, as git sees it (a rename counts as the deletion of the old path and the creation of the new one)
+    private async Task<(IReadOnlyList<string> Paths, string? Error)> StageAndListAsync(RunFolders folders, string[] excludes, CancellationToken cancellationToken)
     {
         var add = await _workspace.GitAsync(folders, folders.Work, ["add", "-A", "--", ".", .. excludes], network: false, PullRequestWorkspace.GitOutputCharacters, cancellationToken);
         // Separated by NUL (git quotes a path with a quote or a control character otherwise, and a quoted path would not match a protected pattern). Written to a file by git and read in full: a long list read from the end of an output would lose its start, where the protected paths sort first

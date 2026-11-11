@@ -40,7 +40,7 @@ describe('Queue', () => {
   });
 
   it('says where each approval is, with the word and not only a colour', async () => {
-    const states = ['waiting', 'taken', 'dryRunDone', 'refused', 'expired'] as const;
+    const states = ['waiting', 'taken', 'ended', 'refused', 'expired'] as const;
     stubApi({
       [approvalsPath]: states.map((state, index) => ({ ...approval, id: `a${index}`, pullRequest: index + 1, state })),
       [statusPath]: status(),

@@ -20,7 +20,7 @@ const stateKinds: Record<ApprovalState, Kind> = {
   waiting: kinds.INFO,
   taken: kinds.WARNING,
   // The run ended: whether it passed or failed is in the run (a failed run must not look like a success here)
-  dryRunDone: kinds.DEFAULT,
+  ended: kinds.DEFAULT,
   refused: kinds.DANGER,
   expired: kinds.DEFAULT,
 };

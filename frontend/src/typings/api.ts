@@ -91,7 +91,7 @@ export interface Role {
 }
 
 // Where an approval is in its life: a dry run spends it, so a real run needs a new approval.
-export type ApprovalState = 'waiting' | 'taken' | 'dryRunDone' | 'refused' | 'expired';
+export type ApprovalState = 'waiting' | 'taken' | 'ended' | 'refused' | 'expired';
 
 // A decision of the operator, recorded: these steps on this pull request at this commit. It makes a batch of tasks that the executor takes.
 export interface Approval {

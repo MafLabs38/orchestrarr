@@ -234,7 +234,7 @@ public sealed class ExecutorApiTests : IDisposable
         var run = await Json(await person.GetAsync($"/api/v1/runs/{batch.Id}", Ct));
         run.GetProperty("summary").GetProperty("state").GetString().Should().Be("done");
         run.GetProperty("events").GetArrayLength().Should().Be(1);
-        (await Json(await person.GetAsync("/api/v1/approvals", Ct))).EnumerateArray().Should().OnlyContain(a => a.GetProperty("state").GetString() == "dryRunDone");
+        (await Json(await person.GetAsync("/api/v1/approvals", Ct))).EnumerateArray().Should().OnlyContain(a => a.GetProperty("state").GetString() == "ended");
         (await Approve(person)).StatusCode.Should().Be(HttpStatusCode.Created, "a dry run spends the approval: it may be given again");
     }
 

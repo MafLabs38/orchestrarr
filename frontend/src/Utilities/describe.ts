@@ -120,7 +120,7 @@ export function describeChecks(state: ChecksState): string {
 const approvalStates = {
   waiting: 'ApprovalStateWaiting',
   taken: 'ApprovalStateTaken',
-  dryRunDone: 'ApprovalStateDryRunDone',
+  ended: 'ApprovalStateEnded',
   refused: 'ApprovalStateRefused',
   expired: 'ApprovalStateExpired',
 } as const satisfies Record<ApprovalState, string>;
