@@ -155,6 +155,20 @@ public sealed class InMemoryBatchQueueTests
     }
 
     [Fact]
+    public async Task Lines_that_are_sent_again_after_a_lost_answer_are_skipped_and_the_rest_is_taken()
+    {
+        var batch = await Queue();
+        await _queue.ClaimAsync("executor-1", Ct);
+        var lines = Chain(batch, RunEvents.Claimed, RunEvents.SecondFactorChecked, RunEvents.RunCompleted);
+        (await _queue.AppendEventsAsync(batch.Id, "executor-1", lines[..2], Ct)).Should().Be(QueueResult.Ok);
+
+        (await _queue.AppendEventsAsync(batch.Id, "executor-1", lines, Ct)).Should().Be(QueueResult.Ok, "the first two are held, the third is new");
+
+        _queue.Find(batch.Id)!.Events.Select(line => line.Sequence).Should().Equal(1, 2, 3);
+        (await _queue.AppendEventsAsync(batch.Id, "executor-1", [lines[0] with { Detail = "changed" }], Ct)).Should().Be(QueueResult.Invalid, "a held line that differs is refused");
+    }
+
+    [Fact]
     public async Task A_run_that_keeps_sending_lines_is_not_expired_however_long_it_lasts()
     {
         var batch = await Queue();

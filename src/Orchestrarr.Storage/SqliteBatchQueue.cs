@@ -233,6 +233,11 @@ public sealed class SqliteBatchQueue(SqliteDatabase database, IKillSwitch killSw
         }
         var (count, lastSequence, lastHash) = LastEvent(connection, batchId);
         var previous = lastHash ?? state.Value.Digest;
+        if (RunEvent.NotYetHeld(events, lastSequence, sequence => HeldHash(connection, batchId, sequence)) is not { } fresh)
+        {
+            return (false, QueueResult.Invalid);
+        }
+        events = fresh;
         if (count + events.Count > options.MaxEventsPerRun
             || events.Any(line => (line.Detail?.Length ?? 0) > options.MaxEventDetail || line.Type.Length > 64)
             || !RunEvent.Continues(previous, lastSequence, events))
@@ -409,6 +414,15 @@ public sealed class SqliteBatchQueue(SqliteDatabase database, IKillSwitch killSw
         }
         string? executor = reader.IsDBNull(1) ? null : reader.GetString(1);
         return (Enum.Parse<BatchState>(reader.GetString(0)), executor, reader.GetString(2));
+    }
+
+    private static string? HeldHash(SqliteConnection connection, Guid batchId, long sequence)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT hash FROM run_events WHERE batch_id = $batch AND sequence = $sequence;";
+        command.Parameters.AddWithValue("$batch", batchId.ToString("D"));
+        command.Parameters.AddWithValue("$sequence", sequence);
+        return command.ExecuteScalar() as string;
     }
 
     private static (int Count, long LastSequence, string? LastHash) LastEvent(SqliteConnection connection, Guid batchId)

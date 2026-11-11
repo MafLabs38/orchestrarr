@@ -180,7 +180,7 @@ public sealed class ExecutorWorker(IControlPlane controlPlane, ExecutorPipeline 
 
     /// <summary>
     /// Sends the lines of a run as they are written: every interval, what is waiting goes in one request, in order. A request that does not
-    /// succeed ends the live sending for this run (the rest is sent when the run ends, as before), so that a line is never sent twice or out of order.
+    /// succeed ends the live sending for this run (the rest is sent when the run ends, as before), so that a line is not sent out of order; a line whose answer was lost may be sent again at the end, and the control plane skips what it already holds.
     /// </summary>
     private sealed class LiveSender(IControlPlane controlPlane, Guid batchId, ILogger logger)
     {

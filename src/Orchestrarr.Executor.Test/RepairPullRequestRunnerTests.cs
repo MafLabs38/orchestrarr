@@ -147,7 +147,8 @@ public sealed class RepairPullRequestRunnerTests : IDisposable
         var allowed = arguments.SkipWhile(argument => argument != "--allowedTools").Skip(1).TakeWhile(argument => !argument.StartsWith("--", StringComparison.Ordinal)).ToList();
         allowed.Should().Equal("Read", "Edit", "Glob", "Grep");
         var denied = arguments.SkipWhile(argument => argument != "--disallowedTools").Skip(1).TakeWhile(argument => !argument.StartsWith("--", StringComparison.Ordinal)).ToList();
-        denied.Should().Contain(["Bash", "WebFetch", "WebSearch", "Read(//proc/**)", "Read(//sys/**)", "Read(//etc/**)", "Read(//tmp/**)", "Read(//root/**)"]);
+        denied.Should().Contain(["Bash", "WebFetch", "WebSearch", "Read(//proc/**)", "Read(//dev/**)", "Read(//sys/**)", "Read(//etc/**)", "Read(//tmp/**)", "Read(//root/**)"]);
+        agent.After("--tools").Should().Be("Read,Edit,Glob,Grep", "the built-in tools that exist at all");
         arguments.Should().NotContain("--dangerously-skip-permissions").And.NotContain(argument => argument.StartsWith("Bash(", StringComparison.Ordinal));
         agent.After("--permission-mode").Should().Be("acceptEdits");
         agent.After("--setting-sources").Should().Be("user");

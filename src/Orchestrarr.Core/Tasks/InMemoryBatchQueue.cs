@@ -112,6 +112,12 @@ public sealed class InMemoryBatchQueue(InMemoryApprovalStore approvals, IAuditSi
             }
             var previous = entry.Events.Count == 0 ? entry.Batch.Digest() : entry.Events[^1].Hash;
             var last = entry.Events.Count == 0 ? 0 : entry.Events[^1].Sequence;
+            var held = entry.Events;
+            if (RunEvent.NotYetHeld(events, last, sequence => held.Find(line => line.Sequence == sequence)?.Hash) is not { } fresh)
+            {
+                return ValueTask.FromResult(QueueResult.Invalid);
+            }
+            events = fresh;
             if (entry.Events.Count + events.Count > options.MaxEventsPerRun
                 || events.Any(line => (line.Detail?.Length ?? 0) > options.MaxEventDetail || line.Type.Length > 64)
                 || !RunEvent.Continues(previous, last, events))

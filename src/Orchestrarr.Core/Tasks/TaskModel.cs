@@ -180,6 +180,29 @@ public sealed record RunEvent(long Sequence, DateTimeOffset At, string Type, Gui
         return Convert.ToHexString(SHA256.HashData(writer.ToArray())).ToLowerInvariant();
     }
 
+    /// <summary>
+    /// The lines of a send that the queue does not hold yet. A send whose answer was lost is sent again by the executor: the lines the queue already holds
+    /// (same sequence, same hash) are skipped and the rest is taken; null when a line it holds differs from the one sent.
+    /// </summary>
+    public static List<RunEvent>? NotYetHeld(IReadOnlyList<RunEvent> events, long lastSequence, Func<long, string?> heldHash)
+    {
+        ArgumentNullException.ThrowIfNull(events);
+        ArgumentNullException.ThrowIfNull(heldHash);
+        var fresh = new List<RunEvent>();
+        foreach (var line in events)
+        {
+            if (line.Sequence > lastSequence)
+            {
+                fresh.Add(line);
+            }
+            else if (heldHash(line.Sequence) != line.Hash || line.Hash != Compute(line.PreviousHash, line.Sequence, line.At, line.Type, line.TaskId, line.Detail))
+            {
+                return null;
+            }
+        }
+        return fresh;
+    }
+
     /// <summary>Whether these lines continue a chain that stood at <paramref name="previousHash"/> and <paramref name="lastSequence"/>, each intact.</summary>
     public static bool Continues(string previousHash, long lastSequence, IReadOnlyList<RunEvent> events)
     {

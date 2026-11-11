@@ -38,7 +38,7 @@ public sealed class ExecutorRegistry(TimeProvider time)
         && before.SecondFactorRequired == now.SecondFactorRequired
         && before.Kinds.SequenceEqual(now.Kinds)
         && before.Repositories.SequenceEqual(now.Repositories, StringComparer.Ordinal)
-        && before.Delegations.Count == now.Delegations.Count;
+        && before.Delegations.SequenceEqual(now.Delegations);
 
     public IReadOnlyList<ExecutorStatus> Snapshot()
     {

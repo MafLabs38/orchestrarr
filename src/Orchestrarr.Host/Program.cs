@@ -107,7 +107,7 @@ api.MapGet("/work-items/{**id}", async (WorkItemCatalog catalog, string id, Canc
 
 api.MapApprovalEndpoints();
 // The WebSocket of the screens: for whoever may read the fleet
-app.MapHub<LiveHub>(LiveHub.Path).RequireAuthorization(Permissions.FleetRead);
+app.MapHub<LiveHub>(LiveHub.Path, options => options.CloseOnAuthenticationExpiration = true).RequireAuthorization(Permissions.FleetRead);
 api.MapProblemsEndpoints();
 api.MapRunEndpoints();
 // The routes of the executors carry their own token and no session: they are mapped outside the group that needs a person

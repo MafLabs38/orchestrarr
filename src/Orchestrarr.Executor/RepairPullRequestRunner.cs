@@ -318,6 +318,8 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
             "--setting-sources", "user",
             "--strict-mcp-config",
             // Read and edit the code, nothing else: no shell (the executor runs the steps), no network tool, no reading of the container
+            // The built-in tools that exist at all are these four (an allow-list that a new version of the tool cannot widen), approved without a prompt, and the rest named below is denied twice
+            "--tools", "Read,Edit,Glob,Grep",
             "--allowedTools", "Read", "Edit", "Glob", "Grep",
             "--disallowedTools", "Bash", "WebFetch", "WebSearch", .. ForbiddenReads,
         ]);
