@@ -88,6 +88,31 @@ public sealed class RepairPullRequestRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task A_repository_or_a_link_that_the_agent_made_deep_in_the_tree_is_gone_before_the_host_git_reads_the_tree()
+    {
+        FailsThenPasses();
+        AgentChanges();
+        _processes.Script(IsAgent, new ProcessResult(0, false, string.Join('\n', AgentStream("src/server.js"))), call =>
+        {
+            var work = call.MountedWork!;
+            Directory.CreateDirectory(Path.Combine(work, "sub", ".git"));
+            File.WriteAllText(Path.Combine(work, "sub", ".git", "config"), "[core]\n\tfsmonitor = x");
+            File.CreateSymbolicLink(Path.Combine(work, "sub", "env"), "/proc/self/environ");
+        });
+        var seen = new List<string>();
+        _processes.Script(IsNames, new ProcessResult(0, false, string.Empty), call =>
+        {
+            var work = call.After("--work-tree")!;
+            seen.AddRange(Directory.EnumerateFileSystemEntries(work, "*", SearchOption.AllDirectories).Select(path => Path.GetRelativePath(work, path)));
+            File.WriteAllText(call.After("--output")!, "src/server.js\0");
+        });
+
+        await Run();
+
+        seen.Should().NotBeEmpty().And.NotContain(["sub/.git", "sub/.git/config", "sub/env"]);
+    }
+
+    [Fact]
     public async Task A_pull_request_that_already_passes_has_nothing_to_repair_and_no_agent_is_started()
     {
         var (outcome, _) = await Run();

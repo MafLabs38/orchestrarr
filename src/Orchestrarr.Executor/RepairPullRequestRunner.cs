@@ -153,6 +153,8 @@ public sealed class RepairPullRequestRunner(ValidationOptions validation, Repair
 
         // The host reads the work tree only after the agent: a .git that the container made is not trusted, and git is given its own directory
         PullRequestWorkspace.RemoveGitEntry(folders.Work);
+        // The same walk as before the agent: a .git at any depth, a link or an instruction file that the agent made is gone before git reads the tree
+        removed.AddRange(RemoveInstructions(folders.Work));
         var excludes = PatchExcludes.Concat(removed.Select(path => ":(exclude,literal)" + path)).ToArray();
         var (paths, error) = await StagedPathsAsync(folders, excludes, cancellationToken);
         if (error is not null)
