@@ -23,6 +23,8 @@ public static class LiveTopics
     public const string Audit = "audit";
     public const string Status = "status";
     public const string Problems = "problems";
+    public const string Accounts = "accounts";
+    public const string Options = "options";
 }
 
 public interface ILiveNotifier

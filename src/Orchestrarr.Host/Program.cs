@@ -94,6 +94,11 @@ app.Use(async (context, next) =>
         {
             live.Publish(topic);
         }
+        // The screens of the accounts and of the options follow the changes made there, by anybody
+        foreach (var topic in new[] { LiveTopics.Accounts, LiveTopics.Options }.Where(topic => path.StartsWithSegments($"/api/v1/{topic}")))
+        {
+            live.Publish(topic);
+        }
     }
 });
 app.Services.GetRequiredService<WorkItemCatalog>().Changed += () => live.Publish(LiveTopics.Problems);

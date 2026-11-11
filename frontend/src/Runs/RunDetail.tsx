@@ -1,3 +1,4 @@
+import classNames from 'classnames';
 import { Link, useParams } from 'react-router-dom';
 
 import Alert from 'Components/Alert';
@@ -33,13 +34,45 @@ function TaskItem({ task }: Readonly<{ task: RunTask }>) {
   );
 }
 
+// The detail of a line. A patch, and the change an agent makes to a file, are shown as a diff: what is removed in red, what is added in green.
+function EventDetail({ event }: Readonly<{ event: RunEvent }>) {
+  const detail = event.detail ?? '';
+  const isDiff = event.type === 'task.patch' || (event.type === 'task.agent' && detail.startsWith('edits '));
+  if (!isDiff) {
+    return <>{detail}</>;
+  }
+  return (
+    <>
+      {detail.split('\n').map((line, index) => (
+        // The lines of a text have no identity of their own: their place is their key
+        <span key={`${index}:${line}`} className={diffClass(line)}>
+          {line}
+          {'\n'}
+        </span>
+      ))}
+    </>
+  );
+}
+
+function diffClass(line: string): string | undefined {
+  if (line.startsWith('+') && !line.startsWith('+++')) {
+    return styles.added;
+  }
+  if (line.startsWith('-') && !line.startsWith('---')) {
+    return styles.removed;
+  }
+  return line.startsWith('@@') ? styles.hunk : undefined;
+}
+
 // A line of the trace: when, what the executor was doing, and what it found. The short hash is the link of the chain.
 function EventItem({ event }: Readonly<{ event: RunEvent }>) {
   return (
-    <li className={styles.event}>
+    <li className={classNames(styles.event, event.type === 'task.agent' && styles.agentEvent)}>
       <span className={styles.mono}>{formatTime(event.at)}</span>
       <span className={styles.eventType}>{describeRunEvent(event.type)}</span>
-      <span className={styles.eventDetail}>{event.detail}</span>
+      <span className={styles.eventDetail}>
+        <EventDetail event={event} />
+      </span>
       <span className={styles.hash} title={event.hash}>
         {event.hash.slice(0, 8)}
       </span>

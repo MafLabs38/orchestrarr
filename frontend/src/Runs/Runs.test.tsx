@@ -189,6 +189,35 @@ describe('RunDetail', () => {
     expect(screen.getByText(/1 failing/)).toHaveTextContent('npm test: failed, exit 1, 2 s 1 failing expected 200');
   });
 
+  it('shows what an agent does set apart, and a patch as a diff with what is removed and what is added', async () => {
+    const types = ['task.agent', 'task.agent', 'task.patch'];
+    const details = [
+      'says: The route uses a bare star.',
+      "edits server.js\n- app.get('*')\n+ app.get('/{*splat}')",
+      'patch 1/1 (1 file(s))\n@@ -64,7 +64,7 @@\n-old line\n+new line',
+    ];
+    stubApi({
+      '/api/v1/runs/': {
+        ...detail,
+        events: detail.events.map((event, index) => ({
+          ...event,
+          type: types[index] ?? event.type,
+          detail: details[index] ?? event.detail,
+        })),
+      },
+    });
+
+    renderAt();
+
+    expect(await screen.findByText(/The route uses a bare star/)).toBeInTheDocument();
+    expect(screen.getAllByText('Agent')).toHaveLength(2);
+    expect(screen.getByText(/app\.get\('\*'\)/)).toHaveClass('removed');
+    expect(screen.getByText(/app\.get\('\/\{\*splat\}'\)/)).toHaveClass('added');
+    expect(screen.getByText('-old line')).toHaveClass('removed');
+    expect(screen.getByText('+new line')).toHaveClass('added');
+    expect(screen.getByText('Patch (nothing was pushed)')).toBeInTheDocument();
+  });
+
   it('says who approved it and which executor took it', async () => {
     stubApi({ '/api/v1/runs/': detail });
 

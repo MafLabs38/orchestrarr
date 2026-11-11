@@ -24,6 +24,7 @@
       "Decisions/*": ["./src/Decisions/*"],
       "Helpers/*": ["./src/Helpers/*"],
       "Options/*": ["./src/Options/*"],
+      "Live/*": ["./src/Live/*"],
       "Runs/*": ["./src/Runs/*"],
       "System/*": ["./src/System/*"],
       "Utilities/*": ["./src/Utilities/*"],

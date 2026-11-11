@@ -19,6 +19,7 @@ export default defineConfig({
       Helpers: src('Helpers'),
       Options: src('Options'),
       System: src('System'),
+      Live: src('Live'),
       Runs: src('Runs'),
       Utilities: src('Utilities'),
       typings: src('typings'),
@@ -30,7 +31,8 @@ export default defineConfig({
     // tunnel, or the port forwarding of the editor).
     host: '127.0.0.1',
     proxy: {
-      '/api': { target: 'http://127.0.0.1:7878', changeOrigin: false },
+      // ws: the live channel of the screens is a WebSocket on /api/v1/live
+      '/api': { target: 'http://127.0.0.1:7878', changeOrigin: false, ws: true },
     },
   },
   build: {

@@ -192,6 +192,7 @@ const runEvents = {
   'task.step': 'RunEventTaskStep',
   'task.passed': 'RunEventTaskPassed',
   'task.patch': 'RunEventTaskPatch',
+  'task.agent': 'RunEventTaskAgent',
   'task.failed': 'RunEventTaskFailed',
   'task.refused': 'RunEventTaskRefused',
   'task.skipped': 'RunEventTaskSkipped',

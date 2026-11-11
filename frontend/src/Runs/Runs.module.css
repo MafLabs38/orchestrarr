@@ -61,6 +61,24 @@
   font-weight: 800;
 }
 
+.agentEvent {
+  /* What an agent does is the work of a task: set apart from the checks of the executor */
+  padding-left: 10px;
+  border-left: 3px solid var(--secondary);
+}
+
+.added {
+  color: var(--successColor);
+}
+
+.removed {
+  color: var(--dangerColor);
+}
+
+.hunk {
+  color: var(--inkMuted);
+}
+
 .eventDetail {
   overflow-wrap: anywhere;
 

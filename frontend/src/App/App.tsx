@@ -7,6 +7,7 @@ import Activity from 'Activity/Activity';
 import Queue from 'Approvals/Queue';
 import Page from 'Components/Page/Page';
 import Decisions from 'Decisions/Decisions';
+import LiveUpdates from 'Live/LiveUpdates';
 import Options from 'Options/Options';
 import RunDetail from 'Runs/RunDetail';
 import Runs from 'Runs/Runs';
@@ -17,6 +18,7 @@ import queryClient from './queryClient';
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
+      <LiveUpdates />
       <BrowserRouter>
         <Page>
           <Routes>
