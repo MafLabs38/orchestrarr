@@ -16,7 +16,7 @@ public sealed record ProblemsReport(
     DateTimeOffset? ReadAt, string SourceKind, bool Stale, SourceError? Error, string DescriptionsVersion, IReadOnlyList<ProblemRow> Rows, int Skipped = 0, CodeScopeStatus? Code = null);
 
 /// <summary>The state of the code of the scope as the table found it: how many places it reads, what could not be read, and whether it is the last good reading (ADR 0028).</summary>
-public sealed record CodeScopeStatus(bool InScope, int Repositories, int Files, DateTimeOffset? ReadAt, bool Stale, IReadOnlyList<RepositoryProblem> Problems);
+public sealed record CodeScopeStatus(bool InScope, int Repositories, int Files, DateTimeOffset? ReadAt, bool Stale, IReadOnlyList<RepositoryProblem> Problems, string? Error = null);
 
 /// <summary>A change to a file of the scope, computed and not applied: the line before and after, and the unified diff.</summary>
 public sealed record CodeChange(string Repository, string Path, int Line, string Before, string After, string Diff);
@@ -44,7 +44,7 @@ internal static class ProblemsEndpoints
             var all = FullTable(report, applications, runners, queue, time, policy, code.Index, infrastructure.Scope, await k3s.GetAsync(ct));
             var rows = Visible(all, history, approvals);
             return Results.Ok(new ProblemsReport(report.ReadAt, report.SourceKind, report.Stale, report.Error, applications.Version, rows, all.Count - rows.Count,
-                new CodeScopeStatus(code.Index.InScope, infrastructure.Scope.Repositories.Count, code.Index.FileCount, code.ReadAt, code.Stale, code.Index.Problems)));
+                new CodeScopeStatus(code.Index.InScope, infrastructure.Scope.Repositories.Count, code.Index.FileCount, code.ReadAt, code.Stale, code.Index.Problems, code.Error)));
         }).RequireAuthorization(Permissions.FleetRead);
 
         // The change that would write the proposed version where the code of the scope writes it: shown, never applied (Orchestrarr holds no write power, ADR 0028)
@@ -77,7 +77,7 @@ internal static class ProblemsEndpoints
             return Results.Ok(new CodeChangeReport(row.Id, tag, changes, left));
         }).RequireAuthorization(Permissions.FleetRead);
 
-        api.MapPost("/problems/approve", async (ApproveProblemsRequest request, HttpContext context, IApproverAccessor accessor, IProblemHistory history, IApprovalStore approvalStore, ILoggerFactory loggers, TimeProvider time, RelevancePolicy policy, WorkItemCatalog catalog, IApplicationCatalog applications, RunnerRegistry runners, IBatchQueue queue, ApprovalService service, CancellationToken ct) =>
+        api.MapPost("/problems/approve", async (ApproveProblemsRequest request, HttpContext context, IApproverAccessor accessor, IProblemHistory history, IApprovalStore approvalStore, ILoggerFactory loggers, TimeProvider time, RelevancePolicy policy, WorkItemCatalog catalog, IApplicationCatalog applications, RunnerRegistry runners, IBatchQueue queue, InfrastructureCatalog infrastructure, IK3sReleases k3s, ApprovalService service, CancellationToken ct) =>
         {
             var (approver, refusal) = ApprovalEndpoints.Authorize(accessor, context);
             if (approver is null)
@@ -86,7 +86,7 @@ internal static class ProblemsEndpoints
             }
 
             var report = await catalog.GetAsync(refresh: false, ct);
-            var table = Visible(DecisionTable.Build(report.Items, applications, Acceptance(runners), WorkshopResults(queue), report.Applications, time.GetUtcNow(), policy), history, approvalStore).ToDictionary(row => row.Id, StringComparer.Ordinal);
+            var table = VisibleTable(report, applications, runners, queue, history, approvalStore, time, policy, infrastructure, k3s).ToDictionary(row => row.Id, StringComparer.Ordinal);
             // What the operator saw is what is approved: the rule lives once, in Core
             var resolution = DecisionSelection.Resolve(table, [.. (request.Rows ?? []).Select(row => new ChosenRow(row.Id, row.HeadSha, row.GoesUpTo, row.StopBeforeProduction))], request.DescriptionsVersion, applications.Version);
             if (resolution.Refused)
@@ -135,8 +135,10 @@ internal static class ProblemsEndpoints
         return scope is { Platforms.Count: > 0 } && infrastructure is not null ? [.. rows, .. PlatformRows.Build(scope.Platforms, infrastructure, releases)] : rows;
     }
 
-    internal static IReadOnlyList<ProblemRow> VisibleTable(WorkItemReport report, IApplicationCatalog applications, RunnerRegistry runners, IBatchQueue queue, IProblemHistory history, IApprovalStore approvals, TimeProvider time, RelevancePolicy policy) =>
-        Visible(FullTable(report, applications, runners, queue, time, policy), history, approvals);
+    // The table as the operator last saw it, from what was read last: every route that checks a row against the table (skip, approve) builds it with the same inputs as the screen
+    internal static IReadOnlyList<ProblemRow> VisibleTable(WorkItemReport report, IApplicationCatalog applications, RunnerRegistry runners, IBatchQueue queue, IProblemHistory history, IApprovalStore approvals, TimeProvider time,
+        RelevancePolicy policy, InfrastructureCatalog infrastructure, IK3sReleases k3s) =>
+        Visible(FullTable(report, applications, runners, queue, time, policy, infrastructure.Peek().Index, infrastructure.Scope, k3s.Peek()), history, approvals);
 
     // What the operator approved, photographed: the live row is gone once the pull request is merged. A history that cannot be written does not undo the approval.
     private static void RecordApproved(IProblemHistory history, ILogger logger, IEnumerable<ProblemRow> table, IReadOnlyList<Approval> approvals, DateTimeOffset at, string by)

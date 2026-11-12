@@ -6,6 +6,14 @@ import translate from 'Utilities/translate';
 import styles from './CodeInfo.module.css';
 import { problemsPath } from './useProblems';
 
+// The line that was removed, the one that was added: coloured, and not by colour alone (the sign is in the text)
+function lineClass(line: string): string | undefined {
+  if (line.startsWith('-') && !line.startsWith('---')) {
+    return styles.removed;
+  }
+  return line.startsWith('+') && !line.startsWith('+++') ? styles.added : undefined;
+}
+
 function Place({ location }: Readonly<{ location: CodeLocation }>) {
   return (
     <li>
@@ -37,7 +45,13 @@ function Change({ id }: Readonly<{ id: string }>) {
       <p className={styles.note}>{translate('CodeChangeFor', { tag: data.tag ?? '' })}</p>
       {data.changes.map((change) => (
         <pre key={`${change.repository}/${change.path}:${change.line}`} className={styles.diff}>
-          {change.diff}
+          {change.diff.split('\n').map((line, index) => (
+            // The lines of a diff are in a fixed order and never reordered: the position is their identity
+            <span key={index} className={lineClass(line)}>
+              {line}
+              {'\n'}
+            </span>
+          ))}
         </pre>
       ))}
       {data.left.length > 0 ? (

@@ -152,6 +152,9 @@ function Table({ report }: Readonly<{ report: ProblemsReport }>) {
           })}
         </Alert>
       ) : null}
+      {report.code?.error ? (
+        <Alert kind={kinds.WARNING}>{translate('CodeReadFailed', { error: report.code.error })}</Alert>
+      ) : null}
       {report.code?.problems.map((problem) => (
         <Alert key={problem.repository} kind={kinds.WARNING}>
           {translate('CodeScopeProblem', { repository: problem.repository, reason: problem.reason })}

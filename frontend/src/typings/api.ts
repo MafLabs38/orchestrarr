@@ -307,6 +307,7 @@ export interface CodeScopeStatus {
   files: number;
   readAt: string | null;
   stale: boolean;
+  error: string | null;
   problems: { repository: string; reason: string }[];
 }
 

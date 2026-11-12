@@ -478,5 +478,6 @@
   "CodeNothingWritten": "Nothing is written to the repository.",
   "CodeChangeLeft": "Not changed here:",
   "CodeChangeUnavailable": "The change could not be computed.",
-  "CodeScopeProblem": "A repository of the description could not be read: {repository} ({reason})."
+  "CodeScopeProblem": "A repository of the description could not be read: {repository} ({reason}).",
+  "CodeReadFailed": "The code of the repositories of the description could not be read ({error}): what was read last is shown."
 }

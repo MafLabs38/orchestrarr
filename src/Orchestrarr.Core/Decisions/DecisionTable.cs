@@ -430,13 +430,13 @@ public static class DecisionTable
                 { } image => $"{image.Reference} → {image.Latest}",
                 _ => finding.Count.ToString(System.Globalization.CultureInfo.InvariantCulture),
             };
-            var (why, locations, proposed) = Where(item, finding, policy, infrastructure);
+            var (why, locations, proposed) = CodeOf(item, finding, policy, infrastructure);
             rows.Add(Of(item, $"finding:{item.Id}:{finding.Kind}", kind.Value, description, finding.Severity, finding.Count, Ceiling.NoAction, why, application) with { Locations = locations, ProposedTag = proposed });
         }
     }
 
     // Where the version of an image is written in the code of the scope, and what that changes about the row (ADR 0028). Without a scope, nothing is said about the code.
-    private static (CeilingReason Why, IReadOnlyList<CodeLocation>? Locations, string? ProposedTag) Where(WorkItem item, Finding finding, RelevancePolicy policy, InfrastructureIndex? infrastructure)
+    private static (CeilingReason Why, IReadOnlyList<CodeLocation>? Locations, string? ProposedTag) CodeOf(WorkItem item, Finding finding, RelevancePolicy policy, InfrastructureIndex? infrastructure)
     {
         var why = WhyNoAction(item, finding, policy);
         if (infrastructure is not { InScope: true } || finding.Image is not { } update || ImageReference.Parse(update.Reference) is not { } reference || why == CeilingReason.ManagedByPlatform)
@@ -444,7 +444,8 @@ public static class DecisionTable
             return (why, null, null);
         }
         // The same image can be written at several versions (a database of two majors): the places that write the version that runs are the ones this row is about
-        var everywhere = infrastructure.Find(reference);
+        // A repository that deploys to one environment is about the workloads of that environment, not of another one
+        var everywhere = infrastructure.Find(reference).Where(location => location.Environment is null || item.Placements.Count == 0 || item.Placements.Any(placement => placement.EnvironmentId == location.Environment)).ToList();
         var runningTag = reference.Tag ?? update.Current;
         var exact = everywhere.Where(location => string.Equals(location.Image.Tag, runningTag, StringComparison.OrdinalIgnoreCase)).ToList();
         IReadOnlyList<CodeLocation> locations = exact.Count > 0 ? exact : everywhere;
@@ -457,7 +458,7 @@ public static class DecisionTable
         {
             return (CeilingReason.ManagedByAutomation, locations, null);
         }
-        if (finding.Kind == FindingKind.OutdatedImage && update.Current is { } running && ours[0].Image.Tag is { } written && !string.Equals(written, running, StringComparison.OrdinalIgnoreCase))
+        if (finding.Kind == FindingKind.OutdatedImage && exact.Count == 0 && update.Current is not null)
         {
             return (CeilingReason.CodeDiffersFromRunning, locations, null);
         }
@@ -468,8 +469,7 @@ public static class DecisionTable
         // An outdated image goes to the latest version; a floating one is pinned to the version that runs, which changes nothing that is deployed
         var proposed = finding.Kind == FindingKind.OutdatedImage ? update.Latest : update.Current;
         // A tag that is not a version (latest, a branch) and the tag that is already written change nothing: nothing is proposed
-        var usable = !string.IsNullOrWhiteSpace(proposed) && !string.Equals(proposed, reference.Tag, StringComparison.OrdinalIgnoreCase)
-            && ImageReference.Parse($"{reference.Name}:{proposed}") is { IsFloating: false };
+        var usable = ImageReference.IsTag(proposed) && !string.Equals(proposed, reference.Tag, StringComparison.OrdinalIgnoreCase) && ImageReference.Parse($"{reference.Name}:{proposed}") is { IsFloating: false };
         return usable ? (CeilingReason.CodeChangeShown, locations, proposed) : (why, locations, null);
     }
 

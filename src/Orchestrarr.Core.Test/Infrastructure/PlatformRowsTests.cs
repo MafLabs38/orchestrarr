@@ -5,10 +5,10 @@ namespace Orchestrarr.Core.Test.Infrastructure;
 
 public sealed class PlatformRowsTests
 {
-    private static readonly PlatformScope K3s = new("k3s", "k3s", "k3s", null, null, ["worker", "control"], ["worker", "control"], new VersionPointer("example/cluster", "ansible/all.yml", "k3s_version"));
+    private static readonly PlatformScope K3s = new("k3s", "k3s", "k3s", new VersionPointer("example/cluster", "ansible/all.yml", "k3s_version"));
 
     private static InfrastructureIndex Code(string variables) =>
-        InfrastructureIndex.Build(new InfrastructureSnapshot(DateTimeOffset.UnixEpoch, [new InfrastructureFile("example/cluster", "ansible/all.yml", "ansible-var", variables)], []));
+        InfrastructureIndex.Build(new InfrastructureSnapshot(DateTimeOffset.UnixEpoch, [new InfrastructureFile("example/cluster", "ansible/all.yml", "variables", variables)], []));
 
     private static K3sReleases Releases(params string[] latest) =>
         new(K3sVersion.Parse(latest[^1])!, latest.Select(version => K3sVersion.Parse(version)!).ToDictionary(version => version.Minor));
@@ -33,8 +33,8 @@ public sealed class PlatformRowsTests
     {
         var rows = PlatformRows.Build([K3s], Code("---\nk3s_version: \"v1.36.5+k3s1\"\n"), Releases("v1.35.10+k3s1", "v1.36.6+k3s1", "v1.37.2+k3s1", "v1.38.1+k3s1"));
 
-        rows.Select(row => (row.Id, row.Description, row.ProposedTag)).Should().Equal(
-            ("platform:k3s:patch", "v1.36.5+k3s1 → v1.36.6+k3s1", "v1.36.6+k3s1"), ("platform:k3s:minor", "v1.36.5+k3s1 → v1.37.2+k3s1", "v1.37.2+k3s1"));
+        rows.Select(row => (row.Id, row.Description)).Should().Equal(("platform:k3s:patch", "v1.36.5+k3s1 → v1.36.6+k3s1"), ("platform:k3s:minor", "v1.36.5+k3s1 → v1.37.2+k3s1"));
+        rows.Should().OnlyContain(row => row.ProposedTag == null, "a platform upgrade is told and described, no change is computed for it");
         rows.Should().OnlyContain(row => row.Why == CeilingReason.PlatformUpgradeIsPlanned && row.Kind == ProblemKind.PlatformUpdate && row.Tab == ProblemTab.Know);
         rows[0].Locations!.Single().Should().Match<CodeLocation>(location => location.Line == 2 && location.Form == VersionForm.Variable && location.Path == "ansible/all.yml");
     }
@@ -53,18 +53,6 @@ public sealed class PlatformRowsTests
 
         told.Should().ContainSingle().Which.Should().Match<ProblemRow>(row => row.Why == CeilingReason.PlatformVersionNotRead && row.Description.Contains("k3s_version", StringComparison.Ordinal));
         PlatformRows.Build([K3s], InfrastructureIndex.Empty, Releases("v1.36.6+k3s1")).Should().BeEmpty("without a scope nothing is said");
-    }
-
-    [Fact]
-    public void The_variable_is_changed_in_its_quotes_and_nothing_else_of_the_file_moves()
-    {
-        const string variables = "---\nk3s_version: \"v1.36.5+k3s1\"      # stable\nother: 1\n";
-        var location = PlatformRows.Build([K3s], Code(variables), Releases("v1.36.6+k3s1")).Single().Locations!.Single();
-
-        var change = VersionPatch.Replace(variables, location, "v1.36.6+k3s1")!;
-
-        change.After.Should().Be("k3s_version: \"v1.36.6+k3s1\"      # stable");
-        change.NewContent.Should().Be(variables.Replace("v1.36.5", "v1.36.6", StringComparison.Ordinal));
     }
 
     [Fact]

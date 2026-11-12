@@ -100,6 +100,43 @@ public sealed class GitHubInfrastructureSourceTests
         plain.Should().Throw<InvalidOperationException>().WithMessage("*https*");
     }
 
+    [Fact]
+    public async Task A_file_that_cannot_be_read_is_told_so_that_an_image_does_not_look_as_if_it_were_written_nowhere()
+    {
+        Tree("example/infra", string.Join(",", Entry("apps/a.yaml", ShaA), Entry("apps/b.yaml", ShaB)));
+        Blob("example/infra", ShaA, "image: a:1\n");
+        _handler.On($"/repos/example/infra/git/blobs/{ShaB}", "{}", HttpStatusCode.BadGateway);
+
+        var snapshot = await Source().ReadAsync([Scope()], TestContext.Current.CancellationToken);
+
+        snapshot.Files.Should().ContainSingle();
+        snapshot.Problems.Should().ContainSingle().Which.Should().Be(new RepositoryProblem("example/infra", "1 files could not be read"));
+    }
+
+    [Fact]
+    public async Task An_answer_that_is_not_what_the_api_documents_is_a_problem_of_that_repository_and_the_others_are_still_read()
+    {
+        _handler.On("/repos/example/odd/git/trees/HEAD", "{ \"unexpected\": true }");
+        Tree("example/infra", Entry("apps/a.yaml", ShaA));
+        Blob("example/infra", ShaA, "image: a:1\n");
+
+        var snapshot = await Source().ReadAsync([Scope("example/odd"), Scope()], TestContext.Current.CancellationToken);
+
+        snapshot.Problems.Should().ContainSingle().Which.Should().Be(new RepositoryProblem("example/odd", "unreadable answer"));
+        snapshot.Files.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task The_environment_of_the_repository_goes_with_its_files()
+    {
+        Tree("example/infra", Entry("apps/a.yaml", ShaA));
+        Blob("example/infra", ShaA, "image: a:1\n");
+
+        var snapshot = await Source().ReadAsync([new RepositoryScope("example/infra", "kubernetes", ["apps/**/*.yaml"], "k3s")], TestContext.Current.CancellationToken);
+
+        snapshot.Files.Single().Environment.Should().Be("k3s");
+    }
+
     private sealed class Routes : HttpMessageHandler
     {
         private readonly Dictionary<string, (string Body, HttpStatusCode Status)> _routes = [];

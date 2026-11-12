@@ -129,4 +129,45 @@ public sealed class ImageCodeRowsTests
         row.ProposedTag.Should().BeNull();
         row.Locations.Should().ContainSingle();
     }
+
+    private static InfrastructureIndex CodeIn(string environment, string manifest) =>
+        InfrastructureIndex.Build(new InfrastructureSnapshot(DateTimeOffset.UnixEpoch, [new InfrastructureFile("example/infra", "k8s/n8n.yaml", "kubernetes", manifest, environment)], []));
+
+    [Fact]
+    public void A_repository_that_deploys_to_one_environment_is_about_the_workloads_of_that_environment_only()
+    {
+        var item = ImageItem(Behind()) with { Placements = [new Placement("host-1", "Host 1", null, "n8n")] };
+
+        var elsewhere = Row(item, CodeIn("k3s", "image: n8nio/n8n:1.108.2\n"));
+        var there = Row(item, CodeIn("host-1", "image: n8nio/n8n:1.108.2\n"));
+
+        elsewhere.Why.Should().Be(CeilingReason.NotInScope, "the code of another environment does not describe this workload");
+        there.Why.Should().Be(CeilingReason.CodeChangeShown);
+    }
+
+    [Fact]
+    public void A_repository_without_an_environment_is_about_every_workload()
+    {
+        var item = ImageItem(Behind()) with { Placements = [new Placement("host-1", "Host 1", null, "n8n")] };
+
+        Row(item, Code("image: n8nio/n8n:1.108.2\n")).Why.Should().Be(CeilingReason.CodeChangeShown);
+    }
+
+    [Fact]
+    public void When_no_place_writes_the_version_that_runs_the_row_says_the_code_differs_whatever_the_number_of_places()
+    {
+        var row = Row(ImageItem(Behind()), Code("image: n8nio/n8n:1.110.0\nimage: n8nio/n8n:1.111.0\n"));
+
+        row.Why.Should().Be(CeilingReason.CodeDiffersFromRunning);
+        row.Locations.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public void A_proposed_tag_that_is_not_a_tag_is_not_proposed()
+    {
+        var row = Row(ImageItem(Behind(latest: "1.121.0\"#")), Code("image: n8nio/n8n:1.108.2\n"));
+
+        row.ProposedTag.Should().BeNull();
+        row.Why.Should().NotBe(CeilingReason.CodeChangeShown);
+    }
 }

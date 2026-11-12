@@ -6,7 +6,7 @@ namespace Orchestrarr.Core.Infrastructure;
 
 /// <summary>
 /// The rows about the platforms of the description (ADR 0028): the K3s whose version is a variable of the code. A platform upgrade touches everything that runs on it, so it is
-/// told and described and never offered: one patch of the same minor, and the next minor only, because Kubernetes is upgraded one minor at a time.
+/// told and described and never offered (the version is in the text of the row, there is no change to show): one patch of the same minor, and the next minor only, because Kubernetes is upgraded one minor at a time.
 /// </summary>
 public static class PlatformRows
 {
@@ -28,7 +28,7 @@ public static class PlatformRows
                 // The variable is not where the description says: told only when the code of the scope was read at all
                 if (index.InScope)
                 {
-                    rows.Add(Row(platform, "unreadable", $"{pointer.Key} not found in {pointer.Path}", null, CeilingReason.PlatformVersionNotRead, null, null));
+                    rows.Add(Row(platform, "unreadable", $"{pointer.Key} not found in {pointer.Path}", null, CeilingReason.PlatformVersionNotRead, null));
                 }
                 continue;
             }
@@ -39,17 +39,17 @@ public static class PlatformRows
             var location = new CodeLocation(pointer.Repository, pointer.Path, line, VersionForm.Variable, new ImageReference("k3s", written, null));
             if (releases.LatestByMinor.GetValueOrDefault(current.Minor) is { } patch && patch > current)
             {
-                rows.Add(Row(platform, "patch", $"{current} → {patch}", UpdateKind.Patch, CeilingReason.PlatformUpgradeIsPlanned, location, patch.ToString()));
+                rows.Add(Row(platform, "patch", $"{current} → {patch}", UpdateKind.Patch, CeilingReason.PlatformUpgradeIsPlanned, location));
             }
             if (releases.LatestByMinor.GetValueOrDefault(current.Minor + 1) is { } next && next.Major == current.Major)
             {
-                rows.Add(Row(platform, "minor", $"{current} → {next}", UpdateKind.Minor, CeilingReason.PlatformUpgradeIsPlanned, location, next.ToString()));
+                rows.Add(Row(platform, "minor", $"{current} → {next}", UpdateKind.Minor, CeilingReason.PlatformUpgradeIsPlanned, location));
             }
         }
         return rows;
     }
 
-    private static ProblemRow Row(PlatformScope platform, string part, string description, UpdateKind? kind, CeilingReason why, CodeLocation? location, string? proposed) =>
+    private static ProblemRow Row(PlatformScope platform, string part, string description, UpdateKind? kind, CeilingReason why, CodeLocation? location) =>
         new($"platform:{platform.Id}:{part}", $"platform:{platform.Id}", platform.Id, ProblemKind.PlatformUpdate, description, Severity.Info, 1, kind, null, null, null, null, Ceiling.NoAction, why, false,
-            Locations: location is null ? null : [location], ProposedTag: proposed);
+            Locations: location is null ? null : [location]);
 }

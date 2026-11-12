@@ -8,6 +8,7 @@ namespace Orchestrarr.Core.Infrastructure;
 /// </summary>
 public static class PathGlob
 {
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Regex> Compiled = new(StringComparer.Ordinal);
     private static readonly string[] SecretNames = [".enc.", ".tfstate", ".tfvars", ".env", ".pem", ".key", "id_rsa", "id_ed25519", "secret"];
 
     /// <summary>True when the path is matched by the pattern.</summary>
@@ -15,7 +16,7 @@ public static class PathGlob
     {
         ArgumentNullException.ThrowIfNull(pattern);
         ArgumentNullException.ThrowIfNull(path);
-        return ToRegex(pattern).IsMatch(path);
+        return Compiled.GetOrAdd(pattern, ToRegex).IsMatch(path);
     }
 
     /// <summary>True for a file whose name says it holds a secret or the state of an infrastructure: a pattern does not make it readable.</summary>

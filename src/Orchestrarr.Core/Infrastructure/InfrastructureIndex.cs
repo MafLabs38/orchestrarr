@@ -1,10 +1,10 @@
 namespace Orchestrarr.Core.Infrastructure;
 
-/// <summary>A repository of the description where versions are written: which kind of files, and which paths (globs) are looked at. Nothing else is read (ADR 0028).</summary>
-public sealed record RepositoryScope(string Repository, string Kind, IReadOnlyList<string> Paths);
+/// <summary>A repository of the description where versions are written: which kind of files, which paths (globs) are looked at, and the environment it deploys to when it is one. Nothing else is read (ADR 0028).</summary>
+public sealed record RepositoryScope(string Repository, string Kind, IReadOnlyList<string> Paths, string? Environment = null);
 
 /// <summary>A file read from a repository of the scope.</summary>
-public sealed record InfrastructureFile(string Repository, string Path, string Kind, string Content);
+public sealed record InfrastructureFile(string Repository, string Path, string Kind, string Content, string? Environment = null);
 
 /// <summary>A repository of the scope that could not be read, and why in a word: the table says so instead of showing nothing.</summary>
 public sealed record RepositoryProblem(string Repository, string Reason);
@@ -18,7 +18,7 @@ public sealed record InfrastructureSnapshot(DateTimeOffset ReadAt, IReadOnlyList
 /// <summary>Reads the files of the repositories of the scope, read-only. The provider (GitHub) is the only one that talks to a forge.</summary>
 public interface IInfrastructureSource
 {
-    /// <summary>False when the description names no repository: the table then says that no code is in the scope.</summary>
+    /// <summary>Reads the files of the repositories of the scope. A repository that cannot be read is a problem of the snapshot, not a failure of the call.</summary>
     Task<InfrastructureSnapshot> ReadAsync(IReadOnlyList<RepositoryScope> scope, CancellationToken cancellationToken);
 }
 
@@ -65,7 +65,7 @@ public sealed class InfrastructureIndex
         foreach (var file in snapshot.Files)
         {
             files[(file.Repository, file.Path)] = file.Content;
-            locations.AddRange(VersionParsers.Find(file.Kind, file.Repository, file.Path, file.Content));
+            locations.AddRange(VersionParsers.Find(file.Kind, file.Repository, file.Path, file.Content).Select(location => location with { Environment = file.Environment }));
         }
         return new InfrastructureIndex(locations, files, snapshot.Problems, inScope: snapshot.Files.Count > 0 || snapshot.Problems.Count > 0);
     }

@@ -20,8 +20,8 @@ public sealed class CodeApiFactory : TableApiFactory
         builder.ConfigureServices(services =>
         {
             services.RemoveAll<DescriptionScope>();
-            var cluster = new PlatformScope("k3s", "k3s", "k3s", null, null, ["worker", "control"], ["worker", "control"], new VersionPointer("example/infra", "ansible/all.yml", "k3s_version"));
-            services.AddSingleton(new DescriptionScope([], [cluster], [new RepositoryScope("example/infra", "kubernetes", ["k8s/**/*.yaml", "ansible/all.yml"])]));
+            var cluster = new PlatformScope("k3s", "k3s", null, new VersionPointer("example/infra", "ansible/all.yml", "k3s_version"));
+            services.AddSingleton(new DescriptionScope([], [cluster], [new RepositoryScope("example/infra", "kubernetes", ["k8s/**/*.yaml"]), new RepositoryScope("example/infra", "variables", ["ansible/all.yml"])]));
             services.RemoveAll<IK3sReleases>();
             services.AddSingleton<IK3sReleases>(new FakeReleases());
             services.RemoveAll<IInfrastructureSource>();
@@ -33,7 +33,7 @@ public sealed class CodeApiFactory : TableApiFactory
     {
         public Task<InfrastructureSnapshot> ReadAsync(IReadOnlyList<RepositoryScope> scope, CancellationToken cancellationToken) =>
             Task.FromResult(new InfrastructureSnapshot(DateTimeOffset.UnixEpoch,
-                [new InfrastructureFile("example/infra", "k8s/cache.yaml", "kubernetes", Manifest), new InfrastructureFile("example/infra", "ansible/all.yml", "ansible-var", "k3s_version: \"v1.36.5+k3s1\"\n")], []));
+                [new InfrastructureFile("example/infra", "k8s/cache.yaml", "kubernetes", Manifest), new InfrastructureFile("example/infra", "ansible/all.yml", "variables", "k3s_version: \"v1.36.5+k3s1\"\n")], []));
     }
 
     private sealed class FakeReleases : IK3sReleases
@@ -94,25 +94,40 @@ public sealed class CodeApiTests
         traefik.GetProperty("tab").GetString().Should().Be("configure");
         var code = table.GetProperty("code");
         code.GetProperty("inScope").GetBoolean().Should().BeTrue();
-        code.GetProperty("repositories").GetInt32().Should().Be(1);
+        code.GetProperty("repositories").GetInt32().Should().Be(2);
         code.GetProperty("files").GetInt32().Should().Be(2);
     }
 
     [Fact]
-    public async Task The_platform_of_the_description_has_its_rows_and_its_change_is_shown_like_an_image_s()
+    public async Task The_platform_of_the_description_has_its_rows_with_the_place_of_its_version_and_no_change()
     {
         using var factory = new CodeApiFactory();
         using var client = await SignedIn(factory);
         var table = await Table(client);
 
         var patch = table.GetProperty("rows").EnumerateArray().First(row => row.GetProperty("id").GetString() == "platform:k3s:patch");
-        var shown = await client.GetFromJsonAsync<JsonElement>("/api/v1/problems/change?id=platform%3Ak3s%3Apatch", Ct);
+        var change = await client.GetAsync("/api/v1/problems/change?id=platform%3Ak3s%3Apatch", Ct);
 
         patch.GetProperty("kind").GetString().Should().Be("platformUpdate");
         patch.GetProperty("why").GetString().Should().Be("platformUpgradeIsPlanned");
         patch.GetProperty("description").GetString().Should().Be("v1.36.5+k3s1 → v1.36.6+k3s1");
         table.GetProperty("rows").EnumerateArray().Should().Contain(row => row.GetProperty("id").GetString() == "platform:k3s:minor");
-        shown.GetProperty("changes").EnumerateArray().Single().GetProperty("after").GetString().Should().Be("k3s_version: \"v1.36.6+k3s1\"");
+        patch.GetProperty("locations").EnumerateArray().Single().GetProperty("line").GetInt32().Should().Be(1);
+        change.StatusCode.Should().Be(HttpStatusCode.Conflict, "a platform upgrade is described, no change is computed for it");
+    }
+
+    [Fact]
+    public async Task A_platform_row_the_operator_sees_can_be_set_aside_like_any_other()
+    {
+        using var factory = new CodeApiFactory();
+        using var client = await SignedIn(factory);
+        var table = await Table(client);
+        var patch = table.GetProperty("rows").EnumerateArray().First(row => row.GetProperty("id").GetString() == "platform:k3s:patch");
+
+        var skip = await client.PostAsJsonAsync("/api/v1/problems/skip", new { rows = new[] { new { id = "platform:k3s:patch", description = patch.GetProperty("description").GetString() } } }, Ct);
+
+        skip.StatusCode.Should().Be(HttpStatusCode.OK, await skip.Content.ReadAsStringAsync(Ct));
+        (await Table(client)).GetProperty("rows").EnumerateArray().Should().NotContain(row => row.GetProperty("id").GetString() == "platform:k3s:patch");
     }
 
     [Fact]

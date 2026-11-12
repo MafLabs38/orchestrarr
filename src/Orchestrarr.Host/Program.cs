@@ -73,13 +73,21 @@ builder.Services.AddSingleton(_ => DescriptionFile.Load(builder.Configuration, b
 builder.Services.AddSingleton(provider => provider.GetRequiredService<DescriptionContent>().Applications);
 builder.Services.AddSingleton(provider => provider.GetRequiredService<DescriptionContent>().Scope);
 // The code of the scope, read from the forge with the same read-only token as the pull requests (ADR 0028)
-builder.Services.AddSingleton<IInfrastructureSource>(_ =>
+builder.Services.AddSingleton<IInfrastructureSource>(provider =>
 {
     var github = builder.Configuration.GetSection(GitHubOptions.SectionName).Get<GitHubOptions>() ?? new GitHubOptions();
-    return string.IsNullOrWhiteSpace(github.Token) ? new NoInfrastructureSource() : GitHubInfrastructureSource.Create(github);
+    return string.IsNullOrWhiteSpace(github.Token) ? new NoInfrastructureSource() : GitHubInfrastructureSource.Create(github, time: provider.GetRequiredService<TimeProvider>());
 });
 builder.Services.AddSingleton(builder.Configuration.GetSection("Infrastructure").Get<InfrastructureCatalogOptions>() ?? new InfrastructureCatalogOptions());
-builder.Services.AddSingleton<InfrastructureCatalog>();
+builder.Services.AddSingleton(provider =>
+{
+    var catalog = new InfrastructureCatalog(provider.GetRequiredService<IInfrastructureSource>(), provider.GetRequiredService<DescriptionScope>(), provider.GetRequiredService<TimeProvider>(),
+        provider.GetRequiredService<InfrastructureCatalogOptions>());
+    // A reading that ends in the background is told to the screens (ADR 0025)
+    var live = provider.GetRequiredService<ILiveNotifier>();
+    catalog.Changed += () => live.Publish(LiveTopics.Problems);
+    return catalog;
+});
 builder.Services.AddSingleton(builder.Configuration.GetSection(PlatformOptions.SectionName).Get<PlatformOptions>() ?? new PlatformOptions());
 builder.Services.AddSingleton<IK3sReleases>(provider => new K3sReleaseSource(provider.GetRequiredService<PlatformOptions>(), provider.GetRequiredService<TimeProvider>()));
 

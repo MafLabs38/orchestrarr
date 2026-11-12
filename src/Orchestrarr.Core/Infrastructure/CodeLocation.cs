@@ -18,6 +18,6 @@ public enum VersionForm
 
 /// <summary>
 /// Where the version of an image is written in the code that deploys it (ADR 0028): the repository, the file, the line, the form, and what is written there.
-/// <c>Managed</c> names the automation that rewrites the line by itself (Flux), so that Orchestrarr does not.
+/// <c>Managed</c> names the automation that rewrites the line by itself (Flux), so that Orchestrarr does not. <c>Environment</c> is the environment the repository deploys to, when the description says.
 /// </summary>
-public sealed record CodeLocation(string Repository, string Path, int Line, VersionForm Form, ImageReference Image, string? Managed = null);
+public sealed record CodeLocation(string Repository, string Path, int Line, VersionForm Form, ImageReference Image, string? Managed = null, string? Environment = null);

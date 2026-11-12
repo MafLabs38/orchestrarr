@@ -9,10 +9,10 @@ public sealed record EnvironmentScope(string Id, string? Name);
 public sealed record VersionPointer(string Repository, string Path, string? Key);
 
 /// <summary>
-/// What everything else rests on and a person upgrades with care (ADR 0028): the K3s of an environment, whose version is a variable of the code, or the operating
-/// system of a host. Nothing here is ever upgraded by itself.
+/// What everything else rests on and a person upgrades with care (ADR 0028): the K3s of an environment, whose version is a variable of the code. Nothing here is ever
+/// upgraded by itself. The nodes, the hosts and their systems are Portarr's to say (ADR 0002), not a copy kept here.
 /// </summary>
-public sealed record PlatformScope(string Id, string Kind, string? Environment, string? Host, string? Distribution, IReadOnlyList<string> Nodes, IReadOnlyList<string> UpgradeOrder, VersionPointer? Version);
+public sealed record PlatformScope(string Id, string Kind, string? Environment, VersionPointer? Version);
 
 /// <summary>
 /// The perimeter of the work, as the description says (ADR 0028): the environments, the platforms, and the repositories where versions are written. Orchestrarr
@@ -22,7 +22,7 @@ public sealed record DescriptionScope(IReadOnlyList<EnvironmentScope> Environmen
 {
     public static DescriptionScope None { get; } = new([], [], []);
 
-    public static readonly IReadOnlyList<string> PlatformKinds = ["k3s", "os"];
+    public static readonly IReadOnlyList<string> PlatformKinds = ["k3s"];
 
     public static DescriptionScope Parse(string json)
     {
@@ -45,9 +45,9 @@ public sealed record DescriptionScope(IReadOnlyList<EnvironmentScope> Environmen
             }
             var environments = Section(root, "environments").Select(Environment).ToList();
             Distinct(environments.Select(environment => environment.Id), "environments");
-            var repositories = Section(root, "repositories").Select(Repository).ToList();
+            var repositories = Section(root, "repositories").Select(element => Repository(element, environments)).ToList();
             Distinct(repositories.Select(repository => repository.Repository), "repositories");
-            var platforms = Section(root, "platforms").Select(element => Platform(element, repositories)).ToList();
+            var platforms = Section(root, "platforms").Select(element => Platform(element, repositories, environments)).ToList();
             Distinct(platforms.Select(platform => platform.Id), "platforms");
             return new DescriptionScope(environments, platforms, repositories);
         }
@@ -79,7 +79,17 @@ public sealed record DescriptionScope(IReadOnlyList<EnvironmentScope> Environmen
 
     private static bool IsRepositoryName(string name) => name.Count(c => c == '/') == 1 && !name.StartsWith('/') && !name.EndsWith('/') && !name.Contains(' ', StringComparison.Ordinal);
 
-    private static RepositoryScope Repository(JsonElement element)
+    private static string? EnvironmentOf(JsonElement element, List<EnvironmentScope> environments, string what)
+    {
+        var environment = Text(element, "environment");
+        if (environment is not null && !environments.Any(known => known.Id == environment))
+        {
+            throw new InvalidOperationException($"{what} deploys to the environment '{environment}', which is not in the environments of the description.");
+        }
+        return environment;
+    }
+
+    private static RepositoryScope Repository(JsonElement element, List<EnvironmentScope> environments)
     {
         var repository = Text(element, "repository");
         if (repository is null || !IsRepositoryName(repository))
@@ -98,10 +108,10 @@ public sealed record DescriptionScope(IReadOnlyList<EnvironmentScope> Environmen
         {
             throw new InvalidOperationException($"'{repository}' names the paths it is read from, relative to the repository.");
         }
-        return new RepositoryScope(repository, kind, paths);
+        return new RepositoryScope(repository, kind, paths, EnvironmentOf(element, environments, $"'{repository}'"));
     }
 
-    private static PlatformScope Platform(JsonElement element, List<RepositoryScope> repositories)
+    private static PlatformScope Platform(JsonElement element, List<RepositoryScope> repositories, List<EnvironmentScope> environments)
     {
         var id = Text(element, "id");
         var kind = Text(element, "kind");
@@ -124,9 +134,6 @@ public sealed record DescriptionScope(IReadOnlyList<EnvironmentScope> Environmen
         {
             throw new InvalidOperationException($"The platform '{id}' (k3s) says where its version is written, with the key.");
         }
-        return new PlatformScope(id, kind, Text(element, "environment"), Text(element, "host"), Text(element, "distribution"), Strings(element, "nodes"), Strings(element, "upgradeOrder"), version);
+        return new PlatformScope(id, kind, EnvironmentOf(element, environments, $"The platform '{id}'"), version);
     }
-
-    private static List<string> Strings(JsonElement element, string name) =>
-        element.TryGetProperty(name, out var list) && list.ValueKind == JsonValueKind.Array ? [.. list.EnumerateArray().Where(item => item.ValueKind == JsonValueKind.String).Select(item => item.GetString()!)] : [];
 }

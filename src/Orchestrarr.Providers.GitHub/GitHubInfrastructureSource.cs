@@ -21,7 +21,13 @@ public sealed partial class GitHubInfrastructureSource : IInfrastructureSource
     private readonly HttpClient _http;
     private readonly Dictionary<(string Repository, string Path), (string Sha, string Content)> _files = [];
 
-    internal GitHubInfrastructureSource(HttpClient http) => _http = http;
+    private readonly TimeProvider _time;
+
+    internal GitHubInfrastructureSource(HttpClient http, TimeProvider time)
+    {
+        _http = http;
+        _time = time;
+    }
 
     [GeneratedRegex(@"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9._-]{1,100}$", RegexOptions.None, RegexTimeoutMilliseconds)]
     private static partial Regex RepositoryName();
@@ -30,7 +36,7 @@ public sealed partial class GitHubInfrastructureSource : IInfrastructureSource
     private static partial Regex ObjectId();
 
     /// <summary>Builds the source. Redirects are never followed: the token goes to the configured address only. <paramref name="handler"/> replaces the network in tests.</summary>
-    public static GitHubInfrastructureSource Create(GitHubOptions options, HttpMessageHandler? handler = null)
+    public static GitHubInfrastructureSource Create(GitHubOptions options, HttpMessageHandler? handler = null, TimeProvider? time = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         if (string.IsNullOrWhiteSpace(options.Token))
@@ -53,7 +59,7 @@ public sealed partial class GitHubInfrastructureSource : IInfrastructureSource
         http.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
         http.DefaultRequestHeaders.Add("X-GitHub-Api-Version", "2022-11-28");
         http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", options.Token);
-        return new GitHubInfrastructureSource(http);
+        return new GitHubInfrastructureSource(http, time ?? TimeProvider.System);
     }
 
     public async Task<InfrastructureSnapshot> ReadAsync(IReadOnlyList<RepositoryScope> scope, CancellationToken cancellationToken)
@@ -72,12 +78,17 @@ public sealed partial class GitHubInfrastructureSource : IInfrastructureSource
                     problems.Add(new RepositoryProblem(repository.Repository, problem));
                 }
             }
-            catch (Exception failure) when (failure is HttpRequestException or TaskCanceledException or JsonException && !cancellationToken.IsCancellationRequested)
+            catch (Exception failure) when (failure is HttpRequestException or TaskCanceledException && !cancellationToken.IsCancellationRequested)
             {
-                problems.Add(new RepositoryProblem(repository.Repository, failure is JsonException ? "unreadable answer" : "unreachable"));
+                problems.Add(new RepositoryProblem(repository.Repository, "unreachable"));
+            }
+            catch (Exception failure) when (failure is JsonException or KeyNotFoundException or InvalidOperationException or FormatException)
+            {
+                // An answer that is not what the API documents: the repository is told, the others are still read
+                problems.Add(new RepositoryProblem(repository.Repository, "unreadable answer"));
             }
         }
-        return new InfrastructureSnapshot(DateTimeOffset.UtcNow, files, problems);
+        return new InfrastructureSnapshot(_time.GetUtcNow(), files, problems);
     }
 
     private async Task<(List<InfrastructureFile> Files, string? Problem)> ReadRepositoryAsync(RepositoryScope repository, CancellationToken cancellationToken)
@@ -120,23 +131,26 @@ public sealed partial class GitHubInfrastructureSource : IInfrastructureSource
         {
             return (read, $"more than {MaxFilesPerRepository} files match");
         }
+        var unreadable = 0;
         foreach (var (path, sha) in wanted)
         {
             if (_files.TryGetValue((repository.Repository, path), out var kept) && kept.Sha == sha)
             {
-                read.Add(new InfrastructureFile(repository.Repository, path, repository.Kind, kept.Content));
+                read.Add(new InfrastructureFile(repository.Repository, path, repository.Kind, kept.Content, repository.Environment));
                 continue;
             }
             using var blob = await _http.GetAsync($"repos/{repository.Repository}/git/blobs/{sha}", cancellationToken);
             if (!blob.IsSuccessStatusCode)
             {
+                // A file that cannot be read is told: an image would otherwise look as if it were written nowhere
+                unreadable++;
                 continue;
             }
             using var blobDocument = JsonDocument.Parse(await blob.Content.ReadAsStringAsync(cancellationToken));
             var content = Encoding.UTF8.GetString(Convert.FromBase64String(blobDocument.RootElement.GetProperty("content").GetString()!.Replace("\n", string.Empty, StringComparison.Ordinal)));
             _files[(repository.Repository, path)] = (sha, content);
-            read.Add(new InfrastructureFile(repository.Repository, path, repository.Kind, content));
+            read.Add(new InfrastructureFile(repository.Repository, path, repository.Kind, content, repository.Environment));
         }
-        return (read, null);
+        return (read, unreadable == 0 ? null : $"{unreadable} files could not be read");
     }
 }

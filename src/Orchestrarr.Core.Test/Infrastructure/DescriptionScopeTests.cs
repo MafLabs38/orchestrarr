@@ -10,13 +10,12 @@ public sealed class DescriptionScopeTests
         {
           "environments": [ { "id": "k3s", "name": "Cluster" }, { "id": "host-1" } ],
           "repositories": [
-            { "repository": "example/infra", "kind": "kubernetes", "paths": ["apps/**/*.yaml"] },
-            { "repository": "example/cluster", "kind": "kubernetes", "paths": ["ansible/group_vars/all.yml"] }
+            { "repository": "example/infra", "kind": "kubernetes", "paths": ["apps/**/*.yaml"], "environment": "k3s" },
+            { "repository": "example/cluster", "kind": "variables", "paths": ["ansible/group_vars/all.yml"] }
           ],
           "platforms": [
-            { "id": "k3s", "kind": "k3s", "environment": "k3s", "nodes": ["a", "b"], "upgradeOrder": ["b", "a"],
-              "version": { "repository": "example/cluster", "path": "ansible/group_vars/all.yml", "key": "k3s_version" } },
-            { "id": "os-host-1", "kind": "os", "host": "host-1", "distribution": "ubuntu" }
+            { "id": "k3s", "kind": "k3s", "environment": "k3s",
+              "version": { "repository": "example/cluster", "path": "ansible/group_vars/all.yml", "key": "k3s_version" } }
           ],
           "applications": []
         }
@@ -28,11 +27,10 @@ public sealed class DescriptionScopeTests
         var scope = DescriptionScope.Parse(Good);
 
         scope.Environments.Select(environment => environment.Id).Should().Equal("k3s", "host-1");
-        scope.Repositories.Should().HaveCount(2).And.ContainEquivalentOf(new RepositoryScope("example/infra", "kubernetes", ["apps/**/*.yaml"]));
+        scope.Repositories.Should().HaveCount(2).And.ContainEquivalentOf(new RepositoryScope("example/infra", "kubernetes", ["apps/**/*.yaml"], "k3s"));
         var k3s = scope.Platforms.Single(platform => platform.Kind == "k3s");
-        k3s.UpgradeOrder.Should().Equal("b", "a");
+        k3s.Environment.Should().Be("k3s");
         k3s.Version.Should().Be(new VersionPointer("example/cluster", "ansible/group_vars/all.yml", "k3s_version"));
-        scope.Platforms.Single(platform => platform.Kind == "os").Distribution.Should().Be("ubuntu");
     }
 
     [Fact]
@@ -50,6 +48,9 @@ public sealed class DescriptionScopeTests
     [InlineData("""{ "repositories": [ { "repository": "a/b", "kind": "compose", "paths": ["x"] }, { "repository": "a/b", "kind": "compose", "paths": ["y"] } ] }""", "twice")]
     [InlineData("""{ "environments": [ { "name": "no id" } ] }""", "environment has an id")]
     [InlineData("""{ "platforms": [ { "id": "p", "kind": "swarm" } ] }""", "kind")]
+    [InlineData("""{ "platforms": [ { "id": "p", "kind": "os" } ] }""", "kind")]
+    [InlineData("""{ "repositories": [ { "repository": "a/b", "kind": "terraform", "paths": ["x"] } ] }""", "kind of 'a/b'")]
+    [InlineData("""{ "environments": [ { "id": "e" } ], "repositories": [ { "repository": "a/b", "kind": "compose", "paths": ["x"], "environment": "other" } ] }""", "not in the environments")]
     [InlineData("""{ "platforms": [ { "id": "p", "kind": "k3s", "version": { "repository": "a/b", "path": "x", "key": "k" } } ] }""", "repository of the description")]
     [InlineData("""{ "repositories": [ { "repository": "a/b", "kind": "compose", "paths": ["x"] } ], "platforms": [ { "id": "p", "kind": "k3s", "version": { "repository": "a/b", "path": "x" } } ] }""", "with the key")]
     [InlineData("""{ "environments": "k3s" }""", "is a list")]

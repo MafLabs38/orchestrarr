@@ -9,15 +9,15 @@ public sealed class VersionPatchTests
     private static CodeLocation First(string kind, string content) => VersionParsers.Find(kind, "example/infra", "k8s/web.yaml", content)[0];
 
     [Fact]
-    public void Only_the_line_of_the_version_changes_and_the_change_is_a_unified_diff_with_its_context()
+    public void Only_the_line_of_the_version_changes_and_the_change_is_a_unified_diff_of_that_line_alone()
     {
         var change = VersionPatch.Replace(Manifest, First("kubernetes", Manifest), "1.5.0")!;
 
         change.NewContent.Should().Be(Manifest.Replace("web:1.4.0", "web:1.5.0", StringComparison.Ordinal));
         change.Before.Trim().Should().Be("image: ghcr.io/example/web:1.4.0");
         change.After.Trim().Should().Be("image: ghcr.io/example/web:1.5.0");
-        change.Diff.Should().Contain("--- a/k8s/web.yaml").And.Contain("+++ b/k8s/web.yaml").And.Contain("@@ -1,7 +1,7 @@")
-            .And.Contain("-        image: ghcr.io/example/web:1.4.0\n+        image: ghcr.io/example/web:1.5.0\n");
+        change.Diff.Should().Be("--- a/k8s/web.yaml\n+++ b/k8s/web.yaml\n@@ -4,1 +4,1 @@\n-        image: ghcr.io/example/web:1.4.0\n+        image: ghcr.io/example/web:1.5.0\n",
+            "no line around it goes out: the file is a private one");
     }
 
     [Theory]
@@ -62,4 +62,27 @@ public sealed class VersionPatchTests
         VersionPatch.Replace(Manifest, location, "1.5 0").Should().BeNull();
         VersionPatch.Replace(Manifest, location, "1.4.0").Should().BeNull("nothing changes");
     }
+
+    [Theory]
+    [InlineData("1.0},{name:x,newTag:y")]
+    [InlineData("1.0\"#")]
+    [InlineData("1.0@sha256:abcdef")]
+    [InlineData("1.0\n2")]
+    [InlineData("-1.0")]
+    [InlineData("")]
+    [InlineData("a/b")]
+    public void A_tag_that_is_not_in_the_grammar_of_a_tag_is_never_written(string tag)
+    {
+        const string manifest = "image: ghcr.io/example/web:1.4.0\n";
+
+        VersionPatch.Replace(manifest, First("kubernetes", manifest), tag).Should().BeNull();
+        ImageReference.IsTag(tag).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("1.5.0")]
+    [InlineData("v1.5.0-rc.1")]
+    [InlineData("15-alpine")]
+    [InlineData("local-20261030g")]
+    public void The_usual_tags_pass_the_grammar(string tag) => ImageReference.IsTag(tag).Should().BeTrue();
 }

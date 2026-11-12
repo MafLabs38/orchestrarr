@@ -1,24 +1,38 @@
 namespace Orchestrarr.Core.Infrastructure;
 
-/// <summary>How long what was read from the repositories of the scope is kept (the forge's rate limit is shared).</summary>
+/// <summary>When and how long the code of the scope is read (the forge's rate limit is shared with the reader of the pull requests).</summary>
 public sealed class InfrastructureCatalogOptions
 {
+    /// <summary>How long what was read is kept.</summary>
     public TimeSpan CacheDuration { get; set; } = TimeSpan.FromMinutes(5);
 
-    public TimeSpan MinRefreshInterval { get; set; } = TimeSpan.FromSeconds(10);
+    /// <summary>The shortest time between two readings when a refresh is asked, and before a failed reading is tried again.</summary>
+    public TimeSpan MinRefreshInterval { get; set; } = TimeSpan.FromMinutes(1);
+
+    /// <summary>How long a request waits for a reading that is going on: after it the table is served with what was read last, and the screens are told when the reading ends.</summary>
+    public TimeSpan FirstWait { get; set; } = TimeSpan.FromSeconds(8);
+
+    /// <summary>The longest a whole reading may take.</summary>
+    public TimeSpan TimeBudget { get; set; } = TimeSpan.FromMinutes(2);
 }
 
-/// <summary>What the index says and how fresh it is: a read that failed keeps the last good index and says so.</summary>
+/// <summary>What the index says and how fresh it is: a reading that failed keeps the last good index and says so.</summary>
 public sealed record InfrastructureReport(InfrastructureIndex Index, DateTimeOffset? ReadAt, bool Stale, string? Error);
 
 /// <summary>
-/// The index of the code of the scope, read when asked and kept a few minutes (ADR 0028). It reads nothing when the description names no repository, and never
-/// reads outside of it.
+/// The index of the code of the scope (ADR 0028). The forge is read in the background, never inside a request for longer than <c>FirstWait</c>: a request that comes
+/// while it is being read gets what was read last, and <see cref="Changed"/> says when a new index is there. It reads nothing when the description names no repository,
+/// and never reads outside of it.
 /// </summary>
 public sealed class InfrastructureCatalog(IInfrastructureSource source, DescriptionScope scope, TimeProvider time, InfrastructureCatalogOptions options)
 {
-    private readonly SemaphoreSlim _lock = new(1, 1);
-    private InfrastructureReport _last = new(InfrastructureIndex.Empty, null, false, null);
+    private readonly object _gate = new();
+    private volatile InfrastructureReport _last = new(InfrastructureIndex.Empty, null, false, null);
+    private Task? _reading;
+    private DateTimeOffset? _notBefore;
+
+    /// <summary>Raised when a reading ends with a new index or a new failure.</summary>
+    public event Action? Changed;
 
     public DescriptionScope Scope => scope;
 
@@ -31,30 +45,56 @@ public sealed class InfrastructureCatalog(IInfrastructureSource source, Descript
         {
             return _last;
         }
-        await _lock.WaitAsync(cancellationToken);
-        try
+        Task reading;
+        lock (_gate)
         {
             var now = time.GetUtcNow();
             var keep = refresh ? options.MinRefreshInterval : options.CacheDuration;
-            if (_last.ReadAt is { } at && now - at < keep)
+            var fresh = _last.ReadAt is { } at && !_last.Stale && now - at < keep;
+            var waiting = _notBefore is { } until && now < until;
+            if (fresh || waiting)
             {
                 return _last;
             }
-            try
+            _reading ??= Task.Run(() => ReadAsync(CancellationToken.None), CancellationToken.None);
+            reading = _reading;
+        }
+        // The reading goes on in the background whatever happens here; a request waits for it a little and no longer
+        await Task.WhenAny(reading, Task.Delay(options.FirstWait, time, cancellationToken));
+        return _last;
+    }
+
+    private async Task ReadAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            budget.CancelAfter(options.TimeBudget);
+            var snapshot = await source.ReadAsync(scope.Repositories, budget.Token);
+            var now = time.GetUtcNow();
+            _last = new InfrastructureReport(InfrastructureIndex.Build(snapshot), now, false, null);
+            lock (_gate)
             {
-                var snapshot = await source.ReadAsync(scope.Repositories, cancellationToken);
-                _last = new InfrastructureReport(InfrastructureIndex.Build(snapshot), now, false, null);
+                _notBefore = null;
             }
-            catch (Exception failure) when (failure is HttpRequestException or TaskCanceledException or InvalidOperationException && !cancellationToken.IsCancellationRequested)
+        }
+        catch (Exception failure) when (failure is not OutOfMemoryException)
+        {
+            // The last good index stays, marked stale: the table does not lose its places because the forge was down for a minute. Not tried again before the shortest interval.
+            var now = time.GetUtcNow();
+            _last = _last with { Stale = _last.ReadAt is not null, Error = failure.GetType().Name };
+            lock (_gate)
             {
-                // The last good index stays, marked stale: the table does not lose its places because the forge was down for a minute
-                _last = _last with { Stale = _last.ReadAt is not null, Error = failure.GetType().Name, ReadAt = _last.ReadAt ?? now };
+                _notBefore = now + options.MinRefreshInterval;
             }
-            return _last;
         }
         finally
         {
-            _lock.Release();
+            lock (_gate)
+            {
+                _reading = null;
+            }
+            Changed?.Invoke();
         }
     }
 }

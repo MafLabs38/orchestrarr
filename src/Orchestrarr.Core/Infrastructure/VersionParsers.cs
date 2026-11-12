@@ -8,19 +8,38 @@ namespace Orchestrarr.Core.Infrastructure;
 /// </summary>
 public static partial class VersionParsers
 {
-    public static readonly IReadOnlyList<string> Kinds = ["kubernetes", "kustomize", "compose", "terraform-docker", "terraform", "ansible-var"];
+    private delegate IEnumerable<CodeLocation> Reader(string repository, string path, string content);
 
-    /// <summary>The versions of the images written in this file.</summary>
+    // The kinds of files the description may name, and how each is read: the validation of the description and the reading are one list
+    private static readonly Dictionary<string, Reader> Readers = new(StringComparer.Ordinal)
+    {
+        ["kubernetes"] = ImageLines,
+        ["compose"] = ImageLines,
+        ["kustomize"] = (repository, path, content) => [.. ImageLines(repository, path, content), .. KustomizeTags(repository, path, content)],
+        ["terraform-docker"] = TerraformImages,
+        // A file of variables (the version of K3s): read for the platforms of the description, it holds no image
+        ["variables"] = (_, _, _) => [],
+    };
+
+    public static IReadOnlyCollection<string> Kinds => Readers.Keys;
+
+    /// <summary>The versions of the images written in this file; nothing for a kind that is not known.</summary>
     public static IReadOnlyList<CodeLocation> Find(string kind, string repository, string path, string content)
     {
         ArgumentNullException.ThrowIfNull(content);
-        return kind switch
+        if (!Readers.TryGetValue(kind, out var reader))
         {
-            "kubernetes" or "compose" => [.. ImageLines(repository, path, content)],
-            "kustomize" => [.. ImageLines(repository, path, content), .. KustomizeTags(repository, path, content)],
-            "terraform-docker" => [.. TerraformImages(repository, path, content)],
-            _ => [],
-        };
+            return [];
+        }
+        try
+        {
+            return [.. reader(repository, path, content)];
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            // A file made to make a pattern slow is a file that is not read
+            return [];
+        }
     }
 
     /// <summary>The value of a key of a variable file (<c>k3s_version: "v1.36.5+k3s1"</c>) and the line it is on; null when there is none.</summary>
@@ -111,24 +130,24 @@ public static partial class VersionParsers
         }
     }
 
-    [GeneratedRegex(@"^\s*-?\s*image:\s*(?<ref>""[^""]*""|'[^']*'|[^\s#]+)")]
+    [GeneratedRegex(@"^\s*-?\s*image:\s*(?<ref>""[^""]*""|'[^']*'|[^\s#]+)", RegexOptions.None, 250)]
     private static partial Regex ImageLine();
 
-    [GeneratedRegex(@"name:\s*(?<name>[^,\s}]+)\s*,\s*newTag:\s*(?<tag>[^,\s}]+)")]
+    [GeneratedRegex(@"name:\s*(?<name>[^,\s}]+)\s*,\s*newTag:\s*(?<tag>[^,\s}]+)", RegexOptions.None, 250)]
     private static partial Regex KustomizeFlow();
 
-    [GeneratedRegex(@"^\s*-?\s*name:\s*(?<name>\S+)\s*$")]
+    [GeneratedRegex(@"^\s*-?\s*name:\s*(?<name>\S+)\s*$", RegexOptions.None, 250)]
     private static partial Regex KustomizeName();
 
-    [GeneratedRegex(@"^\s*newTag:\s*(?<tag>[^\s#]+)")]
+    [GeneratedRegex(@"^\s*newTag:\s*(?<tag>[^\s#]+)", RegexOptions.None, 250)]
     private static partial Regex KustomizeNewTag();
 
-    [GeneratedRegex(@"^\s*resource\s+""(?<type>[a-z_]+)""")]
+    [GeneratedRegex(@"^\s*resource\s+""(?<type>[a-z_]+)""", RegexOptions.None, 250)]
     private static partial Regex ResourceStart();
 
-    [GeneratedRegex(@"^\s*(?<attribute>name|image)\s*=\s*""(?<ref>[^""]+)""")]
+    [GeneratedRegex(@"^\s*(?<attribute>name|image)\s*=\s*""(?<ref>[^""]+)""", RegexOptions.None, 250)]
     private static partial Regex TerraformString();
 
-    [GeneratedRegex(@"^(?<key>[A-Za-z_][\w-]*):\s*(?<value>[^#]*)")]
+    [GeneratedRegex(@"^(?<key>[A-Za-z_][\w-]*):\s*(?<value>[^#]*)", RegexOptions.None, 250)]
     private static partial Regex VariableLine();
 }

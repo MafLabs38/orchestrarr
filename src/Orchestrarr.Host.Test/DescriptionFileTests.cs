@@ -74,6 +74,16 @@ public sealed class DescriptionFileTests : IDisposable
     }
 
     [Fact]
+    public void A_yaml_alias_and_a_file_that_is_too_big_are_refused()
+    {
+        var alias = () => Load(DescriptionFile.FileKey, Write("alias.yaml", "a: &x [1, 2]\nb: *x\n"));
+        var big = () => Load(DescriptionFile.FileKey, Write("big.yaml", "# " + new string('x', 600 * 1024) + "\n"));
+
+        alias.Should().Throw<InvalidOperationException>().WithMessage("*aliases*");
+        big.Should().Throw<InvalidOperationException>().WithMessage("*not that big*");
+    }
+
+    [Fact]
     public void Numbers_and_booleans_keep_their_type_when_the_yaml_becomes_json()
     {
         var json = DescriptionFile.ToJson("a: 12\nb: true\nc: \"text\"\nd: 007\ne: [1, x]\n");

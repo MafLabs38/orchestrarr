@@ -124,7 +124,7 @@ public sealed class ApplicationCatalog : IApplicationCatalog
             raw.Qualify?.Mode ?? QualifyMode.Unknown,
             !string.IsNullOrWhiteSpace(raw.Promote?.Rollback),
             !string.IsNullOrWhiteSpace(raw.Promote?.Check),
-            [.. (raw.Update?.Promote ?? []).Where(kind => kind is UpdateKind.Patch or UpdateKind.Minor or UpdateKind.Major).Distinct()]);
+            [.. (raw.Update?.Promote ?? []).Where(promoted => promoted is UpdateKind.Patch or UpdateKind.Minor or UpdateKind.Major).Distinct()]);
     }
 
     // The source is written as a name (a repository, an image) or as an object that says which: { repository: ... } or { image: ... }

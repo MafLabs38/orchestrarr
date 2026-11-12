@@ -368,6 +368,7 @@ describe('Decisions', () => {
           files: 3,
           readAt: '2026-11-01T08:00:00Z',
           stale: false,
+          error: null,
           problems: [{ repository: 'example/infra', reason: 'not found or no access' }],
         },
       }),

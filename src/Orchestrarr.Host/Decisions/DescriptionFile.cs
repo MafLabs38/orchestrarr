@@ -15,7 +15,8 @@ internal sealed record DescriptionContent(IApplicationCatalog Applications, Desc
 internal static class DescriptionFile
 {
     public const string FileKey = "Description:File";
-    public const string LegacyFileKey = ApplicationCatalogFactory.FileKey;
+    public const string LegacyFileKey = "Applications:File";
+    private const int MaxBytes = 512 * 1024;
 
     public static DescriptionContent Load(IConfiguration configuration, string contentRoot)
     {
@@ -29,6 +30,10 @@ internal static class DescriptionFile
         {
             throw new InvalidOperationException($"{FileKey} names a file that does not exist: {path}");
         }
+        if (new FileInfo(path).Length > MaxBytes)
+        {
+            throw new InvalidOperationException($"{FileKey} names a file of more than {MaxBytes / 1024} KB: a description is not that big.");
+        }
         var json = ToJson(File.ReadAllText(path));
         return new DescriptionContent(ApplicationCatalog.Parse(json), DescriptionScope.Parse(json));
     }
@@ -39,6 +44,7 @@ internal static class DescriptionFile
         object? tree;
         try
         {
+            RefuseAliases(text);
             tree = new DeserializerBuilder().Build().Deserialize<object?>(text);
         }
         catch (YamlDotNet.Core.YamlException failure)
@@ -46,6 +52,19 @@ internal static class DescriptionFile
             throw new InvalidOperationException($"The description cannot be read (line {failure.Start.Line}): {failure.Message}", failure);
         }
         return JsonSerializer.Serialize(Plain(tree));
+    }
+
+    // An alias (*name) points to an anchor (&name): a few of them nested make a document that is a gigabyte once read, so none is accepted in a description
+    private static void RefuseAliases(string text)
+    {
+        var parser = new YamlDotNet.Core.Parser(new StringReader(text));
+        while (parser.MoveNext())
+        {
+            if (parser.Current is YamlDotNet.Core.Events.AnchorAlias)
+            {
+                throw new InvalidOperationException("The description cannot use YAML aliases.");
+            }
+        }
     }
 
     private static object? Plain(object? value) => value switch

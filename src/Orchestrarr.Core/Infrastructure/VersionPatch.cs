@@ -1,4 +1,3 @@
-using System.Text;
 using System.Text.RegularExpressions;
 
 namespace Orchestrarr.Core.Infrastructure;
@@ -17,7 +16,8 @@ public static partial class VersionPatch
     {
         ArgumentNullException.ThrowIfNull(content);
         ArgumentNullException.ThrowIfNull(location);
-        if (location.Managed is not null || string.IsNullOrWhiteSpace(newTag) || newTag.Any(char.IsWhiteSpace))
+        // A tag is written to a file: only what the grammar of a tag allows goes in, so that nothing can change the structure of the line or pin another digest
+        if (location.Managed is not null || !ImageReference.IsTag(newTag))
         {
             return null;
         }
@@ -31,7 +31,8 @@ public static partial class VersionPatch
         var changed = location.Form switch
         {
             VersionForm.KustomizeTag => ReplaceNewTag(original, newTag),
-            VersionForm.Variable => ReplaceVariable(original, newTag),
+            // The version of a platform is told, never rewritten (ADR 0028)
+            VersionForm.Variable => null,
             _ => ReplaceReference(original, location, newTag),
         };
         if (changed is null || changed == original)
@@ -40,7 +41,7 @@ public static partial class VersionPatch
         }
         lines[index] = changed;
         var newContent = string.Join('\n', lines);
-        return new VersionChange(location.Path, original.TrimEnd('\r'), changed.TrimEnd('\r'), newContent, Diff(location.Path, lines, original, changed, index));
+        return new VersionChange(location.Path, original.TrimEnd('\r'), changed.TrimEnd('\r'), newContent, Diff(location.Path, location.Line, original, changed));
     }
 
     private static string? ReplaceNewTag(string line, string newTag)
@@ -83,45 +84,16 @@ public static partial class VersionPatch
 
     private static string Splice(string line, Group group, string replacement) => string.Concat(line.AsSpan(0, group.Index), replacement, line.AsSpan(group.Index + group.Length));
 
-    // A value of a variable file: after the key and its colon, inside its quotes if it has some
-    private static string? ReplaceVariable(string line, string newValue)
-    {
-        var match = VariableValue().Match(line);
-        return match.Success ? Splice(line, match.Groups["value"], newValue) : null;
-    }
+    // The one line that changes, without the lines around it: they are the file of a private repository and may hold what the file name does not say
+    private static string Diff(string path, int line, string original, string changed) =>
+        $"--- a/{path}\n+++ b/{path}\n@@ -{line},1 +{line},1 @@\n-{original.TrimEnd('\r')}\n+{changed.TrimEnd('\r')}\n";
 
-    private static string Diff(string path, string[] lines, string original, string changed, int index)
-    {
-        const int context = 3;
-        var from = Math.Max(0, index - context);
-        var to = Math.Min(lines.Length - 1, index + context);
-        var text = new StringBuilder();
-        text.Append("--- a/").Append(path).Append('\n').Append("+++ b/").Append(path).Append('\n');
-        var count = to - from + 1;
-        text.Append("@@ -").Append(from + 1).Append(',').Append(count).Append(" +").Append(from + 1).Append(',').Append(count).Append(" @@\n");
-        for (var i = from; i <= to; i++)
-        {
-            if (i == index)
-            {
-                text.Append('-').Append(original.TrimEnd('\r')).Append('\n').Append('+').Append(changed.TrimEnd('\r')).Append('\n');
-            }
-            else
-            {
-                text.Append(' ').Append(lines[i].TrimEnd('\r')).Append('\n');
-            }
-        }
-        return text.ToString();
-    }
-
-    [GeneratedRegex(@"(?<=image:\s*|=\s*)(?:""(?<ref>[^""]*)""|'(?<ref>[^']*)'|(?<ref>[^\s#""']+))")]
+    [GeneratedRegex(@"(?<=image:\s*|=\s*)(?:""(?<ref>[^""]*)""|'(?<ref>[^']*)'|(?<ref>[^\s#""']+))", RegexOptions.None, 250)]
     private static partial Regex Quoted();
 
-    [GeneratedRegex(@"^\s*[A-Za-z_][\w-]*:\s*[""']?(?<value>[^""'#\s]+)")]
-    private static partial Regex VariableValue();
-
-    [GeneratedRegex(@"newTag:\s*(?<tag>[^,\s}#]+)")]
+    [GeneratedRegex(@"newTag:\s*(?<tag>[^,\s}#]+)", RegexOptions.None, 250)]
     private static partial Regex FlowTag();
 
-    [GeneratedRegex(@"^\s*newTag:\s*(?<tag>[^\s#]+)")]
+    [GeneratedRegex(@"^\s*newTag:\s*(?<tag>[^\s#]+)", RegexOptions.None, 250)]
     private static partial Regex BlockTag();
 }
