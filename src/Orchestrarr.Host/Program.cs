@@ -72,11 +72,13 @@ builder.Services.AddSingleton<WorkItemCatalog>();
 builder.Services.AddSingleton(_ => DescriptionFile.Load(builder.Configuration, builder.Environment.ContentRootPath));
 builder.Services.AddSingleton(provider => provider.GetRequiredService<DescriptionContent>().Applications);
 builder.Services.AddSingleton(provider => provider.GetRequiredService<DescriptionContent>().Scope);
-// The code of the scope, read from the forge with the same read-only token as the pull requests (ADR 0028)
+// The code of the scope, read from the forge with a read-only token of its own (GitHub:ContentsToken, Contents: read on the repositories of the description only); without one, with GitHub:Token (ADR 0028)
 builder.Services.AddSingleton<IInfrastructureSource>(provider =>
 {
     var github = builder.Configuration.GetSection(GitHubOptions.SectionName).Get<GitHubOptions>() ?? new GitHubOptions();
-    return string.IsNullOrWhiteSpace(github.Token) ? new NoInfrastructureSource() : GitHubInfrastructureSource.Create(github, time: provider.GetRequiredService<TimeProvider>());
+    var token = string.IsNullOrWhiteSpace(github.ContentsToken) ? github.Token : github.ContentsToken;
+    var reader = new GitHubOptions { ApiUrl = github.ApiUrl, WebUrl = github.WebUrl, Token = token, TimeoutSeconds = github.TimeoutSeconds, MaxResponseBytes = github.MaxResponseBytes };
+    return string.IsNullOrWhiteSpace(token) ? new NoInfrastructureSource() : GitHubInfrastructureSource.Create(reader, time: provider.GetRequiredService<TimeProvider>());
 });
 builder.Services.AddSingleton(builder.Configuration.GetSection(InfrastructureCatalogOptions.SectionName).Get<InfrastructureCatalogOptions>() ?? new InfrastructureCatalogOptions());
 builder.Services.AddSingleton(provider =>
@@ -87,14 +89,10 @@ builder.Services.AddSingleton(provider =>
     var live = provider.GetRequiredService<ILiveNotifier>();
     // The table changes, and so does what the bell says of the code (it is carried by the status)
     var log = provider.GetRequiredService<ILoggerFactory>().CreateLogger("Orchestrarr.Infrastructure");
+    // The reason of a failed reading is in the log as well as on the bell (the provider owns that no credential is in the message)
+    catalog.Failed += failure => log.LogWarning(failure, "The code of the description could not be read; the last reading is kept");
     catalog.Changed += () =>
     {
-        // The reason of a failed reading is in the log as well as on the bell (the kind of failure, never an address or a body)
-        var report = catalog.Peek();
-        if (report.Error is { } failure)
-        {
-            log.LogWarning("The code of the description could not be read ({Failure}); the last reading is kept", failure);
-        }
         live.Publish(LiveTopics.Problems);
         live.Publish(LiveTopics.Status);
     };

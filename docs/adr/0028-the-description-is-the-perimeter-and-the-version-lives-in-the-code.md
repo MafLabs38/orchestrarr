@@ -26,7 +26,7 @@ Amends nothing of [ADR 0002](0002-environment-description-is-a-provider.md): whe
 ## Consequences
 
 - The maintainer decides, once and in one file, which repositories and which platforms are maintained; a repository of a training course on a personal account is simply absent.
-- The same token reads repositories of an organisation and of a person.
+- The code is read with a token of its own (`GitHub:ContentsToken`, *Contents: read* on the repositories of the description only), so that the token of the pull requests does not widen to the code of the whole fleet; unset, `GitHub:Token` is used and must carry *Contents* too. A token reads repositories of an organisation and of a person. Without a token, each repository of the description is told as not readable ("no token to read it"), never as "written nowhere".
 - A repository must be on the forge to be in the perimeter; two infrastructure repositories of the maintainer are still on the work machine only.
 - Reading costs one tree request per repository and one request per changed file (a file already read is not read again while its identifier is the same), kept five minutes.
 - The pull request that applies a change is the next vertical: it needs a Runner task, the second factor, and the write power of ADR 0001.

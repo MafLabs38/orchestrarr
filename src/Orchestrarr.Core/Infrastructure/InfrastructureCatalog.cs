@@ -32,14 +32,12 @@ public sealed class InfrastructureCatalog(IInfrastructureSource source, Descript
     private volatile InfrastructureReport _last = new(InfrastructureIndex.Empty, null, false, null);
     private Task? _reading;
     private DateTimeOffset? _notBefore;
-    private Action? _changed;
 
     /// <summary>Raised when a reading ends with a new index or a new failure.</summary>
-    public event Action? Changed
-    {
-        add => _changed += value;
-        remove => _changed -= value;
-    }
+    public event Action? Changed;
+
+    /// <summary>Raised with the exception when a reading fails, for the host's log: the screens only get its type.</summary>
+    public event Action<Exception>? Failed;
 
     public DescriptionScope Scope => scope;
 
@@ -71,19 +69,28 @@ public sealed class InfrastructureCatalog(IInfrastructureSource source, Descript
         return _last;
     }
 
-    // A subscriber that throws must not fault a reading nobody awaits, nor keep the others from being told
+    private void RaiseFailed(Exception failure)
+    {
+        try
+        {
+            Failed?.Invoke(failure);
+        }
+        catch (Exception subscriber) when (subscriber is not OutOfMemoryException)
+        {
+            // A subscriber that throws must not fault a reading nobody awaits
+        }
+    }
+
+    // A subscriber that throws must not fault a reading nobody awaits
     private void Notify()
     {
-        foreach (var handler in (_changed?.GetInvocationList() ?? []).Cast<Action>())
+        try
         {
-            try
-            {
-                handler();
-            }
-            catch (Exception failure) when (failure is not OutOfMemoryException)
-            {
-                // The screens are told on the next reading
-            }
+            Changed?.Invoke();
+        }
+        catch (Exception failure) when (failure is not OutOfMemoryException)
+        {
+            // The screens are told on the next reading
         }
     }
 
@@ -106,6 +113,7 @@ public sealed class InfrastructureCatalog(IInfrastructureSource source, Descript
             // The last good index stays, marked stale: the table does not lose its places because the forge was down for a minute. Not tried again before the shortest interval.
             var now = time.GetUtcNow();
             _last = _last with { Stale = _last.ReadAt is not null, Error = failure.GetType().Name };
+            RaiseFailed(failure);
             lock (_gate)
             {
                 _notBefore = now + options.MinRefreshInterval;

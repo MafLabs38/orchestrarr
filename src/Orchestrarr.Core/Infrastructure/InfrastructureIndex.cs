@@ -24,7 +24,12 @@ public interface IInfrastructureSource
 
 public sealed class NoInfrastructureSource : IInfrastructureSource
 {
-    public Task<InfrastructureSnapshot> ReadAsync(IReadOnlyList<RepositoryScope> scope, CancellationToken cancellationToken) => Task.FromResult(InfrastructureSnapshot.Empty);
+    // Without a token nothing can be read: each repository of the description says so, so that the rows are not told "written nowhere" and the bell names the cause
+    public Task<InfrastructureSnapshot> ReadAsync(IReadOnlyList<RepositoryScope> scope, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+        return Task.FromResult(InfrastructureSnapshot.Empty with { Problems = [.. scope.Select(repository => repository.Repository).Distinct(StringComparer.Ordinal).Select(repository => new RepositoryProblem(repository, "no token to read it"))] });
+    }
 }
 
 /// <summary>

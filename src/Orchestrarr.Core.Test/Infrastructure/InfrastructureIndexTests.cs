@@ -37,4 +37,15 @@ public sealed class InfrastructureIndexTests
         InfrastructureIndex.Empty.InScope.Should().BeFalse();
         InfrastructureIndex.Build(new InfrastructureSnapshot(DateTimeOffset.UnixEpoch, [], [new RepositoryProblem("example/infra", "unreadable")])).InScope.Should().BeTrue("a repository that cannot be read is still in the scope");
     }
+
+    [Fact]
+    public async Task Without_a_token_each_repository_of_the_description_is_told_as_not_readable_once()
+    {
+        var scope = new RepositoryScope[] { new("example/infra", "kubernetes", ["k8s/*.yaml"], "prod"), new("example/infra", "kubernetes", ["k8s/*.yaml"], "staging"), new("example/other", "compose", ["docker-compose.yml"]) };
+
+        var snapshot = await new NoInfrastructureSource().ReadAsync(scope, TestContext.Current.CancellationToken);
+
+        snapshot.Files.Should().BeEmpty();
+        snapshot.Problems.Should().Equal(new RepositoryProblem("example/infra", "no token to read it"), new RepositoryProblem("example/other", "no token to read it"));
+    }
 }
