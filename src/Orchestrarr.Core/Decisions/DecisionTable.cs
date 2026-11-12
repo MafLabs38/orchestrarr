@@ -124,7 +124,7 @@ public enum ProblemKind
     /// <summary>No push for a long time and the CI is red: the repository is probably dead, and its pull requests cannot pass. Archive it or fix it.</summary>
     DormantRepository,
 
-    /// <summary>The platform that everything runs on has a newer version: K3s, or an operating system.</summary>
+    /// <summary>The platform that everything runs on has a newer version: K3s (the only platform kind for now).</summary>
     PlatformUpdate,
 }
 

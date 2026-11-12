@@ -16,7 +16,7 @@ public sealed record PlatformScope(string Id, string Kind, string? Environment, 
 
 /// <summary>
 /// The perimeter of the work, as the description says (ADR 0028): the environments, the platforms, and the repositories where versions are written. Orchestrarr
-/// reads nothing and proposes nothing outside of it. Anything wrong in it stops the start, with the place of the mistake.
+/// reads no code outside of it (the findings of the sources are not filtered by it yet). Anything wrong in it stops the start, with the place of the mistake.
 /// </summary>
 public sealed record DescriptionScope(IReadOnlyList<EnvironmentScope> Environments, IReadOnlyList<PlatformScope> Platforms, IReadOnlyList<RepositoryScope> Repositories)
 {

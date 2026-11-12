@@ -322,9 +322,9 @@ User interface, deferred: the light theme (its accent text color is ready, nothi
 
 | Date | Change |
 |---|---|
+| 2026-11-12 | v0.22: the tabs of the table are removed (one table, a History screen of its own, notices in the bell; D-82, [ADR 0029](adr/0029-the-table-is-one-table-and-the-history-is-a-screen-of-its-own.md)). |
 | 2026-11-12 | v0.21: the description is the perimeter and the version lives in the code: repositories read inside it, where each version is written, the change shown, K3s (D-78 to D-81, ADR 0028). |
 | 2026-11-12 | v0.20: the table by application, with icons, honest rows, skip and a history (D-75, D-76, D-77, ADR 0027). |
-| 2026-11-12 | v0.22: the tabs of the table are removed (one table, a History screen of its own, notices in the bell; D-82, [ADR 0029](adr/0029-the-table-is-one-table-and-the-history-is-a-screen-of-its-own.md)). |
 | 2026-11-12 | v0.19: the executor is renamed the Orchestrarr Runner (D-74, ADR 0026); the columns of the table say CI and Runner. |
 | 2026-11-11 | v0.18: real validation in a throwaway container and a repair by an agent on paper, with nothing pushed (D-72, [ADR 0024](adr/0024-a-pull-request-is-validated-for-real-and-an-agent-may-try-to-repair-it-on-paper.md)); the screens are live through a WebSocket (D-73, [ADR 0025](adr/0025-everything-that-changes-is-pushed-to-the-screens-as-it-changes.md)); the table is dense and sortable with the workshop's verdict; ADR 0023 amended (the code may be off while every handler changes nothing outside its sandbox). |
 | 2026-11-10 | v0.17: the table of problems is built (D-67, [ADR 0019](adr/0019-a-decision-is-a-problem-the-table-selects-and-one-code-validates.md)): `GET /problems`, `POST /problems/approve`, the ceiling computed from the description, the Runners, the powers and the checks; the descriptions are read from a JSON file (D-68, format still to be settled by two real descriptions); Q-30 stays open (no action for alerts and secrets). |

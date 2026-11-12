@@ -1,6 +1,6 @@
 # 0029 — The table is one table, and the history is a screen of its own
 
-- **Status**: accepted by the maintainer on 2026-11-12 (he asked for it)
+- **Status**: proposed, accepted when the pull request is merged
 - **Date**: 2026-11-12
 - **Spec**: D-75 (amended), D-82; supersedes decision 1 of [ADR 0027](0027-the-table-shows-what-can-be-decided-by-application-and-keeps-what-was-decided.md)
 
