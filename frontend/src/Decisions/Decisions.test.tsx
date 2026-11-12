@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { problem, problemsReport, renderWithProviders, status } from 'testUtils';
@@ -341,6 +341,20 @@ describe('Decisions', () => {
     expect(posted(fetchMock)).toMatchObject({
       rows: [{ id: 'pr:example/shop#2', description: 'express 4.16.0 → 4.21.2' }],
     });
+  });
+
+  it('shows the icon of the application when the source has one, and the two letters when the picture cannot be read', async () => {
+    stub(problemsReport([problem({ application: 'Jellyfin', icon: 'jellyfin', source: 'example/media' })]));
+    renderWithProviders(<Decisions />);
+
+    await screen.findAllByText('Jellyfin');
+
+    const image = document.querySelector('img');
+    expect(image).toHaveAttribute('src', '/api/v1/icons/jellyfin');
+    expect(screen.queryByText('JE')).not.toBeInTheDocument();
+    fireEvent.error(image as HTMLImageElement);
+    expect(await screen.findByText('JE')).toBeInTheDocument();
+    expect(screen.getAllByTitle('Jellyfin · example/media').length).toBeGreaterThan(0);
   });
 
   it('shows an approved row as in progress', async () => {

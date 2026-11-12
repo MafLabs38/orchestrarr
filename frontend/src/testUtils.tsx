@@ -65,6 +65,9 @@ export function problem(overrides: Partial<ProblemRow> = {}): ProblemRow {
     workshop: 'unknown',
     inProgress: false,
     tab: 'act',
+    applicationId: null,
+    icon: null,
+    source: null,
     ...overrides,
   };
   return { ...row, tab: overrides.tab ?? tabOf(row) };

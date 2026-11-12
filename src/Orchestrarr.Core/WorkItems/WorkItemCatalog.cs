@@ -30,7 +30,8 @@ public sealed class WorkItemCatalogOptions
 /// The work items as of the last read of the source. <c>Error</c>: why the last read failed. <c>Stale</c>: it failed and the items come
 /// from an earlier read.
 /// </summary>
-public sealed record WorkItemReport(DateTimeOffset? ReadAt, string SourceKind, IReadOnlyList<WorkItem> Items, SourceError? Error, bool Stale);
+public sealed record WorkItemReport(
+    DateTimeOffset? ReadAt, string SourceKind, IReadOnlyList<WorkItem> Items, SourceError? Error, bool Stale, IReadOnlyList<ApplicationInfo>? Applications = null);
 
 /// <summary>
 /// Reads the source of findings and builds the work items. A failed read is kept like a good one for the cache duration, so that a source
@@ -101,7 +102,7 @@ public sealed class WorkItemCatalog : IDisposable
                 var items = WithForgeState(WorkItemBuilder.Build(fleet, _powers));
                 lock (_state)
                 {
-                    _last = new WorkItemReport(fleet.ReadAt, _source.Kind, items, Error: null, Stale: false);
+                    _last = new WorkItemReport(fleet.ReadAt, _source.Kind, items, Error: null, Stale: false, fleet.Applications);
                     _generation++;
                     _enrichment = StartEnrichment(_generation, items, refresh);
                     enrichment = _enrichment;

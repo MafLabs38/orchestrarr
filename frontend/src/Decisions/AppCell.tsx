@@ -1,3 +1,5 @@
+import { useState } from 'react';
+
 import styles from './AppCell.module.css';
 
 // The colour of an application is its name's: the same name is always the same colour, so that the eye finds its rows when the table is sorted
@@ -24,12 +26,32 @@ export function initialsOf(application: string): string {
   return letters.toUpperCase();
 }
 
-export default function AppCell({ application }: Readonly<{ application: string }>) {
+export const iconPath = '/api/v1/icons';
+
+// The icon of the application when the source has one (it is relayed by the host); the two letters when it has none or the picture cannot be read
+export default function AppCell({
+  application,
+  icon,
+  source,
+}: Readonly<{ application: string; icon?: string | null; source?: string | null }>) {
+  const [broken, setBroken] = useState(false);
   return (
-    <span className={styles.cell} title={application}>
-      <span className={styles.avatar} style={{ background: `var(${toneOf(application)})` }} aria-hidden="true">
-        {initialsOf(application)}
-      </span>
+    <span className={styles.cell} title={source && source !== application ? `${application} · ${source}` : application}>
+      {icon && !broken ? (
+        <img
+          className={styles.icon}
+          src={`${iconPath}/${encodeURIComponent(icon)}`}
+          alt=""
+          width={22}
+          height={22}
+          loading="lazy"
+          onError={() => setBroken(true)}
+        />
+      ) : (
+        <span className={styles.avatar} style={{ background: `var(${toneOf(application)})` }} aria-hidden="true">
+          {initialsOf(application)}
+        </span>
+      )}
       <span className={styles.name}>{shortName(application)}</span>
     </span>
   );

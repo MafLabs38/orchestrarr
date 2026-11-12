@@ -143,3 +143,9 @@
   color: var(--ink);
   background: var(--paperSunken);
 }
+
+/* The application takes what its name needs and no more: the room goes to the problem */
+.app {
+  width: 1%;
+  max-width: 170px;
+}

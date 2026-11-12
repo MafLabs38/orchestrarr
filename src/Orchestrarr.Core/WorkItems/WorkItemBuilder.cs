@@ -64,7 +64,7 @@ public static class WorkItemBuilder
                 Id: $"image:{image.Reference}",
                 Title: image.Reference,
                 RepositoryFullName: null,
-                AppIds: [],
+                AppIds: image.AppIds ?? [],
                 Severity: finding.Severity,
                 Findings: [finding],
                 Plan: [.. DeploySteps(placements, null, powers)],

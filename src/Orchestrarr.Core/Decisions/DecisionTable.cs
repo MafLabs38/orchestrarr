@@ -1,4 +1,5 @@
 using Orchestrarr.Core.Applications;
+using Orchestrarr.Core.Fleet;
 using Orchestrarr.Core.Forge;
 using Orchestrarr.Core.Tasks;
 using Orchestrarr.Core.WorkItems;
@@ -110,7 +111,10 @@ public sealed record ProblemRow(
     CeilingReason Why,
     bool CanStopBeforeProduction,
     WorkshopVerdict Workshop = WorkshopVerdict.Unknown,
-    bool InProgress = false)
+    bool InProgress = false,
+    string? ApplicationId = null,
+    string? Icon = null,
+    string? Source = null)
 {
     /// <summary>The tab the row belongs to: what a person sees by default is what they can decide now.</summary>
     public ProblemTab Tab
@@ -135,7 +139,9 @@ public sealed record RunnerAcceptance(IReadOnlyList<TaskKind> Kinds, IReadOnlyLi
 /// <summary>Builds the rows of the table from the work items, the descriptions and the runners. A pure function: the same input gives the same table.</summary>
 public static class DecisionTable
 {
-    public static IReadOnlyList<ProblemRow> Build(IReadOnlyList<WorkItem> items, IApplicationCatalog applications, IReadOnlyList<RunnerAcceptance> runners, IReadOnlyList<TaskResultRow>? results = null)
+    public static IReadOnlyList<ProblemRow> Build(
+        IReadOnlyList<WorkItem> items, IApplicationCatalog applications, IReadOnlyList<RunnerAcceptance> runners, IReadOnlyList<TaskResultRow>? results = null,
+        IReadOnlyList<ApplicationInfo>? applicationNames = null)
     {
         ArgumentNullException.ThrowIfNull(items);
         ArgumentNullException.ThrowIfNull(applications);
@@ -143,10 +149,26 @@ public static class DecisionTable
         var rows = new List<ProblemRow>();
         foreach (var item in items)
         {
+            var before = rows.Count;
             AddDependencyUpdates(rows, item, applications, runners, results ?? []);
             AddOtherProblems(rows, item);
+            NameApplication(rows, before, item, applicationNames ?? []);
         }
         return rows;
+    }
+
+    // The application a person knows: when the source says that the repository or the image is one application, its name and its icon; otherwise the repository
+    // or the image itself. The repository or the image stays in <c>Source</c>.
+    private static void NameApplication(List<ProblemRow> rows, int from, WorkItem item, IReadOnlyList<ApplicationInfo> names)
+    {
+        var known = item.AppIds.Distinct(StringComparer.Ordinal).Select(id => names.FirstOrDefault(name => name.Id == id)).OfType<ApplicationInfo>().ToList();
+        for (var i = from; i < rows.Count; i++)
+        {
+            var source = rows[i].Application;
+            rows[i] = known.Count == 1
+                ? rows[i] with { Application = known[0].Name, ApplicationId = known[0].Id, Icon = known[0].Icon, Source = source }
+                : rows[i] with { Source = source };
+        }
     }
 
     // The steps a ceiling stands for: the runner validates, and merges from the merge ceiling up. Production is a decision recorded with the approval.

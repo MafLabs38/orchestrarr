@@ -40,6 +40,44 @@ public sealed class DecisionTableTests
 
     private static readonly RunnerAcceptance Repairing = new([TaskKind.ValidatePullRequest, TaskKind.MergePullRequest, TaskKind.RepairPullRequest], ["example/*"]);
 
+    [Fact]
+    public void A_repository_that_is_one_application_of_the_source_takes_its_name_and_its_icon_and_keeps_the_repository_as_the_source()
+    {
+        var item = Item() with { AppIds = ["shop"] };
+
+        var row = DecisionTable.Build([item], Described(), [Everything], null, [new ApplicationInfo("shop", "Shop", "shop-icon"), new ApplicationInfo("other", "Other", null)]).Single();
+
+        row.Application.Should().Be("Shop");
+        row.ApplicationId.Should().Be("shop");
+        row.Icon.Should().Be("shop-icon");
+        row.Source.Should().Be("example/shop");
+    }
+
+    [Fact]
+    public void A_repository_of_several_applications_or_of_none_known_keeps_its_own_name_with_no_icon()
+    {
+        var names = new[] { new ApplicationInfo("a", "A", "a"), new ApplicationInfo("b", "B", "b") };
+
+        var several = DecisionTable.Build([Item() with { AppIds = ["a", "b"] }], Described(), [Everything], null, names).Single();
+        var none = DecisionTable.Build([Item() with { AppIds = ["unknown"] }], Described(), [Everything], null, names).Single();
+        var unnamed = DecisionTable.Build([Item()], Described(), [Everything]).Single();
+
+        new[] { several, none, unnamed }.Should().OnlyContain(row => row.Application == "example/shop" && row.Icon == null && row.ApplicationId == null && row.Source == "example/shop");
+    }
+
+    [Fact]
+    public void An_image_used_by_one_application_is_that_application_and_the_findings_of_a_repository_follow_too()
+    {
+        var finding = new Finding(FindingKind.OutdatedImage, Severity.Info, 1, Image: new ImageUpdate("postgres:15-alpine", "15", "18", Orchestrarr.Core.Fleet.ImageChange.Major));
+        var image = new WorkItem("image:postgres:15-alpine", "postgres:15-alpine", null, ["db"], Severity.Info, [finding], [], [], PullRequestsRead.NotNeeded);
+
+        var row = DecisionTable.Build([image], Described(), [Everything], null, [new ApplicationInfo("db", "Database", "postgres")]).Single();
+
+        row.Application.Should().Be("Database");
+        row.Source.Should().Be("postgres:15-alpine");
+        row.Description.Should().Contain("postgres:15-alpine");
+    }
+
     private static ProblemRow Only(IReadOnlyList<ProblemRow> rows) => rows.Single(row => row.Kind == ProblemKind.DependencyUpdate);
 
     [Fact]

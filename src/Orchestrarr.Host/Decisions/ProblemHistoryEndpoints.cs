@@ -92,7 +92,7 @@ internal static class ProblemHistoryEndpoints
                     {
                         return Results.Json(new ErrorResponse(ApiErrors.AuditUnavailable), statusCode: StatusCodes.Status503ServiceUnavailable);
                     }
-                    history.Record(new HistoryEntry(0, row.Id, row.Description, HistoryState.Skipped, row.Application, row.Kind, row.Description, row.WorkItemId.StartsWith("repository:", StringComparison.Ordinal) ? row.Application : null,
+                    history.Record(new HistoryEntry(0, row.Id, row.Description, HistoryState.Skipped, row.Application, row.Kind, row.Description, row.WorkItemId.StartsWith("repository:", StringComparison.Ordinal) ? row.Source : null,
                         row.PullRequest, row.HeadSha, null, null, now, name, request.Reason?.Trim()));
                 }
             }

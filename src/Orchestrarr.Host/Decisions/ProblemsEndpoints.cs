@@ -29,7 +29,7 @@ internal static class ProblemsEndpoints
         api.MapGet("/problems", async (WorkItemCatalog catalog, IApplicationCatalog applications, RunnerRegistry runners, IBatchQueue queue, IProblemHistory history, IApprovalStore approvals, bool? refresh, CancellationToken ct) =>
         {
             var report = await catalog.GetAsync(refresh ?? false, ct);
-            var all = DecisionTable.Build(report.Items, applications, Acceptance(runners), WorkshopResults(queue));
+            var all = DecisionTable.Build(report.Items, applications, Acceptance(runners), WorkshopResults(queue), report.Applications);
             var rows = Visible(all, history, approvals);
             return Results.Ok(new ProblemsReport(report.ReadAt, report.SourceKind, report.Stale, report.Error, applications.Version, rows, all.Count - rows.Count));
         }).RequireAuthorization(Permissions.FleetRead);
@@ -43,7 +43,7 @@ internal static class ProblemsEndpoints
             }
 
             var report = await catalog.GetAsync(refresh: false, ct);
-            var table = Visible(DecisionTable.Build(report.Items, applications, Acceptance(runners), WorkshopResults(queue)), history, approvalStore).ToDictionary(row => row.Id, StringComparer.Ordinal);
+            var table = Visible(DecisionTable.Build(report.Items, applications, Acceptance(runners), WorkshopResults(queue), report.Applications), history, approvalStore).ToDictionary(row => row.Id, StringComparer.Ordinal);
             // What the operator saw is what is approved: the rule lives once, in Core
             var resolution = DecisionSelection.Resolve(table, [.. (request.Rows ?? []).Select(row => new ChosenRow(row.Id, row.HeadSha, row.GoesUpTo, row.StopBeforeProduction))], request.DescriptionsVersion, applications.Version);
             if (resolution.Refused)
@@ -81,11 +81,11 @@ internal static class ProblemsEndpoints
             return table;
         }
         return [.. table.Where(row => !skips.Contains((row.Id, row.Description)))
-            .Select(row => row.PullRequest is { } number && working.Contains((row.Application.ToUpperInvariant(), number)) ? row with { InProgress = true } : row)];
+            .Select(row => row.PullRequest is { } number && working.Contains(((row.Source ?? row.Application).ToUpperInvariant(), number)) ? row with { InProgress = true } : row)];
     }
 
     internal static IReadOnlyList<ProblemRow> VisibleTable(WorkItemReport report, IApplicationCatalog applications, RunnerRegistry runners, IBatchQueue queue, IProblemHistory history, IApprovalStore approvals) =>
-        Visible(DecisionTable.Build(report.Items, applications, Acceptance(runners), WorkshopResults(queue)), history, approvals);
+        Visible(DecisionTable.Build(report.Items, applications, Acceptance(runners), WorkshopResults(queue), report.Applications), history, approvals);
 
     // What the operator approved, photographed: the live row is gone once the pull request is merged. A history that cannot be written does not undo the approval.
     private static void RecordApproved(IProblemHistory history, IEnumerable<ProblemRow> table, IReadOnlyList<Approval> approvals, DateTimeOffset at, string by)

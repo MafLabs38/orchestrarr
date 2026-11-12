@@ -33,7 +33,9 @@ builder.Services.AddSignalR();
 builder.Services.AddSingleton<LiveBroadcaster>();
 builder.Services.AddSingleton<ILiveNotifier>(provider => provider.GetRequiredService<LiveBroadcaster>());
 builder.Services.AddHostedService(provider => provider.GetRequiredService<LiveBroadcaster>());
-builder.Services.AddSingleton(provider => FleetSourceFactory.Create(builder.Configuration, builder.Environment.ContentRootPath, provider.GetRequiredService<TimeProvider>()));
+builder.Services.AddSingleton<IFleetSource>(provider => FleetSourceFactory.Create(builder.Configuration, builder.Environment.ContentRootPath, provider.GetRequiredService<TimeProvider>()));
+// The icons come from the source of the fleet when it serves them (Portarr does), otherwise there are none
+builder.Services.AddSingleton<IIconSource>(provider => provider.GetRequiredService<IFleetSource>() as IIconSource ?? new NoIconSource());
 builder.Services.AddSingleton(provider => PullRequestSourceFactory.Create(builder.Configuration, builder.Environment.ContentRootPath, provider.GetRequiredService<TimeProvider>()));
 // Approving: recording the operator's decision, with its trail and the global stop. Nothing here runs anything yet.
 var approvals = builder.Configuration.GetSection(ApprovalsOptions.SectionName).Get<ApprovalsOptions>() ?? new ApprovalsOptions();
@@ -103,6 +105,7 @@ app.UseRateLimiter();
 app.MapGet("/health", () => Results.Ok(new HealthStatus("ok"))).AllowAnonymous();
 
 // The decision cards waiting for the operator, and the approvals recorded for the launcher. Approving records a decision; the runner takes it from the queue.
+api.MapIconEndpoints();
 api.MapGet("/work-items", async (WorkItemCatalog catalog, bool? refresh, CancellationToken ct) =>
     Results.Ok(await catalog.GetAsync(refresh ?? false, ct))).RequireAuthorization(Permissions.FleetRead);
 

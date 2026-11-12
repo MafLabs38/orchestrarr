@@ -113,7 +113,7 @@ public sealed class SqliteNewDatabaseTests : IDisposable
         command.ExecuteScalar().Should().Be("old-name");
         using var version = reopened.CreateCommand();
         version.CommandText = "PRAGMA user_version;";
-        Convert.ToInt32(version.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture).Should().Be(5);
+        Convert.ToInt32(version.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture).Should().Be(6, "version 5 renames the column and version 6 adds the history");
     }
 
     private sealed class FixedClock(DateTimeOffset now) : TimeProvider

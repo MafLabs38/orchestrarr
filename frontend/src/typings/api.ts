@@ -267,6 +267,10 @@ export interface ProblemRow {
   workshop: WorkshopVerdict;
   inProgress: boolean;
   tab: ProblemTab;
+  // The application a person knows, as the source of the fleet names it, and the name of its icon; the repository or the image stays in `source`
+  applicationId: string | null;
+  icon: string | null;
+  source: string | null;
 }
 
 // Where a row is shown: what can be decided now, what needs a setting, what is only to know

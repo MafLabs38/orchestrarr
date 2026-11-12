@@ -38,7 +38,7 @@ export const isActionable = (row: ProblemRow) => row.goesUpTo !== 'noAction' && 
 
 const columns: { column: SortColumn; label: Parameters<typeof translate>[0]; className?: string }[] = [
   { column: 'number', label: 'ColumnNumber', className: styles.narrow },
-  { column: 'application', label: 'ColumnApplication' },
+  { column: 'application', label: 'ColumnApplication', className: styles.app },
   { column: 'type', label: 'ColumnType' },
   { column: 'problem', label: 'ColumnProblem' },
   { column: 'checks', label: 'ColumnForge', className: styles.narrow },
@@ -216,8 +216,8 @@ function ProblemTableRow({
         />
       </td>
       <td className={classNames(styles.narrow, styles.number)}>{number}</td>
-      <td>
-        <AppCell application={row.application} />
+      <td className={styles.app}>
+        <AppCell application={row.application} icon={row.icon} source={row.source} />
       </td>
       <td>{describeProblemKindShort(row.kind)}</td>
       <td className={styles.problem}>
