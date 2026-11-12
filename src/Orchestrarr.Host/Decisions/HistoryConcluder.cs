@@ -17,7 +17,7 @@ namespace Orchestrarr.Host.Decisions;
 /// It also ends the skips of the problems that are gone, so that one that comes back is seen again. A read of the history writes nothing (ADR 0027).
 /// </summary>
 public sealed class HistoryConcluder(IProblemHistory history, IApprovalStore approvals, IBatchQueue queue, WorkItemCatalog catalog, IApplicationCatalog applications, RunnerRegistry runners,
-    RelevancePolicy policy, InfrastructureCatalog infrastructure, IK3sReleases k3s, IAuditSink audit, ILiveNotifier live, TimeProvider time, ILogger<HistoryConcluder> logger) : BackgroundService
+    RelevancePolicy policy, InfrastructureCatalog infrastructure, IAuditSink audit, ILiveNotifier live, TimeProvider time, ILogger<HistoryConcluder> logger) : BackgroundService
 {
     private const int LinesPerPass = 200;
     private const int MaxPagesPerPass = 25;
@@ -70,15 +70,14 @@ public sealed class HistoryConcluder(IProblemHistory history, IApprovalStore app
         {
             return 0;
         }
-        var releases = k3s.Peek();
         // One reading of the code for the table and for the guard: a reading that ends in between would give the two different inputs
         var code = infrastructure.Peek();
-        var table = ProblemsEndpoints.FullTable(new TableInputs(report, code.Index, infrastructure.Scope, releases), applications, runners, queue, time, policy);
+        var table = ProblemsEndpoints.FullTable(new TableInputs(report, code.Index, infrastructure.Scope), applications, runners, queue, time, policy);
         if (table.Any(row => row.Kind == ProblemKind.PullRequestsNotRead))
         {
             return 0;
         }
-        var missing = MissingSkips(skips, table, report.Items, platformsKnown: infrastructure.Scope.Platforms.Count == 0 || (releases is not null && code.Index is { InScope: true, Problems.Count: 0 }));
+        var missing = MissingSkips(skips, table, report.Items);
         foreach (var key in _missing.Keys.Where(key => !missing.Contains(key)).ToList())
         {
             _missing.Remove(key);
@@ -107,13 +106,12 @@ public sealed class HistoryConcluder(IProblemHistory history, IApprovalStore app
     /// The skips whose problem is not the one in the table: gone, or still there with another text. A row about a pull request is missing for good only if every list of pull
     /// requests was read whole: a list cut at the bound of the reader, one that failed or one still being read does not say the pull request is gone.
     /// </summary>
-    internal static IReadOnlyList<ActiveSkip> MissingSkips(IReadOnlyList<ActiveSkip> skips, IReadOnlyList<ProblemRow> table, IReadOnlyList<WorkItem> items, bool platformsKnown = true)
+    internal static IReadOnlyList<ActiveSkip> MissingSkips(IReadOnlyList<ActiveSkip> skips, IReadOnlyList<ProblemRow> table, IReadOnlyList<WorkItem> items)
     {
         var present = table.Select(row => (row.Id, row.Description)).ToHashSet();
         var pullRequestsWhole = items.All(item => item.PullRequests is { Status: PullRequestsStatus.Read or PullRequestsStatus.NotNeeded, Truncated: false });
         return [.. skips.Where(skip => !present.Contains((skip.RowId, skip.Target))
-            && (pullRequestsWhole || !skip.RowId.StartsWith(DecisionTable.PullRequestRowPrefix, StringComparison.Ordinal))
-            && (platformsKnown || !skip.RowId.StartsWith(PlatformRows.RowPrefix, StringComparison.Ordinal))).Distinct()];
+            && (pullRequestsWhole || !skip.RowId.StartsWith(DecisionTable.PullRequestRowPrefix, StringComparison.Ordinal))).Distinct()];
     }
 
     /// <summary>One pass over the approved lines without an outcome; returns how many were concluded.</summary>

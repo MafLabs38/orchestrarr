@@ -31,8 +31,6 @@ public static partial class VersionPatch
         var changed = location.Form switch
         {
             VersionForm.KustomizeTag => ReplaceNewTag(original, newTag),
-            // The version of a platform is told, never rewritten (ADR 0028)
-            VersionForm.Variable => null,
             _ => ReplaceReference(original, location, newTag),
         };
         if (changed is null || changed == original)

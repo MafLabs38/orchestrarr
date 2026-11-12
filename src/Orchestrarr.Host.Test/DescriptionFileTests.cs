@@ -27,8 +27,6 @@ public sealed class DescriptionFileTests : IDisposable
           - repository: example/infra
             kind: kubernetes
             paths: ["apps/**/*.yaml"]   # only these
-        platforms:
-          - { id: k3s, kind: k3s, version: { repository: example/infra, path: apps/all.yml, key: k3s_version } }
         applications:
           - { id: n8n, kind: third-party, source: { image: n8nio/n8n }, environments: [k3s] }
           - id: shop
@@ -45,7 +43,6 @@ public sealed class DescriptionFileTests : IDisposable
 
         content.Scope.Environments.Should().ContainSingle().Which.Id.Should().Be("k3s");
         content.Scope.Repositories.Should().ContainSingle().Which.Paths.Should().Equal("apps/**/*.yaml");
-        content.Scope.Platforms.Should().ContainSingle().Which.Version!.Key.Should().Be("k3s_version");
         content.Applications.Find("n8n")!.Source.Should().Be("n8nio/n8n");
         content.Applications.Find("shop")!.PromotesAutomatically.Should().HaveCount(2);
         content.Applications.Version.Should().NotBeEmpty();

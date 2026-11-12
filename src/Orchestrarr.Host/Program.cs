@@ -98,14 +98,6 @@ builder.Services.AddSingleton(provider =>
     };
     return catalog;
 });
-builder.Services.AddSingleton(builder.Configuration.GetSection(PlatformOptions.SectionName).Get<PlatformOptions>() ?? new PlatformOptions());
-builder.Services.AddSingleton<IK3sReleases>(provider =>
-{
-    var releases = new K3sReleaseSource(provider.GetRequiredService<PlatformOptions>(), provider.GetRequiredService<TimeProvider>(), logger: provider.GetRequiredService<ILoggerFactory>().CreateLogger("Orchestrarr.Platforms"));
-    var live = provider.GetRequiredService<ILiveNotifier>();
-    releases.Changed += () => live.Publish(LiveTopics.Problems);
-    return releases;
-});
 
 var app = builder.Build();
 if (!storage.Persistent && !app.Environment.IsDevelopment())

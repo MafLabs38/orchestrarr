@@ -5,24 +5,13 @@ namespace Orchestrarr.Core.Infrastructure;
 /// <summary>An environment of the description: the same identifier as in Portarr.</summary>
 public sealed record EnvironmentScope(string Id, string? Name);
 
-/// <summary>Where a version is written in a repository: the file, and for a file of variables the key.</summary>
-public sealed record VersionPointer(string Repository, string Path, string? Key);
-
 /// <summary>
-/// What everything else rests on and a person upgrades with care (ADR 0028): the K3s of an environment, whose version is a variable of the code. Nothing here is ever
-/// upgraded by itself. The nodes, the hosts and their systems are Portarr's to say (ADR 0002), not a copy kept here.
-/// </summary>
-public sealed record PlatformScope(string Id, string Kind, string? Environment, VersionPointer? Version);
-
-/// <summary>
-/// The perimeter of the work, as the description says (ADR 0028): the environments, the platforms, and the repositories where versions are written. Orchestrarr
+/// The perimeter of the work, as the description says (ADR 0028): the environments and the repositories where versions are written. Orchestrarr
 /// reads no code outside of it (the findings of the sources are not filtered by it yet). Anything wrong in it stops the start, with the place of the mistake.
 /// </summary>
-public sealed record DescriptionScope(IReadOnlyList<EnvironmentScope> Environments, IReadOnlyList<PlatformScope> Platforms, IReadOnlyList<RepositoryScope> Repositories)
+public sealed record DescriptionScope(IReadOnlyList<EnvironmentScope> Environments, IReadOnlyList<RepositoryScope> Repositories)
 {
-    public static DescriptionScope None { get; } = new([], [], []);
-
-    public static readonly IReadOnlyList<string> PlatformKinds = ["k3s"];
+    public static DescriptionScope None { get; } = new([], []);
 
     public static DescriptionScope Parse(string json)
     {
@@ -47,9 +36,7 @@ public sealed record DescriptionScope(IReadOnlyList<EnvironmentScope> Environmen
             Distinct(environments.Select(environment => environment.Id), "environments");
             var repositories = Section(root, "repositories").Select(element => Repository(element, environments)).ToList();
             Distinct(repositories.Select(repository => $"{repository.Repository} ({repository.Kind}, {repository.Environment ?? "any environment"})"), "repositories");
-            var platforms = Section(root, "platforms").Select(element => Platform(element, repositories, environments)).ToList();
-            Distinct(platforms.Select(platform => platform.Id), "platforms");
-            return new DescriptionScope(environments, platforms, repositories);
+            return new DescriptionScope(environments, repositories);
         }
     }
 
@@ -112,31 +99,5 @@ public sealed record DescriptionScope(IReadOnlyList<EnvironmentScope> Environmen
             throw new InvalidOperationException($"'{repository}' names the paths it is read from, relative to the repository.");
         }
         return new RepositoryScope(repository, kind, paths, EnvironmentOf(element, environments, $"'{repository}'"));
-    }
-
-    private static PlatformScope Platform(JsonElement element, List<RepositoryScope> repositories, List<EnvironmentScope> environments)
-    {
-        var id = Text(element, "id");
-        var kind = Text(element, "kind");
-        if (string.IsNullOrWhiteSpace(id) || kind is null || !PlatformKinds.Contains(kind))
-        {
-            throw new InvalidOperationException($"A platform has an id and a kind, one of {string.Join(", ", PlatformKinds)}.");
-        }
-        VersionPointer? version = null;
-        if (element.TryGetProperty("version", out var pointer) && pointer.ValueKind == JsonValueKind.Object)
-        {
-            var repository = Text(pointer, "repository");
-            var path = Text(pointer, "path");
-            if (repository is null || path is null || !repositories.Any(scope => scope.Repository == repository))
-            {
-                throw new InvalidOperationException($"The version of '{id}' is written in a repository of the description, with a path.");
-            }
-            version = new VersionPointer(repository, path, Text(pointer, "key"));
-        }
-        if (kind == "k3s" && version?.Key is null)
-        {
-            throw new InvalidOperationException($"The platform '{id}' (k3s) says where its version is written, with the key.");
-        }
-        return new PlatformScope(id, kind, EnvironmentOf(element, environments, $"The platform '{id}'"), version);
     }
 }

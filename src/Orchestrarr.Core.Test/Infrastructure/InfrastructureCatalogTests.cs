@@ -8,7 +8,7 @@ public sealed class InfrastructureCatalogTests
     private static readonly CancellationToken Ct = TestContext.Current.CancellationToken;
     private readonly FakeTimeProvider _time = new(new DateTimeOffset(2026, 11, 12, 9, 0, 0, TimeSpan.Zero));
     private readonly InfrastructureCatalogOptions _options = new() { CacheDuration = TimeSpan.FromMinutes(5), MinRefreshInterval = TimeSpan.FromMinutes(1), FirstWait = TimeSpan.FromSeconds(8) };
-    private static readonly DescriptionScope Scope = new([], [], [new RepositoryScope("example/infra", "kubernetes", ["k8s/**/*.yaml"])]);
+    private static readonly DescriptionScope Scope = new([], [new RepositoryScope("example/infra", "kubernetes", ["k8s/**/*.yaml"])]);
 
     private static InfrastructureSnapshot Snapshot() =>
         new(DateTimeOffset.UnixEpoch, [new InfrastructureFile("example/infra", "k8s/a.yaml", "kubernetes", "image: a:1\n")], []);

@@ -84,12 +84,6 @@ public enum CeilingReason
 
     /// <summary>The code that writes the version is known and the change is shown, computed and not applied: Orchestrarr holds no write power.</summary>
     CodeChangeShown,
-
-    /// <summary>A platform (K3s) upgrade: it touches everything that runs on it, so it is described and never offered. One minor at a time, workers first, a snapshot before.</summary>
-    PlatformUpgradeIsPlanned,
-
-    /// <summary>The variable that holds the version of a platform is not where the description says.</summary>
-    PlatformVersionNotRead,
 }
 
 /// <summary>What the workshop last said about this very commit of a pull request, for the column that sits beside the forge's checks.</summary>
@@ -123,9 +117,6 @@ public enum ProblemKind
 
     /// <summary>No push for a long time and the CI is red: the repository is probably dead, and its pull requests cannot pass. Archive it or fix it.</summary>
     DormantRepository,
-
-    /// <summary>The platform that everything runs on has a newer version: K3s (the only platform kind for now).</summary>
-    PlatformUpdate,
 }
 
 /// <summary>

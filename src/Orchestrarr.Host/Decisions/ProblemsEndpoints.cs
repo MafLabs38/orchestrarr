@@ -16,13 +16,13 @@ public sealed record ProblemsReport(
     DateTimeOffset? ReadAt, string SourceKind, bool Stale, SourceError? Error, string DescriptionsVersion, IReadOnlyList<ProblemRow> Rows, int Skipped = 0, CodeScopeStatus? Code = null);
 
 /// <summary>
-/// Everything the table is built from besides the Runners and the clock: the work items, the code of the scope, the scope and the releases of K3s. Built in one place, so
+/// Everything the table is built from besides the Runners and the clock: the work items, the code of the scope and the scope. Built in one place, so
 /// that every route that builds the table (the screen, the skip, the approval, the pass that ends the skips) builds it from the same inputs.
 /// </summary>
-internal sealed record TableInputs(WorkItemReport Report, InfrastructureIndex Code, DescriptionScope Scope, K3sReleases? Releases)
+internal sealed record TableInputs(WorkItemReport Report, InfrastructureIndex Code, DescriptionScope Scope)
 {
     /// <summary>What was read last, without reading anything.</summary>
-    public static TableInputs Last(WorkItemReport report, InfrastructureCatalog infrastructure, IK3sReleases k3s) => new(report, infrastructure.Peek().Index, infrastructure.Scope, k3s.Peek());
+    public static TableInputs Last(WorkItemReport report, InfrastructureCatalog infrastructure) => new(report, infrastructure.Peek().Index, infrastructure.Scope);
 }
 
 /// <summary>The state of the code of the scope as the table found it: how many places it reads, what could not be read, and whether it is the last good reading (ADR 0028).</summary>
@@ -47,11 +47,11 @@ internal static class ProblemsEndpoints
 {
     public static void MapProblemsEndpoints(this RouteGroupBuilder api)
     {
-        api.MapGet("/problems", async (WorkItemCatalog catalog, IApplicationCatalog applications, RunnerRegistry runners, IBatchQueue queue, IProblemHistory history, IApprovalStore approvals, TimeProvider time, RelevancePolicy policy, InfrastructureCatalog infrastructure, IK3sReleases k3s, bool? refresh, CancellationToken ct) =>
+        api.MapGet("/problems", async (WorkItemCatalog catalog, IApplicationCatalog applications, RunnerRegistry runners, IBatchQueue queue, IProblemHistory history, IApprovalStore approvals, TimeProvider time, RelevancePolicy policy, InfrastructureCatalog infrastructure, bool? refresh, CancellationToken ct) =>
         {
             var report = await catalog.GetAsync(refresh ?? false, ct);
             var code = await infrastructure.GetAsync(refresh ?? false, ct);
-            var all = FullTable(new TableInputs(report, code.Index, infrastructure.Scope, await k3s.GetAsync(ct)), applications, runners, queue, time, policy);
+            var all = FullTable(new TableInputs(report, code.Index, infrastructure.Scope), applications, runners, queue, time, policy);
             var rows = Visible(all, history, approvals);
             return Results.Ok(new ProblemsReport(report.ReadAt, report.SourceKind, report.Stale, report.Error, applications.Version, rows, all.Count - rows.Count,
                 new CodeScopeStatus(code.Index.InScope, infrastructure.Scope.Repositories.Count, code.Index.FileCount, code.ReadAt, code.Stale, code.Index.Problems, code.Error)));
@@ -59,11 +59,11 @@ internal static class ProblemsEndpoints
 
         // The change that would write the proposed version where the code of the scope writes it: shown, never applied (Orchestrarr holds no write power, ADR 0028)
         api.MapGet("/problems/change", async (string? id, WorkItemCatalog catalog, IApplicationCatalog applications, RunnerRegistry runners, IBatchQueue queue, TimeProvider time, RelevancePolicy policy,
-            InfrastructureCatalog infrastructure, IK3sReleases k3s, CancellationToken ct) =>
+            InfrastructureCatalog infrastructure, CancellationToken ct) =>
         {
             var report = await catalog.GetAsync(refresh: false, ct);
             var code = await infrastructure.GetAsync(refresh: false, ct);
-            var row = FullTable(new TableInputs(report, code.Index, infrastructure.Scope, await k3s.GetAsync(ct)), applications, runners, queue, time, policy).FirstOrDefault(candidate => string.Equals(candidate.Id, id, StringComparison.Ordinal));
+            var row = FullTable(new TableInputs(report, code.Index, infrastructure.Scope), applications, runners, queue, time, policy).FirstOrDefault(candidate => string.Equals(candidate.Id, id, StringComparison.Ordinal));
             if (row is null)
             {
                 return Results.Json(new ErrorResponse("notFound"), statusCode: StatusCodes.Status404NotFound);
@@ -87,7 +87,7 @@ internal static class ProblemsEndpoints
             return Results.Ok(new CodeChangeReport(row.Id, tag, changes, left));
         }).RequireAuthorization(Permissions.FleetRead);
 
-        api.MapPost("/problems/approve", async (ApproveProblemsRequest request, HttpContext context, IApproverAccessor accessor, IProblemHistory history, IApprovalStore approvalStore, ILoggerFactory loggers, TimeProvider time, RelevancePolicy policy, WorkItemCatalog catalog, IApplicationCatalog applications, RunnerRegistry runners, IBatchQueue queue, InfrastructureCatalog infrastructure, IK3sReleases k3s, ApprovalService service, CancellationToken ct) =>
+        api.MapPost("/problems/approve", async (ApproveProblemsRequest request, HttpContext context, IApproverAccessor accessor, IProblemHistory history, IApprovalStore approvalStore, ILoggerFactory loggers, TimeProvider time, RelevancePolicy policy, WorkItemCatalog catalog, IApplicationCatalog applications, RunnerRegistry runners, IBatchQueue queue, InfrastructureCatalog infrastructure, ApprovalService service, CancellationToken ct) =>
         {
             var (approver, refusal) = ApprovalEndpoints.Authorize(accessor, context);
             if (approver is null)
@@ -96,7 +96,7 @@ internal static class ProblemsEndpoints
             }
 
             var report = await catalog.GetAsync(refresh: false, ct);
-            var table = VisibleTable(TableInputs.Last(report, infrastructure, k3s), applications, runners, queue, history, approvalStore, time, policy).ToDictionary(row => row.Id, StringComparer.Ordinal);
+            var table = VisibleTable(TableInputs.Last(report, infrastructure), applications, runners, queue, history, approvalStore, time, policy).ToDictionary(row => row.Id, StringComparer.Ordinal);
             // What the operator saw is what is approved: the rule lives once, in Core
             var resolution = DecisionSelection.Resolve(table, [.. (request.Rows ?? []).Select(row => new ChosenRow(row.Id, row.HeadSha, row.GoesUpTo, row.StopBeforeProduction))], request.DescriptionsVersion, applications.Version);
             if (resolution.Refused)
@@ -139,11 +139,8 @@ internal static class ProblemsEndpoints
     }
 
     // Every row there is, before the skips are applied
-    internal static IReadOnlyList<ProblemRow> FullTable(TableInputs inputs, IApplicationCatalog applications, RunnerRegistry runners, IBatchQueue queue, TimeProvider time, RelevancePolicy policy)
-    {
-        var rows = DecisionTable.Build(inputs.Report.Items, applications, Acceptance(runners), WorkshopResults(queue), inputs.Report.Applications, time.GetUtcNow(), policy, inputs.Code);
-        return inputs.Scope.Platforms.Count > 0 ? [.. rows, .. PlatformRows.Build(inputs.Scope.Platforms, inputs.Code, inputs.Releases)] : rows;
-    }
+    internal static IReadOnlyList<ProblemRow> FullTable(TableInputs inputs, IApplicationCatalog applications, RunnerRegistry runners, IBatchQueue queue, TimeProvider time, RelevancePolicy policy) =>
+        DecisionTable.Build(inputs.Report.Items, applications, Acceptance(runners), WorkshopResults(queue), inputs.Report.Applications, time.GetUtcNow(), policy, inputs.Code);
 
     // The table as the operator last saw it, from what was read last: every route that checks a row against the table (skip, approve) builds it from the same inputs as the screen
     internal static IReadOnlyList<ProblemRow> VisibleTable(TableInputs inputs, IApplicationCatalog applications, RunnerRegistry runners, IBatchQueue queue, IProblemHistory history, IApprovalStore approvals, TimeProvider time,

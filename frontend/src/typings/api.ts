@@ -250,9 +250,7 @@ export type CeilingReason =
   | 'codeChangeShown'
   | 'severalEnvironments'
   | 'pinnedByDigest'
-  | 'codeNotFullyRead'
-  | 'platformUpgradeIsPlanned'
-  | 'platformVersionNotRead';
+  | 'codeNotFullyRead';
 
 // What the workshop last said about this very commit: the column beside the forge's checks
 export type WorkshopVerdict = 'unknown' | 'passes' | 'fails' | 'repaired';
@@ -267,7 +265,6 @@ export type ProblemKind =
   | 'dependencyScanUnavailable'
   | 'floatingImage'
   | 'dormantRepository'
-  | 'platformUpdate'
   | 'pullRequestsNotRead';
 
 // One problem, one row. A dependency update carries its pull request and the commit that was read; an alert has a severity and no action yet.
@@ -305,7 +302,7 @@ export interface CodeLocation {
   repository: string;
   path: string;
   line: number;
-  form: 'imageLine' | 'kustomizeTag' | 'terraformImage' | 'variable';
+  form: 'imageLine' | 'kustomizeTag' | 'terraformImage';
   image: { name: string; tag: string | null };
   managed: string | null;
 }

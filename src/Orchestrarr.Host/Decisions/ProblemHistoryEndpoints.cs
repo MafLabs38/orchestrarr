@@ -57,7 +57,7 @@ internal static class ProblemHistoryEndpoints
         }).RequireAuthorization(Permissions.FleetRead);
 
         api.MapPost("/problems/skip", async (SkipRequest request, HttpContext context, IApproverAccessor accessor, WorkItemCatalog catalog, Orchestrarr.Core.Applications.IApplicationCatalog applications,
-            RunnerRegistry runners, IBatchQueue queue, IProblemHistory history, IApprovalStore approvals, IAuditSink audit, TimeProvider time, RelevancePolicy policy, InfrastructureCatalog infrastructure, IK3sReleases k3s, CancellationToken ct) =>
+            RunnerRegistry runners, IBatchQueue queue, IProblemHistory history, IApprovalStore approvals, IAuditSink audit, TimeProvider time, RelevancePolicy policy, InfrastructureCatalog infrastructure, CancellationToken ct) =>
         {
             var (approver, refusal) = ApprovalEndpoints.Authorize(accessor, context);
             if (approver is null)
@@ -71,7 +71,7 @@ internal static class ProblemHistoryEndpoints
             }
 
             var report = await catalog.GetAsync(refresh: false, ct);
-            var table = ProblemsEndpoints.VisibleTable(TableInputs.Last(report, infrastructure, k3s), applications, runners, queue, history, approvals, time, policy).ToDictionary(row => row.Id, StringComparer.Ordinal);
+            var table = ProblemsEndpoints.VisibleTable(TableInputs.Last(report, infrastructure), applications, runners, queue, history, approvals, time, policy).ToDictionary(row => row.Id, StringComparer.Ordinal);
             var rows = new List<ProblemRow>();
             // The same row twice is one row
             foreach (var one in chosen.DistinctBy(candidate => candidate.Id, StringComparer.Ordinal))

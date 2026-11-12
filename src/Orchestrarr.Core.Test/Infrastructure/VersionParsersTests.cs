@@ -141,10 +141,8 @@ public sealed class VersionParsersTests
     }
 
     [Fact]
-    public void A_kind_that_is_not_known_finds_nothing_and_a_variable_is_read_by_its_key()
+    public void A_kind_that_is_not_known_finds_nothing()
     {
         VersionParsers.Find("helm", "example/infra", "values.yaml", "image: app:1").Should().BeEmpty();
-        VersionParsers.Variable("---\nk3s_version: \"v1.36.5+k3s1\"      # stable\nother: 1\n", "k3s_version").Should().Be((2, "v1.36.5+k3s1"));
-        VersionParsers.Variable("other: 1\n", "k3s_version").Should().BeNull();
     }
 }

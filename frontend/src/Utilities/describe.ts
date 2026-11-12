@@ -252,8 +252,6 @@ const whys = {
   severalEnvironments: 'WhySeveralEnvironments',
   pinnedByDigest: 'WhyPinnedByDigest',
   codeNotFullyRead: 'WhyCodeNotFullyRead',
-  platformUpgradeIsPlanned: 'WhyPlatformUpgradeIsPlanned',
-  platformVersionNotRead: 'WhyPlatformVersionNotRead',
 } as const satisfies Record<CeilingReason, string>;
 
 // Why a problem stops where it does, from the code of the server
@@ -272,7 +270,6 @@ const problemKinds = {
   pullRequestsNotRead: 'KindPullRequestsNotRead',
   floatingImage: 'KindFloatingImage',
   dormantRepository: 'KindDormantRepository',
-  platformUpdate: 'KindPlatformUpdate',
 } as const satisfies Record<ProblemKind, string>;
 
 export function describeProblemKind(kind: ProblemKind): string {
@@ -298,8 +295,6 @@ export function describeProblem(row: ProblemRow): string {
       return translate('ProblemDormant', { count });
     case 'floatingImage':
       return translate('ProblemFloatingImage', { image: row.description });
-    case 'platformUpdate':
-      return translate('ProblemPlatformUpdate', { platform: row.application, change: row.description });
     default:
       return row.description;
   }
@@ -335,8 +330,6 @@ const whyShorts = {
   severalEnvironments: 'WhyShortSeveralEnvironments',
   pinnedByDigest: 'WhyShortPinnedByDigest',
   codeNotFullyRead: 'WhyShortCodeNotFullyRead',
-  platformUpgradeIsPlanned: 'WhyShortPlatformUpgradeIsPlanned',
-  platformVersionNotRead: 'WhyShortPlatformVersionNotRead',
 } as const satisfies Record<CeilingReason, string>;
 
 export function describeWhyShort(reason: CeilingReason): string {
@@ -354,7 +347,6 @@ const problemKindShorts = {
   pullRequestsNotRead: 'KindShortPullRequestsNotRead',
   floatingImage: 'KindShortFloatingImage',
   dormantRepository: 'KindShortDormantRepository',
-  platformUpdate: 'KindShortPlatformUpdate',
 } as const satisfies Record<ProblemKind, string>;
 
 export function describeProblemKindShort(kind: ProblemKind): string {

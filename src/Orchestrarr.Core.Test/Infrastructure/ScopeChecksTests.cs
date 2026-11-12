@@ -6,7 +6,6 @@ public sealed class ScopeChecksTests
 {
     private static readonly DescriptionScope Scope = new(
         [new EnvironmentScope("k3s", null), new EnvironmentScope("prod", null)],
-        [new PlatformScope("k3s", "k3s", "k3s", null)],
         [new RepositoryScope("example/infra", "kubernetes", ["a/**"], "staging")]);
 
     [Fact]

@@ -25,8 +25,6 @@ public static partial class VersionParsers
         ["compose"] = ImageLines,
         ["kustomize"] = (repository, path, content) => [.. ImageLines(repository, path, content), .. KustomizeTags(repository, path, content)],
         ["terraform-docker"] = TerraformImages,
-        // A file of variables (the version of K3s): read for the platforms of the description, it holds no image
-        ["variables"] = (_, _, _) => [],
     };
 
     public static IReadOnlyCollection<string> Kinds => Readers.Keys;
@@ -48,22 +46,6 @@ public static partial class VersionParsers
             // A file made to make a pattern slow is a file that is not read
             return [];
         }
-    }
-
-    /// <summary>The value of a key of a variable file (<c>k3s_version: "v1.36.5+k3s1"</c>) and the line it is on; null when there is none.</summary>
-    public static (int Line, string Value)? Variable(string content, string key)
-    {
-        ArgumentNullException.ThrowIfNull(content);
-        var lines = content.Split('\n');
-        for (var i = 0; i < lines.Length; i++)
-        {
-            var match = VariableLine().Match(lines[i]);
-            if (match.Success && match.Groups["key"].Value == key)
-            {
-                return (i + 1, match.Groups["value"].Value.Trim().Trim('"', '\''));
-            }
-        }
-        return null;
     }
 
     private static IEnumerable<CodeLocation> ImageLines(string repository, string path, string content)
@@ -200,7 +182,4 @@ public static partial class VersionParsers
 
     [GeneratedRegex(@"^\s*(?<attribute>name|image)\s*=\s*""(?<ref>[^""]+)""", RegexOptions.None, 250)]
     private static partial Regex TerraformString();
-
-    [GeneratedRegex(@"^(?<key>[A-Za-z_][\w-]*):\s*(?<value>[^#]*)", RegexOptions.None, 250)]
-    private static partial Regex VariableLine();
 }
