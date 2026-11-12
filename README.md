@@ -99,6 +99,9 @@ Approval answers: `201` recorded; `401` with no body when nobody is signed in; `
 | `GitHub:Token` | none | Read-only token. Without it the pull requests are "not connected". This token stays read-only. When a write power exists, the Runner will hold a GitHub App token of its own, limited to the task kind (ADR 0017); the control plane never holds it |
 | `GitHub:BotLogins` | Dependabot and Renovate | Authors whose pull requests count as dependency updates |
 | `GitHub:ChecksThatNeedSecrets` | `sonarqube`, `ai-review*` | The checks that cannot run for a bot's pull request (the forge gives no secret to a bot): when they are the only ones that fail, the pull request is "CI not run" and not "failing". A `*` at the end matches any ending; a list replaces the default |
+| `Relevance:DormantAfterDays` | 120 | Days without a push, with a red build, that make a repository one "Dormant repository" row (7 to 3650; another value stops the host) |
+| `Relevance:PlatformNamespaces` | `kube-system` | The namespaces whose images come with the platform and are updated with it, not by a tag; a list replaces the default |
+| `Relevance:EvenMajorOnlyPackages` | `node` | The packages moved only to a release with an even major version (a long-term release); a list replaces the default |
 | `GitHub:ApiUrl`, `GitHub:WebUrl` | github.com | For GitHub Enterprise |
 | `GitHub:MaxPullRequests`, `GitHub:MaxPages` | 30, 5 | Bounds on a repository's list |
 | `GitHub:CacheSeconds`, `GitHub:TimeoutSeconds`, `GitHub:MaxResponseBytes` | 300, 20, 5 MiB | Cache and bounds |

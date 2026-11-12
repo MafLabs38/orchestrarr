@@ -222,7 +222,12 @@ public sealed partial class GitHubPullRequestSource : IPullRequestSource
         if (failed.Count > 0)
         {
             // These are pull requests of bots: a check that needs a secret cannot run for them, and its failure says nothing about the code
-            return needSecrets is { Count: > 0 } && failed.All(run => NeedsSecret(run.Name, needSecrets)) ? ChecksState.NotRun : ChecksState.Failing;
+            if (needSecrets is { Count: > 0 } && failed.All(run => NeedsSecret(run.Name, needSecrets)))
+            {
+                // The others may still fail for a real reason: while one runs, it is running
+                return runs.Any(run => !string.Equals(run.Status, "completed", StringComparison.OrdinalIgnoreCase)) ? ChecksState.Pending : ChecksState.NotRun;
+            }
+            return ChecksState.Failing;
         }
 
         return runs.Any(run => !string.Equals(run.Status, "completed", StringComparison.OrdinalIgnoreCase)) ? ChecksState.Pending : ChecksState.Passing;

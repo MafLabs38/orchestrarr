@@ -196,7 +196,7 @@ public sealed class SqliteDatabase : IDisposable
     // A new step is appended here, and SchemaVersion goes up with it.
     private delegate void Step(SqliteConnection connection, bool created, bool startEngagedWhenNew, TimeProvider time);
 
-    private static readonly Step[] Steps = [CreateVersion1, CreateVersion2, CreateVersion3, CreateVersion4, CreateVersion5, CreateVersion6];
+    private static readonly Step[] Steps = [CreateVersion1, CreateVersion2, CreateVersion3, CreateVersion4, CreateVersion5, CreateVersion6, CreateVersion7];
 
     private static int SchemaVersion => Steps.Length;
 
@@ -421,6 +421,15 @@ public sealed class SqliteDatabase : IDisposable
             CREATE INDEX IF NOT EXISTS problem_history_by_time ON problem_history (id DESC);
             CREATE INDEX IF NOT EXISTS problem_history_skips ON problem_history (state, undone_at);
             """);
+    }
+
+    // Version 6 to 7: how an approved line of the history ended, written down when it is known (the approval and the run are trimmed, the history is not)
+    private static void CreateVersion7(SqliteConnection connection, bool created, bool startEngagedWhenNew, TimeProvider time)
+    {
+        if (Convert.ToInt32(Scalar(connection, "SELECT COUNT(*) FROM pragma_table_info('problem_history') WHERE name = 'outcome';"), CultureInfo.InvariantCulture) == 0)
+        {
+            Run(connection, "ALTER TABLE problem_history ADD COLUMN outcome TEXT NULL;");
+        }
     }
 
     private static object? Scalar(SqliteConnection connection, string sql)

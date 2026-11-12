@@ -38,7 +38,7 @@ public sealed class GitHubOptions
 
     public long MaxResponseBytes { get; set; } = 5 * 1024 * 1024;
 
-    public static readonly string[] DefaultChecksThatNeedSecrets = ["sonarqube", "ai-review*"];
+    internal static readonly IReadOnlyList<string> DefaultChecksThatNeedSecrets = ["sonarqube", "ai-review*"];
 
     /// <summary>
     /// The names of the checks (a <c>*</c> at the end matches any ending) that cannot run for a bot's pull request, because the forge does not give secrets to a bot:

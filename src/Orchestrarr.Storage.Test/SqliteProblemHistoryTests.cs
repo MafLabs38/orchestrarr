@@ -59,4 +59,18 @@ public sealed class SqliteProblemHistoryTests : IDisposable
         history.ActiveSkips().Should().BeEmpty();
         history.Page(null, 10, null).Should().ContainSingle().Which.Id.Should().Be(approved);
     }
+
+    [Fact]
+    public void The_outcome_is_kept_once_it_is_known_across_a_restart_and_a_skip_has_its_own()
+    {
+        var history = new SqliteProblemHistory(_file.Open());
+        var approved = history.Record(Entry("pr:example/shop#14", HistoryState.Approved));
+        var skipped = history.Record(Entry("pr:example/shop#15", HistoryState.Skipped));
+
+        history.Conclude(approved, HistoryOutcome.Passed);
+
+        var lines = new SqliteProblemHistory(_file.Reopen()).Page(null, 10, null);
+        lines.Single(line => line.Id == approved).Outcome.Should().Be(HistoryOutcome.Passed);
+        lines.Single(line => line.Id == skipped).Outcome.Should().BeNull("a skip has no run to conclude; the screen says it was skipped");
+    }
 }

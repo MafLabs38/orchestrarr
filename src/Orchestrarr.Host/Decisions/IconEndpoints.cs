@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 using Orchestrarr.Core.Accounts;
 using Orchestrarr.Core.Fleet;
+using Orchestrarr.Core.WorkItems;
 
 namespace Orchestrarr.Host.Decisions;
 
@@ -12,9 +13,10 @@ internal static partial class IconEndpoints
 {
     public static void MapIconEndpoints(this RouteGroupBuilder api)
     {
-        api.MapGet("/icons/{name}", async (string name, IIconSource icons, HttpContext context, CancellationToken ct) =>
+        api.MapGet("/icons/{name}", async (string name, IIconSource icons, WorkItemCatalog catalog, HttpContext context, CancellationToken ct) =>
         {
-            if (!ValidName().IsMatch(name))
+            // Only an icon that the source itself named for one of its applications: a name made up by someone signed in is never relayed
+            if (!ValidName().IsMatch(name) || !(await catalog.GetAsync(refresh: false, ct)).Applications.OrEmpty().Any(app => string.Equals(app.Icon, name, StringComparison.Ordinal)))
             {
                 return Results.NotFound();
             }
@@ -30,6 +32,8 @@ internal static partial class IconEndpoints
             return Results.Bytes(image.Content, image.ContentType);
         }).RequireAuthorization(Permissions.FleetRead);
     }
+
+    private static IReadOnlyList<ApplicationInfo> OrEmpty(this IReadOnlyList<ApplicationInfo>? applications) => applications ?? [];
 
     [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")]
     private static partial Regex ValidName();

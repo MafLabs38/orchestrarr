@@ -350,7 +350,7 @@
   "ProblemSecrets": "{count} exposed",
   "ProblemPullRequestsWaiting": "{count} waiting, not read yet",
   "ProblemFailingCi": "The build fails",
-  "ProblemScanUnavailable": "Dependabot is off for this repository: its vulnerable dependencies are not watched",
+  "ProblemScanUnavailable": "The dependency scan is off or unreadable for this repository (Dependabot may be off): its vulnerable dependencies are not watched",
   "StepChipValidate": "Validate in the Orchestrarr Runner (build, tests)",
   "StepChipRepair": "Repair if it fails (patch shown, nothing pushed)",
   "StepChipMerge": "Merge into develop",
@@ -450,5 +450,9 @@
   "KindDormantRepository": "Dormant repository",
   "KindShortDormantRepository": "Dormant",
   "ProblemDormant": "No push for {count} days and the CI is red: archive the repository or fix it. Until then its pull requests are not listed.",
-  "ProblemFloatingImage": "{image} runs under a tag that moves: nobody can tell which version it is. Pin a version."
+  "ProblemFloatingImage": "{image} runs under a tag that moves: nobody can tell which version it is. Pin a version.",
+  "TabHistoryHint": "What was decided: the rows approved, with what became of them, and the rows set aside.",
+  "NothingToConfigure": "Nothing is waiting for a setting.",
+  "NothingToKnow": "Nothing to know.",
+  "SkipRefused": "The row could not be set aside: it changed since you saw it, or you may not decide. Read the table again."
 }

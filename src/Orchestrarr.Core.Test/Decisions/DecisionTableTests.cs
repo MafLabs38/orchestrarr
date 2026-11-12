@@ -123,6 +123,24 @@ public sealed class DecisionTableTests
         row.Tab.Should().Be(ProblemTab.Know);
     }
 
+    [Fact]
+    public void The_text_of_a_dormant_row_does_not_change_from_one_day_to_the_next_so_that_a_skip_holds()
+    {
+        var first = DecisionTable.Build([Dormant(At)], Described(), [Everything], null, null, At.AddDays(200)).Single();
+        var later = DecisionTable.Build([Dormant(At)], Described(), [Everything], null, null, At.AddDays(230)).Single();
+
+        later.Description.Should().Be(first.Description);
+        later.Count.Should().Be(230, "the number of days is the count, not part of the text a skip is bound to");
+    }
+
+    [Fact]
+    public void A_policy_with_a_longer_delay_keeps_the_repository_out_of_the_dormant_row()
+    {
+        var policy = RelevancePolicy.Default with { DormantAfterDays = 365 };
+
+        DecisionTable.Build([Dormant(At)], Described(), [Everything], null, null, At.AddDays(200), policy).Should().HaveCountGreaterThan(1);
+    }
+
     [Theory]
     [InlineData(100, true)]
     [InlineData(200, false)]

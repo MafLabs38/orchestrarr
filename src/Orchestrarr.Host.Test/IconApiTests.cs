@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Orchestrarr.Core.Fleet;
 
 namespace Orchestrarr.Host.Test;
@@ -12,13 +13,28 @@ public sealed class IconApiFactory : AccountsApiFactory
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         base.ConfigureWebHost(builder);
-        builder.ConfigureServices(services => services.AddSingleton<IIconSource>(new OneIcon()));
+        builder.ConfigureServices(services =>
+        {
+            services.AddSingleton<IIconSource>(new OneIcon());
+            // The icons relayed are those the source named for its applications: this one names jellyfin, and the test below asks for names it did not give
+            services.RemoveAll<IFleetSource>();
+            services.AddSingleton<IFleetSource>(new OneApplication());
+        });
+    }
+
+    private sealed class OneApplication : IFleetSource
+    {
+        public string Kind => "test";
+        public bool Configured => true;
+
+        public Task<FleetSnapshot> ReadAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(new FleetSnapshot(DateTimeOffset.UnixEpoch, [], [], [new ApplicationInfo("app-1", "Jellyfin", "jellyfin")]));
     }
 
     private sealed class OneIcon : IIconSource
     {
         public Task<IconImage?> GetAsync(string name, CancellationToken cancellationToken) =>
-            Task.FromResult(name == "jellyfin" ? new IconImage("<svg xmlns='http://www.w3.org/2000/svg'/>"u8.ToArray(), "image/svg+xml") : null);
+            Task.FromResult(name is "jellyfin" or "unlisted" ? new IconImage("<svg xmlns='http://www.w3.org/2000/svg'/>"u8.ToArray(), "image/svg+xml") : null);
     }
 }
 
@@ -63,6 +79,15 @@ public sealed class IconApiTests
         using var signedIn = await SignedIn(factory);
 
         (await signedIn.GetAsync($"/api/v1/icons/{name}", Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task An_icon_the_source_did_not_name_for_an_application_is_not_relayed_even_when_the_source_has_it()
+    {
+        using var factory = new IconApiFactory();
+        using var signedIn = await SignedIn(factory);
+
+        (await signedIn.GetAsync("/api/v1/icons/unlisted", Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     [Fact]

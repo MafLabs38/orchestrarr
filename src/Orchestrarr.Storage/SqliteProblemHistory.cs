@@ -35,6 +35,17 @@ public sealed class SqliteProblemHistory(SqliteDatabase database) : IProblemHist
         });
     }
 
+    public void Conclude(long id, HistoryOutcome outcome) => SqliteDatabase.Guard(() =>
+    {
+        using var connection = database.Connect();
+        using var command = connection.CreateCommand();
+        command.CommandText = "UPDATE problem_history SET outcome = $outcome WHERE id = $id AND state = 'Approved' AND outcome IS NULL;";
+        command.Parameters.AddWithValue("$outcome", outcome.ToString());
+        command.Parameters.AddWithValue("$id", id);
+        command.ExecuteNonQuery();
+        return true;
+    });
+
     public bool UndoSkip(long id, DateTimeOffset at) => SqliteDatabase.Guard(() =>
     {
         using var connection = database.Connect();
@@ -64,7 +75,7 @@ public sealed class SqliteProblemHistory(SqliteDatabase database) : IProblemHist
         using var connection = database.Connect();
         using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT id, row_id, target, state, application, kind, description, repository, pull_request, head_sha, approval_id, batch_id, at, by, reason
+            SELECT id, row_id, target, state, application, kind, description, repository, pull_request, head_sha, approval_id, batch_id, at, by, reason, outcome
             FROM problem_history
             WHERE undone_at IS NULL AND ($state IS NULL OR state = $state) AND ($before IS NULL OR id < $before)
             ORDER BY id DESC LIMIT $limit;
@@ -76,12 +87,17 @@ public sealed class SqliteProblemHistory(SqliteDatabase database) : IProblemHist
         var entries = new List<HistoryEntry>();
         while (reader.Read())
         {
+            // A value that this version does not know (written by a newer one) is not a reason to lose the page: the line is left out
+            if (!Enum.TryParse<HistoryState>(reader.GetString(3), out var rowState) || !Enum.TryParse<ProblemKind>(reader.GetString(5), out var kind))
+            {
+                continue;
+            }
             entries.Add(new HistoryEntry(
-                reader.GetInt64(0), reader.GetString(1), reader.GetString(2), Enum.Parse<HistoryState>(reader.GetString(3)), reader.GetString(4),
-                Enum.Parse<ProblemKind>(reader.GetString(5)), reader.GetString(6), reader.IsDBNull(7) ? null : reader.GetString(7),
+                reader.GetInt64(0), reader.GetString(1), reader.GetString(2), rowState, reader.GetString(4), kind, reader.GetString(6), reader.IsDBNull(7) ? null : reader.GetString(7),
                 reader.IsDBNull(8) ? null : reader.GetInt32(8), reader.IsDBNull(9) ? null : reader.GetString(9),
                 reader.IsDBNull(10) ? null : Guid.Parse(reader.GetString(10)), reader.IsDBNull(11) ? null : Guid.Parse(reader.GetString(11)),
-                SqliteDatabase.Parse(reader.GetString(12)), reader.GetString(13), reader.IsDBNull(14) ? null : reader.GetString(14)));
+                SqliteDatabase.Parse(reader.GetString(12)), reader.GetString(13), reader.IsDBNull(14) ? null : reader.GetString(14),
+                !reader.IsDBNull(15) && Enum.TryParse<HistoryOutcome>(reader.GetString(15), out var outcome) ? outcome : null));
         }
         return entries;
     });

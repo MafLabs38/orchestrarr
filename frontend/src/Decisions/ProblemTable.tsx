@@ -30,7 +30,7 @@ interface ProblemTableProps {
   onSort: (sort: Sort | null) => void;
   onSelect: (row: ProblemRow, selected: boolean) => void;
   onSelectAll: (selected: boolean) => void;
-  onSkip: (row: ProblemRow) => void;
+  onSkip?: (row: ProblemRow) => void;
   onStop: (row: ProblemRow, stop: boolean) => void;
 }
 
@@ -116,9 +116,11 @@ export default function ProblemTable({
             <th className={styles.narrow} title={translate('StopBeforeProductionHint')}>
               {translate('ColumnProd')}
             </th>
-            <th className={styles.narrow} title={translate('SkipHint')}>
-              {translate('ColumnSkip')}
-            </th>
+            {onSkip ? (
+              <th className={styles.narrow} title={translate('SkipHint')}>
+                {translate('ColumnSkip')}
+              </th>
+            ) : null}
           </tr>
         </thead>
         <tbody>
@@ -201,7 +203,7 @@ function ProblemTableRow({
   stops: boolean;
   onSelect: (row: ProblemRow, selected: boolean) => void;
   onStop: (row: ProblemRow, stop: boolean) => void;
-  onSkip: (row: ProblemRow) => void;
+  onSkip?: (row: ProblemRow) => void;
 }>) {
   const sentence = describeProblem(row);
   const actionable = isActionable(row);
@@ -278,17 +280,19 @@ function ProblemTableRow({
           <span className={styles.none}>—</span>
         )}
       </td>
-      <td className={styles.narrow}>
-        <button
-          type="button"
-          className={styles.skip}
-          title={translate('SkipHint')}
-          aria-label={translate('SkipRowOf', { problem: `${row.application} ${sentence}` })}
-          onClick={() => onSkip(row)}
-        >
-          {translate('SkipRow')}
-        </button>
-      </td>
+      {onSkip ? (
+        <td className={styles.narrow}>
+          <button
+            type="button"
+            className={styles.skip}
+            title={translate('SkipHint')}
+            aria-label={translate('SkipRowOf', { problem: `${row.application} ${sentence}` })}
+            onClick={() => onSkip(row)}
+          >
+            {translate('SkipRow')}
+          </button>
+        </td>
+      ) : null}
     </tr>
   );
 }

@@ -159,8 +159,9 @@ public static class DecisionTable
 {
     public static IReadOnlyList<ProblemRow> Build(
         IReadOnlyList<WorkItem> items, IApplicationCatalog applications, IReadOnlyList<RunnerAcceptance> runners, IReadOnlyList<TaskResultRow>? results = null,
-        IReadOnlyList<ApplicationInfo>? applicationNames = null, DateTimeOffset? now = null)
+        IReadOnlyList<ApplicationInfo>? applicationNames = null, DateTimeOffset? now = null, RelevancePolicy? policy = null)
     {
+        policy ??= RelevancePolicy.Default;
         ArgumentNullException.ThrowIfNull(items);
         ArgumentNullException.ThrowIfNull(applications);
         ArgumentNullException.ThrowIfNull(runners);
@@ -168,25 +169,24 @@ public static class DecisionTable
         foreach (var item in items)
         {
             var before = rows.Count;
-            if (IsDormant(item, now))
+            if (IsDormant(item, now, policy))
             {
-                // One row instead of the pull requests and the red build of a repository that nobody works on: the decision is about the repository
-                rows.Add(Of(item, $"dormant:{item.Id}", ProblemKind.DormantRepository, Days(item, now!.Value).ToString(System.Globalization.CultureInfo.InvariantCulture), Severity.Info, Days(item, now.Value), Ceiling.NoAction, CeilingReason.NoActionDefined, item.RepositoryFullName));
+                // One row instead of the pull requests and the red build of a repository that nobody works on: the decision is about the repository. The text names the day
+                // of the last push, not the number of days (that one changes every day, and a skip lasts as long as the text stays the same).
+                rows.Add(Of(item, $"dormant:{item.Id}", ProblemKind.DormantRepository, $"last push {item.LastPushAt!.Value:yyyy-MM-dd}", Severity.Info, Days(item, now!.Value), Ceiling.NoAction, CeilingReason.NoActionDefined, item.RepositoryFullName));
                 NameApplication(rows, before, item, applicationNames ?? []);
                 continue;
             }
-            AddDependencyUpdates(rows, item, applications, runners, results ?? []);
-            AddOtherProblems(rows, item);
+            AddDependencyUpdates(rows, item, applications, runners, results ?? [], policy);
+            AddOtherProblems(rows, item, policy);
             NameApplication(rows, before, item, applicationNames ?? []);
         }
         return rows;
     }
 
-    /// <summary>No push for this long, with a red build, and the repository is taken for dead.</summary>
-    public const int DormantAfterDays = 120;
-
-    private static bool IsDormant(WorkItem item, DateTimeOffset? now) =>
-        now is { } at && item.LastPushAt is not null && Days(item, at) > DormantAfterDays && item.Findings.Any(finding => finding.Kind == FindingKind.FailingCi);
+    // No push for longer than the policy says, with a red build: the repository is taken for dead
+    private static bool IsDormant(WorkItem item, DateTimeOffset? now, RelevancePolicy policy) =>
+        now is { } at && item.LastPushAt is not null && Days(item, at) > policy.DormantAfterDays && item.Findings.Any(finding => finding.Kind == FindingKind.FailingCi);
 
     private static int Days(WorkItem item, DateTimeOffset now) => (int)(now - item.LastPushAt!.Value).TotalDays;
 
@@ -213,7 +213,7 @@ public static class DecisionTable
         _ => [],
     };
 
-    private static void AddDependencyUpdates(List<ProblemRow> rows, WorkItem item, IApplicationCatalog applications, IReadOnlyList<RunnerAcceptance> runners, IReadOnlyList<TaskResultRow> results)
+    private static void AddDependencyUpdates(List<ProblemRow> rows, WorkItem item, IApplicationCatalog applications, IReadOnlyList<RunnerAcceptance> runners, IReadOnlyList<TaskResultRow> results, RelevancePolicy policy)
     {
         if (item.RepositoryFullName is null)
         {
@@ -229,7 +229,7 @@ public static class DecisionTable
         foreach (var pullRequest in reads.Items.Where(pullRequest => !pullRequest.Draft))
         {
             var (ceiling, why, canStop) = CeilingOf(item, pullRequest, applications, runners);
-            if (IsNotLongTermNode(pullRequest))
+            if (IsNotLongTerm(pullRequest, policy))
             {
                 (ceiling, why, canStop) = (Ceiling.NoAction, CeilingReason.NotLongTermSupport, false);
             }
@@ -293,9 +293,10 @@ public static class DecisionTable
         _ => WorkshopVerdict.Unknown,
     };
 
-    // Node's odd versions are never long-term releases (23, 25…): a base image is not moved to one
-    private static bool IsNotLongTermNode(PullRequestInfo pullRequest) =>
-        pullRequest.Changes is [{ Package: "node", To: { } to }] && int.TryParse(to.Split('-')[0].Split('.')[0], System.Globalization.CultureInfo.InvariantCulture, out var major) && major % 2 == 1;
+    // A package that is moved only to an even major version (Node: the odd ones are never long-term releases, 23, 25…) is not moved to an odd one
+    private static bool IsNotLongTerm(PullRequestInfo pullRequest, RelevancePolicy policy) =>
+        pullRequest.Changes is [{ To: { } to } change] && policy.EvenMajorOnlyPackages.Contains(change.Package, StringComparer.OrdinalIgnoreCase)
+        && int.TryParse(to.TrimStart('v', 'V').Split('-')[0].Split('.')[0], System.Globalization.CultureInfo.InvariantCulture, out var major) && major % 2 == 1;
 
     private static (Ceiling Ceiling, CeilingReason Why, bool CanStop) CeilingOf(WorkItem item, PullRequestInfo pullRequest, IApplicationCatalog applications, IReadOnlyList<RunnerAcceptance> runners)
     {
@@ -365,7 +366,7 @@ public static class DecisionTable
     }
 
     // What has no action yet (an alert, a secret, a failing build, an image): shown, with "no action defined" (SPEC Q-30)
-    private static void AddOtherProblems(List<ProblemRow> rows, WorkItem item)
+    private static void AddOtherProblems(List<ProblemRow> rows, WorkItem item, RelevancePolicy policy)
     {
         var application = item.RepositoryFullName ?? item.Title;
         foreach (var finding in item.Findings)
@@ -391,18 +392,18 @@ public static class DecisionTable
                 { } image => $"{image.Reference} → {image.Latest}",
                 _ => finding.Count.ToString(System.Globalization.CultureInfo.InvariantCulture),
             };
-            rows.Add(Of(item, $"finding:{item.Id}:{finding.Kind}", kind.Value, description, finding.Severity, finding.Count, Ceiling.NoAction, WhyNoAction(item, finding), application));
+            rows.Add(Of(item, $"finding:{item.Id}:{finding.Kind}", kind.Value, description, finding.Severity, finding.Count, Ceiling.NoAction, WhyNoAction(item, finding, policy), application));
         }
     }
 
     // Why nothing is defined for a finding: for an image, what makes it a matter of the platform or of planning rather than a tag to change
-    private static CeilingReason WhyNoAction(WorkItem item, Finding finding)
+    private static CeilingReason WhyNoAction(WorkItem item, Finding finding, RelevancePolicy policy)
     {
         if (finding.Kind != FindingKind.OutdatedImage)
         {
             return CeilingReason.NoActionDefined;
         }
-        if (item.Placements.Count > 0 && item.Placements.All(placement => placement.Namespace == "kube-system"))
+        if (item.Placements.Count > 0 && item.Placements.All(placement => placement.Namespace is { } space && policy.PlatformNamespaces.Contains(space, StringComparer.Ordinal)))
         {
             return CeilingReason.ManagedByPlatform;
         }

@@ -26,7 +26,8 @@ public sealed record HistoryEntry(
     Guid? BatchId,
     DateTimeOffset At,
     string By,
-    string? Reason);
+    string? Reason,
+    HistoryOutcome? Outcome = null);
 
 /// <summary>A problem that is set aside for this target.</summary>
 public sealed record ActiveSkip(string RowId, string Target);
@@ -43,6 +44,12 @@ public interface IProblemHistory
     /// <summary>Takes a skip back, so that the problem is shown again. False when there is no such skip, or it was taken back already.</summary>
     bool UndoSkip(long id, DateTimeOffset at);
 
+    /// <summary>
+    /// Writes down how an approved line ended, once: the approval and the run are bounded and trimmed, the history is not, so what became of a decision must outlive them.
+    /// Does nothing for a line that already has its outcome.
+    /// </summary>
+    void Conclude(long id, HistoryOutcome outcome);
+
     /// <summary>The skips that are in force.</summary>
     IReadOnlyList<ActiveSkip> ActiveSkips();
 
@@ -56,6 +63,7 @@ public sealed class InMemoryProblemHistory : IProblemHistory
     private readonly Lock _gate = new();
     private readonly List<HistoryEntry> _entries = [];
     private readonly HashSet<long> _undone = [];
+    private readonly Dictionary<long, HistoryOutcome> _outcomes = [];
     private long _last;
 
     public long Record(HistoryEntry entry)
@@ -66,6 +74,17 @@ public sealed class InMemoryProblemHistory : IProblemHistory
             var id = ++_last;
             _entries.Add(entry with { Id = id });
             return id;
+        }
+    }
+
+    public void Conclude(long id, HistoryOutcome outcome)
+    {
+        lock (_gate)
+        {
+            if (_entries.Any(entry => entry.Id == id && entry.State == HistoryState.Approved))
+            {
+                _outcomes.TryAdd(id, outcome);
+            }
         }
     }
 
@@ -92,7 +111,8 @@ public sealed class InMemoryProblemHistory : IProblemHistory
             return [.. _entries
                 .Where(entry => (state is null || entry.State == state) && !_undone.Contains(entry.Id) && (before is null || entry.Id < before))
                 .OrderByDescending(entry => entry.Id)
-                .Take(limit)];
+                .Take(limit)
+                .Select(entry => _outcomes.TryGetValue(entry.Id, out var outcome) ? entry with { Outcome = outcome } : entry)];
         }
     }
 }

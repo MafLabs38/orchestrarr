@@ -85,7 +85,7 @@ public sealed class PortarrFleetSource : IFleetSource, IIconSource
     private static readonly TimeSpan IconLifetime = TimeSpan.FromHours(1);
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (DateTimeOffset Until, IconImage? Image)> _icons = new(StringComparer.Ordinal);
 
-    /// <summary>The picture of an icon, served by Portarr: kept for an hour (a missing one too), and only a small picture is accepted.</summary>
+    /// <summary>The picture of an icon, served by Portarr: kept for an hour (a missing one too, but not a failure of Portarr), and only a small picture is accepted.</summary>
     public async Task<IconImage?> GetAsync(string name, CancellationToken cancellationToken)
     {
         var now = _time.GetUtcNow();
@@ -98,6 +98,11 @@ public sealed class PortarrFleetSource : IFleetSource, IIconSource
         {
             using var response = await SendAsync($"api/v1/icons/{Uri.EscapeDataString(name)}", cancellationToken);
             var type = response.Content.Headers.ContentType?.MediaType;
+            if (response.StatusCode != System.Net.HttpStatusCode.NotFound && !response.IsSuccessStatusCode)
+            {
+                // A refusal or a failure of Portarr is not "there is no icon": it is not kept, the next request asks again
+                return null;
+            }
             if (response.IsSuccessStatusCode && type is "image/svg+xml" or "image/png" or "image/webp" or "image/jpeg" or "image/gif")
             {
                 var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);

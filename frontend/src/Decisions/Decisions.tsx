@@ -41,7 +41,7 @@ const tabs: {
   { id: 'act', label: 'TabAct', hint: 'TabActHint' },
   { id: 'configure', label: 'TabConfigure', hint: 'TabConfigureHint' },
   { id: 'know', label: 'TabKnow', hint: 'TabKnowHint' },
-  { id: 'history', label: 'TabHistory', hint: 'SkipHint' },
+  { id: 'history', label: 'TabHistory', hint: 'TabHistoryHint' },
 ];
 
 export default function Decisions() {
@@ -86,11 +86,13 @@ function matches(row: ProblemRow, filters: Filters): boolean {
   );
 }
 
-function emptyText(report: ProblemsReport): string {
+const emptyTabs = { act: 'NothingToDecideNow', configure: 'NothingToConfigure', know: 'NothingToKnow' } as const;
+
+function emptyText(report: ProblemsReport, tab: ProblemTab): string {
   if (report.sourceKind === 'none') {
     return translate('NoSourceConfigured');
   }
-  return translate(report.rows.length === 0 ? 'NothingToDecide' : 'NothingToDecideNow');
+  return translate(report.rows.length === 0 ? 'NothingToDecide' : emptyTabs[tab]);
 }
 
 // Four views of the same table: what can be decided now (the default), what needs a setting, what is only to know, and what was decided
@@ -128,7 +130,7 @@ function Content({ report, tab }: Readonly<{ report: ProblemsReport; tab: Proble
   }
   const inTab = report.rows.filter((row) => row.tab === tab);
   if (inTab.length === 0) {
-    return <CapabilityHint>{emptyText(report)}</CapabilityHint>;
+    return <CapabilityHint>{emptyText(report, tab)}</CapabilityHint>;
   }
   return <Problems key={tab} report={report} inTab={inTab} />;
 }
@@ -259,6 +261,7 @@ function Problems({ report, inTab }: Readonly<{ report: ProblemsReport; inTab: P
               {report.skipped > 0 ? ` · ${translate('SkippedCount', { count: report.skipped })}` : ''}
             </span>
           </div>
+          {skip.isError ? <Alert kind={kinds.DANGER}>{translate('SkipRefused')}</Alert> : null}
           {shown.length === 0 ? (
             <CapabilityHint>{translate('NoProblemMatches')}</CapabilityHint>
           ) : (
@@ -272,7 +275,7 @@ function Problems({ report, inTab }: Readonly<{ report: ProblemsReport; inTab: P
               onSelect={select}
               onSelectAll={selectAll}
               onStop={(row, stop) => setStops((current) => ({ ...current, [row.id]: stop }))}
-              onSkip={(row) => skip.mutate([row])}
+              onSkip={status?.approvals.isOperator ? (row) => skip.mutate([row]) : undefined}
             />
           )}
           <SelectionBar

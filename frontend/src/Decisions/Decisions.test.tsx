@@ -1,7 +1,7 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-import { problem, problemsReport, renderWithProviders, status } from 'testUtils';
+import { problem, problemsReport, readerOnly, renderWithProviders, status } from 'testUtils';
 import type { HistoryLine, HistoryReport, ProblemRow, ProblemsReport } from 'typings/api';
 
 import Decisions from './Decisions';
@@ -335,12 +335,20 @@ describe('Decisions', () => {
     await screen.findByText('express 4.16.0 → 4.21.2');
     expect(screen.getByText(/2 set aside/)).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole('button', { name: /Skip example\/shop express 4.16.0/ }));
+    await userEvent.click(await screen.findByRole('button', { name: /Skip example\/shop express 4.16.0/ }));
 
     await waitFor(() => expect(posted(fetchMock)).toBeDefined());
     expect(posted(fetchMock)).toMatchObject({
       rows: [{ id: 'pr:example/shop#2', description: 'express 4.16.0 → 4.21.2' }],
     });
+  });
+
+  it('offers no skip button to someone who may not decide', async () => {
+    stub(problemsReport(rows, { skipped: 0 }), readerOnly);
+    renderWithProviders(<Decisions />);
+    await screen.findByText('express 4.16.0 → 4.21.2');
+
+    expect(screen.queryByRole('button', { name: /Skip example/ })).not.toBeInTheDocument();
   });
 
   it('shows the icon of the application when the source has one, and the two letters when the picture cannot be read', async () => {

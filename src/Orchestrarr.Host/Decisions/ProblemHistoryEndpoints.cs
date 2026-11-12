@@ -33,19 +33,22 @@ internal static class ProblemHistoryEndpoints
     private const int MaxReason = 300;
     private const int MaxSkipsAtOnce = 200;
 
+    // The newest approvals read to tell what became of the lines of a page; an older one is found from its run, or the line is over
+    private const int ApprovalsLookedAt = 2000;
+
     public static void MapProblemHistoryEndpoints(this RouteGroupBuilder api)
     {
         api.MapGet("/problems/history", (IProblemHistory history, IApprovalStore approvals, IBatchQueue queue, string? state, int? limit, long? before) =>
         {
-            if (state is not null && !Enum.TryParse<HistoryState>(state, ignoreCase: true, out _))
+            if (state is not null && !(Enum.TryParse<HistoryState>(state, ignoreCase: true, out var asked) && Enum.IsDefined(asked)))
             {
                 return Results.Json(new ErrorResponse("invalidRequest"), statusCode: StatusCodes.Status400BadRequest);
             }
             try
             {
                 var page = history.Page(state is null ? null : Enum.Parse<HistoryState>(state, ignoreCase: true), Math.Clamp(limit ?? DefaultPage, 1, MaxPage), before);
-                var byApproval = approvals.List(2000).ToDictionary(approval => approval.Id);
-                var lines = page.Select(entry => Line(entry, byApproval, queue)).ToList();
+                var byApproval = approvals.List(ApprovalsLookedAt).ToDictionary(approval => approval.Id);
+                var lines = page.Select(entry => Line(entry, byApproval, queue, history)).ToList();
                 return Results.Ok(new HistoryReport(lines, page.Count == Math.Clamp(limit ?? DefaultPage, 1, MaxPage) ? page[^1].Id : null));
             }
             catch (StorageUnavailableException)
@@ -55,7 +58,7 @@ internal static class ProblemHistoryEndpoints
         }).RequireAuthorization(Permissions.FleetRead);
 
         api.MapPost("/problems/skip", async (SkipRequest request, HttpContext context, IApproverAccessor accessor, WorkItemCatalog catalog, Orchestrarr.Core.Applications.IApplicationCatalog applications,
-            RunnerRegistry runners, IBatchQueue queue, IProblemHistory history, IApprovalStore approvals, IAuditSink audit, TimeProvider time, CancellationToken ct) =>
+            RunnerRegistry runners, IBatchQueue queue, IProblemHistory history, IApprovalStore approvals, IAuditSink audit, TimeProvider time, RelevancePolicy policy, CancellationToken ct) =>
         {
             var (approver, refusal) = ApprovalEndpoints.Authorize(accessor, context);
             if (approver is null)
@@ -69,7 +72,7 @@ internal static class ProblemHistoryEndpoints
             }
 
             var report = await catalog.GetAsync(refresh: false, ct);
-            var table = ProblemsEndpoints.VisibleTable(report, applications, runners, queue, history, approvals, time).ToDictionary(row => row.Id, StringComparer.Ordinal);
+            var table = ProblemsEndpoints.VisibleTable(report, applications, runners, queue, history, approvals, time, policy).ToDictionary(row => row.Id, StringComparer.Ordinal);
             var rows = new List<ProblemRow>();
             foreach (var one in chosen)
             {
@@ -133,19 +136,49 @@ internal static class ProblemHistoryEndpoints
     // The identifier of a row can be long: the trail keeps the start, which names the problem
     private static string Short(string id) => id.Length > 120 ? id[..120] : id;
 
-    private static HistoryLine Line(HistoryEntry entry, IReadOnlyDictionary<Guid, Approval> approvals, IBatchQueue queue)
+    // What became of an approved line. Written down the first time it is known to be over: the approval and the run are trimmed after a while, the history is not.
+    private static HistoryLine Line(HistoryEntry entry, IReadOnlyDictionary<Guid, Approval> approvals, IBatchQueue queue, IProblemHistory history)
     {
         var outcome = HistoryOutcome.Skipped;
         if (entry.State == HistoryState.Approved)
         {
-            var approval = entry.ApprovalId is { } id && approvals.TryGetValue(id, out var found) ? found : null;
-            IReadOnlyCollection<TaskResult?> results = [];
-            if (approval?.State == ApprovalState.DryRunDone && entry.BatchId is { } batch && queue.Find(batch) is { } run)
+            outcome = entry.Outcome ?? Resolve(entry, approvals, queue);
+            if (entry.Outcome is null && outcome != HistoryOutcome.InProgress)
             {
-                results = [.. run.Tasks.Where(task => task.Spec.ApprovalId == entry.ApprovalId).Select(task => task.Result)];
+                try
+                {
+                    history.Conclude(entry.Id, outcome);
+                }
+                catch (StorageUnavailableException)
+                {
+                    // Told again on the next read
+                }
             }
-            outcome = HistoryOutcomes.Of(approval?.State, results);
         }
         return new HistoryLine(entry.Id, entry.State, outcome, entry.Application, entry.Kind, entry.Description, entry.Repository, entry.PullRequest, entry.HeadSha, entry.BatchId, entry.At, entry.By, entry.Reason);
+    }
+
+    // From the approval when it is still there, otherwise from the run; when neither is left it is over (it cannot be known how), never "in progress" for good
+    private static HistoryOutcome Resolve(HistoryEntry entry, IReadOnlyDictionary<Guid, Approval> approvals, IBatchQueue queue)
+    {
+        var approval = entry.ApprovalId is { } id && approvals.TryGetValue(id, out var found) ? found : null;
+        var run = entry.BatchId is { } batch ? queue.Find(batch) : null;
+        ApprovalState? state = approval?.State ?? run?.Summary.State switch
+        {
+            BatchState.Waiting => ApprovalState.Waiting,
+            BatchState.Delivered => ApprovalState.Taken,
+            BatchState.Refused => ApprovalState.Refused,
+            BatchState.Expired => ApprovalState.Expired,
+            BatchState.Done => ApprovalState.DryRunDone,
+            _ => null,
+        };
+        if (state is null)
+        {
+            return HistoryOutcome.Ended;
+        }
+        IReadOnlyCollection<TaskResult?> results = state == ApprovalState.DryRunDone && run is not null
+            ? [.. run.Tasks.Where(task => task.Spec.ApprovalId == entry.ApprovalId).Select(task => task.Result)]
+            : [];
+        return HistoryOutcomes.Of(state, results);
     }
 }

@@ -9,6 +9,7 @@ import { describeHistoryOutcome, describeProblemKindShort } from 'Utilities/desc
 import formatTime from 'Utilities/formatTime';
 import translate from 'Utilities/translate';
 
+import { shortName } from './AppCell';
 import styles from './History.module.css';
 import { useHistory, useUnskip } from './useProblems';
 
@@ -24,6 +25,10 @@ const tones: Record<HistoryOutcome, string> = {
 };
 
 // What was decided, newest first, a page at a time: the approved rows with what became of them, and the rows set aside (which can be taken back)
+function asState(value: string): HistoryState | null {
+  return value === 'approved' || value === 'skipped' ? value : null;
+}
+
 export default function History({ canDecide }: Readonly<{ canDecide: boolean }>) {
   const [state, setState] = useState<HistoryState | null>(null);
   const { data, error, isPending, hasNextPage, fetchNextPage, isFetchingNextPage } = useHistory(state);
@@ -35,10 +40,7 @@ export default function History({ canDecide }: Readonly<{ canDecide: boolean }>)
       <div className={styles.controls}>
         <label className={styles.filter}>
           {translate('HistoryFilter')}
-          <select
-            value={state ?? ''}
-            onChange={(event) => setState((event.target.value || null) as HistoryState | null)}
-          >
+          <select value={state ?? ''} onChange={(event) => setState(asState(event.target.value))}>
             <option value="">{translate('HistoryAll')}</option>
             <option value="approved">{translate('HistoryApproved')}</option>
             <option value="skipped">{translate('HistorySkipped')}</option>
@@ -97,7 +99,7 @@ function HistoryRow({
     <tr>
       <td>{formatTime(line.at)}</td>
       <td className={tones[line.outcome]}>{describeHistoryOutcome(line.outcome)}</td>
-      <td title={line.application}>{line.application.split('/').pop()}</td>
+      <td title={line.application}>{shortName(line.application)}</td>
       <td>{describeProblemKindShort(line.kind)}</td>
       <td className={styles.problem} title={line.description}>
         {line.description}
