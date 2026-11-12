@@ -38,7 +38,7 @@ const rows: ProblemRow[] = [
     application: 'example/api',
     kind: 'exposedSecret',
     description: '1',
-    severity: 'danger',
+    severity: 'warning',
     count: 1,
     updateClass: null,
     checks: null,
@@ -357,6 +357,25 @@ describe('Decisions', () => {
     await userEvent.click(await screen.findByRole('button', { name: /Skip example\/shop express 4.16.0/ }));
 
     expect(await screen.findByText(/could not be set aside/)).toBeInTheDocument();
+  });
+
+  it('offers no skip button on a danger, which is dealt with at its source', async () => {
+    stub(
+      problemsReport([
+        problem({
+          id: 'finding:x:secret',
+          severity: 'danger',
+          goesUpTo: 'noAction',
+          why: 'noActionDefined',
+          headSha: null,
+        }),
+      ]),
+    );
+    renderWithProviders(<Decisions />);
+    expect(await screen.findByRole('table')).toBeInTheDocument();
+    expect(screen.getByLabelText(/Select example\/shop/)).toBeInTheDocument();
+
+    expect(screen.queryByRole('button', { name: /^Skip / })).not.toBeInTheDocument();
   });
 
   it('offers no skip button to someone who may not decide', async () => {

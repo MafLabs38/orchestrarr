@@ -177,7 +177,7 @@ public static class DecisionTable
                 // One row instead of the pull requests and the red build of a repository that nobody works on: the decision is about the repository. The text names the day
                 // of the last push, not the number of days (that one changes every day, and a skip lasts as long as the text stays the same). What is a risk stays as its own
                 // row (an exposed secret, an alert, a scan that cannot be read): a dead repository can still leak.
-                rows.Add(Of(item, $"dormant:{item.Id}", ProblemKind.DormantRepository, $"last push {item.LastPushAt!.Value:yyyy-MM-dd}", Severity.Info, Days(item, now!.Value), Ceiling.NoAction, CeilingReason.NoActionDefined, item.RepositoryFullName));
+                rows.Add(Of(item, $"dormant:{item.Id}", ProblemKind.DormantRepository, $"last push {item.LastPushAt!.Value.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)}", Severity.Info, Days(item, now!.Value), Ceiling.NoAction, CeilingReason.NoActionDefined, item.RepositoryFullName));
                 AddOtherProblems(rows, item, policy, dormant: true);
                 NameApplication(rows, before, item, applicationNames ?? []);
                 continue;

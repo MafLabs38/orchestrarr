@@ -34,7 +34,7 @@ internal static class ProblemsEndpoints
             return Results.Ok(new ProblemsReport(report.ReadAt, report.SourceKind, report.Stale, report.Error, applications.Version, rows, all.Count - rows.Count));
         }).RequireAuthorization(Permissions.FleetRead);
 
-        api.MapPost("/problems/approve", async (ApproveProblemsRequest request, HttpContext context, IApproverAccessor accessor, IProblemHistory history, IApprovalStore approvalStore, TimeProvider time, RelevancePolicy policy, WorkItemCatalog catalog, IApplicationCatalog applications, RunnerRegistry runners, IBatchQueue queue, ApprovalService service, CancellationToken ct) =>
+        api.MapPost("/problems/approve", async (ApproveProblemsRequest request, HttpContext context, IApproverAccessor accessor, IProblemHistory history, IApprovalStore approvalStore, ILogger<ProblemsReport> logger, TimeProvider time, RelevancePolicy policy, WorkItemCatalog catalog, IApplicationCatalog applications, RunnerRegistry runners, IBatchQueue queue, ApprovalService service, CancellationToken ct) =>
         {
             var (approver, refusal) = ApprovalEndpoints.Authorize(accessor, context);
             if (approver is null)
@@ -57,7 +57,7 @@ internal static class ProblemsEndpoints
             {
                 return ApprovalEndpoints.RefusalResult(code);
             }
-            RecordApproved(history, table.Values, result.Approvals, time.GetUtcNow(), context.User.Identity?.Name ?? approver.Subject);
+            RecordApproved(history, logger, table.Values, result.Approvals, time.GetUtcNow(), context.User.Identity?.Name ?? approver.Subject);
             return Results.Json(new ApproveResponse([.. result.Approvals.Select(ApprovalEndpoints.ToDto)]), statusCode: StatusCodes.Status201Created);
         }).RequireAuthorization(Permissions.ApprovalsCreate).RequireRateLimiting(ApprovalsServiceCollectionExtensions.ApprovingPolicy);
 
@@ -88,7 +88,7 @@ internal static class ProblemsEndpoints
         Visible(DecisionTable.Build(report.Items, applications, Acceptance(runners), WorkshopResults(queue), report.Applications, time.GetUtcNow(), policy), history, approvals);
 
     // What the operator approved, photographed: the live row is gone once the pull request is merged. A history that cannot be written does not undo the approval.
-    private static void RecordApproved(IProblemHistory history, IEnumerable<ProblemRow> table, IReadOnlyList<Approval> approvals, DateTimeOffset at, string by)
+    private static void RecordApproved(IProblemHistory history, ILogger logger, IEnumerable<ProblemRow> table, IReadOnlyList<Approval> approvals, DateTimeOffset at, string by)
     {
         var rows = table.Where(row => row.PullRequest is not null).ToList();
         foreach (var approval in approvals)
@@ -103,9 +103,10 @@ internal static class ProblemsEndpoints
                 history.Record(new HistoryEntry(0, row.Id, row.Description, HistoryState.Approved, row.Application, row.Kind, row.Description, approval.Repository, approval.PullRequest,
                     approval.HeadSha, approval.Id, approval.BatchId, at, by, null));
             }
-            catch (StorageUnavailableException)
+            catch (StorageUnavailableException failure)
             {
-                // The approval stands; only its photograph is missing
+                // The approval stands; only its photograph is missing, and the trail of the approval says what was decided
+                logger.LogWarning(failure, "The history could not record the approval {Approval}; the decision stands without its line", approval.Id);
             }
         }
     }

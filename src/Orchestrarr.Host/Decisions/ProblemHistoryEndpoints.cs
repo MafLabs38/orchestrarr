@@ -71,7 +71,8 @@ internal static class ProblemHistoryEndpoints
             var report = await catalog.GetAsync(refresh: false, ct);
             var table = ProblemsEndpoints.VisibleTable(report, applications, runners, queue, history, approvals, time, policy).ToDictionary(row => row.Id, StringComparer.Ordinal);
             var rows = new List<ProblemRow>();
-            foreach (var one in chosen)
+            // The same row twice is one row
+            foreach (var one in chosen.DistinctBy(candidate => candidate.Id, StringComparer.Ordinal))
             {
                 // What the operator saw is what is set aside: a row that is gone, or whose description changed since, is not skipped
                 if (one.Id is null || !table.TryGetValue(one.Id, out var row) || !string.Equals(row.Description, one.Description, StringComparison.Ordinal))
@@ -82,6 +83,11 @@ internal static class ProblemHistoryEndpoints
                 if (row.InProgress)
                 {
                     return Results.Json(new ErrorResponse("inProgress"), statusCode: StatusCodes.Status409Conflict);
+                }
+                // A danger (an exposed secret, a critical alert) is dealt with at its source: setting it aside would hide it from every tab
+                if (row.Severity == Orchestrarr.Core.WorkItems.Severity.Danger)
+                {
+                    return Results.Json(new ErrorResponse("danger"), statusCode: StatusCodes.Status409Conflict);
                 }
                 rows.Add(row);
             }

@@ -282,15 +282,21 @@ function ProblemTableRow({
       </td>
       {onSkip ? (
         <td className={styles.narrow}>
-          <button
-            type="button"
-            className={styles.skip}
-            title={translate('SkipHint')}
-            aria-label={translate('SkipRowOf', { problem: `${row.application} ${sentence}` })}
-            onClick={() => onSkip(row)}
-          >
-            {translate('SkipRow')}
-          </button>
+          {row.severity === 'danger' ? (
+            <span className={styles.none} title={translate('SkipNotForDanger')}>
+              —
+            </span>
+          ) : (
+            <button
+              type="button"
+              className={styles.skip}
+              title={translate('SkipHint')}
+              aria-label={translate('SkipRowOf', { problem: `${row.application} ${sentence}` })}
+              onClick={() => onSkip(row)}
+            >
+              {translate('SkipRow')}
+            </button>
+          )}
         </td>
       ) : null}
     </tr>

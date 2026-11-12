@@ -454,5 +454,6 @@
   "TabHistoryHint": "What was decided: the rows approved, with what became of them, and the rows set aside.",
   "NothingToConfigure": "Nothing is waiting for a setting.",
   "NothingToKnow": "Nothing to know.",
-  "SkipRefused": "The row could not be set aside: it changed since you saw it, or you may not decide. Read the table again."
+  "SkipRefused": "The row could not be set aside: it changed since you saw it, a run is working on it, it is a danger, or you may not decide. Read the table again.",
+  "SkipNotForDanger": "A danger is not set aside: it is dealt with at its source."
 }

@@ -37,9 +37,9 @@ export function stubPendingApi() {
   );
 }
 
-// The tab the server would give the row: what can be done now, what needs a setting, what is only to know
-function tabOf(row: Pick<ProblemRow, 'goesUpTo' | 'why' | 'inProgress'>): ProblemTab {
-  if (row.inProgress || row.goesUpTo !== 'noAction') {
+// The tab the server would give the row: what can be done now (or is a danger), what needs a setting, what is only to know
+function tabOf(row: Pick<ProblemRow, 'goesUpTo' | 'why' | 'inProgress' | 'severity'>): ProblemTab {
+  if (row.inProgress || row.goesUpTo !== 'noAction' || row.severity === 'danger') {
     return 'act';
   }
   return ['notGranted', 'noRunner', 'noDescription'].includes(row.why) ? 'configure' : 'know';

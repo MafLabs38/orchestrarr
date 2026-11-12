@@ -174,6 +174,26 @@ public sealed class ProblemsApiTests
     }
 
     [Fact]
+    public async Task A_danger_is_not_set_aside_and_the_same_row_twice_is_one_skip()
+    {
+        using var factory = new TableApiFactory();
+        await factory.ConnectRunnerAsync();
+        using var operatorClient = await SignedIn(factory, "Operator");
+        var table = await Table(operatorClient);
+        var rows = table.GetProperty("rows").EnumerateArray().ToList();
+        var danger = rows.First(row => row.TryGetProperty("severity", out var severity) && severity.GetString() == "danger").GetProperty("id").GetString()!;
+        var shop = Skipped(table, "pr:example/shop#3");
+
+        var refused = await operatorClient.PostAsJsonAsync("/api/v1/problems/skip", new { rows = new[] { Skipped(table, danger) } }, Ct);
+        var twice = await operatorClient.PostAsJsonAsync("/api/v1/problems/skip", new { rows = new[] { shop, shop } }, Ct);
+
+        refused.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await Json(refused)).GetProperty("error").GetString().Should().Be("danger");
+        (await Json(twice)).GetProperty("skipped").GetInt32().Should().Be(1);
+        (await Json(await operatorClient.GetAsync("/api/v1/problems/history?state=skipped", Ct))).GetProperty("lines").GetArrayLength().Should().Be(1);
+    }
+
+    [Fact]
     public async Task A_row_set_aside_cannot_be_approved_by_a_selection_made_before()
     {
         using var factory = new TableApiFactory();
@@ -184,7 +204,7 @@ public sealed class ProblemsApiTests
 
         var approve = await operatorClient.PostAsJsonAsync("/api/v1/problems/approve", new { rows = new[] { Chosen(table, "pr:example/shop#2") }, secondFactorCode = "123456", descriptionsVersion = Version(table) }, Ct);
 
-        approve.IsSuccessStatusCode.Should().BeFalse("what is set aside is no longer in the table that the selection is checked against");
+        approve.StatusCode.Should().BeOneOf([HttpStatusCode.Conflict, HttpStatusCode.UnprocessableEntity], "what is set aside is no longer in the table that the selection is checked against");
     }
 
     [Fact]
