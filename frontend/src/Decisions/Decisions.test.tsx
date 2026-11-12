@@ -378,6 +378,29 @@ describe('Decisions', () => {
     expect(await screen.findByText(/example\/infra \(not found or no access\)/)).toBeInTheDocument();
   });
 
+  it('shows each problem of a repository that has several, with a line for each', async () => {
+    stub(
+      problemsReport(rows, {
+        code: {
+          inScope: true,
+          repositories: 1,
+          files: 3,
+          readAt: '2026-11-01T08:00:00Z',
+          stale: false,
+          error: null,
+          problems: [
+            { repository: 'example/infra', reason: 'more than 300 files match' },
+            { repository: 'example/infra', reason: '2 files could not be read' },
+          ],
+        },
+      }),
+    );
+    renderWithProviders(<Decisions />);
+
+    expect(await screen.findByText(/more than 300 files match/)).toBeInTheDocument();
+    expect(screen.getByText(/2 files could not be read/)).toBeInTheDocument();
+  });
+
   it('offers no skip button on a danger, which is dealt with at its source', async () => {
     stub(
       problemsReport([
