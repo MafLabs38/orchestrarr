@@ -3,7 +3,7 @@ import { render } from '@testing-library/react';
 import type { ReactElement, ReactNode } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 
-import type { ApprovalStatus, ProblemRow, ProblemsReport, ProblemTab, SystemStatus } from 'typings/api';
+import type { ApprovalStatus, ProblemRow, ProblemsReport, SystemStatus } from 'typings/api';
 
 // The providers are a wrapper, so that a rerender keeps them.
 export function renderWithProviders(ui: ReactElement) {
@@ -37,14 +37,6 @@ export function stubPendingApi() {
   );
 }
 
-// The tab the server would give the row: what can be done now (or is a danger), what needs a setting, what is only to know
-function tabOf(row: Pick<ProblemRow, 'goesUpTo' | 'why' | 'inProgress' | 'severity'>): ProblemTab {
-  if (row.inProgress || row.goesUpTo !== 'noAction' || row.severity === 'danger') {
-    return 'act';
-  }
-  return ['notGranted', 'noRunner', 'noDescription'].includes(row.why) ? 'configure' : 'know';
-}
-
 export function problem(overrides: Partial<ProblemRow> = {}): ProblemRow {
   const row: ProblemRow = {
     id: 'pr:example/shop#2',
@@ -64,7 +56,6 @@ export function problem(overrides: Partial<ProblemRow> = {}): ProblemRow {
     canStopBeforeProduction: true,
     workshop: 'unknown',
     inProgress: false,
-    tab: 'act',
     applicationId: null,
     icon: null,
     source: null,
@@ -72,7 +63,7 @@ export function problem(overrides: Partial<ProblemRow> = {}): ProblemRow {
     proposedTag: null,
     ...overrides,
   };
-  return { ...row, tab: overrides.tab ?? tabOf(row) };
+  return row;
 }
 
 export function problemsReport(
@@ -126,5 +117,6 @@ export function status(
     approvals: approvalStatus(approvals),
     storage: { kind: 'memory' },
     runners: [],
+    code: { problems: [], warnings: [], error: null },
   };
 }

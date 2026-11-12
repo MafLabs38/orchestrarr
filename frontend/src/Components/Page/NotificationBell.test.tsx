@@ -73,4 +73,25 @@ describe('NotificationBell', () => {
 
     expect(screen.getByText('The global stop is engaged')).toBeInTheDocument();
   });
+
+  it('tells what is wrong with the code of the description: a repository that is not read, an environment the fleet does not know, a failed reading', async () => {
+    stubApi({
+      '/api/v1/system/status': {
+        ...statusWith(),
+        code: {
+          problems: [{ repository: 'example/infra', reason: 'not found or no access' }],
+          warnings: [{ subject: 'prod', reason: 'no workload of the fleet is in this environment' }],
+          error: 'HttpRequestException',
+        },
+      },
+    });
+    renderWithProviders(<NotificationBell />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Notifications (3)' }));
+
+    expect(screen.getByText('A repository of the description is not read: example/infra')).toBeInTheDocument();
+    expect(screen.getByText(/not found or no access/)).toBeInTheDocument();
+    expect(screen.getByText("The description names 'prod'")).toBeInTheDocument();
+    expect(screen.getByText('The code of the description could not be read')).toBeInTheDocument();
+  });
 });

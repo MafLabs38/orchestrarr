@@ -8,6 +8,7 @@ export {
   CircleAlert as DANGER,
   ScrollText as DECISIONS,
   ChevronDown as EXPANDED,
+  Archive as HISTORY,
   Info as INFO,
   SlidersHorizontal as OPTIONS,
   Clock as PENDING,

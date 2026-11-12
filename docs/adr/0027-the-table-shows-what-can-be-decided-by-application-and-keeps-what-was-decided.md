@@ -1,6 +1,6 @@
 # 0027 — The table shows what can be decided, by application, and keeps what was decided
 
-- **Status**: proposed (asked for by the maintainer on 2026-11-12; accepted when the pull request that carries it is merged)
+- **Status**: accepted; decision 1 (the tabs) is superseded by [ADR 0029](0029-the-table-is-one-table-and-the-history-is-a-screen-of-its-own.md)
 - **Date**: 2026-11-12
 - **Spec**: D-75, D-76, D-77 (refines D-67 and ADR 0019; supersedes ADR 0003 for what the table shows)
 

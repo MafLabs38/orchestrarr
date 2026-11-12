@@ -11,7 +11,7 @@ import * as icons from 'Helpers/Props/icons';
 import { kinds } from 'Helpers/Props/kinds';
 import { iconSizes } from 'Helpers/Props/sizes';
 import useSystemStatus from 'System/useSystemStatus';
-import type { Ceiling, ProblemRow, ProblemsReport, ProblemTab, WorkshopVerdict } from 'typings/api';
+import type { Ceiling, ProblemRow, ProblemsReport, WorkshopVerdict } from 'typings/api';
 import {
   describeCeiling,
   describeError,
@@ -25,7 +25,6 @@ import formatTime from 'Utilities/formatTime';
 import translate from 'Utilities/translate';
 
 import styles from './Decisions.module.css';
-import History from './History';
 import ProblemTable, { isActionable } from './ProblemTable';
 import SelectionBar from './SelectionBar';
 import { type Sort, sortRows } from './sortRows';
@@ -33,17 +32,6 @@ import useProblems, { useRefreshProblems, useSkipProblems } from './useProblems'
 
 const ceilingOrder: Ceiling[] = ['production', 'mergeIntoDevelop', 'repair', 'qualification', 'noAction'];
 const workshopOrder: WorkshopVerdict[] = ['fails', 'passes', 'repaired', 'unknown'];
-const tabs: {
-  id: ProblemTab | 'history';
-  label: Parameters<typeof translate>[0];
-  hint: Parameters<typeof translate>[0];
-}[] = [
-  { id: 'act', label: 'TabAct', hint: 'TabActHint' },
-  { id: 'configure', label: 'TabConfigure', hint: 'TabConfigureHint' },
-  { id: 'know', label: 'TabKnow', hint: 'TabKnowHint' },
-  { id: 'history', label: 'TabHistory', hint: 'TabHistoryHint' },
-];
-
 export default function Decisions() {
   const { data: report, error, isPending } = useProblems();
   const refresh = useRefreshProblems();
@@ -86,58 +74,7 @@ function matches(row: ProblemRow, filters: Filters): boolean {
   );
 }
 
-const emptyTabs = { act: 'NothingToDecideNow', configure: 'NothingToConfigure', know: 'NothingToKnow' } as const;
-
-function emptyText(report: ProblemsReport, tab: ProblemTab): string {
-  if (report.sourceKind === 'none') {
-    return translate('NoSourceConfigured');
-  }
-  return translate(report.rows.length === 0 ? 'NothingToDecide' : emptyTabs[tab]);
-}
-
-// Four views of the same table: what can be decided now (the default), what needs a setting, what is only to know, and what was decided
-function TabBar({
-  rows,
-  tab,
-  onTab,
-}: Readonly<{ rows: ProblemRow[]; tab: ProblemTab | 'history'; onTab: (tab: ProblemTab | 'history') => void }>) {
-  return (
-    <div role="tablist" className={styles.tabs}>
-      {tabs.map((entry) => (
-        <button
-          key={entry.id}
-          type="button"
-          role="tab"
-          aria-selected={tab === entry.id}
-          title={translate(entry.hint)}
-          className={tab === entry.id ? styles.tabOn : styles.tab}
-          onClick={() => onTab(entry.id)}
-        >
-          {translate(entry.label)}
-          {entry.id === 'history' ? null : (
-            <span className={styles.tabCount}>{rows.filter((row) => row.tab === entry.id).length}</span>
-          )}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function Content({ report, tab }: Readonly<{ report: ProblemsReport; tab: ProblemTab | 'history' }>) {
-  const { data: status } = useSystemStatus();
-  if (tab === 'history') {
-    return <History canDecide={status?.approvals.isOperator ?? false} />;
-  }
-  const inTab = report.rows.filter((row) => row.tab === tab);
-  if (inTab.length === 0) {
-    return <CapabilityHint>{emptyText(report, tab)}</CapabilityHint>;
-  }
-  return <Problems key={tab} report={report} inTab={inTab} />;
-}
-
 function Table({ report }: Readonly<{ report: ProblemsReport }>) {
-  const [tab, setTab] = useState<ProblemTab | 'history'>('act');
-
   if (report.error && report.rows.length === 0) {
     return <Alert kind={kinds.DANGER}>{translate('CannotReadFleet', { error: describeError(report.error) })}</Alert>;
   }
@@ -152,26 +89,12 @@ function Table({ report }: Readonly<{ report: ProblemsReport }>) {
           })}
         </Alert>
       ) : null}
-      {report.code?.error ? (
-        <Alert kind={kinds.WARNING}>{translate('CodeReadFailed', { error: report.code.error })}</Alert>
-      ) : null}
-      {report.code?.warnings.map((warning) => (
-        <Alert key={warning.subject} kind={kinds.WARNING}>
-          {translate('CodeScopeWarning', { subject: warning.subject, reason: warning.reason })}
-        </Alert>
-      ))}
-      {report.code?.problems.map((problem) => (
-        <Alert key={`${problem.repository}:${problem.reason}`} kind={kinds.WARNING}>
-          {translate('CodeScopeProblem', { repository: problem.repository, reason: problem.reason })}
-        </Alert>
-      ))}
-      <TabBar rows={report.rows} tab={tab} onTab={setTab} />
-      <Content report={report} tab={tab} />
+      <Problems report={report} />
     </>
   );
 }
 
-function Problems({ report, inTab }: Readonly<{ report: ProblemsReport; inTab: ProblemRow[] }>) {
+function Problems({ report }: Readonly<{ report: ProblemsReport }>) {
   const { data: status } = useSystemStatus();
   const [filters, setFilters] = useState<Filters>(noFilters);
   // The selection remembers the commit that was shown: a row whose pull request moved since is no longer what was chosen
@@ -182,7 +105,7 @@ function Problems({ report, inTab }: Readonly<{ report: ProblemsReport; inTab: P
 
   const numbers = new Map(report.rows.map((row, index) => [row.id, index + 1]));
   const shown = sortRows(
-    inTab.filter((row) => matches(row, filters)),
+    report.rows.filter((row) => matches(row, filters)),
     numbers,
     sort,
     (row) => ({
@@ -193,8 +116,8 @@ function Problems({ report, inTab }: Readonly<{ report: ProblemsReport; inTab: P
   );
   const chosen = report.rows.filter((row) => isActionable(row) && chosenAt[row.id] === row.headSha);
   const selected = new Set(chosen.map((row) => row.id));
-  const applications = [...new Set(inTab.map((row) => row.application))].sort((a, b) => a.localeCompare(b));
-  const types = [...new Set(inTab.map((row) => row.kind))];
+  const applications = [...new Set(report.rows.map((row) => row.application))].sort((a, b) => a.localeCompare(b));
+  const types = [...new Set(report.rows.map((row) => row.kind))];
   const set = (change: Partial<Filters>) => setFilters((current) => ({ ...current, ...change }));
 
   // The commit shown when the row was chosen is what the approval is bound to
@@ -214,7 +137,11 @@ function Problems({ report, inTab }: Readonly<{ report: ProblemsReport; inTab: P
 
   return (
     <>
-      {inTab.length === 0 ? null : (
+      {report.rows.length === 0 ? (
+        <CapabilityHint>
+          {translate(report.sourceKind === 'none' ? 'NoSourceConfigured' : 'NothingToDecide')}
+        </CapabilityHint>
+      ) : (
         <>
           <div className={styles.controls}>
             <label className={styles.filter}>
@@ -270,7 +197,7 @@ function Problems({ report, inTab }: Readonly<{ report: ProblemsReport; inTab: P
               onChange={(event) => set({ text: event.target.value })}
             />
             <span className={styles.count}>
-              {translate('ProblemsShown', { shown: shown.length, total: inTab.length, selected: chosen.length })}
+              {translate('ProblemsShown', { shown: shown.length, total: report.rows.length, selected: chosen.length })}
               {report.skipped > 0 ? ` · ${translate('SkippedCount', { count: report.skipped })}` : ''}
             </span>
           </div>

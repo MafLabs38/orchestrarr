@@ -49,5 +49,29 @@ export default function useNotifications(): Notification[] {
       text: translate('NotificationNoRunnerText'),
     });
   }
+  for (const problem of status.code.problems) {
+    notifications.push({
+      id: `code-problem:${problem.repository}:${problem.reason}`,
+      important: false,
+      title: translate('NotificationCodeProblemTitle', { repository: problem.repository }),
+      text: translate('NotificationCodeProblemText', { reason: problem.reason }),
+    });
+  }
+  for (const warning of status.code.warnings) {
+    notifications.push({
+      id: `code-warning:${warning.subject}`,
+      important: false,
+      title: translate('NotificationCodeWarningTitle', { subject: warning.subject }),
+      text: translate('NotificationCodeWarningText', { reason: warning.reason }),
+    });
+  }
+  if (status.code.error !== null) {
+    notifications.push({
+      id: 'code-error',
+      important: false,
+      title: translate('NotificationCodeErrorTitle'),
+      text: translate('NotificationCodeErrorText', { error: status.code.error }),
+    });
+  }
   return notifications;
 }

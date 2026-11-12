@@ -58,20 +58,4 @@ public sealed class ProblemHistoryTests
         HistoryOutcomes.Of(ApprovalState.DryRunDone, []).Should().Be(HistoryOutcome.Ended);
         HistoryOutcomes.Of(null, []).Should().Be(HistoryOutcome.InProgress);
     }
-
-    [Theory]
-    [InlineData(Ceiling.Qualification, CeilingReason.None, false, ProblemTab.Act)]
-    [InlineData(Ceiling.Repair, CeilingReason.ChecksFailing, false, ProblemTab.Act)]
-    [InlineData(Ceiling.NoAction, CeilingReason.NotGranted, false, ProblemTab.Configure)]
-    [InlineData(Ceiling.NoAction, CeilingReason.NoRunner, false, ProblemTab.Configure)]
-    [InlineData(Ceiling.NoAction, CeilingReason.NoDescription, false, ProblemTab.Configure)]
-    [InlineData(Ceiling.NoAction, CeilingReason.NoActionDefined, false, ProblemTab.Know)]
-    [InlineData(Ceiling.NoAction, CeilingReason.PatchReady, false, ProblemTab.Know)]
-    [InlineData(Ceiling.NoAction, CeilingReason.NotGranted, true, ProblemTab.Act)]
-    public void A_row_is_shown_where_a_person_can_do_something_with_it(Ceiling ceiling, CeilingReason why, bool inProgress, ProblemTab expected)
-    {
-        var row = new ProblemRow("id", "w", "example/shop", ProblemKind.DependencyUpdate, "d", null, null, null, null, null, null, null, ceiling, why, false, InProgress: inProgress);
-
-        row.Tab.Should().Be(expected);
-    }
 }

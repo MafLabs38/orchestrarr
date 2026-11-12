@@ -150,12 +150,12 @@ api.MapRunEndpoints();
 // The routes of the runners carry their own token and no session: they are mapped outside the group that needs a person
 app.MapRunnerEndpoints(tasks);
 
-api.MapGet("/system/status", (WorkItemCatalog catalog, IApproverAccessor accessor, IKillSwitchControl killSwitch, ISecondFactorPolicy secondFactor, RunnerRegistry runners, HttpContext context) =>
+api.MapGet("/system/status", (WorkItemCatalog catalog, InfrastructureCatalog infrastructure, IApproverAccessor accessor, IKillSwitchControl killSwitch, ISecondFactorPolicy secondFactor, RunnerRegistry runners, HttpContext context) =>
 {
     // The status never reads the fleet: it says what the last read found, and nothing before the first one
     var report = catalog.Peek();
     var version = typeof(Program).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0.0.0-dev";
-    return Results.Ok(new SystemStatus("Orchestrarr", version, new SourceStatus(catalog.SourceKind, catalog.SourceConfigured, report?.ReadAt, report?.Error, report?.Stale ?? false), new ForgeStatus(catalog.ForgeKind, catalog.ForgeConfigured), ApprovalEndpoints.StatusOf(accessor, context, killSwitch, secondFactor.Required), new StorageStatus(storage.Kind), runners.Snapshot()));
+    return Results.Ok(new SystemStatus("Orchestrarr", version, new SourceStatus(catalog.SourceKind, catalog.SourceConfigured, report?.ReadAt, report?.Error, report?.Stale ?? false), new ForgeStatus(catalog.ForgeKind, catalog.ForgeConfigured), ApprovalEndpoints.StatusOf(accessor, context, killSwitch, secondFactor.Required), new StorageStatus(storage.Kind), runners.Snapshot(), CodeStatusReader.Of(infrastructure, report)));
 }).RequireAuthorization(Permissions.FleetRead);
 
 // An unknown route of the API is a 404 for a person who signed in (a 401 for anybody else: the fallback policy), never the page of the interface
@@ -177,7 +177,10 @@ public partial class Program;
 namespace Orchestrarr.Host
 {
     /// <summary>What <c>GET /api/v1/system/status</c> answers.</summary>
-    public sealed record SystemStatus(string Name, string Version, SourceStatus Source, ForgeStatus Forge, ApprovalStatus Approvals, StorageStatus Storage, IReadOnlyList<RunnerStatus> Runners);
+    public sealed record SystemStatus(string Name, string Version, SourceStatus Source, ForgeStatus Forge, ApprovalStatus Approvals, StorageStatus Storage, IReadOnlyList<RunnerStatus> Runners, CodeStatus Code);
+
+    /// <summary>What is wrong with the code of the scope as it was read last (the bell tells it): a repository that could not be read, a reading that failed, an environment the fleet does not know.</summary>
+    public sealed record CodeStatus(IReadOnlyList<RepositoryProblem> Problems, IReadOnlyList<ScopeWarning> Warnings, string? Error);
 
     /// <summary>Where the approvals, the trail and the global stop are kept: <c>sqlite</c> survives a restart, <c>memory</c> does not.</summary>
     public sealed record StorageStatus(string Kind);

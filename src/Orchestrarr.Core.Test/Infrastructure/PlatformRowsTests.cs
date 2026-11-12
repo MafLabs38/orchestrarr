@@ -35,7 +35,7 @@ public sealed class PlatformRowsTests
 
         rows.Select(row => (row.Id, row.Description)).Should().Equal(("platform:k3s:patch", "v1.36.5+k3s1 → v1.36.6+k3s1"), ("platform:k3s:minor", "v1.36.5+k3s1 → v1.37.2+k3s1"));
         rows.Should().OnlyContain(row => row.ProposedTag == null, "a platform upgrade is told and described, no change is computed for it");
-        rows.Should().OnlyContain(row => row.Why == CeilingReason.PlatformUpgradeIsPlanned && row.Kind == ProblemKind.PlatformUpdate && row.Tab == ProblemTab.Know);
+        rows.Should().OnlyContain(row => row.Why == CeilingReason.PlatformUpgradeIsPlanned && row.Kind == ProblemKind.PlatformUpdate);
         rows[0].Locations!.Single().Should().Match<CodeLocation>(location => location.Line == 2 && location.Form == VersionForm.Variable && location.Path == "ansible/all.yml");
     }
 

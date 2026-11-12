@@ -303,24 +303,10 @@ public sealed class ProblemsApiTests
 
         var after = await Table(operatorClient);
         Row(after, "pr:example/shop#2").GetProperty("inProgress").GetBoolean().Should().BeTrue();
-        Row(after, "pr:example/shop#2").GetProperty("tab").GetString().Should().Be("act");
         var line = (await Json(await operatorClient.GetAsync("/api/v1/problems/history?state=approved", Ct))).GetProperty("lines").EnumerateArray().Single();
         line.GetProperty("outcome").GetString().Should().Be("inProgress");
         line.GetProperty("description").GetString().Should().Be(Row(table, "pr:example/shop#2").GetProperty("description").GetString());
         line.GetProperty("pullRequest").GetInt32().Should().Be(2);
-    }
-
-    [Fact]
-    public async Task Every_row_says_in_which_tab_it_belongs()
-    {
-        using var factory = new TableApiFactory();
-        await factory.ConnectRunnerAsync();
-        using var reader = await SignedIn(factory, "Reader");
-
-        var table = await Table(reader);
-
-        Row(table, "pr:example/shop#2").GetProperty("tab").GetString().Should().Be("act");
-        Row(table, "pr:example/reporting#3").GetProperty("tab").GetString().Should().Be("configure", "no description of the application is something to configure");
     }
 
     [Fact]

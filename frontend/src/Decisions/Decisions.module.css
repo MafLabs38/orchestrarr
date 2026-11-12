@@ -32,38 +32,3 @@
   color: var(--inkMuted);
   font-size: var(--fontSizeMeta);
 }
-
-.tabs {
-  display: flex;
-  gap: 4px;
-  margin: 16px 0 0;
-  border-bottom: var(--borderWidth) solid var(--hairlineStrong);
-}
-
-.tab,
-.tabOn {
-  padding: 6px 14px;
-  font: inherit;
-  font-weight: 800;
-  color: var(--inkMuted);
-  cursor: pointer;
-  background: transparent;
-  border: var(--borderWidth) solid transparent;
-  border-bottom: none;
-  border-radius: var(--radiusMedium) var(--radiusMedium) 0 0;
-}
-
-.tabOn {
-  color: var(--ink);
-  background: var(--paperCard);
-  border-color: var(--hairlineStrong);
-}
-
-.tabCount {
-  margin-left: 8px;
-  padding: 0 7px;
-  font-size: 0.75rem;
-  color: var(--inkMuted);
-  border: 1px solid var(--hairlineStrong);
-  border-radius: var(--radiusPill);
-}

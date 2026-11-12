@@ -26,7 +26,7 @@ internal sealed record TableInputs(WorkItemReport Report, InfrastructureIndex Co
 }
 
 /// <summary>The state of the code of the scope as the table found it: how many places it reads, what could not be read, and whether it is the last good reading (ADR 0028).</summary>
-public sealed record CodeScopeStatus(bool InScope, int Repositories, int Files, DateTimeOffset? ReadAt, bool Stale, IReadOnlyList<RepositoryProblem> Problems, string? Error = null, IReadOnlyList<ScopeWarning>? Warnings = null);
+public sealed record CodeScopeStatus(bool InScope, int Repositories, int Files, DateTimeOffset? ReadAt, bool Stale, IReadOnlyList<RepositoryProblem> Problems, string? Error = null);
 
 /// <summary>A change to a file of the scope, computed and not applied: the line before and after, and the unified diff.</summary>
 public sealed record CodeChange(string Repository, string Path, int Line, string Before, string After, string Diff);
@@ -54,7 +54,7 @@ internal static class ProblemsEndpoints
             var all = FullTable(new TableInputs(report, code.Index, infrastructure.Scope, await k3s.GetAsync(ct)), applications, runners, queue, time, policy);
             var rows = Visible(all, history, approvals);
             return Results.Ok(new ProblemsReport(report.ReadAt, report.SourceKind, report.Stale, report.Error, applications.Version, rows, all.Count - rows.Count,
-                new CodeScopeStatus(code.Index.InScope, infrastructure.Scope.Repositories.Count, code.Index.FileCount, code.ReadAt, code.Stale, code.Index.Problems, code.Error, ScopeChecks.UnknownEnvironments(infrastructure.Scope, report.Items.SelectMany(item => item.Placements).Select(placement => placement.EnvironmentId)))));
+                new CodeScopeStatus(code.Index.InScope, infrastructure.Scope.Repositories.Count, code.Index.FileCount, code.ReadAt, code.Stale, code.Index.Problems, code.Error)));
         }).RequireAuthorization(Permissions.FleetRead);
 
         // The change that would write the proposed version where the code of the scope writes it: shown, never applied (Orchestrarr holds no write power, ADR 0028)

@@ -21,6 +21,12 @@ export interface SystemStatus {
   storage: StorageStatus;
   // The runners that asked for work: what they say of themselves, and whether they did so lately
   runners: RunnerStatus[];
+  // What is wrong with the code of the description as it was read last: told in the bell
+  code: {
+    problems: { repository: string; reason: string }[];
+    warnings: { subject: string; reason: string }[];
+    error: string | null;
+  };
 }
 
 export type TaskKind = 'validatePullRequest' | 'mergePullRequest' | 'repairPullRequest';
@@ -283,7 +289,6 @@ export interface ProblemRow {
   canStopBeforeProduction: boolean;
   workshop: WorkshopVerdict;
   inProgress: boolean;
-  tab: ProblemTab;
   // The application a person knows, as the source of the fleet names it, and the name of its icon; the repository or the image stays in `source`
   applicationId: string | null;
   icon: string | null;
@@ -312,8 +317,6 @@ export interface CodeScopeStatus {
   stale: boolean;
   error: string | null;
   problems: { repository: string; reason: string }[];
-  // Something wrong in the description that is not a failure to read: an environment that the fleet does not know
-  warnings: { subject: string; reason: string }[];
 }
 
 // A change to a file of the scope, computed and not applied
@@ -332,9 +335,6 @@ export interface CodeChangeReport {
   changes: CodeChange[];
   left: CodeLocation[];
 }
-
-// Where a row is shown: what can be decided now, what needs a setting, what is only to know
-export type ProblemTab = 'act' | 'configure' | 'know';
 
 export type HistoryState = 'approved' | 'skipped';
 

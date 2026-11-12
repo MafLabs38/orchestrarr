@@ -29,7 +29,6 @@ public sealed class ImageCodeRowsTests
         row.Why.Should().Be(CeilingReason.CodeChangeShown);
         row.ProposedTag.Should().Be("1.121.0");
         row.Locations.Should().ContainSingle().Which.Should().Match<CodeLocation>(location => location.Repository == "example/infra" && location.Path == "k8s/n8n.yaml" && location.Line == 1);
-        row.Tab.Should().Be(ProblemTab.Know, "nothing can be approved: no write power exists");
     }
 
     [Fact]
@@ -39,7 +38,6 @@ public sealed class ImageCodeRowsTests
 
         row.Why.Should().Be(CeilingReason.NotInScope);
         row.Locations.Should().BeEmpty();
-        row.Tab.Should().Be(ProblemTab.Configure);
     }
 
     [Fact]

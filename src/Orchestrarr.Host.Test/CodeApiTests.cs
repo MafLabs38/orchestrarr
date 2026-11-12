@@ -97,7 +97,6 @@ public sealed class CodeApiTests
         ImageRow(table, "grafana/grafana:11.2.0").GetProperty("why").GetString().Should().Be("managedByAutomation");
         var traefik = ImageRow(table, "ghcr.io/example/api-gateway:3.1.0");
         traefik.GetProperty("why").GetString().Should().Be("notInScope");
-        traefik.GetProperty("tab").GetString().Should().Be("configure");
         var code = table.GetProperty("code");
         code.GetProperty("inScope").GetBoolean().Should().BeTrue();
         code.GetProperty("repositories").GetInt32().Should().Be(2);
