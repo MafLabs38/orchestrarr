@@ -250,6 +250,8 @@ const whys = {
   codeDiffersFromRunning: 'WhyCodeDiffersFromRunning',
   codeChangeShown: 'WhyCodeChangeShown',
   severalEnvironments: 'WhySeveralEnvironments',
+  pinnedByDigest: 'WhyPinnedByDigest',
+  codeNotFullyRead: 'WhyCodeNotFullyRead',
   platformUpgradeIsPlanned: 'WhyPlatformUpgradeIsPlanned',
   platformVersionNotRead: 'WhyPlatformVersionNotRead',
 } as const satisfies Record<CeilingReason, string>;
@@ -331,6 +333,8 @@ const whyShorts = {
   codeDiffersFromRunning: 'WhyShortCodeDiffersFromRunning',
   codeChangeShown: 'WhyShortCodeChangeShown',
   severalEnvironments: 'WhyShortSeveralEnvironments',
+  pinnedByDigest: 'WhyShortPinnedByDigest',
+  codeNotFullyRead: 'WhyShortCodeNotFullyRead',
   platformUpgradeIsPlanned: 'WhyShortPlatformUpgradeIsPlanned',
   platformVersionNotRead: 'WhyShortPlatformVersionNotRead',
 } as const satisfies Record<CeilingReason, string>;

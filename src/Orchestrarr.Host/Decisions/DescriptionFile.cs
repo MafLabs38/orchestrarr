@@ -67,20 +67,11 @@ internal static class DescriptionFile
         }
     }
 
+    // Every field of the description is text, a list or an object: a scalar stays text whatever it looks like (a quoted "123" is an identifier, not a number)
     private static object? Plain(object? value) => value switch
     {
         IDictionary<object, object> map => map.ToDictionary(pair => Convert.ToString(pair.Key, System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty, pair => Plain(pair.Value), StringComparer.Ordinal),
-        IEnumerable<object> list when value is not string => list.Select(Plain).ToList(),
-        string text => Scalar(text),
+        IEnumerable<object> list => list.Select(Plain).ToList(),
         _ => value,
-    };
-
-    // YamlDotNet reads every scalar as text: true, false and numbers are given back their type, so that a JSON reader sees what a YAML one would
-    private static object Scalar(string text) => text switch
-    {
-        "true" => true,
-        "false" => false,
-        _ when long.TryParse(text, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var number) && (text == "0" || !text.StartsWith('0')) => number,
-        _ => text,
     };
 }

@@ -86,7 +86,7 @@ public sealed class GitHubInfrastructureSourceTests
 
         var snapshot = await Source().ReadAsync([Scope("example/big"), Scope()], TestContext.Current.CancellationToken);
 
-        snapshot.Problems.Should().ContainSingle().Which.Reason.Should().Be("tree too large");
+        snapshot.Problems.Select(problem => (problem.Repository, problem.Reason)).Should().Equal(("example/big", "tree too large"), ("example/infra", "1 files could not be read"));
         snapshot.Files.Select(file => file.Path).Should().Equal("apps/ok.yaml");
     }
 

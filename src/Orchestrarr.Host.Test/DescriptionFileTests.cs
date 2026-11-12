@@ -84,10 +84,18 @@ public sealed class DescriptionFileTests : IDisposable
     }
 
     [Fact]
-    public void Numbers_and_booleans_keep_their_type_when_the_yaml_becomes_json()
+    public void Every_scalar_stays_text_when_the_yaml_becomes_json_so_that_a_quoted_number_is_still_an_identifier()
     {
-        var json = DescriptionFile.ToJson("a: 12\nb: true\nc: \"text\"\nd: 007\ne: [1, x]\n");
+        var json = DescriptionFile.ToJson("a: 12\nb: true\nc: \"text\"\nd: \"123\"\ne: [1, x]\n");
 
-        json.Should().Be("""{"a":12,"b":true,"c":"text","d":"007","e":[1,"x"]}""");
+        json.Should().Be("""{"a":"12","b":"true","c":"text","d":"123","e":["1","x"]}""");
+    }
+
+    [Fact]
+    public void An_environment_whose_identifier_is_a_number_is_read_as_an_identifier()
+    {
+        var content = Load(DescriptionFile.FileKey, Write("numeric.yaml", "environments:\n  - { id: \"123\" }\n"));
+
+        content.Scope.Environments.Should().ContainSingle().Which.Id.Should().Be("123");
     }
 }

@@ -94,7 +94,7 @@ public sealed partial class GitHubInfrastructureSource : IInfrastructureSource
     private async Task<(List<InfrastructureFile> Files, string? Problem)> ReadRepositoryAsync(RepositoryScope repository, CancellationToken cancellationToken)
     {
         var read = new List<InfrastructureFile>();
-        if (!RepositoryName().IsMatch(repository.Repository))
+        if (!RepositoryName().IsMatch(repository.Repository) || repository.Repository.EndsWith("/.", StringComparison.Ordinal) || repository.Repository.EndsWith("/..", StringComparison.Ordinal))
         {
             return (read, "not a repository name");
         }
@@ -110,6 +110,7 @@ public sealed partial class GitHubInfrastructureSource : IInfrastructureSource
             return (read, "tree too large");
         }
         var wanted = new List<(string Path, string Sha)>();
+        var skipped = 0;
         foreach (var entry in document.RootElement.GetProperty("tree").EnumerateArray())
         {
             var path = entry.GetProperty("path").GetString();
@@ -117,15 +118,14 @@ public sealed partial class GitHubInfrastructureSource : IInfrastructureSource
             {
                 continue;
             }
-            if (entry.TryGetProperty("size", out var size) && size.GetInt64() > MaxFileBytes)
+            var sha = entry.GetProperty("sha").GetString();
+            // A file that is too big, or whose identifier is not one, is not read and is told, as the files that cannot be read are
+            if ((entry.TryGetProperty("size", out var size) && size.GetInt64() > MaxFileBytes) || sha is null || !ObjectId().IsMatch(sha))
             {
+                skipped++;
                 continue;
             }
-            var sha = entry.GetProperty("sha").GetString();
-            if (sha is not null && ObjectId().IsMatch(sha))
-            {
-                wanted.Add((path, sha));
-            }
+            wanted.Add((path, sha));
         }
         if (wanted.Count > MaxFilesPerRepository)
         {
@@ -151,6 +151,7 @@ public sealed partial class GitHubInfrastructureSource : IInfrastructureSource
             _files[(repository.Repository, path)] = (sha, content);
             read.Add(new InfrastructureFile(repository.Repository, path, repository.Kind, content, repository.Environment));
         }
+        unreadable += skipped;
         return (read, unreadable == 0 ? null : $"{unreadable} files could not be read");
     }
 }

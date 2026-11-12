@@ -47,12 +47,24 @@ public interface IApplicationCatalog
 
 public static class ApplicationCatalogExtensions
 {
-    /// <summary>The description of a work item: under its own identifier, or under the identifier of one of the applications that Portarr says it is.</summary>
+    private static string Policy(ApplicationDescription description) =>
+        $"{description.Qualify}|{description.CanRollBack}|{description.HasCheckAfterDeploy}|{string.Join(',', description.PromotesAutomatically.Order())}";
+
+    /// <summary>
+    /// The description of a work item: under its own identifier, or else under the identifier of the application that Portarr says it is. When it is several applications with
+    /// different descriptions the work item is described by none of them: which one governs is not guessed (ADR 0028).
+    /// </summary>
     public static ApplicationDescription? Find(this IApplicationCatalog catalog, Orchestrarr.Core.WorkItems.WorkItem item)
     {
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(item);
-        return catalog.Find(item.Id) ?? item.AppIds.Select(catalog.Find).FirstOrDefault(description => description is not null);
+        if (catalog.Find(item.Id) is { } own)
+        {
+            return own;
+        }
+        // Several applications with the same policy are one answer; with policies that differ there is none
+        var described = item.AppIds.Distinct(StringComparer.Ordinal).Select(catalog.Find).OfType<ApplicationDescription>().DistinctBy(Policy).ToList();
+        return described.Count == 1 ? described[0] : null;
     }
 }
 

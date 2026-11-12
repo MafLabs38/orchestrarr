@@ -3,6 +3,8 @@ namespace Orchestrarr.Core.Infrastructure;
 /// <summary>When and how long the code of the scope is read (the forge's rate limit is shared with the reader of the pull requests).</summary>
 public sealed class InfrastructureCatalogOptions
 {
+    public const string SectionName = "Infrastructure";
+
     /// <summary>How long what was read is kept.</summary>
     public TimeSpan CacheDuration { get; set; } = TimeSpan.FromMinutes(5);
 

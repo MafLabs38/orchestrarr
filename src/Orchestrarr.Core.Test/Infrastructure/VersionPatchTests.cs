@@ -24,12 +24,20 @@ public sealed class VersionPatchTests
     [InlineData("image: \"postgres:15-alpine\"", "image: \"postgres:15.9-alpine\"", "15.9-alpine")]
     [InlineData("image: postgres", "image: postgres:15.9", "15.9")]
     [InlineData("image: docker.io/library/postgres:latest # pinned later", "image: docker.io/library/postgres:15.9 # pinned later", "15.9")]
-    [InlineData("image: app@sha256:abc123", "image: app:2.0", "2.0")]
     public void The_name_as_it_is_written_stays_and_the_tag_or_digest_becomes_the_new_tag(string line, string expected, string newTag)
     {
         var change = VersionPatch.Replace(line, First("kubernetes", line), newTag)!;
 
         change.After.Should().Be(expected);
+    }
+
+    [Fact]
+    public void A_reference_pinned_by_digest_is_never_changed_for_a_tag()
+    {
+        const string pinned = "image: app:1.0@sha256:abc123\nimage: other@sha256:def456\n";
+
+        VersionPatch.Replace(pinned, VersionParsers.Find("kubernetes", "example/infra", "a.yaml", pinned)[0], "2.0").Should().BeNull();
+        VersionPatch.Replace(pinned, VersionParsers.Find("kubernetes", "example/infra", "a.yaml", pinned)[1], "2.0").Should().BeNull();
     }
 
     [Fact]

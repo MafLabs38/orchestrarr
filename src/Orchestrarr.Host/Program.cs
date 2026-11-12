@@ -78,7 +78,7 @@ builder.Services.AddSingleton<IInfrastructureSource>(provider =>
     var github = builder.Configuration.GetSection(GitHubOptions.SectionName).Get<GitHubOptions>() ?? new GitHubOptions();
     return string.IsNullOrWhiteSpace(github.Token) ? new NoInfrastructureSource() : GitHubInfrastructureSource.Create(github, time: provider.GetRequiredService<TimeProvider>());
 });
-builder.Services.AddSingleton(builder.Configuration.GetSection("Infrastructure").Get<InfrastructureCatalogOptions>() ?? new InfrastructureCatalogOptions());
+builder.Services.AddSingleton(builder.Configuration.GetSection(InfrastructureCatalogOptions.SectionName).Get<InfrastructureCatalogOptions>() ?? new InfrastructureCatalogOptions());
 builder.Services.AddSingleton(provider =>
 {
     var catalog = new InfrastructureCatalog(provider.GetRequiredService<IInfrastructureSource>(), provider.GetRequiredService<DescriptionScope>(), provider.GetRequiredService<TimeProvider>(),

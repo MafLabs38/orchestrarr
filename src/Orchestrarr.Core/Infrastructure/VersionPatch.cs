@@ -16,8 +16,8 @@ public static partial class VersionPatch
     {
         ArgumentNullException.ThrowIfNull(content);
         ArgumentNullException.ThrowIfNull(location);
-        // A tag is written to a file: only what the grammar of a tag allows goes in, so that nothing can change the structure of the line or pin another digest
-        if (location.Managed is not null || !ImageReference.IsTag(newTag))
+        // A reference pinned by digest is a decision: the pin is never dropped for a tag that a registry can move. A tag is written to a file: only what the grammar of a tag allows goes in, so that nothing can change the structure of the line or pin another digest
+        if (location.Managed is not null || location.Image.Digest is not null || !ImageReference.IsTag(newTag))
         {
             return null;
         }

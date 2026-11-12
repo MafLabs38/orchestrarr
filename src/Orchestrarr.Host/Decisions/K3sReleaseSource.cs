@@ -95,8 +95,8 @@ public sealed class K3sReleaseSource : IK3sReleases, IDisposable
             var releases = Parse(await response.Content.ReadAsStringAsync());
             lock (_gate)
             {
-                // An answer that says nothing usable does not replace the last good one
-                _last = (_time.GetUtcNow(), releases ?? _last?.Releases);
+                // An answer that says nothing usable does not replace the last good one, and is tried again in a minute like a failure
+                _last = releases is null ? (_time.GetUtcNow() - _keep + TimeSpan.FromMinutes(1), _last?.Releases) : (_time.GetUtcNow(), releases);
             }
         }
         catch (Exception failure) when (failure is not OutOfMemoryException)

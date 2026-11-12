@@ -111,9 +111,10 @@ public static partial class VersionParsers
         var inDockerImage = false;
         for (var i = 0; i < lines.Length; i++)
         {
-            if (ResourceStart().Match(lines[i]) is { Success: true } start)
+            if (BlockStart().Match(lines[i]) is { Success: true } start)
             {
-                inDockerImage = start.Groups["type"].Value == "docker_image";
+                // Any block that starts closes the one before: a name in a data or a locals block is not an image
+                inDockerImage = start.Groups["block"].Value == "resource" && start.Groups["type"].Value == "docker_image";
                 continue;
             }
             var match = TerraformString().Match(lines[i]);
@@ -142,8 +143,8 @@ public static partial class VersionParsers
     [GeneratedRegex(@"^\s*newTag:\s*(?<tag>[^\s#]+)", RegexOptions.None, 250)]
     private static partial Regex KustomizeNewTag();
 
-    [GeneratedRegex(@"^\s*resource\s+""(?<type>[a-z_]+)""", RegexOptions.None, 250)]
-    private static partial Regex ResourceStart();
+    [GeneratedRegex(@"^(?<block>resource|data|locals|variable|output|provider|module|terraform|moved|import|check)\b(?:\s+""(?<type>[A-Za-z0-9_]+)"")?", RegexOptions.None, 250)]
+    private static partial Regex BlockStart();
 
     [GeneratedRegex(@"^\s*(?<attribute>name|image)\s*=\s*""(?<ref>[^""]+)""", RegexOptions.None, 250)]
     private static partial Regex TerraformString();

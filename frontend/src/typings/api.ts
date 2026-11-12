@@ -243,6 +243,8 @@ export type CeilingReason =
   | 'codeDiffersFromRunning'
   | 'codeChangeShown'
   | 'severalEnvironments'
+  | 'pinnedByDigest'
+  | 'codeNotFullyRead'
   | 'platformUpgradeIsPlanned'
   | 'platformVersionNotRead';
 

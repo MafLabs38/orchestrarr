@@ -76,7 +76,7 @@ public sealed class HistoryConcluder(IProblemHistory history, IApprovalStore app
         {
             return 0;
         }
-        var missing = MissingSkips(skips, table, report.Items, platformsKnown: infrastructure.Scope.Platforms.Count == 0 || (releases is not null && infrastructure.Peek().Index.InScope));
+        var missing = MissingSkips(skips, table, report.Items, platformsKnown: infrastructure.Scope.Platforms.Count == 0 || (releases is not null && infrastructure.Peek().Index is { InScope: true, Problems.Count: 0 }));
         foreach (var key in _missing.Keys.Where(key => !missing.Contains(key)).ToList())
         {
             _missing.Remove(key);

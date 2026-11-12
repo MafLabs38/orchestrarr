@@ -73,6 +73,12 @@ public enum CeilingReason
     /// <summary>The code says one version and another one runs: the next deployment would change something nobody decided.</summary>
     CodeDiffersFromRunning,
 
+    /// <summary>The reference is pinned by a digest: the pin is a decision, and a tag would put a moving reference in its place. The place is shown, no change is proposed.</summary>
+    PinnedByDigest,
+
+    /// <summary>A repository of the description could not be read: the image may be written there, so it is not said to be written nowhere.</summary>
+    CodeNotFullyRead,
+
     /// <summary>The image runs in several environments: a change is made for one at a time, qualified and then promoted, so none is proposed for all at once.</summary>
     SeveralEnvironments,
 
@@ -454,7 +460,8 @@ public static class DecisionTable
         IReadOnlyList<CodeLocation> locations = exact.Count > 0 ? exact : everywhere;
         if (locations.Count == 0)
         {
-            return (CeilingReason.NotInScope, [], null);
+            // With a repository that could not be read, "written nowhere" is not known
+            return (infrastructure.Problems.Count > 0 ? CeilingReason.CodeNotFullyRead : CeilingReason.NotInScope, [], null);
         }
         var ours = locations.Where(location => location.Managed is null).ToList();
         if (ours.Count == 0)
@@ -464,6 +471,10 @@ public static class DecisionTable
         if (finding.Kind == FindingKind.OutdatedImage && exact.Count == 0 && update.Current is not null)
         {
             return (CeilingReason.CodeDiffersFromRunning, locations, null);
+        }
+        if (ours.Any(location => location.Image.Digest is not null))
+        {
+            return (CeilingReason.PinnedByDigest, locations, null);
         }
         if (item.Placements.Select(placement => placement.EnvironmentId).Distinct(StringComparer.Ordinal).Count() > 1)
         {

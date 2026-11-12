@@ -481,5 +481,9 @@
   "CodeScopeProblem": "A repository of the description could not be read: {repository} ({reason}).",
   "CodeReadFailed": "The code of the repositories of the description could not be read ({error}): what was read last is shown.",
   "WhySeveralEnvironments": "This image runs in several environments: a change is made for one at a time, qualified and then promoted, so none is proposed for all at once. The places are shown.",
-  "WhyShortSeveralEnvironments": "Several environments"
+  "WhyShortSeveralEnvironments": "Several environments",
+  "WhyPinnedByDigest": "This reference is pinned by a digest: the pin is a decision, and a tag that a registry can move would take its place. The place is shown, no change is proposed.",
+  "WhyShortPinnedByDigest": "Pinned by digest",
+  "WhyCodeNotFullyRead": "A repository of the description could not be read: the image may be written there, so it is not said to be written nowhere.",
+  "WhyShortCodeNotFullyRead": "Code not fully read"
 }

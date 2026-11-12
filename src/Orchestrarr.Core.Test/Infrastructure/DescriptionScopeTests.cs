@@ -86,4 +86,20 @@ public sealed class DescriptionScopeTests
         catalog.Find(Item("image:n8nio/n8n", "n8n"))!.Id.Should().Be("n8n");
         catalog.Find(Item("image:other", "unknown")).Should().BeNull();
     }
+
+    [Fact]
+    public void A_work_item_that_is_several_applications_with_different_descriptions_is_described_by_none_of_them()
+    {
+        var catalog = ApplicationCatalog.Parse("""
+            { "applications": [
+              { "id": "a", "kind": "thirdParty", "source": { "image": "x" }, "update": { "promote": ["patch"] } },
+              { "id": "b", "kind": "thirdParty", "source": { "image": "x" }, "update": { "promote": ["patch", "minor"] } },
+              { "id": "c", "kind": "thirdParty", "source": { "image": "x" }, "update": { "promote": ["patch"] } } ] }
+            """);
+        WorkItem Item(params string[] apps) => new("image:x", "x", null, apps, Severity.Info, [], [], [], PullRequestsRead.NotNeeded);
+
+        catalog.Find(Item("a", "b")).Should().BeNull("which one governs is not guessed");
+        catalog.Find(Item("a", "unknown", "a")).Should().NotBeNull("one description, even named twice, is not ambiguous");
+        catalog.Find(Item("a", "c")).Should().NotBeNull("two applications with the same description are not ambiguous");
+    }
 }

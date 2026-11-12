@@ -9,7 +9,7 @@ namespace Orchestrarr.Core.Infrastructure;
 public static class PathGlob
 {
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Regex> Compiled = new(StringComparer.Ordinal);
-    private static readonly string[] SecretNames = [".enc.", ".tfstate", ".tfvars", ".env", ".pem", ".key", "id_rsa", "id_ed25519", "secret"];
+    private static readonly string[] SecretNames = [".enc.", ".tfstate", ".tfvars", ".pem", ".key", "id_rsa", "id_ed25519", "secret"];
 
     /// <summary>True when the path is matched by the pattern.</summary>
     public static bool IsMatch(string pattern, string path)
@@ -24,7 +24,8 @@ public static class PathGlob
     {
         ArgumentNullException.ThrowIfNull(path);
         var name = path[(path.LastIndexOf('/') + 1)..].ToLowerInvariant();
-        return SecretNames.Any(part => name.Contains(part, StringComparison.Ordinal));
+        // ".env" is a file of the environment (".env", ".env.local", "prod.env"), not any name that contains the letters
+        return name == ".env" || name.StartsWith(".env.", StringComparison.Ordinal) || name.EndsWith(".env", StringComparison.Ordinal) || SecretNames.Any(part => name.Contains(part, StringComparison.Ordinal));
     }
 
     // "**/" is any folders or none, a trailing "**" anything, "*" a name, "?" a character: the tokens are replaced one after the other, so that no index is moved by hand
