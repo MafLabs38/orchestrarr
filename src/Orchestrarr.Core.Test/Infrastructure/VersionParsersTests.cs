@@ -82,6 +82,43 @@ public sealed class VersionParsersTests
     }
 
     [Fact]
+    public void A_kustomize_entry_that_renames_the_image_is_indexed_by_the_image_that_is_deployed()
+    {
+        const string kustomization = """
+            images:
+            - name: redis
+              newName: registry.example/mirror/redis
+              newTag: 7.2.3
+            - {name: web, newName: registry.example/mirror/web, newTag: 1.0.0}
+            - name: db
+              newTag: 15
+              newName: registry.example/mirror/db
+            """;
+
+        var found = VersionParsers.Find("kustomize", "example/infra", "kustomization.yaml", kustomization);
+
+        found.Select(location => (location.Line, location.Image.Name, location.Image.Tag)).Should().Equal(
+            (4, "registry.example/mirror/redis", "7.2.3"), (5, "registry.example/mirror/web", "1.0.0"), (7, "registry.example/mirror/db", "15"));
+    }
+
+    [Fact]
+    public void A_kustomize_tag_that_Flux_rewrites_is_marked_as_its_own_in_block_and_in_flow_style()
+    {
+        const string kustomization = """
+            images:
+            - name: ghcr.io/example/api
+              newTag: 1.2.3 # {"$imagepolicy": "flux-system:api:tag"}
+            - {name: ghcr.io/example/web, newTag: 2.0.0} # {"$imagepolicy": "flux-system:web:tag"}
+            - {name: ghcr.io/example/job, newTag: 3.0.0}
+            """;
+
+        var found = VersionParsers.Find("kustomize", "example/infra", "kustomization.yaml", kustomization);
+
+        found.Select(location => (location.Image.Name, location.Managed)).Should().Equal(("ghcr.io/example/api", "flux"), ("ghcr.io/example/web", "flux"), ("ghcr.io/example/job", null));
+        VersionPatch.Replace(kustomization, found[0], "1.2.4").Should().BeNull("Flux writes this line");
+    }
+
+    [Fact]
     public void A_terraform_image_is_read_from_a_docker_image_resource_and_a_name_elsewhere_is_not_an_image()
     {
         const string terraform = """

@@ -74,35 +74,62 @@ public static partial class VersionParsers
         }
     }
 
+    // An entry of the images of a kustomization: the image it names, the name it becomes (newName, the image that is deployed) and its newTag, in flow or in block style
     private static IEnumerable<CodeLocation> KustomizeTags(string repository, string path, string content)
     {
         var lines = content.Split('\n');
         string? name = null;
+        string? newName = null;
+        string? tag = null;
+        var tagLine = 0;
+        var flux = false;
         for (var i = 0; i < lines.Length; i++)
         {
             var flow = KustomizeFlow().Match(lines[i]);
             if (flow.Success)
             {
-                if (ImageReference.Parse($"{flow.Groups["name"].Value}:{flow.Groups["tag"].Value}") is { } image)
+                if (Entry(name, newName, tag) is { } pending)
                 {
-                    yield return new CodeLocation(repository, path, i + 1, VersionForm.KustomizeTag, image);
+                    yield return new CodeLocation(repository, path, tagLine, VersionForm.KustomizeTag, pending, flux ? "flux" : null);
+                }
+                (name, newName, tag) = (null, null, null);
+                var fields = FlowFields().Matches(flow.Groups["body"].Value).ToDictionary(match => match.Groups["key"].Value, match => match.Groups["value"].Value, StringComparer.Ordinal);
+                if (Entry(fields.GetValueOrDefault("name"), fields.GetValueOrDefault("newName"), fields.GetValueOrDefault("newTag")) is { } image)
+                {
+                    yield return new CodeLocation(repository, path, i + 1, VersionForm.KustomizeTag, image, lines[i].Contains("$imagepolicy", StringComparison.Ordinal) ? "flux" : null);
                 }
                 continue;
             }
             var named = KustomizeName().Match(lines[i]);
             if (named.Success)
             {
-                name = named.Groups["name"].Value;
+                if (Entry(name, newName, tag) is { } pending)
+                {
+                    yield return new CodeLocation(repository, path, tagLine, VersionForm.KustomizeTag, pending, flux ? "flux" : null);
+                }
+                (name, newName, tag, flux) = (named.Groups["name"].Value, null, null, false);
                 continue;
             }
-            var tag = KustomizeNewTag().Match(lines[i]);
-            if (tag.Success && name is not null && ImageReference.Parse($"{name}:{tag.Groups["tag"].Value}") is { } block)
+            if (KustomizeNewName().Match(lines[i]) is { Success: true } renamed)
             {
-                yield return new CodeLocation(repository, path, i + 1, VersionForm.KustomizeTag, block);
-                name = null;
+                newName = renamed.Groups["name"].Value;
+            }
+            else if (KustomizeNewTag().Match(lines[i]) is { Success: true } tagged)
+            {
+                (tag, tagLine) = (tagged.Groups["tag"].Value, i + 1);
+                // Flux rewrites a line that carries its marker: the line is its, not ours
+                flux = lines[i].Contains("$imagepolicy", StringComparison.Ordinal);
             }
         }
+        if (Entry(name, newName, tag) is { } last)
+        {
+            yield return new CodeLocation(repository, path, tagLine, VersionForm.KustomizeTag, last, flux ? "flux" : null);
+        }
     }
+
+    // The image that is deployed: the new name when there is one, else the name; with the tag
+    private static ImageReference? Entry(string? name, string? newName, string? tag) =>
+        tag is null || (newName ?? name) is not { } deployed ? null : ImageReference.Parse($"{deployed}:{tag}");
 
     // In a Terraform file the image is a string given to name (docker_image) or image (a container); a reference through an expression has no version to read
     private static IEnumerable<CodeLocation> TerraformImages(string repository, string path, string content)
@@ -134,8 +161,14 @@ public static partial class VersionParsers
     [GeneratedRegex(@"^\s*-?\s*image:\s*(?<ref>""[^""]*""|'[^']*'|[^\s#]+)", RegexOptions.None, 250)]
     private static partial Regex ImageLine();
 
-    [GeneratedRegex(@"name:\s*(?<name>[^,\s}]+)\s*,\s*newTag:\s*(?<tag>[^,\s}]+)", RegexOptions.None, 250)]
+    [GeneratedRegex(@"\{(?<body>[^}]*\bnewTag:[^}]*)\}", RegexOptions.None, 250)]
     private static partial Regex KustomizeFlow();
+
+    [GeneratedRegex(@"(?<key>name|newName|newTag):\s*(?<value>[^,\s}]+)", RegexOptions.None, 250)]
+    private static partial Regex FlowFields();
+
+    [GeneratedRegex(@"^\s*newName:\s*(?<name>[^\s#]+)", RegexOptions.None, 250)]
+    private static partial Regex KustomizeNewName();
 
     [GeneratedRegex(@"^\s*-?\s*name:\s*(?<name>\S+)\s*$", RegexOptions.None, 250)]
     private static partial Regex KustomizeName();
