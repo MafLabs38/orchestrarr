@@ -27,6 +27,11 @@ public sealed class RelevanceOptionsTests
     }
 
     [Theory]
+    [InlineData(7)]
+    [InlineData(3650)]
+    public void The_edges_of_the_delay_are_accepted(int days) => new RelevanceOptions { DormantAfterDays = days }.ToPolicy().DormantAfterDays.Should().Be(days);
+
+    [Theory]
     [InlineData(6)]
     [InlineData(3651)]
     [InlineData(-1)]

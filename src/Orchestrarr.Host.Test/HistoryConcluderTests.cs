@@ -52,4 +52,27 @@ public sealed class HistoryConcluderTests
         (await OutcomeOf(client)).Should().Be("ended");
         Concluder(factory).ConcludeOnce().Should().Be(0, "a line is concluded once");
     }
+
+    [Fact]
+    public async Task A_line_whose_approval_is_still_working_is_left_open_for_the_next_pass()
+    {
+        using var factory = new TableApiFactory();
+        await factory.ConnectRunnerAsync();
+        using var client = await SignedIn(factory);
+        JsonElement table;
+        do
+        {
+            table = await client.GetFromJsonAsync<JsonElement>("/api/v1/problems", Ct);
+            await Task.Delay(50, Ct);
+        }
+        while (table.GetProperty("rows").EnumerateArray().Any(candidate => candidate.GetProperty("kind").GetString() == "pullRequestsNotRead"));
+        var row = table.GetProperty("rows").EnumerateArray().First(candidate => candidate.GetProperty("id").GetString() == "pr:example/shop#2");
+        var chosen = new { id = "pr:example/shop#2", headSha = row.GetProperty("headSha").GetString(), goesUpTo = row.GetProperty("goesUpTo").GetString(), stopBeforeProduction = false };
+        (await client.PostAsJsonAsync("/api/v1/problems/approve", new { rows = new[] { chosen }, secondFactorCode = "123456", descriptionsVersion = table.GetProperty("descriptionsVersion").GetString() }, Ct)).EnsureSuccessStatusCode();
+
+        Concluder(factory).ConcludeOnce().Should().Be(0, "a run that is not over is not an outcome");
+
+        factory.Services.GetRequiredService<IProblemHistory>().Unconcluded(10).Should().ContainSingle();
+        (await OutcomeOf(client)).Should().Be("inProgress");
+    }
 }
