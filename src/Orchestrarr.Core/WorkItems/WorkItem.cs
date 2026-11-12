@@ -19,6 +19,9 @@ public enum FindingKind
     FailingCi,
     OutdatedImage,
 
+    /// <summary>The image is run under a tag that moves (latest): nobody can tell which version it is, or whether it is behind.</summary>
+    FloatingImage,
+
     /// <summary>The dependency alert scan is off or unreadable: the repository is not known to be clean.</summary>
     DependencyScanUnavailable,
 }
@@ -78,7 +81,8 @@ public sealed record WorkItem(
     IReadOnlyList<Finding> Findings,
     IReadOnlyList<PlanStep> Plan,
     IReadOnlyList<Placement> Placements,
-    PullRequestsRead PullRequests);
+    PullRequestsRead PullRequests,
+    DateTimeOffset? LastPushAt = null);
 
 public enum PullRequestsStatus
 {

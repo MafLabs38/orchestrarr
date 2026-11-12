@@ -78,6 +78,93 @@ public sealed class DecisionTableTests
         row.Description.Should().Contain("postgres:15-alpine");
     }
 
+    [Fact]
+    public void Checks_that_could_not_run_for_a_bot_stop_at_the_validation_with_their_own_reason_and_are_not_a_repair()
+    {
+        var row = Only(TableWith(Item([Pull(checks: ChecksState.NotRun)])));
+
+        row.GoesUpTo.Should().Be(Ceiling.Qualification);
+        row.Why.Should().Be(CeilingReason.ChecksNotRun);
+        row.Tab.Should().Be(ProblemTab.Act);
+    }
+
+    [Theory]
+    [InlineData("23-alpine", false)]
+    [InlineData("25-alpine", false)]
+    [InlineData("24-alpine", true)]
+    [InlineData("26-alpine", true)]
+    public void Node_is_moved_only_to_a_long_term_release_and_the_odd_ones_are_not_proposed(string to, bool proposed)
+    {
+        var pull = Pull() with { Changes = [new DependencyChange("node", "22-alpine", to, UpdateKind.Major)] };
+
+        var row = Only(Table(Item([pull])));
+
+        (row.GoesUpTo != Ceiling.NoAction).Should().Be(proposed);
+        if (!proposed)
+        {
+            row.Why.Should().Be(CeilingReason.NotLongTermSupport);
+            row.Tab.Should().Be(ProblemTab.Know);
+        }
+    }
+
+    private static WorkItem Dormant(DateTimeOffset lastPush, bool failingCi = true, int pulls = 2) =>
+        Item([.. Enumerable.Range(1, pulls).Select(n => Pull(n))], [new Finding(FindingKind.OpenDependencyPullRequests, Severity.Info, pulls), .. failingCi ? new[] { new Finding(FindingKind.FailingCi, Severity.Warning, 1) } : []]) with { LastPushAt = lastPush };
+
+    [Fact]
+    public void A_repository_nobody_has_pushed_to_for_months_with_a_red_build_is_one_row_instead_of_its_pull_requests_and_its_build()
+    {
+        var now = At.AddDays(200);
+
+        var rows = DecisionTable.Build([Dormant(At)], Described(), [Everything], null, null, now);
+
+        var row = rows.Should().ContainSingle().Which;
+        row.Kind.Should().Be(ProblemKind.DormantRepository);
+        row.Count.Should().Be(200);
+        row.Tab.Should().Be(ProblemTab.Know);
+    }
+
+    [Theory]
+    [InlineData(100, true)]
+    [InlineData(200, false)]
+    public void A_dormant_repository_needs_a_red_build_and_enough_months_and_a_known_time(int days, bool failingCi)
+    {
+        var now = At.AddDays(days);
+
+        DecisionTable.Build([Dormant(At, failingCi)], Described(), [Everything], null, null, now).Should().HaveCountGreaterThan(1, "it is not dormant, so its rows stay");
+        DecisionTable.Build([Dormant(At, failingCi: true)], Described(), [Everything], null, null, null).Should().HaveCountGreaterThan(1, "without a clock nothing is called dormant");
+    }
+
+    private static WorkItem ImageItem(string reference, Orchestrarr.Core.Fleet.ImageChange change, params string?[] namespaces) =>
+        new($"image:{reference}", reference, null, [], Severity.Info, [new Finding(FindingKind.OutdatedImage, Severity.Info, 1, Image: new ImageUpdate(reference, "1", "2", change))], [],
+            [.. namespaces.Select(space => new Placement("k3s", "K3s", space, "pod"))], PullRequestsRead.NotNeeded);
+
+    [Fact]
+    public void An_image_of_the_platform_is_updated_with_it_and_a_major_image_is_a_change_to_plan_and_neither_is_a_tag_to_bump()
+    {
+        var platform = DecisionTable.Build([ImageItem("rancher/coredns:1", Orchestrarr.Core.Fleet.ImageChange.Minor, "kube-system")], Described(), [Everything]).Single();
+        var major = DecisionTable.Build([ImageItem("postgres:15", Orchestrarr.Core.Fleet.ImageChange.Major, "apps")], Described(), [Everything]).Single();
+        var minor = DecisionTable.Build([ImageItem("influxdb:2.7", Orchestrarr.Core.Fleet.ImageChange.Minor, "apps")], Described(), [Everything]).Single();
+        var mixed = DecisionTable.Build([ImageItem("shared:1", Orchestrarr.Core.Fleet.ImageChange.Minor, "kube-system", "apps")], Described(), [Everything]).Single();
+
+        platform.Why.Should().Be(CeilingReason.ManagedByPlatform);
+        major.Why.Should().Be(CeilingReason.MajorNeedsPlan);
+        minor.Why.Should().Be(CeilingReason.NoActionDefined);
+        mixed.Why.Should().Be(CeilingReason.NoActionDefined, "an image that also runs outside the platform is not only the platform's");
+    }
+
+    [Fact]
+    public void An_image_with_a_moving_tag_is_a_row_named_by_the_image_alone()
+    {
+        var finding = new Finding(FindingKind.FloatingImage, Severity.Info, 1, Image: new ImageUpdate("adminer:latest", null, null, Orchestrarr.Core.Fleet.ImageChange.None));
+        var item = new WorkItem("image:adminer:latest", "adminer:latest", null, [], Severity.Info, [finding], [], [], PullRequestsRead.NotNeeded);
+
+        var row = DecisionTable.Build([item], Described(), [Everything]).Single();
+
+        row.Kind.Should().Be(ProblemKind.FloatingImage);
+        row.Description.Should().Be("adminer:latest");
+        row.Tab.Should().Be(ProblemTab.Know);
+    }
+
     private static ProblemRow Only(IReadOnlyList<ProblemRow> rows) => rows.Single(row => row.Kind == ProblemKind.DependencyUpdate);
 
     [Fact]
@@ -335,7 +422,7 @@ public sealed class DecisionTableTests
             new Finding(FindingKind.CodeScanningAlerts, Severity.Warning, 1),
             new Finding(FindingKind.SecretScanningAlerts, Severity.Danger, 1),
             new Finding(FindingKind.FailingCi, Severity.Warning, 1),
-            new Finding(FindingKind.OutdatedImage, Severity.Info, 1, Image: new ImageUpdate("ghcr.io/example/app:1", "1", "2", ImageChange.Major)),
+            new Finding(FindingKind.OutdatedImage, Severity.Info, 1, Image: new ImageUpdate("ghcr.io/example/app:1", "1", "2", ImageChange.Minor)),
             new Finding(FindingKind.DependencyScanUnavailable, Severity.Info, 1),
         };
 

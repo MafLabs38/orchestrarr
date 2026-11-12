@@ -50,6 +50,18 @@ public enum CeilingReason
 
     /// <summary>The workshop passes this commit while the forge's checks fail: the pipeline of the repository is what to look at.</summary>
     PassesHereChecksFailing,
+
+    /// <summary>The checks could not run for a bot's pull request (they need secrets): the Runner's validation is what counts.</summary>
+    ChecksNotRun,
+
+    /// <summary>A version of Node that is not a long-term release: it is not proposed.</summary>
+    NotLongTermSupport,
+
+    /// <summary>The image comes with the platform (K3s): it is updated with it, not on its own.</summary>
+    ManagedByPlatform,
+
+    /// <summary>A new major version of an image: not a tag to bump, a change to read about and to plan.</summary>
+    MajorNeedsPlan,
 }
 
 /// <summary>What the workshop last said about this very commit of a pull request, for the column that sits beside the forge's checks.</summary>
@@ -88,6 +100,12 @@ public enum ProblemKind
     ImageUpdate,
     DependencyScanUnavailable,
     PullRequestsNotRead,
+
+    /// <summary>The image is run under a tag that moves: pin a version.</summary>
+    FloatingImage,
+
+    /// <summary>No push for a long time and the CI is red: the repository is probably dead, and its pull requests cannot pass. Archive it or fix it.</summary>
+    DormantRepository,
 }
 
 /// <summary>
@@ -141,7 +159,7 @@ public static class DecisionTable
 {
     public static IReadOnlyList<ProblemRow> Build(
         IReadOnlyList<WorkItem> items, IApplicationCatalog applications, IReadOnlyList<RunnerAcceptance> runners, IReadOnlyList<TaskResultRow>? results = null,
-        IReadOnlyList<ApplicationInfo>? applicationNames = null)
+        IReadOnlyList<ApplicationInfo>? applicationNames = null, DateTimeOffset? now = null)
     {
         ArgumentNullException.ThrowIfNull(items);
         ArgumentNullException.ThrowIfNull(applications);
@@ -150,12 +168,27 @@ public static class DecisionTable
         foreach (var item in items)
         {
             var before = rows.Count;
+            if (IsDormant(item, now))
+            {
+                // One row instead of the pull requests and the red build of a repository that nobody works on: the decision is about the repository
+                rows.Add(Of(item, $"dormant:{item.Id}", ProblemKind.DormantRepository, Days(item, now!.Value).ToString(System.Globalization.CultureInfo.InvariantCulture), Severity.Info, Days(item, now.Value), Ceiling.NoAction, CeilingReason.NoActionDefined, item.RepositoryFullName));
+                NameApplication(rows, before, item, applicationNames ?? []);
+                continue;
+            }
             AddDependencyUpdates(rows, item, applications, runners, results ?? []);
             AddOtherProblems(rows, item);
             NameApplication(rows, before, item, applicationNames ?? []);
         }
         return rows;
     }
+
+    /// <summary>No push for this long, with a red build, and the repository is taken for dead.</summary>
+    public const int DormantAfterDays = 120;
+
+    private static bool IsDormant(WorkItem item, DateTimeOffset? now) =>
+        now is { } at && item.LastPushAt is not null && Days(item, at) > DormantAfterDays && item.Findings.Any(finding => finding.Kind == FindingKind.FailingCi);
+
+    private static int Days(WorkItem item, DateTimeOffset now) => (int)(now - item.LastPushAt!.Value).TotalDays;
 
     // The application a person knows: when the source says that the repository or the image is one application, its name and its icon; otherwise the repository
     // or the image itself. The repository or the image stays in <c>Source</c>.
@@ -196,6 +229,10 @@ public static class DecisionTable
         foreach (var pullRequest in reads.Items.Where(pullRequest => !pullRequest.Draft))
         {
             var (ceiling, why, canStop) = CeilingOf(item, pullRequest, applications, runners);
+            if (IsNotLongTermNode(pullRequest))
+            {
+                (ceiling, why, canStop) = (Ceiling.NoAction, CeilingReason.NotLongTermSupport, false);
+            }
             var mine = results.Where(row => string.Equals(row.Repository, item.RepositoryFullName, StringComparison.OrdinalIgnoreCase) && row.PullRequest == pullRequest.Number && string.Equals(row.HeadSha, pullRequest.HeadSha, StringComparison.OrdinalIgnoreCase))
                 .OrderByDescending(row => row.At).ToList();
             (ceiling, why, canStop) = WorkshopWord(item, pullRequest, ceiling, why, canStop, runners, mine);
@@ -256,6 +293,10 @@ public static class DecisionTable
         _ => WorkshopVerdict.Unknown,
     };
 
+    // Node's odd versions are never long-term releases (23, 25…): a base image is not moved to one
+    private static bool IsNotLongTermNode(PullRequestInfo pullRequest) =>
+        pullRequest.Changes is [{ Package: "node", To: { } to }] && int.TryParse(to.Split('-')[0].Split('.')[0], System.Globalization.CultureInfo.InvariantCulture, out var major) && major % 2 == 1;
+
     private static (Ceiling Ceiling, CeilingReason Why, bool CanStop) CeilingOf(WorkItem item, PullRequestInfo pullRequest, IApplicationCatalog applications, IReadOnlyList<RunnerAcceptance> runners)
     {
         var repository = item.RepositoryFullName!;
@@ -295,6 +336,10 @@ public static class DecisionTable
         {
             return (Ceiling.Qualification, CeilingReason.ChecksFailing, false);
         }
+        if (pullRequest.Checks == ChecksState.NotRun)
+        {
+            return (Ceiling.Qualification, CeilingReason.ChecksNotRun, false);
+        }
         if (pullRequest.Checks != ChecksState.Passing)
         {
             return (Ceiling.Qualification, CeilingReason.ChecksNotPassing, false);
@@ -332,6 +377,7 @@ public static class DecisionTable
                 FindingKind.SecretScanningAlerts => ProblemKind.ExposedSecret,
                 FindingKind.FailingCi => ProblemKind.FailingCi,
                 FindingKind.OutdatedImage => ProblemKind.ImageUpdate,
+                FindingKind.FloatingImage => ProblemKind.FloatingImage,
                 FindingKind.DependencyScanUnavailable => ProblemKind.DependencyScanUnavailable,
                 _ => null,
             };
@@ -339,9 +385,28 @@ public static class DecisionTable
             {
                 continue;
             }
-            var description = finding.Image is { } image ? $"{image.Reference} → {image.Latest}" : finding.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            rows.Add(Of(item, $"finding:{item.Id}:{finding.Kind}", kind.Value, description, finding.Severity, finding.Count, Ceiling.NoAction, CeilingReason.NoActionDefined, application));
+            var description = finding.Image switch
+            {
+                { Latest: null } floating => floating.Reference,
+                { } image => $"{image.Reference} → {image.Latest}",
+                _ => finding.Count.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            };
+            rows.Add(Of(item, $"finding:{item.Id}:{finding.Kind}", kind.Value, description, finding.Severity, finding.Count, Ceiling.NoAction, WhyNoAction(item, finding), application));
         }
+    }
+
+    // Why nothing is defined for a finding: for an image, what makes it a matter of the platform or of planning rather than a tag to change
+    private static CeilingReason WhyNoAction(WorkItem item, Finding finding)
+    {
+        if (finding.Kind != FindingKind.OutdatedImage)
+        {
+            return CeilingReason.NoActionDefined;
+        }
+        if (item.Placements.Count > 0 && item.Placements.All(placement => placement.Namespace == "kube-system"))
+        {
+            return CeilingReason.ManagedByPlatform;
+        }
+        return finding.Image?.Change == Orchestrarr.Core.Fleet.ImageChange.Major ? CeilingReason.MajorNeedsPlan : CeilingReason.NoActionDefined;
     }
 
     private static ProblemRow Of(WorkItem item, string id, ProblemKind kind, string description, Severity severity, int count, Ceiling ceiling, CeilingReason why, string? application = null) =>

@@ -112,6 +112,7 @@ const checks = {
   failing: 'ChecksFailing',
   pending: 'ChecksPending',
   unknown: 'ChecksUnknown',
+  notRun: 'ChecksNotRun',
 } as const satisfies Record<ChecksState, string>;
 
 export function describeChecks(state: ChecksState): string {
@@ -240,6 +241,10 @@ const whys = {
   repairFailed: 'WhyRepairFailed',
   patchReady: 'WhyPatchReady',
   passesHereChecksFailing: 'WhyPassesHereChecksFailing',
+  checksNotRun: 'WhyChecksNotRun',
+  notLongTermSupport: 'WhyNotLongTermSupport',
+  managedByPlatform: 'WhyManagedByPlatform',
+  majorNeedsPlan: 'WhyMajorNeedsPlan',
 } as const satisfies Record<CeilingReason, string>;
 
 // Why a problem stops where it does, from the code of the server
@@ -256,6 +261,8 @@ const problemKinds = {
   imageUpdate: 'KindImageUpdate',
   dependencyScanUnavailable: 'KindDependencyScanUnavailable',
   pullRequestsNotRead: 'KindPullRequestsNotRead',
+  floatingImage: 'KindFloatingImage',
+  dormantRepository: 'KindDormantRepository',
 } as const satisfies Record<ProblemKind, string>;
 
 export function describeProblemKind(kind: ProblemKind): string {
@@ -277,6 +284,10 @@ export function describeProblem(row: ProblemRow): string {
       return translate('ProblemFailingCi');
     case 'dependencyScanUnavailable':
       return translate('ProblemScanUnavailable');
+    case 'dormantRepository':
+      return translate('ProblemDormant', { count });
+    case 'floatingImage':
+      return translate('ProblemFloatingImage', { image: row.description });
     default:
       return row.description;
   }
@@ -301,6 +312,10 @@ const whyShorts = {
   repairFailed: 'WhyShortRepairFailed',
   patchReady: 'WhyShortPatchReady',
   passesHereChecksFailing: 'WhyShortPassesHereChecksFailing',
+  checksNotRun: 'WhyShortChecksNotRun',
+  notLongTermSupport: 'WhyShortNotLongTermSupport',
+  managedByPlatform: 'WhyShortManagedByPlatform',
+  majorNeedsPlan: 'WhyShortMajorNeedsPlan',
 } as const satisfies Record<CeilingReason, string>;
 
 export function describeWhyShort(reason: CeilingReason): string {
@@ -316,6 +331,8 @@ const problemKindShorts = {
   imageUpdate: 'KindShortImageUpdate',
   dependencyScanUnavailable: 'KindShortDependencyScanUnavailable',
   pullRequestsNotRead: 'KindShortPullRequestsNotRead',
+  floatingImage: 'KindShortFloatingImage',
+  dormantRepository: 'KindShortDormantRepository',
 } as const satisfies Record<ProblemKind, string>;
 
 export function describeProblemKindShort(kind: ProblemKind): string {

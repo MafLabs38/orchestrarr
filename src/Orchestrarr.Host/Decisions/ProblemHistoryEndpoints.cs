@@ -69,7 +69,7 @@ internal static class ProblemHistoryEndpoints
             }
 
             var report = await catalog.GetAsync(refresh: false, ct);
-            var table = ProblemsEndpoints.VisibleTable(report, applications, runners, queue, history, approvals).ToDictionary(row => row.Id, StringComparer.Ordinal);
+            var table = ProblemsEndpoints.VisibleTable(report, applications, runners, queue, history, approvals, time).ToDictionary(row => row.Id, StringComparer.Ordinal);
             var rows = new List<ProblemRow>();
             foreach (var one in chosen)
             {

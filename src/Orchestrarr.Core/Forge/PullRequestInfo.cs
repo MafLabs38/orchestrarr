@@ -9,6 +9,9 @@ public enum ChecksState
     Pending,
     Passing,
     Failing,
+
+    /// <summary>The checks that fail are only the ones that cannot run for a bot's pull request (they need secrets that the forge does not give to a bot): it says nothing about the code.</summary>
+    NotRun,
 }
 
 /// <summary>Whether a pull request can be merged now, as the forge says.</summary>
@@ -31,6 +34,12 @@ public enum UpdateKind
     Patch,
     Minor,
     Major,
+
+    /// <summary>A pinned base image moved to another digest: a rebuild of the same version.</summary>
+    Digest,
+
+    /// <summary>A pull request that updates a group of packages: the versions are not read.</summary>
+    Group,
 }
 
 /// <summary>One dependency a pull request updates. Versions are known only for a pull request that updates a single one.</summary>

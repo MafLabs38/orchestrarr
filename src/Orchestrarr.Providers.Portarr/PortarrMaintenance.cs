@@ -19,7 +19,8 @@ internal sealed record PortarrRepository(
     int? DependabotPullRequests = null,
     PortarrCiRun? Ci = null,
     IReadOnlyList<string>? AppIds = null,
-    IReadOnlyList<string>? Images = null);
+    IReadOnlyList<string>? Images = null,
+    DateTimeOffset? PushedAt = null);
 
 internal sealed record PortarrImageUser(string EnvironmentId, string EnvironmentName, string Name, string? Namespace = null, IReadOnlyList<string>? AppIds = null);
 

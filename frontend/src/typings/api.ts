@@ -5,9 +5,10 @@ export type Severity = 'info' | 'warning' | 'danger';
 
 export type StepKind = 'validate' | 'mergePullRequests' | 'mergeFix' | 'deploy' | 'repair';
 
-export type ChecksState = 'unknown' | 'pending' | 'passing' | 'failing';
+// notRun: the checks that fail are the ones that cannot run for a bot's pull request (they need secrets)
+export type ChecksState = 'unknown' | 'pending' | 'passing' | 'failing' | 'notRun';
 
-export type UpdateKind = 'unknown' | 'patch' | 'minor' | 'major';
+export type UpdateKind = 'unknown' | 'patch' | 'minor' | 'major' | 'digest' | 'group';
 
 export type SourceError = 'failed' | 'unreachable' | 'unauthorized' | 'timeout' | 'invalidResponse' | 'rateLimited';
 
@@ -232,7 +233,11 @@ export type CeilingReason =
   | 'qualificationFailed'
   | 'repairFailed'
   | 'patchReady'
-  | 'passesHereChecksFailing';
+  | 'passesHereChecksFailing'
+  | 'checksNotRun'
+  | 'notLongTermSupport'
+  | 'managedByPlatform'
+  | 'majorNeedsPlan';
 
 // What the workshop last said about this very commit: the column beside the forge's checks
 export type WorkshopVerdict = 'unknown' | 'passes' | 'fails' | 'repaired';
@@ -245,6 +250,8 @@ export type ProblemKind =
   | 'failingCi'
   | 'imageUpdate'
   | 'dependencyScanUnavailable'
+  | 'floatingImage'
+  | 'dormantRepository'
   | 'pullRequestsNotRead';
 
 // One problem, one row. A dependency update carries its pull request and the commit that was read; an alert has a severity and no action yet.

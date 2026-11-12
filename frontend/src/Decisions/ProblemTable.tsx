@@ -153,6 +153,7 @@ const checkIcons: Record<ChecksState, { Icon: typeof icons.SUCCESS; tone: string
   failing: { Icon: icons.DANGER, tone: styles.bad },
   pending: { Icon: icons.PENDING, tone: styles.wait },
   unknown: { Icon: icons.UNKNOWN, tone: styles.none },
+  notRun: { Icon: icons.UNKNOWN, tone: styles.none },
 };
 
 function Checks({ state }: Readonly<{ state: ChecksState | null }>) {

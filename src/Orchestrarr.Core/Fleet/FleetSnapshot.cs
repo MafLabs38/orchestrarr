@@ -65,7 +65,8 @@ public sealed record RepositoryState(
     int OpenDependencyPullRequests,
     CiState Ci,
     IReadOnlyList<string> AppIds,
-    IReadOnlyList<string> ImageReferences);
+    IReadOnlyList<string> ImageReferences,
+    DateTimeOffset? LastPushAt = null);
 
 /// <summary>A running image compared with its registry.</summary>
 public sealed record ImageState(

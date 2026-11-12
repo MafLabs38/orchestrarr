@@ -30,7 +30,8 @@ internal static class PortarrFleetMapper
             OpenDependencyPullRequests: repository.DependabotPullRequests ?? 0,
             Ci: MapCi(repository.Ci),
             AppIds: repository.AppIds ?? [],
-            ImageReferences: repository.Images ?? []);
+            ImageReferences: repository.Images ?? [],
+            LastPushAt: repository.PushedAt);
     }
 
     // "Other" alerts have no severity: they are not counted, as Portarr does not rank them either. A scan that is off or unknown

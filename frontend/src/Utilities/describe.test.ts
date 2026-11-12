@@ -70,7 +70,13 @@ describe('the words of the table', () => {
     expect(describeProblem(problem({ kind: 'exposedSecret', count: 2 }))).toBe('2 exposed');
     expect(describeProblem(problem({ kind: 'pullRequestsNotRead', count: 4 }))).toBe('4 waiting, not read yet');
     expect(describeProblem(problem({ kind: 'failingCi' }))).toBe('The build fails');
-    expect(describeProblem(problem({ kind: 'dependencyScanUnavailable' }))).toMatch(/scan is off or unreadable/);
+    expect(describeProblem(problem({ kind: 'dependencyScanUnavailable' }))).toMatch(/Dependabot is off/);
+    expect(describeProblem(problem({ kind: 'dormantRepository', count: 160 }))).toMatch(
+      /No push for 160 days.*archive/,
+    );
+    expect(describeProblem(problem({ kind: 'floatingImage', description: 'adminer:latest' }))).toMatch(
+      /adminer:latest runs under a tag that moves/,
+    );
     expect(describeProblem(problem({ kind: 'imageUpdate', description: 'ghcr.io/example/app:1 → 2' }))).toBe(
       'ghcr.io/example/app:1 → 2',
     );
