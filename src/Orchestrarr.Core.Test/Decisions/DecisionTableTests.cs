@@ -124,6 +124,16 @@ public sealed class DecisionTableTests
     }
 
     [Fact]
+    public void A_dormant_repository_keeps_its_exposed_secrets_and_alerts_as_rows_of_their_own()
+    {
+        var item = Dormant(At) with { Findings = [.. Dormant(At).Findings, new Finding(FindingKind.SecretScanningAlerts, Severity.Danger, 1), new Finding(FindingKind.DependencyAlerts, Severity.Warning, 3)] };
+
+        var rows = DecisionTable.Build([item], Described(), [Everything], null, null, At.AddDays(200));
+
+        rows.Select(row => row.Kind).Should().BeEquivalentTo([ProblemKind.DormantRepository, ProblemKind.ExposedSecret, ProblemKind.DependencyAlert]);
+    }
+
+    [Fact]
     public void The_text_of_a_dormant_row_does_not_change_from_one_day_to_the_next_so_that_a_skip_holds()
     {
         var first = DecisionTable.Build([Dormant(At)], Described(), [Everything], null, null, At.AddDays(200)).Single();

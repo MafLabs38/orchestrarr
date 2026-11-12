@@ -2,12 +2,16 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Orchestrarr.Core.Approvals;
+using Orchestrarr.Core.Launch;
 using Orchestrarr.Core.Tasks;
 
 namespace Orchestrarr.Host.Test;
 
 /// <summary>The host with the sample fleet, the sample pull requests, the sample descriptions of the applications and the powers to validate and merge.</summary>
-public sealed class TableApiFactory : AccountsApiFactory
+public class TableApiFactory : AccountsApiFactory
 {
     public static readonly string RunnerToken = new('t', 48);
 
@@ -35,6 +39,23 @@ public sealed class TableApiFactory : AccountsApiFactory
             builder.UseSetting($"Powers:Grants:{i}:Steps:0", "validate");
             builder.UseSetting($"Powers:Grants:{i}:Steps:1", "mergePullRequests");
         }
+    }
+}
+
+/// <summary>The table host with a trail that holds nothing: every write to it is refused.</summary>
+public sealed class UnwritableTrailTableFactory : TableApiFactory
+{
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        base.ConfigureWebHost(builder);
+        builder.ConfigureServices(services =>
+        {
+            var full = new InMemoryAuditLog(capacity: 0);
+            services.RemoveAll<IAuditLog>();
+            services.AddSingleton<IAuditLog>(full);
+            services.RemoveAll<IAuditSink>();
+            services.AddSingleton<IAuditSink>(full);
+        });
     }
 }
 
@@ -152,7 +173,62 @@ public sealed class ProblemsApiTests
         (await Table(operatorClient)).GetProperty("skipped").GetInt32().Should().Be(0);
     }
 
-        [Fact]
+    [Fact]
+    public async Task A_skip_that_cannot_be_traced_is_not_made()
+    {
+        using var factory = new UnwritableTrailTableFactory();
+        await factory.ConnectRunnerAsync();
+        using var operatorClient = await SignedIn(factory, "Operator");
+        var table = await Table(operatorClient);
+
+        var skip = await operatorClient.PostAsJsonAsync("/api/v1/problems/skip", new { rows = new[] { Skipped(table, "pr:example/shop#3") } }, Ct);
+
+        skip.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        (await Json(skip)).GetProperty("error").GetString().Should().Be("auditUnavailable");
+        (await Table(operatorClient)).GetProperty("skipped").GetInt32().Should().Be(0);
+        (await Json(await operatorClient.GetAsync("/api/v1/problems/history", Ct))).GetProperty("lines").GetArrayLength().Should().Be(0);
+    }
+
+    [Fact]
+    public async Task A_skip_and_taking_it_back_are_written_to_the_trail()
+    {
+        using var factory = new TableApiFactory();
+        await factory.ConnectRunnerAsync();
+        using var operatorClient = await SignedIn(factory, "Operator");
+        var table = await Table(operatorClient);
+        (await operatorClient.PostAsJsonAsync("/api/v1/problems/skip", new { rows = new[] { Skipped(table, "pr:example/shop#3") } }, Ct)).EnsureSuccessStatusCode();
+        var line = (await Json(await operatorClient.GetAsync("/api/v1/problems/history?state=skipped", Ct))).GetProperty("lines").EnumerateArray().Single();
+        (await operatorClient.PostAsJsonAsync("/api/v1/problems/unskip", new { id = line.GetProperty("id").GetInt64() }, Ct)).EnsureSuccessStatusCode();
+
+        using var admin = factory.CreateClient();
+        admin.DefaultRequestHeaders.Add(Header, "test");
+        (await admin.PostAsJsonAsync("/api/v1/auth/login", new { name = AccountsApiFactory.AdminName, password = AccountsApiFactory.AdminPassword }, Ct)).EnsureSuccessStatusCode();
+        var trail = await Json(await admin.GetAsync("/api/v1/audit?limit=50", Ct));
+
+        trail.GetRawText().Should().Contain("problem.skipped").And.Contain("problem.unskipped");
+    }
+
+    [Fact]
+    public async Task A_skip_is_bounded_and_a_row_being_worked_on_is_not_set_aside()
+    {
+        using var factory = new TableApiFactory();
+        await factory.ConnectRunnerAsync();
+        using var operatorClient = await SignedIn(factory, "Operator");
+        var table = await Table(operatorClient);
+        var shop = Skipped(table, "pr:example/shop#2");
+
+        (await operatorClient.PostAsJsonAsync("/api/v1/problems/skip", new { rows = new[] { shop }, reason = new string('x', 301) }, Ct)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await operatorClient.PostAsJsonAsync("/api/v1/problems/skip", new { rows = Enumerable.Repeat(shop, 201) }, Ct)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await operatorClient.PostAsJsonAsync("/api/v1/problems/unskip", new { }, Ct)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        (await operatorClient.PostAsJsonAsync("/api/v1/problems/approve", new { rows = new[] { Chosen(table, "pr:example/shop#2") }, secondFactorCode = "123456", descriptionsVersion = Version(table) }, Ct)).StatusCode.Should().Be(HttpStatusCode.Created);
+        var working = await operatorClient.PostAsJsonAsync("/api/v1/problems/skip", new { rows = new[] { shop } }, Ct);
+
+        working.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await Json(working)).GetProperty("error").GetString().Should().Be("inProgress");
+    }
+
+    [Fact]
     public async Task Nobody_signed_out_reads_the_history_or_sets_a_row_aside_and_a_reader_cannot_take_a_skip_back()
     {
         using var factory = new TableApiFactory();

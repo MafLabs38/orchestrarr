@@ -275,7 +275,15 @@ function Problems({ report, inTab }: Readonly<{ report: ProblemsReport; inTab: P
               onSelect={select}
               onSelectAll={selectAll}
               onStop={(row, stop) => setStops((current) => ({ ...current, [row.id]: stop }))}
-              onSkip={status?.approvals.isOperator ? (row) => skip.mutate([row]) : undefined}
+              onSkip={
+                status?.approvals.isOperator
+                  ? (row) => {
+                      if (!skip.isPending) {
+                        skip.mutate([row]);
+                      }
+                    }
+                  : undefined
+              }
             />
           )}
           <SelectionBar

@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 
 import { problem, problemsReport, renderWithProviders, stubApi } from 'testUtils';
 
@@ -25,8 +25,9 @@ describe('PageSidebar', () => {
 
     renderWithProviders(<PageSidebar />);
 
-    expect(await screen.findByText('1')).toBeInTheDocument();
-    expect(screen.queryByText('3')).not.toBeInTheDocument();
+    const link = await screen.findByRole('link', { name: /Decisions/ });
+    expect(await within(link).findByText('1')).toBeInTheDocument();
+    expect(within(link).queryByText('3')).not.toBeInTheDocument();
   });
 
   it('shows no counter when nothing is waiting, once the answer has arrived', async () => {

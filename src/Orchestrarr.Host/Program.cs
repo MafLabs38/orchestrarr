@@ -34,9 +34,9 @@ builder.Services.AddSingleton<LiveBroadcaster>();
 builder.Services.AddSingleton<ILiveNotifier>(provider => provider.GetRequiredService<LiveBroadcaster>());
 builder.Services.AddHostedService(provider => provider.GetRequiredService<LiveBroadcaster>());
 builder.Services.AddSingleton<IFleetSource>(provider => FleetSourceFactory.Create(builder.Configuration, builder.Environment.ContentRootPath, provider.GetRequiredService<TimeProvider>()));
-// The icons come from the source of the fleet when it serves them (Portarr does), otherwise there are none
 // What the rules that keep a row honest take for granted; a wrong value stops the host at its start
 builder.Services.AddSingleton((builder.Configuration.GetSection(RelevanceOptions.SectionName).Get<RelevanceOptions>() ?? new RelevanceOptions()).ToPolicy());
+// The icons come from the source of the fleet when it serves them (Portarr does), otherwise there are none
 builder.Services.AddSingleton<IIconSource>(provider => provider.GetRequiredService<IFleetSource>() as IIconSource ?? new NoIconSource());
 builder.Services.AddSingleton(provider => PullRequestSourceFactory.Create(builder.Configuration, builder.Environment.ContentRootPath, provider.GetRequiredService<TimeProvider>()));
 // Approving: recording the operator's decision, with its trail and the global stop. Nothing here runs anything yet.

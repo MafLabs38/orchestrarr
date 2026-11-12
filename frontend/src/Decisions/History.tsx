@@ -24,11 +24,11 @@ const tones: Record<HistoryOutcome, string> = {
   ended: styles.none,
 };
 
-// What was decided, newest first, a page at a time: the approved rows with what became of them, and the rows set aside (which can be taken back)
 function asState(value: string): HistoryState | null {
   return value === 'approved' || value === 'skipped' ? value : null;
 }
 
+// What was decided, newest first, a page at a time: the approved rows with what became of them, and the rows set aside (which can be taken back)
 export default function History({ canDecide }: Readonly<{ canDecide: boolean }>) {
   const [state, setState] = useState<HistoryState | null>(null);
   const { data, error, isPending, hasNextPage, fetchNextPage, isFetchingNextPage } = useHistory(state);
@@ -47,6 +47,7 @@ export default function History({ canDecide }: Readonly<{ canDecide: boolean }>)
           </select>
         </label>
       </div>
+      {unskip.isError ? <Alert kind={kinds.DANGER}>{translate('SkipRefused')}</Alert> : null}
       {isPending ? <CapabilityHint>{translate('Loading')}</CapabilityHint> : null}
       {error ? <Alert kind={kinds.DANGER}>{translate('CannotReadFleet', { error: error.message })}</Alert> : null}
       {data && lines.length === 0 ? <CapabilityHint>{translate('HistoryEmpty')}</CapabilityHint> : null}

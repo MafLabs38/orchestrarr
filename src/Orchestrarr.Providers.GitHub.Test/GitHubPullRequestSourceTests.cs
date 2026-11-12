@@ -48,6 +48,7 @@ public sealed class GitHubPullRequestSourceTests
         GitHubPullRequestSource.ChecksOf([Run("SonarQube", "failure")], needSecrets).Should().Be(ChecksState.NotRun, "names are not case sensitive");
         GitHubPullRequestSource.ChecksOf([Run("sonarqube", "failure")], null).Should().Be(ChecksState.Failing, "with no list nothing is excused");
         GitHubPullRequestSource.ChecksOf([new GitHubCheckRun("completed", "failure", null)], needSecrets).Should().Be(ChecksState.Failing, "a check with no name is not excused");
+        GitHubPullRequestSource.ChecksOf([Run("lint", "success"), new GitHubCheckRun("in_progress", null, "build"), Run("sonarqube", "failure")], needSecrets).Should().Be(ChecksState.Pending, "a check still running is waited for");
         GitHubPullRequestSource.ChecksOf([Run("lint", "success")], needSecrets).Should().Be(ChecksState.Passing);
     }
     [Fact]

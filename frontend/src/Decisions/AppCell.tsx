@@ -34,7 +34,9 @@ export default function AppCell({
   icon,
   source,
 }: Readonly<{ application: string; icon?: string | null; source?: string | null }>) {
-  const [broken, setBroken] = useState(false);
+  // The picture that failed, not a flag: a cell reused for another icon tries it
+  const [brokenIcon, setBrokenIcon] = useState<string | null>(null);
+  const broken = brokenIcon === icon;
   return (
     <span className={styles.cell} title={source && source !== application ? `${application} · ${source}` : application}>
       {icon && !broken ? (
@@ -45,7 +47,7 @@ export default function AppCell({
           width={22}
           height={22}
           loading="lazy"
-          onError={() => setBroken(true)}
+          onError={() => setBrokenIcon(icon)}
         />
       ) : (
         <span className={styles.avatar} style={{ background: `var(${toneOf(application)})` }} aria-hidden="true">

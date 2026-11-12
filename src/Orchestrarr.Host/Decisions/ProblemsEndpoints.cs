@@ -115,7 +115,8 @@ internal static class ProblemsEndpoints
     private const int WorkshopWindow = 500;
 
     // The newest approvals looked at to mark the rows an approval is working on: one that is still waiting or taken is recent
-    private const int ApprovalsLookedAt = 1000;
+    // How far back an approval is still looked at, to mark a row in progress and to read the outcome of a line of the history
+    internal const int ApprovalsLookedAt = 2000;
 
     // What the workshop said lately about each commit. A store that cannot be read gives none: the table still shows the problems, from the forge alone.
     internal static IReadOnlyList<TaskResultRow> WorkshopResults(IBatchQueue queue)

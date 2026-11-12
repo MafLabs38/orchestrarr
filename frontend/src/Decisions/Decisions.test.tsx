@@ -59,12 +59,13 @@ function stub(
   approvals: Record<string, unknown> = {},
   refused?: Response,
   history: HistoryReport = { lines: [], next: null },
+  skipAnswer?: Response,
 ) {
   const fetchMock = vi.fn((input: string, init?: RequestInit) => {
     const path = String(input);
     const method = init?.method ?? 'GET';
     if (method === 'POST' && (path === '/api/v1/problems/skip' || path === '/api/v1/problems/unskip')) {
-      return Promise.resolve(new Response(JSON.stringify({ skipped: 1 }), { status: 200 }));
+      return Promise.resolve(skipAnswer ?? new Response(JSON.stringify({ skipped: 1 }), { status: 200 }));
     }
     if (method === 'POST' && path === '/api/v1/problems/approve') {
       return Promise.resolve(refused ?? new Response(JSON.stringify({ approvals: [{}, {}] }), { status: 201 }));
@@ -341,6 +342,21 @@ describe('Decisions', () => {
     expect(posted(fetchMock)).toMatchObject({
       rows: [{ id: 'pr:example/shop#2', description: 'express 4.16.0 → 4.21.2' }],
     });
+  });
+
+  it('says so when a row cannot be set aside, because it changed since it was shown', async () => {
+    stub(
+      problemsReport(rows),
+      {},
+      undefined,
+      { lines: [], next: null },
+      new Response('{"error":"planChanged"}', { status: 409 }),
+    );
+    renderWithProviders(<Decisions />);
+
+    await userEvent.click(await screen.findByRole('button', { name: /Skip example\/shop express 4.16.0/ }));
+
+    expect(await screen.findByText(/could not be set aside/)).toBeInTheDocument();
   });
 
   it('offers no skip button to someone who may not decide', async () => {

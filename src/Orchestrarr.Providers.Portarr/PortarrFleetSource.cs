@@ -71,14 +71,14 @@ public sealed class PortarrFleetSource : IFleetSource, IIconSource
         }
     }
 
-    private Task<HttpResponseMessage> SendAsync(string path, CancellationToken cancellationToken)
+    private async Task<HttpResponseMessage> SendAsync(string path, CancellationToken cancellationToken)
     {
-        var request = new HttpRequestMessage(HttpMethod.Get, path);
+        using var request = new HttpRequestMessage(HttpMethod.Get, path);
         if (!string.IsNullOrEmpty(_apiKey))
         {
             request.Headers.Add(ApiKeyHeader, _apiKey);
         }
-        return _http.SendAsync(request, cancellationToken);
+        return await _http.SendAsync(request, cancellationToken);
     }
 
     private const int MaxIconBytes = 256 * 1024;

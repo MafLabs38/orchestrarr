@@ -33,9 +33,6 @@ internal static class ProblemHistoryEndpoints
     private const int MaxReason = 300;
     private const int MaxSkipsAtOnce = 200;
 
-    // The newest approvals read to tell what became of the lines of a page; an older one is found from its run, or the line is over
-    private const int ApprovalsLookedAt = 2000;
-
     public static void MapProblemHistoryEndpoints(this RouteGroupBuilder api)
     {
         api.MapGet("/problems/history", (IProblemHistory history, IApprovalStore approvals, IBatchQueue queue, string? state, int? limit, long? before) =>
@@ -47,7 +44,7 @@ internal static class ProblemHistoryEndpoints
             try
             {
                 var page = history.Page(state is null ? null : Enum.Parse<HistoryState>(state, ignoreCase: true), Math.Clamp(limit ?? DefaultPage, 1, MaxPage), before);
-                var byApproval = approvals.List(ApprovalsLookedAt).ToDictionary(approval => approval.Id);
+                var byApproval = approvals.List(ProblemsEndpoints.ApprovalsLookedAt).ToDictionary(approval => approval.Id);
                 var lines = page.Select(entry => Line(entry, byApproval, queue, history)).ToList();
                 return Results.Ok(new HistoryReport(lines, page.Count == Math.Clamp(limit ?? DefaultPage, 1, MaxPage) ? page[^1].Id : null));
             }
@@ -80,6 +77,11 @@ internal static class ProblemHistoryEndpoints
                 if (one.Id is null || !table.TryGetValue(one.Id, out var row) || !string.Equals(row.Description, one.Description, StringComparison.Ordinal))
                 {
                     return Results.Json(new ErrorResponse("planChanged"), statusCode: StatusCodes.Status409Conflict);
+                }
+                // Work is going on for this row: it stays where it is until the run ends
+                if (row.InProgress)
+                {
+                    return Results.Json(new ErrorResponse("inProgress"), statusCode: StatusCodes.Status409Conflict);
                 }
                 rows.Add(row);
             }
