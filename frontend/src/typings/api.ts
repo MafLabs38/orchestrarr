@@ -237,7 +237,13 @@ export type CeilingReason =
   | 'checksNotRun'
   | 'notLongTermSupport'
   | 'managedByPlatform'
-  | 'majorNeedsPlan';
+  | 'majorNeedsPlan'
+  | 'notInScope'
+  | 'managedByAutomation'
+  | 'codeDiffersFromRunning'
+  | 'codeChangeShown'
+  | 'platformUpgradeIsPlanned'
+  | 'platformVersionNotRead';
 
 // What the workshop last said about this very commit: the column beside the forge's checks
 export type WorkshopVerdict = 'unknown' | 'passes' | 'fails' | 'repaired';
@@ -252,6 +258,7 @@ export type ProblemKind =
   | 'dependencyScanUnavailable'
   | 'floatingImage'
   | 'dormantRepository'
+  | 'platformUpdate'
   | 'pullRequestsNotRead';
 
 // One problem, one row. A dependency update carries its pull request and the commit that was read; an alert has a severity and no action yet.
@@ -278,6 +285,46 @@ export interface ProblemRow {
   applicationId: string | null;
   icon: string | null;
   source: string | null;
+  // Where the version is written in the code of the scope, and the version a change would write (ADR 0028)
+  locations: CodeLocation[] | null;
+  proposedTag: string | null;
+}
+
+// A place in the code of the scope that writes a version: the repository, the file, the line; `managed` names the automation that rewrites it (Flux)
+export interface CodeLocation {
+  repository: string;
+  path: string;
+  line: number;
+  form: 'imageLine' | 'kustomizeTag' | 'terraformImage' | 'variable';
+  image: { name: string; tag: string | null };
+  managed: string | null;
+}
+
+// The code of the scope as the table found it, and what could not be read of it
+export interface CodeScopeStatus {
+  inScope: boolean;
+  repositories: number;
+  files: number;
+  readAt: string | null;
+  stale: boolean;
+  problems: { repository: string; reason: string }[];
+}
+
+// A change to a file of the scope, computed and not applied
+export interface CodeChange {
+  repository: string;
+  path: string;
+  line: number;
+  before: string;
+  after: string;
+  diff: string;
+}
+
+export interface CodeChangeReport {
+  rowId: string;
+  tag: string | null;
+  changes: CodeChange[];
+  left: CodeLocation[];
 }
 
 // Where a row is shown: what can be decided now, what needs a setting, what is only to know
@@ -318,4 +365,5 @@ export interface ProblemsReport {
   descriptionsVersion: string;
   rows: ProblemRow[];
   skipped: number;
+  code: CodeScopeStatus | null;
 }

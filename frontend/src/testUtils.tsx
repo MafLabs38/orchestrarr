@@ -68,6 +68,8 @@ export function problem(overrides: Partial<ProblemRow> = {}): ProblemRow {
     applicationId: null,
     icon: null,
     source: null,
+    locations: null,
+    proposedTag: null,
     ...overrides,
   };
   return { ...row, tab: overrides.tab ?? tabOf(row) };
@@ -85,6 +87,7 @@ export function problemsReport(
     descriptionsVersion: 'abc123',
     rows,
     skipped: 0,
+    code: null,
     ...overrides,
   };
 }

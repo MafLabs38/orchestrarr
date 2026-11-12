@@ -152,6 +152,11 @@ function Table({ report }: Readonly<{ report: ProblemsReport }>) {
           })}
         </Alert>
       ) : null}
+      {report.code?.problems.map((problem) => (
+        <Alert key={problem.repository} kind={kinds.WARNING}>
+          {translate('CodeScopeProblem', { repository: problem.repository, reason: problem.reason })}
+        </Alert>
+      ))}
       <TabBar rows={report.rows} tab={tab} onTab={setTab} />
       <Content report={report} tab={tab} />
     </>

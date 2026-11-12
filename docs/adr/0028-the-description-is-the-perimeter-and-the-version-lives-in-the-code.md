@@ -1,0 +1,30 @@
+# 0028 — The description is the perimeter, and the version lives in the code
+
+- **Status**: proposed (asked for by the maintainer on 2026-11-12; accepted when the pull request that carries it is merged)
+- **Date**: 2026-11-12
+- **Spec**: D-78, D-79, D-80, D-81 (extends ADR 0020 and ADR 0027)
+
+## Context
+
+The audit of the table ([ADR 0027](0027-the-table-shows-what-can-be-decided-by-application-and-keeps-what-was-decided.md)) showed that a new version of an image is only half of the work: the version of an image is written somewhere in code (a manifest, a kustomization, a Terraform file, a compose file, a variable of an inventory), and a redeployment from that code brings the old version back. A row that says "bump this tag" is useless if nobody knows which file holds the tag. The code that holds the versions is spread over several repositories, some owned by the maintainer, some of which describe third-party software, and some of which are not on the forge at all.
+
+The maintainer asked for the same state of mind as Portarr: **one YAML description says what is maintained, and the product works inside it, with no magic.** Extending the perimeter, or reducing it, is editing that file (by hand, through the MCP or through an editor, later). A repository the maintainer does not care about is not in the file, so it is never read.
+
+## Decision
+
+1. **The description is the only entry** (extends [ADR 0020](0020-applications-are-described-in-a-private-configuration-repository.md)). It is a YAML file (JSON is YAML, so the existing file still reads) named by `Description:File` (`Applications:File` is still read). It has four sections: `environments` (the identifiers of Portarr), `platforms`, `repositories`, and `applications` (as before, with a source that may be an object: `{ repository: … }` or `{ image: … }`, and `third-party` written either way). A mistake in it stops the start and says where.
+2. **`repositories` is the perimeter of the code.** Each entry names a repository, the **kind** of files it holds (`kubernetes`, `kustomize`, `compose`, `terraform-docker`, `terraform`, `ansible-var`) and the **paths** (globs) that are read. Orchestrarr reads nothing else. A file that holds a secret (`*.enc.*`, `*.tfstate*`, `*.tfvars*`, `.env*`, keys) is never read, whatever a path says.
+3. **Where a version is written is found by a deterministic reader, line by line, inside that perimeter**: an `image:` line, a `newTag`, a string given to a `docker_image`, a value of a variable file. No heuristic, no crawling, no model. A line that carries Flux's marker is Flux's, and Orchestrarr does not change it.
+4. **A row about an image says what it found.** Found where: the file and the line, and (when the version is known and not a major one) the version a change would write; an outdated image goes to the latest, a floating one (`latest`, no tag) is **pinned to the version that runs**, which changes nothing that is deployed and makes a later update visible. Found nowhere: the row is in *To configure* ("add the repository that deploys it to the description, or leave it out"). Written by Flux: nothing to do. Written as one version while another runs: the row says so and proposes nothing. A major version is a change to plan: it shows the place, not a version.
+5. **The change is shown, never applied.** `GET /api/v1/problems/change?id=` computes the exact line change and its unified diff from the text that was read. Orchestrarr still holds no write power: applying it is the maintainer's, and later the Runner's under its own rights (a separate vertical).
+6. **A platform is not an image** (`platforms`). The version of K3s is a variable of the code of the cluster (`k3s_version`). The table says when a patch of the same minor exists, and when the **next** minor exists (Kubernetes is upgraded one minor at a time), read from the public release channels of K3s (`Platforms:K3sChannelsUrl`, off unless set). These rows are information and describe the upgrade: workers first (`upgradeOrder`), a snapshot before, a way back, one minor at a time. A platform is never upgraded by itself. Operating systems are listed in the description and are not checked yet: the facts of a host (its release, its support) have no source in the constellation yet.
+7. **The perimeter does not hide failures.** A repository of the description that cannot be read (not found, no access, a tree too large) is shown on the table. A skip of a platform row ends only when the releases are known.
+
+## Consequences
+
+- The maintainer decides, once and in one file, which repositories and which platforms are maintained; a repository of a training course on a personal account is simply absent.
+- The same token reads repositories of an organisation and of a person.
+- A repository must be on the forge to be in the perimeter; two infrastructure repositories of the maintainer are still on the work machine only.
+- Reading costs one tree request per repository and one request per changed file (a file already read is not read again while its identifier is the same), kept five minutes.
+- The pull request that applies a change is the next vertical: it needs a Runner task, the second factor, and the write power of ADR 0001.
+- Not done here, on purpose: the last version of the current line before a major (the registry's tags are not in the fleet model yet), operating system support, Helm values, Terraform provider versions.

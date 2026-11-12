@@ -1,0 +1,65 @@
+using Orchestrarr.Core.Infrastructure;
+
+namespace Orchestrarr.Core.Test.Infrastructure;
+
+public sealed class VersionPatchTests
+{
+    private const string Manifest = "a: 1\nb: 2\nc: 3\n        image: ghcr.io/example/web:1.4.0\nd: 4\ne: 5\nf: 6\ng: 7\n";
+
+    private static CodeLocation First(string kind, string content) => VersionParsers.Find(kind, "example/infra", "k8s/web.yaml", content)[0];
+
+    [Fact]
+    public void Only_the_line_of_the_version_changes_and_the_change_is_a_unified_diff_with_its_context()
+    {
+        var change = VersionPatch.Replace(Manifest, First("kubernetes", Manifest), "1.5.0")!;
+
+        change.NewContent.Should().Be(Manifest.Replace("web:1.4.0", "web:1.5.0", StringComparison.Ordinal));
+        change.Before.Trim().Should().Be("image: ghcr.io/example/web:1.4.0");
+        change.After.Trim().Should().Be("image: ghcr.io/example/web:1.5.0");
+        change.Diff.Should().Contain("--- a/k8s/web.yaml").And.Contain("+++ b/k8s/web.yaml").And.Contain("@@ -1,7 +1,7 @@")
+            .And.Contain("-        image: ghcr.io/example/web:1.4.0\n+        image: ghcr.io/example/web:1.5.0\n");
+    }
+
+    [Theory]
+    [InlineData("image: \"postgres:15-alpine\"", "image: \"postgres:15.9-alpine\"", "15.9-alpine")]
+    [InlineData("image: postgres", "image: postgres:15.9", "15.9")]
+    [InlineData("image: docker.io/library/postgres:latest # pinned later", "image: docker.io/library/postgres:15.9 # pinned later", "15.9")]
+    [InlineData("image: app@sha256:abc123", "image: app:2.0", "2.0")]
+    public void The_name_as_it_is_written_stays_and_the_tag_or_digest_becomes_the_new_tag(string line, string expected, string newTag)
+    {
+        var change = VersionPatch.Replace(line, First("kubernetes", line), newTag)!;
+
+        change.After.Should().Be(expected);
+    }
+
+    [Fact]
+    public void A_kustomize_tag_changes_in_flow_and_in_block_style()
+    {
+        const string flow = "images:\n- {name: ghcr.io/example/api, newTag: local-1}\n";
+        const string block = "images:\n- name: ghcr.io/example/api\n  newTag: local-1\n";
+
+        VersionPatch.Replace(flow, First("kustomize", flow), "local-2")!.After.Should().Be("- {name: ghcr.io/example/api, newTag: local-2}");
+        VersionPatch.Replace(block, First("kustomize", block), "local-2")!.After.Should().Be("  newTag: local-2");
+    }
+
+    [Fact]
+    public void A_terraform_image_changes_inside_its_quotes()
+    {
+        const string terraform = "resource \"docker_image\" \"app\" {\n  name = \"ghcr.io/example/app:2.1.0\"\n}\n";
+
+        VersionPatch.Replace(terraform, First("terraform-docker", terraform), "2.2.0")!.After.Should().Be("  name = \"ghcr.io/example/app:2.2.0\"");
+    }
+
+    [Fact]
+    public void A_line_that_Flux_owns_or_that_changed_since_it_was_read_or_a_bad_tag_gives_no_change()
+    {
+        const string managed = "image: ghcr.io/example/web:0.3.0 # {\"$imagepolicy\": \"flux-system:web\"}\n";
+        var location = First("kubernetes", Manifest);
+
+        VersionPatch.Replace(managed, First("kubernetes", managed), "0.4.0").Should().BeNull("Flux writes this line");
+        VersionPatch.Replace("a: 1\n", location, "1.5.0").Should().BeNull("the line is not there any more");
+        VersionPatch.Replace(Manifest.Replace("example/web", "example/other", StringComparison.Ordinal), location, "1.5.0").Should().BeNull("the image on the line is not the one that was read");
+        VersionPatch.Replace(Manifest, location, "1.5 0").Should().BeNull();
+        VersionPatch.Replace(Manifest, location, "1.4.0").Should().BeNull("nothing changes");
+    }
+}

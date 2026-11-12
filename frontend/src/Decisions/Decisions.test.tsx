@@ -359,6 +359,24 @@ describe('Decisions', () => {
     expect(await screen.findByText(/could not be set aside/)).toBeInTheDocument();
   });
 
+  it('says when a repository of the description could not be read, instead of showing nothing about its code', async () => {
+    stub(
+      problemsReport(rows, {
+        code: {
+          inScope: true,
+          repositories: 2,
+          files: 3,
+          readAt: '2026-11-01T08:00:00Z',
+          stale: false,
+          problems: [{ repository: 'example/infra', reason: 'not found or no access' }],
+        },
+      }),
+    );
+    renderWithProviders(<Decisions />);
+
+    expect(await screen.findByText(/example\/infra \(not found or no access\)/)).toBeInTheDocument();
+  });
+
   it('offers no skip button on a danger, which is dealt with at its source', async () => {
     stub(
       problemsReport([

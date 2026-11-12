@@ -7,6 +7,7 @@ using Orchestrarr.Core.Applications;
 using Orchestrarr.Core.Approvals;
 using Orchestrarr.Core.Fleet;
 using Orchestrarr.Core.Forge;
+using Orchestrarr.Core.Infrastructure;
 using Orchestrarr.Core.Launch;
 using Orchestrarr.Core.Tasks;
 using Orchestrarr.Core.WorkItems;
@@ -18,6 +19,7 @@ using Orchestrarr.Host.Live;
 using Orchestrarr.Host.Settings;
 using Orchestrarr.Host.Storage;
 using Orchestrarr.Host.Tasks;
+using Orchestrarr.Providers.GitHub;
 using Orchestrarr.Storage;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -67,7 +69,19 @@ builder.Services.AddOrchestrarrSecurity(auth, storage is SqliteStorage file ? Pa
 builder.Services.AddSingleton(builder.Configuration.GetSection(WorkItemCatalogOptions.SectionName).Get<WorkItemCatalogOptions>() ?? new WorkItemCatalogOptions());
 builder.Services.AddSingleton<WorkItemCatalog>();
 // What may be done to each application, from the private configuration (ADR 0020): checked now, a wrong file stops the host
-builder.Services.AddSingleton(_ => ApplicationCatalogFactory.Create(builder.Configuration, builder.Environment.ContentRootPath));
+builder.Services.AddSingleton(_ => DescriptionFile.Load(builder.Configuration, builder.Environment.ContentRootPath));
+builder.Services.AddSingleton(provider => provider.GetRequiredService<DescriptionContent>().Applications);
+builder.Services.AddSingleton(provider => provider.GetRequiredService<DescriptionContent>().Scope);
+// The code of the scope, read from the forge with the same read-only token as the pull requests (ADR 0028)
+builder.Services.AddSingleton<IInfrastructureSource>(_ =>
+{
+    var github = builder.Configuration.GetSection(GitHubOptions.SectionName).Get<GitHubOptions>() ?? new GitHubOptions();
+    return string.IsNullOrWhiteSpace(github.Token) ? new NoInfrastructureSource() : GitHubInfrastructureSource.Create(github);
+});
+builder.Services.AddSingleton(builder.Configuration.GetSection("Infrastructure").Get<InfrastructureCatalogOptions>() ?? new InfrastructureCatalogOptions());
+builder.Services.AddSingleton<InfrastructureCatalog>();
+builder.Services.AddSingleton(builder.Configuration.GetSection(PlatformOptions.SectionName).Get<PlatformOptions>() ?? new PlatformOptions());
+builder.Services.AddSingleton<IK3sReleases>(provider => new K3sReleaseSource(provider.GetRequiredService<PlatformOptions>(), provider.GetRequiredService<TimeProvider>()));
 
 var app = builder.Build();
 if (!storage.Persistent && !app.Environment.IsDevelopment())

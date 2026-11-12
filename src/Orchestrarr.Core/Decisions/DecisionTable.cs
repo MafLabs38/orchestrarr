@@ -1,6 +1,7 @@
 using Orchestrarr.Core.Applications;
 using Orchestrarr.Core.Fleet;
 using Orchestrarr.Core.Forge;
+using Orchestrarr.Core.Infrastructure;
 using Orchestrarr.Core.Tasks;
 using Orchestrarr.Core.WorkItems;
 
@@ -62,6 +63,24 @@ public enum CeilingReason
 
     /// <summary>A new major version of an image: not a tag to bump, a change to read about and to plan.</summary>
     MajorNeedsPlan,
+
+    /// <summary>The image is written in no repository of the description: add the repository that deploys it to the description, or leave it out of the scope.</summary>
+    NotInScope,
+
+    /// <summary>The line that writes the version is rewritten by an automation (Flux): it is not ours to change.</summary>
+    ManagedByAutomation,
+
+    /// <summary>The code says one version and another one runs: the next deployment would change something nobody decided.</summary>
+    CodeDiffersFromRunning,
+
+    /// <summary>The code that writes the version is known and the change is shown, computed and not applied: Orchestrarr holds no write power.</summary>
+    CodeChangeShown,
+
+    /// <summary>A platform (K3s) upgrade: it touches everything that runs on it, so it is described and never offered. One minor at a time, workers first, a snapshot before.</summary>
+    PlatformUpgradeIsPlanned,
+
+    /// <summary>The variable that holds the version of a platform is not where the description says.</summary>
+    PlatformVersionNotRead,
 }
 
 /// <summary>What the workshop last said about this very commit of a pull request, for the column that sits beside the forge's checks.</summary>
@@ -106,6 +125,9 @@ public enum ProblemKind
 
     /// <summary>No push for a long time and the CI is red: the repository is probably dead, and its pull requests cannot pass. Archive it or fix it.</summary>
     DormantRepository,
+
+    /// <summary>The platform that everything runs on has a newer version: K3s, or an operating system.</summary>
+    PlatformUpdate,
 }
 
 /// <summary>
@@ -132,7 +154,9 @@ public sealed record ProblemRow(
     bool InProgress = false,
     string? ApplicationId = null,
     string? Icon = null,
-    string? Source = null)
+    string? Source = null,
+    IReadOnlyList<CodeLocation>? Locations = null,
+    string? ProposedTag = null)
 {
     /// <summary>
     /// The tab the row belongs to: what a person sees by default is what they can decide now, and what is serious (an exposed secret, a critical alert), even when nothing
@@ -146,7 +170,7 @@ public sealed record ProblemRow(
             {
                 return ProblemTab.Act;
             }
-            return Why is CeilingReason.NotGranted or CeilingReason.NoRunner or CeilingReason.NoDescription ? ProblemTab.Configure : ProblemTab.Know;
+            return Why is CeilingReason.NotGranted or CeilingReason.NoRunner or CeilingReason.NoDescription or CeilingReason.NotInScope ? ProblemTab.Configure : ProblemTab.Know;
         }
     }
 }
@@ -162,7 +186,7 @@ public static class DecisionTable
 {
     public static IReadOnlyList<ProblemRow> Build(
         IReadOnlyList<WorkItem> items, IApplicationCatalog applications, IReadOnlyList<RunnerAcceptance> runners, IReadOnlyList<TaskResultRow>? results = null,
-        IReadOnlyList<ApplicationInfo>? applicationNames = null, DateTimeOffset? now = null, RelevancePolicy? policy = null)
+        IReadOnlyList<ApplicationInfo>? applicationNames = null, DateTimeOffset? now = null, RelevancePolicy? policy = null, InfrastructureIndex? infrastructure = null)
     {
         policy ??= RelevancePolicy.Default;
         ArgumentNullException.ThrowIfNull(items);
@@ -178,12 +202,12 @@ public static class DecisionTable
                 // of the last push, not the number of days (that one changes every day, and a skip lasts as long as the text stays the same). What is a risk stays as its own
                 // row (an exposed secret, an alert, a scan that cannot be read): a dead repository can still leak.
                 rows.Add(Of(item, $"dormant:{item.Id}", ProblemKind.DormantRepository, $"last push {lastPush.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)}", Severity.Info, days, Ceiling.NoAction, CeilingReason.NoActionDefined, item.RepositoryFullName));
-                AddOtherProblems(rows, item, policy, dormant: true);
+                AddOtherProblems(rows, item, policy, infrastructure, dormant: true);
                 NameApplication(rows, before, item, applicationNames ?? []);
                 continue;
             }
             AddDependencyUpdates(rows, item, applications, runners, results ?? [], policy);
-            AddOtherProblems(rows, item, policy);
+            AddOtherProblems(rows, item, policy, infrastructure);
             NameApplication(rows, before, item, applicationNames ?? []);
         }
         return rows;
@@ -323,7 +347,7 @@ public static class DecisionTable
         {
             return (Ceiling.NoAction, CeilingReason.NotGranted, false);
         }
-        if (applications.Find(item.Id) is not { } description)
+        if (applications.Find(item) is not { } description)
         {
             return (Ceiling.NoAction, CeilingReason.NoDescription, false);
         }
@@ -379,7 +403,7 @@ public static class DecisionTable
     }
 
     // What has no action yet (an alert, a secret, a failing build, an image): shown, with "no action defined" (SPEC Q-30)
-    private static void AddOtherProblems(List<ProblemRow> rows, WorkItem item, RelevancePolicy policy, bool dormant = false)
+    private static void AddOtherProblems(List<ProblemRow> rows, WorkItem item, RelevancePolicy policy, InfrastructureIndex? infrastructure, bool dormant = false)
     {
         var application = item.RepositoryFullName ?? item.Title;
         foreach (var finding in item.Findings)
@@ -406,8 +430,47 @@ public static class DecisionTable
                 { } image => $"{image.Reference} → {image.Latest}",
                 _ => finding.Count.ToString(System.Globalization.CultureInfo.InvariantCulture),
             };
-            rows.Add(Of(item, $"finding:{item.Id}:{finding.Kind}", kind.Value, description, finding.Severity, finding.Count, Ceiling.NoAction, WhyNoAction(item, finding, policy), application));
+            var (why, locations, proposed) = Where(item, finding, policy, infrastructure);
+            rows.Add(Of(item, $"finding:{item.Id}:{finding.Kind}", kind.Value, description, finding.Severity, finding.Count, Ceiling.NoAction, why, application) with { Locations = locations, ProposedTag = proposed });
         }
+    }
+
+    // Where the version of an image is written in the code of the scope, and what that changes about the row (ADR 0028). Without a scope, nothing is said about the code.
+    private static (CeilingReason Why, IReadOnlyList<CodeLocation>? Locations, string? ProposedTag) Where(WorkItem item, Finding finding, RelevancePolicy policy, InfrastructureIndex? infrastructure)
+    {
+        var why = WhyNoAction(item, finding, policy);
+        if (infrastructure is not { InScope: true } || finding.Image is not { } update || ImageReference.Parse(update.Reference) is not { } reference || why == CeilingReason.ManagedByPlatform)
+        {
+            return (why, null, null);
+        }
+        // The same image can be written at several versions (a database of two majors): the places that write the version that runs are the ones this row is about
+        var everywhere = infrastructure.Find(reference);
+        var runningTag = reference.Tag ?? update.Current;
+        var exact = everywhere.Where(location => string.Equals(location.Image.Tag, runningTag, StringComparison.OrdinalIgnoreCase)).ToList();
+        IReadOnlyList<CodeLocation> locations = exact.Count > 0 ? exact : everywhere;
+        if (locations.Count == 0)
+        {
+            return (CeilingReason.NotInScope, [], null);
+        }
+        var ours = locations.Where(location => location.Managed is null).ToList();
+        if (ours.Count == 0)
+        {
+            return (CeilingReason.ManagedByAutomation, locations, null);
+        }
+        if (finding.Kind == FindingKind.OutdatedImage && update.Current is { } running && ours[0].Image.Tag is { } written && !string.Equals(written, running, StringComparison.OrdinalIgnoreCase))
+        {
+            return (CeilingReason.CodeDiffersFromRunning, locations, null);
+        }
+        if (why == CeilingReason.MajorNeedsPlan)
+        {
+            return (why, locations, null);
+        }
+        // An outdated image goes to the latest version; a floating one is pinned to the version that runs, which changes nothing that is deployed
+        var proposed = finding.Kind == FindingKind.OutdatedImage ? update.Latest : update.Current;
+        // A tag that is not a version (latest, a branch) and the tag that is already written change nothing: nothing is proposed
+        var usable = !string.IsNullOrWhiteSpace(proposed) && !string.Equals(proposed, reference.Tag, StringComparison.OrdinalIgnoreCase)
+            && ImageReference.Parse($"{reference.Name}:{proposed}") is { IsFloating: false };
+        return usable ? (CeilingReason.CodeChangeShown, locations, proposed) : (why, locations, null);
     }
 
     // Why nothing is defined for a finding: for an image, what makes it a matter of the platform or of planning rather than a tag to change
