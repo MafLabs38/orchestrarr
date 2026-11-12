@@ -74,9 +74,7 @@ public sealed class HistoryConcluder(IProblemHistory history, IApprovalStore app
         {
             return 0;
         }
-        var present = table.Select(row => (row.Id, row.Description)).ToHashSet();
-        // Gone, or still there with another text: either way the skip is for a problem that is not the one in the table
-        var missing = skips.Where(skip => !present.Contains((skip.RowId, skip.Target))).Distinct().ToList();
+        var missing = MissingSkips(skips, table, report.Items);
         foreach (var key in _missing.Keys.Where(key => !missing.Contains(key)).ToList())
         {
             _missing.Remove(key);
@@ -99,6 +97,17 @@ public sealed class HistoryConcluder(IProblemHistory history, IApprovalStore app
             }
         }
         return gone.Count == 0 ? 0 : history.LapseSkips(gone);
+    }
+
+    /// <summary>
+    /// The skips whose problem is not the one in the table: gone, or still there with another text. A row about a pull request is missing for good only if every list of pull
+    /// requests was read whole: a list cut at the bound of the reader, one that failed or one still being read does not say the pull request is gone.
+    /// </summary>
+    internal static IReadOnlyList<ActiveSkip> MissingSkips(IReadOnlyList<ActiveSkip> skips, IReadOnlyList<ProblemRow> table, IReadOnlyList<WorkItem> items)
+    {
+        var present = table.Select(row => (row.Id, row.Description)).ToHashSet();
+        var pullRequestsWhole = items.All(item => item.PullRequests is { Status: PullRequestsStatus.Read or PullRequestsStatus.NotNeeded, Truncated: false });
+        return [.. skips.Where(skip => !present.Contains((skip.RowId, skip.Target)) && (pullRequestsWhole || !skip.RowId.StartsWith(DecisionTable.PullRequestRowPrefix, StringComparison.Ordinal))).Distinct()];
     }
 
     /// <summary>One pass over the approved lines without an outcome; returns how many were concluded.</summary>

@@ -189,6 +189,9 @@ public static class DecisionTable
         return rows;
     }
 
+    /// <summary>The start of the identifier of a row about a pull request: such a row exists only while the pull requests of its repository were read, all of them.</summary>
+    public const string PullRequestRowPrefix = "pr:";
+
     // No push for longer than the policy says, with a red build: the repository is taken for dead
     private static int? DormantDays(WorkItem item, DateTimeOffset? now, RelevancePolicy policy)
     {
@@ -249,7 +252,7 @@ public static class DecisionTable
             var change = pullRequest.Changes.Count == 1 ? pullRequest.Changes[0] : null;
             var description = change is { From: not null, To: not null } ? $"{change.Package} {change.From} → {change.To}" : pullRequest.Title;
             rows.Add(new ProblemRow(
-                $"pr:{item.RepositoryFullName}#{pullRequest.Number}", item.Id, item.RepositoryFullName, ProblemKind.DependencyUpdate, description,
+                $"{PullRequestRowPrefix}{item.RepositoryFullName}#{pullRequest.Number}", item.Id, item.RepositoryFullName, ProblemKind.DependencyUpdate, description,
                 null, null, change?.Kind ?? UpdateKind.Unknown, pullRequest.Checks, pullRequest.Url, pullRequest.Number, pullRequest.HeadSha, ceiling, why, canStop, VerdictOf(mine)));
         }
     }

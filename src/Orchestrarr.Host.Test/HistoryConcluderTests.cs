@@ -126,6 +126,8 @@ public sealed class HistoryConcluderTests
         var concluder = Concluder(factory);
 
         (await concluder.LapseSkipsOfGoneProblemsAsync(Ct)).Should().Be(0, "one reading that misses a problem is not enough");
+        (await concluder.LapseSkipsOfGoneProblemsAsync(Ct)).Should().Be(0, "the same reading twice is still one reading");
+        history.ActiveSkips().Should().HaveCount(3);
         factory.Clock.Advance(TimeSpan.FromSeconds(10));
         (await client.GetAsync("/api/v1/problems?refresh=true", Ct)).EnsureSuccessStatusCode();
         (await concluder.LapseSkipsOfGoneProblemsAsync(Ct)).Should().Be(2, "the skip of a problem that is missing from two readings ends, and so does one for a text the row no longer has");
@@ -150,4 +152,18 @@ public sealed class HistoryConcluderTests
 
     private static HistoryEntry Skipped(string row, string target) =>
         new(0, row, target, HistoryState.Skipped, "example/shop", ProblemKind.FailingCi, target, null, null, null, null, null, DateTimeOffset.UnixEpoch, "alice", null);
+
+    [Fact]
+    public void A_pull_request_is_not_missing_for_good_when_a_list_of_pull_requests_was_cut_short_or_not_read()
+    {
+        var gone = new ActiveSkip("pr:example/shop#99", "lodash 1.0.0 → 1.1.0");
+        var alert = new ActiveSkip("finding:repository:example/shop:FailingCi", "1");
+        ActiveSkip[] skips = [gone, alert];
+        WorkItem Item(PullRequestsRead read) => new("repository:example/shop", "example/shop", "example/shop", [], Severity.Info, [], [], [], read);
+
+        HistoryConcluder.MissingSkips(skips, [], [Item(new PullRequestsRead(PullRequestsStatus.Read, []))]).Should().BeEquivalentTo([gone, alert]);
+        HistoryConcluder.MissingSkips(skips, [], [Item(new PullRequestsRead(PullRequestsStatus.Read, [], Truncated: true))]).Should().BeEquivalentTo([alert]);
+        HistoryConcluder.MissingSkips(skips, [], [Item(PullRequestsRead.Pending)]).Should().BeEquivalentTo([alert]);
+        HistoryConcluder.MissingSkips(skips, [], [Item(new PullRequestsRead(PullRequestsStatus.Failed, [], Stale: true))]).Should().BeEquivalentTo([alert]);
+    }
 }
