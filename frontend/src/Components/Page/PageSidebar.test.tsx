@@ -19,6 +19,16 @@ describe('PageSidebar', () => {
     expect(screen.getByRole('link', { name: /Status/ })).toBeInTheDocument();
   });
 
+  it('counts only what can be decided, not the rows to configure or to know', async () => {
+    const toKnow = problem({ id: 'finding:x', goesUpTo: 'noAction', why: 'noActionDefined' });
+    stubApi({ '/api/v1/problems': problemsReport([problem(), toKnow, { ...toKnow, id: 'finding:y' }]) });
+
+    renderWithProviders(<PageSidebar />);
+
+    expect(await screen.findByText('1')).toBeInTheDocument();
+    expect(screen.queryByText('3')).not.toBeInTheDocument();
+  });
+
   it('shows no counter when nothing is waiting, once the answer has arrived', async () => {
     const fetchMock = stubApi({ '/api/v1/problems': problemsReport([]) });
 
