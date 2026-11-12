@@ -1,5 +1,6 @@
 using System.Threading.RateLimiting;
 using Orchestrarr.Core.Approvals;
+using Orchestrarr.Core.Decisions;
 using Orchestrarr.Core.Launch;
 using Orchestrarr.Core.Settings;
 using Orchestrarr.Core.Tasks;
@@ -91,7 +92,8 @@ internal static class ApprovalsServiceCollectionExtensions
             .AddSingleton(provider => new SqliteAuditLog(provider.GetRequiredService<SqliteDatabase>(), auditCapacity, provider.GetService<ILogger<SqliteAuditLog>>()))
             .AddSingleton<IAuditLog>(provider => provider.GetRequiredService<SqliteAuditLog>())
             .AddSingleton<IAuditSink>(provider => provider.GetRequiredService<SqliteAuditLog>())
-            .AddSingleton<IOptionStore>(provider => new SqliteOptionStore(provider.GetRequiredService<SqliteDatabase>()));
+            .AddSingleton<IOptionStore>(provider => new SqliteOptionStore(provider.GetRequiredService<SqliteDatabase>()))
+            .AddSingleton<IProblemHistory>(provider => new SqliteProblemHistory(provider.GetRequiredService<SqliteDatabase>()));
     }
 
     private static void AddMemoryStorage(this IServiceCollection services, bool startEngaged, Capacities capacities) =>
@@ -110,7 +112,8 @@ internal static class ApprovalsServiceCollectionExtensions
             .AddSingleton(provider => new InMemoryKillSwitch(provider.GetRequiredService<InMemoryAuditLog>(), startEngaged))
             .AddSingleton<IKillSwitchControl>(provider => provider.GetRequiredService<InMemoryKillSwitch>())
             .AddSingleton<IKillSwitch>(provider => provider.GetRequiredService<InMemoryKillSwitch>())
-            .AddSingleton<IOptionStore, InMemoryOptionStore>();
+            .AddSingleton<IOptionStore, InMemoryOptionStore>()
+            .AddSingleton<IProblemHistory, InMemoryProblemHistory>();
 
     // The two bounds, decided once for the kind of storage there is
     private readonly record struct Capacities(int Queue, int Audit);

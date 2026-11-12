@@ -1,0 +1,85 @@
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 800;
+}
+
+.filter select {
+  padding: 6px 10px;
+  background: var(--paperCard);
+  border: var(--borderWidth) solid var(--hairlineStrong);
+  border-radius: var(--radiusMedium);
+  color: var(--ink);
+  font: inherit;
+}
+
+.wrap {
+  margin-bottom: 16px;
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  min-width: 960px;
+  font-size: 0.85rem;
+  border-collapse: collapse;
+  border: var(--borderWidth) solid var(--hairlineStrong);
+}
+
+.table th,
+.table td {
+  padding: 4px 8px;
+  text-align: left;
+  white-space: nowrap;
+  vertical-align: middle;
+  border: 1px solid var(--hairline);
+}
+
+.table th {
+  color: var(--inkMuted);
+  font-weight: 800;
+  background: var(--paperWarm);
+}
+
+.narrow {
+  width: 1%;
+  text-align: center;
+}
+
+.problem {
+  max-width: 420px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.none {
+  color: var(--inkMuted);
+}
+
+.good {
+  color: var(--successColor);
+  font-weight: 800;
+}
+
+.bad {
+  color: var(--dangerColor);
+  font-weight: 800;
+}
+
+.wait {
+  color: var(--warningColor);
+  font-weight: 800;
+}
+
+.ai {
+  color: var(--accentText);
+  font-weight: 800;
+}

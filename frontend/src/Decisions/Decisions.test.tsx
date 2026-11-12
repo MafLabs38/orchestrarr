@@ -2,7 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { problem, problemsReport, renderWithProviders, status } from 'testUtils';
-import type { ProblemRow, ProblemsReport } from 'typings/api';
+import type { HistoryLine, HistoryReport, ProblemRow, ProblemsReport } from 'typings/api';
 
 import Decisions from './Decisions';
 
@@ -51,19 +51,31 @@ const rows: ProblemRow[] = [
   }),
 ];
 
+// The tests that are not about the tabs look at every row in one place
+const inOneTab = (list: ProblemRow[]) => problemsReport(list.map((row) => ({ ...row, tab: 'act' as const })));
+
 function stub(
   report: ProblemsReport = problemsReport(rows),
   approvals: Record<string, unknown> = {},
   refused?: Response,
+  history: HistoryReport = { lines: [], next: null },
 ) {
   const fetchMock = vi.fn((input: string, init?: RequestInit) => {
     const path = String(input);
     const method = init?.method ?? 'GET';
+    if (method === 'POST' && (path === '/api/v1/problems/skip' || path === '/api/v1/problems/unskip')) {
+      return Promise.resolve(new Response(JSON.stringify({ skipped: 1 }), { status: 200 }));
+    }
     if (method === 'POST' && path === '/api/v1/problems/approve') {
       return Promise.resolve(refused ?? new Response(JSON.stringify({ approvals: [{}, {}] }), { status: 201 }));
     }
     const bodies: Record<string, unknown> = {
       '/api/v1/problems': report,
+      '/api/v1/problems/history': history,
+      '/api/v1/problems/history?state=skipped': {
+        lines: history.lines.filter((line) => line.state === 'skipped'),
+        next: null,
+      },
       '/api/v1/system/status': status({}, { requiresSecondFactor: true, ...approvals }),
     };
     return Promise.resolve(
@@ -93,7 +105,7 @@ afterEach(() => {
 
 describe('Decisions', () => {
   it('shows one numbered line per problem: what it is, the forge and the workshop, the plan step by step and why in a few words', async () => {
-    stub();
+    stub(inOneTab(rows));
 
     renderWithProviders(<Decisions />);
 
@@ -130,7 +142,7 @@ describe('Decisions', () => {
       workshop: 'fails',
       canStopBeforeProduction: false,
     });
-    stub(problemsReport([alert, failing]));
+    stub(inOneTab([alert, failing]));
     renderWithProviders(<Decisions />);
     await screen.findByText('express 4 → 5');
 
@@ -154,7 +166,7 @@ describe('Decisions', () => {
   });
 
   it('cannot select a problem that has no action', async () => {
-    stub();
+    stub(inOneTab(rows));
     renderWithProviders(<Decisions />);
 
     const secret = await screen.findByLabelText(/Select example\/api/);
@@ -172,7 +184,7 @@ describe('Decisions', () => {
   });
 
   it('filters by application, type, goes up to and text', async () => {
-    stub();
+    stub(inOneTab(rows));
     renderWithProviders(<Decisions />);
     await screen.findByText('express 4.16.0 → 4.21.2');
 
@@ -206,7 +218,7 @@ describe('Decisions', () => {
   });
 
   it('groups the selection by application, one batch each, and says what each batch does', async () => {
-    stub();
+    stub(inOneTab(rows));
     renderWithProviders(<Decisions />);
     await userEvent.click(await screen.findByLabelText(/Select example\/shop express/));
     await userEvent.click(screen.getByLabelText(/Select example\/web-portal react/));
@@ -255,7 +267,7 @@ describe('Decisions', () => {
   });
 
   it('sorts by a column when its header is clicked, ascending then descending then back, and a line keeps its number', async () => {
-    stub();
+    stub(inOneTab(rows));
     renderWithProviders(<Decisions />);
     await screen.findByText('express 4.16.0 → 4.21.2');
     const order = () =>
@@ -278,7 +290,7 @@ describe('Decisions', () => {
   });
 
   it('sorts by application so that the lines of one application come together, whatever the filters', async () => {
-    stub();
+    stub(inOneTab(rows));
     renderWithProviders(<Decisions />);
     await screen.findByText('express 4.16.0 → 4.21.2');
 
@@ -290,6 +302,86 @@ describe('Decisions', () => {
       .map((line) => line.textContent);
     expect(apps[0]).toMatch(/api/);
     expect(apps.at(-1)).toMatch(/web-portal/);
+  });
+
+  it('shows by default only what can be decided, with the other rows in their own tabs and the counts on the tabs', async () => {
+    stub();
+    renderWithProviders(<Decisions />);
+
+    await screen.findByText('express 4.16.0 → 4.21.2');
+
+    expect(within(screen.getByRole('table')).getAllByRole('row').slice(1)).toHaveLength(3);
+    expect(screen.getByRole('tab', { name: /To decide\s*3/ })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: /To know\s*1/ })).toHaveAttribute('aria-selected', 'false');
+    expect(screen.queryByText('Secret')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('tab', { name: /To know/ }));
+
+    expect(within(screen.getByRole('table')).getByText('Secret')).toBeInTheDocument();
+    expect(screen.queryByText('express 4.16.0 → 4.21.2')).not.toBeInTheDocument();
+  });
+
+  it('says there is nothing to decide now when only the other tabs hold rows', async () => {
+    stub(problemsReport([rows[3]]));
+    renderWithProviders(<Decisions />);
+
+    expect(await screen.findByText('Nothing to decide now.')).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /To know\s*1/ })).toBeInTheDocument();
+  });
+
+  it('sets a row aside with the description it showed, and says how many are set aside', async () => {
+    const fetchMock = stub(problemsReport(rows, { skipped: 2 }));
+    renderWithProviders(<Decisions />);
+    await screen.findByText('express 4.16.0 → 4.21.2');
+    expect(screen.getByText(/2 set aside/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /Skip example\/shop express 4.16.0/ }));
+
+    await waitFor(() => expect(posted(fetchMock)).toBeDefined());
+    expect(posted(fetchMock)).toMatchObject({
+      rows: [{ id: 'pr:example/shop#2', description: 'express 4.16.0 → 4.21.2' }],
+    });
+  });
+
+  it('shows an approved row as in progress', async () => {
+    stub(problemsReport([problem({ inProgress: true })]));
+    renderWithProviders(<Decisions />);
+
+    expect(await screen.findByText('In progress')).toBeInTheDocument();
+  });
+
+  it('reads the history only when its tab is opened, newest first, and takes a skip back', async () => {
+    const line = (id: number, state: HistoryLine['state'], outcome: HistoryLine['outcome']): HistoryLine => ({
+      id,
+      state,
+      outcome,
+      application: 'example/shop',
+      kind: 'dependencyUpdate',
+      description: `express ${id}`,
+      repository: 'example/shop',
+      pullRequest: id,
+      headSha: null,
+      batchId: null,
+      at: '2026-11-12T10:00:00Z',
+      by: 'alice',
+      reason: state === 'skipped' ? 'not now' : null,
+    });
+    const fetchMock = stub(problemsReport(rows), {}, undefined, {
+      lines: [line(3, 'skipped', 'skipped'), line(2, 'approved', 'repaired'), line(1, 'approved', 'failed')],
+      next: null,
+    });
+    renderWithProviders(<Decisions />);
+    await screen.findByText('express 4.16.0 → 4.21.2');
+    expect(fetchMock.mock.calls.some(([path]) => String(path).startsWith('/api/v1/problems/history'))).toBe(false);
+
+    await userEvent.click(screen.getByRole('tab', { name: /History/ }));
+
+    expect(await screen.findByText('express 3')).toBeInTheDocument();
+    expect(screen.getByText('Repaired')).toBeInTheDocument();
+    expect(screen.getByText('Failed')).toBeInTheDocument();
+    expect(screen.getByText('not now')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /Take back the skip of example\/shop express 3/ }));
+    await waitFor(() => expect(posted(fetchMock)).toMatchObject({ id: 3 }));
   });
 
   it('shows what the Runner said of the commit and filters on it', async () => {
@@ -327,7 +419,7 @@ describe('Decisions', () => {
   });
 
   it('selects every problem shown that can be done, and none of the others', async () => {
-    stub();
+    stub(inOneTab(rows));
     renderWithProviders(<Decisions />);
 
     await userEvent.click(await screen.findByLabelText('Select every problem shown that can be done'));

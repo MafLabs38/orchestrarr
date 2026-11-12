@@ -1,11 +1,12 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 import sendJson from 'Helpers/Hooks/sendJson';
 import useApiQuery, { getJson, refreshIntervalMs } from 'Helpers/Hooks/useApiQuery';
 import { systemStatusPath } from 'System/useSystemStatus';
-import type { Approval, Ceiling, ProblemsReport } from 'typings/api';
+import type { Approval, Ceiling, HistoryReport, HistoryState, ProblemRow, ProblemsReport } from 'typings/api';
 
 export const problemsPath = '/api/v1/problems';
+export const historyPath = '/api/v1/problems/history';
 const approvalsPath = '/api/v1/approvals';
 const auditPath = '/api/v1/audit';
 
@@ -54,5 +55,47 @@ export function useApproveProblems() {
         queryClient.invalidateQueries({ queryKey: [auditPath] }),
         queryClient.invalidateQueries({ queryKey: [systemStatusPath] }),
       ]),
+  });
+}
+
+// Sets rows aside: what the operator saw is sent back (the identifier and the description), and the server refuses a row that has changed since.
+export function useSkipProblems() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (rows: ProblemRow[]) =>
+      sendJson<{ skipped: number }>('POST', `${problemsPath}/skip`, {
+        rows: rows.map((row) => ({ id: row.id, description: row.description })),
+      }),
+    onSettled: () =>
+      queryClient.invalidateQueries({ predicate: ({ queryKey }) => String(queryKey[0]).startsWith(problemsPath) }),
+  });
+}
+
+export function useUnskip() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => sendJson<undefined>('POST', `${problemsPath}/unskip`, { id }),
+    onSettled: () =>
+      queryClient.invalidateQueries({ predicate: ({ queryKey }) => String(queryKey[0]).startsWith(problemsPath) }),
+  });
+}
+
+// The history, a page at a time: the oldest lines are read only when asked for
+export function useHistory(state: HistoryState | null) {
+  return useInfiniteQuery({
+    queryKey: [historyPath, state],
+    queryFn: ({ pageParam }) => {
+      const query = new URLSearchParams();
+      if (state) {
+        query.set('state', state);
+      }
+      if (pageParam !== null) {
+        query.set('before', String(pageParam));
+      }
+      const text = query.toString();
+      return getJson<HistoryReport>(text ? `${historyPath}?${text}` : historyPath);
+    },
+    initialPageParam: null as number | null,
+    getNextPageParam: (last) => last.next,
   });
 }

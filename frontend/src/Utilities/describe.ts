@@ -5,6 +5,7 @@ import type {
   Ceiling,
   CeilingReason,
   ChecksState,
+  HistoryOutcome,
   ProblemKind,
   ProblemRow,
   RunRefusal,
@@ -330,6 +331,21 @@ const workshops = {
 
 export function describeWorkshop(verdict: WorkshopVerdict): string {
   return translate(workshops[verdict]);
+}
+
+const historyOutcomes = {
+  skipped: 'HistoryOutcomeSkipped',
+  inProgress: 'HistoryOutcomeInProgress',
+  passed: 'HistoryOutcomePassed',
+  failed: 'HistoryOutcomeFailed',
+  repaired: 'HistoryOutcomeRepaired',
+  refused: 'HistoryOutcomeRefused',
+  expired: 'HistoryOutcomeExpired',
+  ended: 'HistoryOutcomeEnded',
+} as const satisfies Record<HistoryOutcome, string>;
+
+export function describeHistoryOutcome(outcome: HistoryOutcome): string {
+  return translate(historyOutcomes[outcome]);
 }
 
 const severities = {

@@ -127,3 +127,19 @@
   font-size: var(--fontSizeMeta);
   color: var(--inkMuted);
 }
+
+.skip {
+  padding: 0 8px;
+  font: inherit;
+  font-size: 0.8rem;
+  color: var(--inkMuted);
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid var(--hairlineStrong);
+  border-radius: var(--radiusPill);
+}
+
+.skip:hover {
+  color: var(--ink);
+  background: var(--paperSunken);
+}

@@ -30,6 +30,7 @@ interface ProblemTableProps {
   onSort: (sort: Sort | null) => void;
   onSelect: (row: ProblemRow, selected: boolean) => void;
   onSelectAll: (selected: boolean) => void;
+  onSkip: (row: ProblemRow) => void;
   onStop: (row: ProblemRow, stop: boolean) => void;
 }
 
@@ -90,6 +91,7 @@ export default function ProblemTable({
   onSelect,
   onSelectAll,
   onStop,
+  onSkip,
 }: Readonly<ProblemTableProps>) {
   const actionable = rows.filter(isActionable);
   const allSelected = actionable.length > 0 && actionable.every((row) => selected.has(row.id));
@@ -114,6 +116,9 @@ export default function ProblemTable({
             <th className={styles.narrow} title={translate('StopBeforeProductionHint')}>
               {translate('ColumnProd')}
             </th>
+            <th className={styles.narrow} title={translate('SkipHint')}>
+              {translate('ColumnSkip')}
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -126,6 +131,7 @@ export default function ProblemTable({
               stops={stops[row.id] ?? false}
               onSelect={onSelect}
               onStop={onStop}
+              onSkip={onSkip}
             />
           ))}
         </tbody>
@@ -186,6 +192,7 @@ function ProblemTableRow({
   stops,
   onSelect,
   onStop,
+  onSkip,
 }: Readonly<{
   row: ProblemRow;
   number: number;
@@ -193,6 +200,7 @@ function ProblemTableRow({
   stops: boolean;
   onSelect: (row: ProblemRow, selected: boolean) => void;
   onStop: (row: ProblemRow, stop: boolean) => void;
+  onSkip: (row: ProblemRow) => void;
 }>) {
   const sentence = describeProblem(row);
   const actionable = isActionable(row);
@@ -237,6 +245,7 @@ function ProblemTableRow({
         {row.updateClass && row.updateClass !== 'unknown' ? (
           <span className={styles.class}>{row.updateClass}</span>
         ) : null}
+        {row.inProgress ? <span className={styles.class}>{translate('InProgress')}</span> : null}
       </td>
       <td className={styles.narrow}>
         <Checks state={row.checks} />
@@ -267,6 +276,17 @@ function ProblemTableRow({
         ) : (
           <span className={styles.none}>—</span>
         )}
+      </td>
+      <td className={styles.narrow}>
+        <button
+          type="button"
+          className={styles.skip}
+          title={translate('SkipHint')}
+          aria-label={translate('SkipRowOf', { problem: `${row.application} ${sentence}` })}
+          onClick={() => onSkip(row)}
+        >
+          {translate('SkipRow')}
+        </button>
       </td>
     </tr>
   );

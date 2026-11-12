@@ -65,6 +65,17 @@ public enum WorkshopVerdict
     Repaired,
 }
 
+/// <summary>
+/// Where a row is shown (ADR 0027). <c>Act</c>: something can be done now, the decisions. <c>Configure</c>: it could be done, and something of the setting is missing
+/// (a power not granted, no Runner, no description of the application). <c>Know</c>: it is information, nothing is defined to do about it.
+/// </summary>
+public enum ProblemTab
+{
+    Act,
+    Configure,
+    Know,
+}
+
 /// <summary>The kinds of problem the table shows (one row each).</summary>
 public enum ProblemKind
 {
@@ -98,7 +109,22 @@ public sealed record ProblemRow(
     Ceiling GoesUpTo,
     CeilingReason Why,
     bool CanStopBeforeProduction,
-    WorkshopVerdict Workshop = WorkshopVerdict.Unknown);
+    WorkshopVerdict Workshop = WorkshopVerdict.Unknown,
+    bool InProgress = false)
+{
+    /// <summary>The tab the row belongs to: what a person sees by default is what they can decide now.</summary>
+    public ProblemTab Tab
+    {
+        get
+        {
+            if (InProgress || GoesUpTo != Ceiling.NoAction)
+            {
+                return ProblemTab.Act;
+            }
+            return Why is CeilingReason.NotGranted or CeilingReason.NoRunner or CeilingReason.NoDescription ? ProblemTab.Configure : ProblemTab.Know;
+        }
+    }
+}
 
 /// <summary>What a connected runner accepts, as it reported it. The table never promises more than they would run: with none connected, nothing can be run, and every row says so.</summary>
 public sealed record RunnerAcceptance(IReadOnlyList<TaskKind> Kinds, IReadOnlyList<string> Repositories)

@@ -103,6 +103,87 @@ public sealed class ProblemsApiTests
         table.GetProperty("rows").EnumerateArray().Where(row => row.GetProperty("kind").GetString() == "exposedSecret").Should().OnlyContain(row => row.GetProperty("goesUpTo").GetString() == "noAction");
     }
 
+    private static object Skipped(JsonElement table, string id) => new { id, description = Row(table, id).GetProperty("description").GetString() };
+
+    [Fact]
+    public async Task A_row_set_aside_leaves_the_table_and_the_history_keeps_it_until_it_is_taken_back()
+    {
+        using var factory = new TableApiFactory();
+        await factory.ConnectRunnerAsync();
+        using var operatorClient = await SignedIn(factory, "Operator");
+        var table = await Table(operatorClient);
+
+        var skip = await operatorClient.PostAsJsonAsync("/api/v1/problems/skip", new { rows = new[] { Skipped(table, "pr:example/shop#3") }, reason = "major, not now" }, Ct);
+
+        skip.StatusCode.Should().Be(HttpStatusCode.OK);
+        var after = await Table(operatorClient);
+        after.GetProperty("rows").EnumerateArray().Select(row => row.GetProperty("id").GetString()).Should().NotContain("pr:example/shop#3");
+        after.GetProperty("skipped").GetInt32().Should().Be(1);
+        var historyAnswer = await operatorClient.GetAsync("/api/v1/problems/history?state=skipped", Ct);
+        historyAnswer.StatusCode.Should().Be(HttpStatusCode.OK, await historyAnswer.Content.ReadAsStringAsync(Ct));
+        var history = await Json(historyAnswer);
+        var line = history.GetProperty("lines").EnumerateArray().Single();
+        line.GetProperty("state").GetString().Should().Be("skipped");
+        line.GetProperty("outcome").GetString().Should().Be("skipped");
+        line.GetProperty("reason").GetString().Should().Be("major, not now");
+        line.GetProperty("application").GetString().Should().Be("example/shop");
+
+        (await operatorClient.PostAsJsonAsync("/api/v1/problems/unskip", new { id = line.GetProperty("id").GetInt64() }, Ct)).StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        (await Table(operatorClient)).GetProperty("rows").EnumerateArray().Select(row => row.GetProperty("id").GetString()).Should().Contain("pr:example/shop#3");
+        (await Json(await operatorClient.GetAsync("/api/v1/problems/history", Ct))).GetProperty("lines").GetArrayLength().Should().Be(0);
+        (await operatorClient.PostAsJsonAsync("/api/v1/problems/unskip", new { id = line.GetProperty("id").GetInt64() }, Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task A_skip_is_for_what_the_operator_saw_and_only_an_operator_can_make_it()
+    {
+        using var factory = new TableApiFactory();
+        await factory.ConnectRunnerAsync();
+        using var operatorClient = await SignedIn(factory, "Operator");
+        using var reader = await SignedIn(factory, "Reader");
+        var table = await Table(operatorClient);
+
+        (await operatorClient.PostAsJsonAsync("/api/v1/problems/skip", new { rows = new[] { new { id = "pr:example/shop#3", description = "something else" } } }, Ct)).StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await operatorClient.PostAsJsonAsync("/api/v1/problems/skip", new { rows = new[] { new { id = "pr:example/gone#9", description = "x" } } }, Ct)).StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await operatorClient.PostAsJsonAsync("/api/v1/problems/skip", new { rows = Array.Empty<object>() }, Ct)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await reader.PostAsJsonAsync("/api/v1/problems/skip", new { rows = new[] { Skipped(table, "pr:example/shop#3") } }, Ct)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await reader.GetAsync("/api/v1/problems/history", Ct)).StatusCode.Should().Be(HttpStatusCode.OK, "reading the history needs only the right to read");
+        (await Table(operatorClient)).GetProperty("skipped").GetInt32().Should().Be(0);
+    }
+
+    [Fact]
+    public async Task An_approved_row_is_marked_in_progress_and_the_history_keeps_its_photograph_with_the_outcome()
+    {
+        using var factory = new TableApiFactory();
+        await factory.ConnectRunnerAsync();
+        using var operatorClient = await SignedIn(factory, "Operator");
+        var table = await Table(operatorClient);
+
+        (await operatorClient.PostAsJsonAsync("/api/v1/problems/approve", new { rows = new[] { Chosen(table, "pr:example/shop#2") }, secondFactorCode = "123456", descriptionsVersion = Version(table) }, Ct)).StatusCode.Should().Be(HttpStatusCode.Created);
+
+        var after = await Table(operatorClient);
+        Row(after, "pr:example/shop#2").GetProperty("inProgress").GetBoolean().Should().BeTrue();
+        Row(after, "pr:example/shop#2").GetProperty("tab").GetString().Should().Be("act");
+        var line = (await Json(await operatorClient.GetAsync("/api/v1/problems/history?state=approved", Ct))).GetProperty("lines").EnumerateArray().Single();
+        line.GetProperty("outcome").GetString().Should().Be("inProgress");
+        line.GetProperty("description").GetString().Should().Be(Row(table, "pr:example/shop#2").GetProperty("description").GetString());
+        line.GetProperty("pullRequest").GetInt32().Should().Be(2);
+    }
+
+    [Fact]
+    public async Task Every_row_says_in_which_tab_it_belongs()
+    {
+        using var factory = new TableApiFactory();
+        await factory.ConnectRunnerAsync();
+        using var reader = await SignedIn(factory, "Reader");
+
+        var table = await Table(reader);
+
+        Row(table, "pr:example/shop#2").GetProperty("tab").GetString().Should().Be("act");
+        Row(table, "pr:example/reporting#3").GetProperty("tab").GetString().Should().Be("configure", "no description of the application is something to configure");
+    }
+
     [Fact]
     public async Task Nobody_signed_out_reads_or_validates_and_a_reader_cannot_validate()
     {

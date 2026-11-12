@@ -265,6 +265,38 @@ export interface ProblemRow {
   why: CeilingReason;
   canStopBeforeProduction: boolean;
   workshop: WorkshopVerdict;
+  inProgress: boolean;
+  tab: ProblemTab;
+}
+
+// Where a row is shown: what can be decided now, what needs a setting, what is only to know
+export type ProblemTab = 'act' | 'configure' | 'know';
+
+export type HistoryState = 'approved' | 'skipped';
+
+export type HistoryOutcome =
+  'skipped' | 'inProgress' | 'passed' | 'failed' | 'repaired' | 'refused' | 'expired' | 'ended';
+
+// A line of the history: the photograph of the row when it was approved or set aside, and what became of it
+export interface HistoryLine {
+  id: number;
+  state: HistoryState;
+  outcome: HistoryOutcome;
+  application: string;
+  kind: ProblemKind;
+  description: string;
+  repository: string | null;
+  pullRequest: number | null;
+  headSha: string | null;
+  batchId: string | null;
+  at: string;
+  by: string;
+  reason: string | null;
+}
+
+export interface HistoryReport {
+  lines: HistoryLine[];
+  next: number | null;
 }
 
 export interface ProblemsReport {
@@ -274,4 +306,5 @@ export interface ProblemsReport {
   error: SourceError | null;
   descriptionsVersion: string;
   rows: ProblemRow[];
+  skipped: number;
 }
