@@ -39,6 +39,17 @@ public sealed class PlatformRowsTests
         rows[0].Locations!.Single().Should().Match<CodeLocation>(location => location.Line == 2 && location.Form == VersionForm.Variable && location.Path == "ansible/all.yml");
     }
 
+    [Theory]
+    [InlineData("v1.99999999999.0+k3s1")]
+    [InlineData("v١.٣٦.٥+k3s1")]
+    [InlineData("v1.36.5+k3s99999999")]
+    public void A_value_in_a_file_that_is_not_a_k3s_version_is_not_read_and_never_throws(string written)
+    {
+        var rows = PlatformRows.Build([K3s], Code($"k3s_version: {written}\n"), Releases("v1.36.6+k3s1"));
+
+        rows.Should().BeEmpty();
+    }
+
     [Fact]
     public void A_cluster_up_to_date_has_no_row_and_nothing_is_said_without_the_releases()
     {

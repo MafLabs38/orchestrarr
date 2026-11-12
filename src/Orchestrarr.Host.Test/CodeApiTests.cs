@@ -43,6 +43,12 @@ public sealed class CodeApiFactory : TableApiFactory
         public Task<K3sReleases?> GetAsync(CancellationToken cancellationToken) => Task.FromResult<K3sReleases?>(Known);
 
         public K3sReleases? Peek() => Known;
+
+        public event Action? Changed
+        {
+            add => _ = value;
+            remove => _ = value;
+        }
     }
 }
 

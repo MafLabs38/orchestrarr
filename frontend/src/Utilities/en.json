@@ -479,5 +479,7 @@
   "CodeChangeLeft": "Not changed here:",
   "CodeChangeUnavailable": "The change could not be computed.",
   "CodeScopeProblem": "A repository of the description could not be read: {repository} ({reason}).",
-  "CodeReadFailed": "The code of the repositories of the description could not be read ({error}): what was read last is shown."
+  "CodeReadFailed": "The code of the repositories of the description could not be read ({error}): what was read last is shown.",
+  "WhySeveralEnvironments": "This image runs in several environments: a change is made for one at a time, qualified and then promoted, so none is proposed for all at once. The places are shown.",
+  "WhyShortSeveralEnvironments": "Several environments"
 }

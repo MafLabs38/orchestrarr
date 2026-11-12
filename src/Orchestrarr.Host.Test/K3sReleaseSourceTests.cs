@@ -42,6 +42,46 @@ public sealed class K3sReleaseSourceTests
         (await off.GetAsync(TestContext.Current.CancellationToken)).Should().BeNull();
     }
 
+    [Theory]
+    [InlineData("[]")]
+    [InlineData("{ \"data\": \"nothing\" }")]
+    [InlineData("{ \"data\": [ 1, \"x\", { \"id\": 3, \"latest\": 4 } ] }")]
+    [InlineData("{ \"data\": [ { \"id\": \"stable\", \"latest\": \"v1.99999999999.0+k3s1\" } ] }")]
+    public void A_body_that_is_not_what_the_channels_document_gives_nothing_and_never_throws(string body) => K3sReleaseSource.Parse(body).Should().BeNull();
+
+    [Fact]
+    public async Task An_answer_that_says_nothing_usable_keeps_the_last_good_releases()
+    {
+        var handler = new Answering(Channels);
+        using var source = new K3sReleaseSource(new PlatformOptions { K3sChannelsUrl = "https://channels.example/", CacheMinutes = 60 }, _time, handler);
+        var good = await source.GetAsync(TestContext.Current.CancellationToken);
+
+        _time.Advance(TimeSpan.FromMinutes(70));
+        handler.Body = "[]";
+        var kept = await source.GetAsync(TestContext.Current.CancellationToken);
+
+        good.Should().NotBeNull();
+        kept.Should().BeSameAs(good);
+    }
+
+    [Fact]
+    public async Task A_slow_reading_does_not_hold_the_request_and_the_screens_are_told_when_it_ends()
+    {
+        var handler = new Answering(Channels) { Gate = new TaskCompletionSource() };
+        using var source = new K3sReleaseSource(new PlatformOptions { K3sChannelsUrl = "https://channels.example/", FirstWaitSeconds = 5 }, _time, handler);
+        var changed = new TaskCompletionSource();
+        source.Changed += () => changed.TrySetResult();
+
+        var request = source.GetAsync(TestContext.Current.CancellationToken);
+        _time.Advance(TimeSpan.FromSeconds(5));
+        var first = await request;
+
+        first.Should().BeNull("nothing was read yet and the request did not wait for it");
+        handler.Gate.SetResult();
+        await changed.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        source.Peek().Should().NotBeNull();
+    }
+
     [Fact]
     public void An_address_that_is_not_https_stops_the_start() =>
         new Func<K3sReleaseSource>(() => new K3sReleaseSource(new PlatformOptions { K3sChannelsUrl = "http://channels.example/" }, _time)).Should().Throw<InvalidOperationException>().WithMessage("*https*");
@@ -52,10 +92,18 @@ public sealed class K3sReleaseSourceTests
 
         public bool Fail { get; set; }
 
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        public string Body { get; set; } = body;
+
+        public TaskCompletionSource? Gate { get; set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Calls++;
-            return Task.FromResult(new HttpResponseMessage(Fail ? HttpStatusCode.BadGateway : HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, "application/json") });
+            if (Gate is not null)
+            {
+                await Gate.Task;
+            }
+            return new HttpResponseMessage(Fail ? HttpStatusCode.BadGateway : HttpStatusCode.OK) { Content = new StringContent(Body, Encoding.UTF8, "application/json") };
         }
     }
 }

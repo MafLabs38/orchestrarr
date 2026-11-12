@@ -8,10 +8,17 @@ public sealed partial record K3sVersion(int Major, int Minor, int Patch, int Bui
     public static K3sVersion? Parse(string? text)
     {
         var match = Pattern().Match(text?.Trim() ?? string.Empty);
-        return match.Success
-            ? new K3sVersion(int.Parse(match.Groups["major"].Value, System.Globalization.CultureInfo.InvariantCulture), int.Parse(match.Groups["minor"].Value, System.Globalization.CultureInfo.InvariantCulture),
-                int.Parse(match.Groups["patch"].Value, System.Globalization.CultureInfo.InvariantCulture), int.Parse(match.Groups["build"].Value, System.Globalization.CultureInfo.InvariantCulture))
-            : null;
+        if (!match.Success)
+        {
+            return null;
+        }
+        // A value from a file or a feed: bounded by the pattern, and never an exception whatever it holds
+        return int.TryParse(match.Groups["major"].Value, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var major)
+            && int.TryParse(match.Groups["minor"].Value, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var minor)
+            && int.TryParse(match.Groups["patch"].Value, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var patch)
+            && int.TryParse(match.Groups["build"].Value, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var build)
+                ? new K3sVersion(major, minor, patch, build)
+                : null;
     }
 
     public int CompareTo(K3sVersion? other)
@@ -34,7 +41,7 @@ public sealed partial record K3sVersion(int Major, int Minor, int Patch, int Bui
 
     public static bool operator >=(K3sVersion left, K3sVersion right) => left.CompareTo(right) >= 0;
 
-    [GeneratedRegex(@"^v(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)\+k3s(?<build>\d+)$", RegexOptions.None, 250)]
+    [GeneratedRegex(@"^v(?<major>[0-9]{1,5})\.(?<minor>[0-9]{1,5})\.(?<patch>[0-9]{1,5})\+k3s(?<build>[0-9]{1,5})$", RegexOptions.None, 250)]
     private static partial Regex Pattern();
 }
 
@@ -48,6 +55,9 @@ public interface IK3sReleases
 
     /// <summary>What was read last, without reading anything: null before the first read, or when the last one failed and none was kept.</summary>
     K3sReleases? Peek();
+
+    /// <summary>Raised when a reading ends.</summary>
+    event Action? Changed;
 }
 
 public sealed class NoK3sReleases : IK3sReleases
@@ -55,4 +65,10 @@ public sealed class NoK3sReleases : IK3sReleases
     public Task<K3sReleases?> GetAsync(CancellationToken cancellationToken) => Task.FromResult<K3sReleases?>(null);
 
     public K3sReleases? Peek() => null;
+
+    public event Action? Changed
+    {
+        add => _ = value;
+        remove => _ = value;
+    }
 }

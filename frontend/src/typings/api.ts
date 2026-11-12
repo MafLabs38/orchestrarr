@@ -242,6 +242,7 @@ export type CeilingReason =
   | 'managedByAutomation'
   | 'codeDiffersFromRunning'
   | 'codeChangeShown'
+  | 'severalEnvironments'
   | 'platformUpgradeIsPlanned'
   | 'platformVersionNotRead';
 

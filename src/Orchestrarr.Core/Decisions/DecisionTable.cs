@@ -73,6 +73,9 @@ public enum CeilingReason
     /// <summary>The code says one version and another one runs: the next deployment would change something nobody decided.</summary>
     CodeDiffersFromRunning,
 
+    /// <summary>The image runs in several environments: a change is made for one at a time, qualified and then promoted, so none is proposed for all at once.</summary>
+    SeveralEnvironments,
+
     /// <summary>The code that writes the version is known and the change is shown, computed and not applied: Orchestrarr holds no write power.</summary>
     CodeChangeShown,
 
@@ -461,6 +464,10 @@ public static class DecisionTable
         if (finding.Kind == FindingKind.OutdatedImage && exact.Count == 0 && update.Current is not null)
         {
             return (CeilingReason.CodeDiffersFromRunning, locations, null);
+        }
+        if (item.Placements.Select(placement => placement.EnvironmentId).Distinct(StringComparer.Ordinal).Count() > 1)
+        {
+            return (CeilingReason.SeveralEnvironments, locations, null);
         }
         if (why == CeilingReason.MajorNeedsPlan)
         {

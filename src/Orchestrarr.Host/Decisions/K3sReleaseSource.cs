@@ -17,11 +17,15 @@ public sealed class PlatformOptions
     public int CacheMinutes { get; set; } = 360;
 
     public int TimeoutSeconds { get; set; } = 15;
+
+    /// <summary>How long a request waits for a reading that is going on: after it the table is served with what was read last, and the screens are told when it ends.</summary>
+    public int FirstWaitSeconds { get; set; } = 5;
 }
 
 /// <summary>
-/// The newest K3s of each minor version, from the public release channels (ADR 0028). Kept for hours; when the channels cannot be read the last good answer is kept, and
-/// before any answer nothing is known, which the table treats as "nothing to say" and never as "up to date".
+/// The newest K3s of each minor version, from the public release channels (ADR 0028). Read in the background and kept for hours; when the channels cannot be read, or say
+/// something that is not what they document, the last good answer is kept. Before any answer nothing is known, which the table treats as "nothing to say" and never as
+/// "up to date".
 /// </summary>
 public sealed class K3sReleaseSource : IK3sReleases, IDisposable
 {
@@ -29,14 +33,17 @@ public sealed class K3sReleaseSource : IK3sReleases, IDisposable
     private readonly Uri? _url;
     private readonly TimeProvider _time;
     private readonly TimeSpan _keep;
-    private readonly SemaphoreSlim _lock = new(1, 1);
+    private readonly TimeSpan _firstWait;
+    private readonly object _gate = new();
     private (DateTimeOffset At, K3sReleases? Releases)? _last;
+    private Task? _reading;
 
     public K3sReleaseSource(PlatformOptions options, TimeProvider time, HttpMessageHandler? handler = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         _time = time;
         _keep = TimeSpan.FromMinutes(Math.Max(1, options.CacheMinutes));
+        _firstWait = TimeSpan.FromSeconds(Math.Max(1, options.FirstWaitSeconds));
         if (string.IsNullOrWhiteSpace(options.K3sChannelsUrl))
         {
             return;
@@ -48,7 +55,15 @@ public sealed class K3sReleaseSource : IK3sReleases, IDisposable
         _http.DefaultRequestHeaders.UserAgent.ParseAdd("Orchestrarr");
     }
 
-    public K3sReleases? Peek() => _last?.Releases;
+    public event Action? Changed;
+
+    public K3sReleases? Peek()
+    {
+        lock (_gate)
+        {
+            return _last?.Releases;
+        }
+    }
 
     public async Task<K3sReleases?> GetAsync(CancellationToken cancellationToken)
     {
@@ -56,46 +71,65 @@ public sealed class K3sReleaseSource : IK3sReleases, IDisposable
         {
             return null;
         }
-        await _lock.WaitAsync(cancellationToken);
-        try
+        Task reading;
+        lock (_gate)
         {
-            var now = _time.GetUtcNow();
-            if (_last is { } kept && now - kept.At < _keep)
+            if (_last is { } kept && _time.GetUtcNow() - kept.At < _keep)
             {
                 return kept.Releases;
             }
-            try
+            _reading ??= Task.Run(ReadAsync, CancellationToken.None);
+            reading = _reading;
+        }
+        // The reading goes on in the background; a request waits for it a little and no longer
+        await Task.WhenAny(reading, Task.Delay(_firstWait, _time, cancellationToken));
+        return Peek();
+    }
+
+    private async Task ReadAsync()
+    {
+        try
+        {
+            using var response = await _http!.GetAsync(_url!);
+            response.EnsureSuccessStatusCode();
+            var releases = Parse(await response.Content.ReadAsStringAsync());
+            lock (_gate)
             {
-                using var response = await _http.GetAsync(_url, cancellationToken);
-                response.EnsureSuccessStatusCode();
-                _last = (now, Parse(await response.Content.ReadAsStringAsync(cancellationToken)));
+                // An answer that says nothing usable does not replace the last good one
+                _last = (_time.GetUtcNow(), releases ?? _last?.Releases);
             }
-            catch (Exception failure) when (failure is HttpRequestException or TaskCanceledException or JsonException && !cancellationToken.IsCancellationRequested)
+        }
+        catch (Exception failure) when (failure is not OutOfMemoryException)
+        {
+            // The last good answer stays; the next try is a minute away, not at every read of the table
+            lock (_gate)
             {
-                // The last good answer stays; a failure is retried at the next call after a minute, not at every read of the table
-                _last = (now - _keep + TimeSpan.FromMinutes(1), _last?.Releases);
+                _last = (_time.GetUtcNow() - _keep + TimeSpan.FromMinutes(1), _last?.Releases);
             }
-            return _last?.Releases;
         }
         finally
         {
-            _lock.Release();
+            lock (_gate)
+            {
+                _reading = null;
+            }
+            Changed?.Invoke();
         }
     }
 
     internal static K3sReleases? Parse(string json)
     {
         using var document = JsonDocument.Parse(json);
-        K3sVersion? stable = null;
-        var byMinor = new Dictionary<int, K3sVersion>();
-        if (!document.RootElement.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
+        if (document.RootElement is not { ValueKind: JsonValueKind.Object } root || !root.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
         {
             return null;
         }
-        foreach (var channel in data.EnumerateArray())
+        K3sVersion? stable = null;
+        var byMinor = new Dictionary<int, K3sVersion>();
+        foreach (var channel in data.EnumerateArray().Where(channel => channel.ValueKind == JsonValueKind.Object))
         {
-            var id = channel.TryGetProperty("id", out var name) ? name.GetString() : null;
-            if (!channel.TryGetProperty("latest", out var newest) || K3sVersion.Parse(newest.GetString()) is not { } latest)
+            var id = Text(channel, "id");
+            if (K3sVersion.Parse(Text(channel, "latest")) is not { } latest)
             {
                 continue;
             }
@@ -111,9 +145,8 @@ public sealed class K3sReleaseSource : IK3sReleases, IDisposable
         return stable is null ? null : new K3sReleases(stable, byMinor);
     }
 
-    public void Dispose()
-    {
-        _http?.Dispose();
-        _lock.Dispose();
-    }
+    private static string? Text(JsonElement element, string name) =>
+        element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+
+    public void Dispose() => _http?.Dispose();
 }

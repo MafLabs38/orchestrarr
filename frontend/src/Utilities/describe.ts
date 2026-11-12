@@ -249,6 +249,7 @@ const whys = {
   managedByAutomation: 'WhyManagedByAutomation',
   codeDiffersFromRunning: 'WhyCodeDiffersFromRunning',
   codeChangeShown: 'WhyCodeChangeShown',
+  severalEnvironments: 'WhySeveralEnvironments',
   platformUpgradeIsPlanned: 'WhyPlatformUpgradeIsPlanned',
   platformVersionNotRead: 'WhyPlatformVersionNotRead',
 } as const satisfies Record<CeilingReason, string>;
@@ -329,6 +330,7 @@ const whyShorts = {
   managedByAutomation: 'WhyShortManagedByAutomation',
   codeDiffersFromRunning: 'WhyShortCodeDiffersFromRunning',
   codeChangeShown: 'WhyShortCodeChangeShown',
+  severalEnvironments: 'WhyShortSeveralEnvironments',
   platformUpgradeIsPlanned: 'WhyShortPlatformUpgradeIsPlanned',
   platformVersionNotRead: 'WhyShortPlatformVersionNotRead',
 } as const satisfies Record<CeilingReason, string>;

@@ -163,6 +163,18 @@ public sealed class ImageCodeRowsTests
     }
 
     [Fact]
+    public void An_image_that_runs_in_several_environments_shows_its_places_and_proposes_no_change_for_all_at_once()
+    {
+        var item = ImageItem(Behind()) with { Placements = [new Placement("staging", "Staging", null, "n8n"), new Placement("production", "Production", null, "n8n")] };
+
+        var row = Row(item, Code("image: n8nio/n8n:1.108.2\n"));
+
+        row.Why.Should().Be(CeilingReason.SeveralEnvironments);
+        row.ProposedTag.Should().BeNull();
+        row.Locations.Should().ContainSingle();
+    }
+
+    [Fact]
     public void A_proposed_tag_that_is_not_a_tag_is_not_proposed()
     {
         var row = Row(ImageItem(Behind(latest: "1.121.0\"#")), Code("image: n8nio/n8n:1.108.2\n"));
