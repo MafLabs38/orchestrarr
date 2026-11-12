@@ -440,7 +440,9 @@ public static class DecisionTable
                 _ => finding.Count.ToString(System.Globalization.CultureInfo.InvariantCulture),
             };
             var (why, locations, proposed) = CodeOf(item, finding, policy, infrastructure);
-            rows.Add(Of(item, $"finding:{item.Id}:{finding.Kind}", kind.Value, description, finding.Severity, finding.Count, Ceiling.NoAction, why, application) with { Locations = locations, ProposedTag = proposed });
+            // A repository that builds several images has a finding for each: the row of each has its own places and its own change
+            var several = finding.Image is not null && item.Findings.Count(other => other.Kind == finding.Kind && other.Image is not null) > 1;
+            rows.Add(Of(item, several ? $"finding:{item.Id}:{finding.Kind}:{finding.Image!.Reference}" : $"finding:{item.Id}:{finding.Kind}", kind.Value, description, finding.Severity, finding.Count, Ceiling.NoAction, why, application) with { Locations = locations, ProposedTag = proposed });
         }
     }
 
@@ -453,8 +455,9 @@ public static class DecisionTable
             return (why, null, null);
         }
         // The same image can be written at several versions (a database of two majors): the places that write the version that runs are the ones this row is about
-        // A repository that deploys to one environment is about the workloads of that environment, not of another one
-        var everywhere = infrastructure.Find(reference).Where(location => location.Environment is null || item.Placements.Count == 0 || item.Placements.Any(placement => placement.EnvironmentId == location.Environment)).ToList();
+        // A repository that deploys to one environment is about the workloads of that environment, not of another one: the placements of this image, not of the whole item
+        var placements = update.Placements ?? item.Placements;
+        var everywhere = infrastructure.Find(reference).Where(location => location.Environment is null || placements.Count == 0 || placements.Any(placement => placement.EnvironmentId == location.Environment)).ToList();
         var runningTag = reference.Tag ?? update.Current;
         var exact = everywhere.Where(location => string.Equals(location.Image.Tag, runningTag, StringComparison.OrdinalIgnoreCase)).ToList();
         IReadOnlyList<CodeLocation> locations = exact.Count > 0 ? exact : everywhere;
@@ -476,7 +479,9 @@ public static class DecisionTable
         {
             return (CeilingReason.PinnedByDigest, locations, null);
         }
-        if (item.Placements.Select(placement => placement.EnvironmentId).Distinct(StringComparer.Ordinal).Count() > 1)
+        // One environment at a time: several placements, or places that belong to several environments when the placements are not known, propose nothing
+        var environments = placements.Select(placement => placement.EnvironmentId).Concat(ours.Select(location => location.Environment).OfType<string>()).Distinct(StringComparer.Ordinal).Count();
+        if (environments > 1)
         {
             return (CeilingReason.SeveralEnvironments, locations, null);
         }

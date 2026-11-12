@@ -175,6 +175,38 @@ public sealed class ImageCodeRowsTests
     }
 
     [Fact]
+    public void Places_in_several_environments_propose_nothing_even_when_the_placements_of_the_image_are_not_known()
+    {
+        var code = InfrastructureIndex.Build(new InfrastructureSnapshot(DateTimeOffset.UnixEpoch,
+            [new InfrastructureFile("example/infra", "qual/n8n.yaml", "kubernetes", "image: n8nio/n8n:1.108.2\n", "qual"), new InfrastructureFile("example/infra", "prod/n8n.yaml", "kubernetes", "image: n8nio/n8n:1.108.2\n", "prod")], []));
+
+        var row = Row(ImageItem(Behind()), code);
+
+        row.Why.Should().Be(CeilingReason.SeveralEnvironments);
+        row.ProposedTag.Should().BeNull();
+        row.Locations.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public void A_repository_that_builds_two_images_has_a_row_for_each_with_its_own_places_its_own_placements_and_its_own_identifier()
+    {
+        var api = new Finding(FindingKind.OutdatedImage, Severity.Info, 1, Image: new ImageUpdate("ghcr.io/example/api:1.0.0", "1.0.0", "1.1.0", ImageChange.Minor, [new Placement("production", "Production", null, "api")]));
+        var web = new Finding(FindingKind.OutdatedImage, Severity.Info, 1, Image: new ImageUpdate("ghcr.io/example/web:2.0.0", "2.0.0", "2.1.0", ImageChange.Minor, [new Placement("staging", "Staging", null, "web")]));
+        var item = new WorkItem("repository:example/shop", "shop", "example/shop", [], Severity.Info, [api, web], [], [new Placement("production", "Production", null, "api"), new Placement("staging", "Staging", null, "web")], PullRequestsRead.NotNeeded);
+        var code = InfrastructureIndex.Build(new InfrastructureSnapshot(DateTimeOffset.UnixEpoch,
+            [new InfrastructureFile("example/infra", "prod/api.yaml", "kubernetes", "image: ghcr.io/example/api:1.0.0\n", "production"), new InfrastructureFile("example/infra", "staging/api.yaml", "kubernetes", "image: ghcr.io/example/api:1.0.0\n", "staging"),
+             new InfrastructureFile("example/infra", "staging/web.yaml", "kubernetes", "image: ghcr.io/example/web:2.0.0\n", "staging")], []));
+
+        var rows = DecisionTable.Build([item], new EmptyApplicationCatalog(), [], infrastructure: code);
+
+        rows.Select(row => row.Id).Should().OnlyHaveUniqueItems();
+        var apiRow = rows.Single(row => row.Description.StartsWith("ghcr.io/example/api", StringComparison.Ordinal));
+        apiRow.Locations.Should().ContainSingle().Which.Path.Should().Be("prod/api.yaml", "the image runs in production only: the staging line is not its");
+        apiRow.Why.Should().Be(CeilingReason.CodeChangeShown);
+        rows.Single(row => row.Description.StartsWith("ghcr.io/example/web", StringComparison.Ordinal)).Locations.Should().ContainSingle().Which.Path.Should().Be("staging/web.yaml");
+    }
+
+    [Fact]
     public void A_proposed_tag_that_is_not_a_tag_is_not_proposed()
     {
         var row = Row(ImageItem(Behind(latest: "1.121.0\"#")), Code("image: n8nio/n8n:1.108.2\n"));

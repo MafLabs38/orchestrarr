@@ -27,7 +27,7 @@ public enum FindingKind
 }
 
 /// <summary>The outdated image behind an <see cref="FindingKind.OutdatedImage"/> finding.</summary>
-public sealed record ImageUpdate(string Reference, string? Current, string? Latest, ImageChange Change);
+public sealed record ImageUpdate(string Reference, string? Current, string? Latest, ImageChange Change, IReadOnlyList<Placement>? Placements = null);
 
 /// <summary>
 /// What is wrong, as data: the interface words it. <c>Count</c> is the number of alerts, pull requests or secrets; <c>Alerts</c> its
