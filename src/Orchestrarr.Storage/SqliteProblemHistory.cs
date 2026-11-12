@@ -46,15 +46,16 @@ public sealed class SqliteProblemHistory(SqliteDatabase database) : IProblemHist
         return true;
     });
 
-    public int LapseSkips(IReadOnlyCollection<string> rowIds) => SqliteDatabase.Guard(() =>
+    public int LapseSkips(IReadOnlyCollection<ActiveSkip> skips) => SqliteDatabase.Guard(() =>
     {
         var ended = 0;
         using var connection = database.Connect();
-        foreach (var rowId in rowIds)
+        foreach (var skip in skips)
         {
             using var command = connection.CreateCommand();
-            command.CommandText = "UPDATE problem_history SET outcome = 'Ended' WHERE state = 'Skipped' AND undone_at IS NULL AND outcome IS NULL AND row_id = $row;";
-            command.Parameters.AddWithValue("$row", rowId);
+            command.CommandText = "UPDATE problem_history SET outcome = 'Ended' WHERE state = 'Skipped' AND undone_at IS NULL AND outcome IS NULL AND row_id = $row AND target = $target;";
+            command.Parameters.AddWithValue("$row", skip.RowId);
+            command.Parameters.AddWithValue("$target", skip.Target);
             ended += command.ExecuteNonQuery();
         }
         return ended;

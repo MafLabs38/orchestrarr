@@ -23,7 +23,7 @@ public sealed class HistoryConcluder(IProblemHistory history, IApprovalStore app
     private static readonly TimeSpan Interval = TimeSpan.FromSeconds(15);
 
     // The skips whose problem was not in the table the first time it was missed, with the reading that missed it: a problem is gone only if two readings agree
-    private readonly Dictionary<string, DateTimeOffset> _missing = new(StringComparer.Ordinal);
+    private readonly Dictionary<ActiveSkip, DateTimeOffset> _missing = [];
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -74,27 +74,28 @@ public sealed class HistoryConcluder(IProblemHistory history, IApprovalStore app
         {
             return 0;
         }
-        var present = table.Select(row => row.Id).ToHashSet(StringComparer.Ordinal);
-        var missing = skips.Select(skip => skip.RowId).Distinct(StringComparer.Ordinal).Where(id => !present.Contains(id)).ToList();
-        foreach (var rowId in _missing.Keys.Where(id => !missing.Contains(id)).ToList())
+        var present = table.Select(row => (row.Id, row.Description)).ToHashSet();
+        // Gone, or still there with another text: either way the skip is for a problem that is not the one in the table
+        var missing = skips.Where(skip => !present.Contains((skip.RowId, skip.Target))).Distinct().ToList();
+        foreach (var key in _missing.Keys.Where(key => !missing.Contains(key)).ToList())
         {
-            _missing.Remove(rowId);
+            _missing.Remove(key);
         }
-        var gone = new List<string>();
-        foreach (var rowId in missing)
+        var gone = new List<ActiveSkip>();
+        foreach (var skip in missing)
         {
-            if (!_missing.TryGetValue(rowId, out var first))
+            if (!_missing.TryGetValue(skip, out var first))
             {
-                _missing[rowId] = readAt;
+                _missing[skip] = readAt;
                 continue;
             }
             if (first >= readAt)
             {
                 continue;
             }
-            if (await audit.TryRecordAsync(new AuditEntry(time.GetUtcNow(), DecisionAuditEvents.ProblemSkipLapsed, "system", null, rowId.Length > 120 ? rowId[..120] : rowId), cancellationToken))
+            if (await audit.TryRecordAsync(new AuditEntry(time.GetUtcNow(), DecisionAuditEvents.ProblemSkipLapsed, "system", null, skip.RowId.Length > 120 ? skip.RowId[..120] : skip.RowId), cancellationToken))
             {
-                gone.Add(rowId);
+                gone.Add(skip);
             }
         }
         return gone.Count == 0 ? 0 : history.LapseSkips(gone);

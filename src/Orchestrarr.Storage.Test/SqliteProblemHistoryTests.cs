@@ -115,7 +115,7 @@ public sealed class SqliteProblemHistoryTests : IDisposable
         var skip = history.Record(Entry("pr:example/shop#14", HistoryState.Skipped));
         history.Record(Entry("pr:example/shop#15", HistoryState.Skipped));
 
-        history.LapseSkips(["pr:example/shop#14"]).Should().Be(1);
+        history.LapseSkips([new ActiveSkip("pr:example/shop#14", "express 4.16.0 → 5.3.0")]).Should().Be(1);
 
         history.ActiveSkips().Should().ContainSingle().Which.RowId.Should().Be("pr:example/shop#15");
         history.UndoSkip(skip, Noon).Should().BeFalse();

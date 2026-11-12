@@ -60,10 +60,10 @@ public interface IProblemHistory
     HistoryScan ReadUnconcluded(int limit, long after);
 
     /// <summary>
-    /// Ends the skips of rows that are gone: a skip is for a problem, and when the problem has ended and comes back, it is a new one that must be seen. The lines stay in the
+    /// Ends the skips of rows that are gone or that changed their target: a skip is for one problem as it was, and when it has ended and comes back, or changed and changes back, it is a new one that must be seen. The lines stay in the
     /// history with the outcome <see cref="HistoryOutcome.Ended"/>. Returns how many skips were ended.
     /// </summary>
-    int LapseSkips(IReadOnlyCollection<string> rowIds);
+    int LapseSkips(IReadOnlyCollection<ActiveSkip> skips);
 
     /// <summary>The skips that are in force.</summary>
     IReadOnlyList<ActiveSkip> ActiveSkips();
@@ -129,11 +129,11 @@ public sealed class InMemoryProblemHistory : IProblemHistory
         }
     }
 
-    public int LapseSkips(IReadOnlyCollection<string> rowIds)
+    public int LapseSkips(IReadOnlyCollection<ActiveSkip> skips)
     {
         lock (_gate)
         {
-            var lapsing = _entries.Where(entry => entry.State == HistoryState.Skipped && !_undone.Contains(entry.Id) && !_outcomes.ContainsKey(entry.Id) && rowIds.Contains(entry.RowId)).ToList();
+            var lapsing = _entries.Where(entry => entry.State == HistoryState.Skipped && !_undone.Contains(entry.Id) && !_outcomes.ContainsKey(entry.Id) && skips.Contains(new ActiveSkip(entry.RowId, entry.Target))).ToList();
             foreach (var entry in lapsing)
             {
                 _outcomes[entry.Id] = HistoryOutcome.Ended;
