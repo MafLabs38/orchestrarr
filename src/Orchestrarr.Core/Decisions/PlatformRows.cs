@@ -56,6 +56,8 @@ public static class PlatformRows
     }
 
     private static ProblemRow Row(PlatformScope platform, string part, string description, UpdateKind? kind, CeilingReason why, CodeLocation? location) =>
-        new($"{RowPrefix}{platform.Id}:{part}", $"{RowPrefix}{platform.Id}", platform.Id, ProblemKind.PlatformUpdate, description, Severity.Info, 1, kind, null, null, null, null, Ceiling.NoAction, why, false,
+        new(
+            Id: $"{RowPrefix}{platform.Id}:{part}", WorkItemId: $"{RowPrefix}{platform.Id}", Application: platform.Id, Kind: ProblemKind.PlatformUpdate, Description: description,
+            Severity: Severity.Info, Count: 1, UpdateClass: kind, Checks: null, Url: null, PullRequest: null, HeadSha: null, GoesUpTo: Ceiling.NoAction, Why: why, CanStopBeforeProduction: false,
             Locations: location is null ? null : [location]);
 }
