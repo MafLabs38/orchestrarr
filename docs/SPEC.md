@@ -186,7 +186,7 @@ One container for the control plane (the Runner will have an image of its own, A
 
 Today one interface (`IFleetSource`) gives both the findings and the environment, because Portarr's maintenance report carries both. It will be split into a findings source and an environment description when the structure-file provider (F-INT-03) needs it; the host, not a provider, chooses which source is used.
 
-Screens in *arr style: **Decisions** (the table of problems: one row per problem, how far it goes, one code for the selection; the header carries a live badge (D-73) and a bell with the notices: a repair that worked, a run that failed), **Queue** (the approvals and their state), **Runs** (with the timeline of one run), **Activity** (audit trail), **Status** (sources, storage, Runners, global stop), **Accounts** and **Account**. History and Settings are not built.
+Screens in *arr style: **Decisions** (the table of problems: one row per problem, how far it goes, one code for the selection; the header carries a live badge (D-73) and a bell with the notices: a repair that worked, a run that failed), **Queue** (the approvals and their state), **Runs** (with the timeline of one run), **Activity** (audit trail), **Status** (sources, storage, Runners, global stop), **Accounts** and **Account**. The decisions have a history of their own (a tab of the Decisions screen, D-77); Settings is not built. The sidebar counts what can be decided (the rows of the first tab).
 
 ---
 

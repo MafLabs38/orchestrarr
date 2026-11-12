@@ -87,17 +87,18 @@ public sealed class SqliteProblemHistory(SqliteDatabase database) : IProblemHist
         return Read(reader);
     });
 
-    public IReadOnlyList<HistoryEntry> Unconcluded(int limit) => SqliteDatabase.Guard<IReadOnlyList<HistoryEntry>>(() =>
+    public IReadOnlyList<HistoryEntry> Unconcluded(int limit, long after = 0) => SqliteDatabase.Guard<IReadOnlyList<HistoryEntry>>(() =>
     {
         using var connection = database.Connect();
         using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT id, row_id, target, state, application, kind, description, repository, pull_request, head_sha, approval_id, batch_id, at, by, reason, outcome
             FROM problem_history
-            WHERE undone_at IS NULL AND state = 'Approved' AND outcome IS NULL
+            WHERE undone_at IS NULL AND state = 'Approved' AND outcome IS NULL AND id > $after
             ORDER BY id LIMIT $limit;
             """;
         command.Parameters.AddWithValue("$limit", limit);
+        command.Parameters.AddWithValue("$after", after);
         using var reader = command.ExecuteReader();
         return Read(reader);
     });
@@ -116,12 +117,19 @@ public sealed class SqliteProblemHistory(SqliteDatabase database) : IProblemHist
             {
                 continue;
             }
-            entries.Add(new HistoryEntry(
-                reader.GetInt64(0), reader.GetString(1), reader.GetString(2), rowState, reader.GetString(4), kind, reader.GetString(6), reader.IsDBNull(7) ? null : reader.GetString(7),
-                reader.IsDBNull(8) ? null : reader.GetInt32(8), reader.IsDBNull(9) ? null : reader.GetString(9),
-                reader.IsDBNull(10) ? null : Guid.Parse(reader.GetString(10)), reader.IsDBNull(11) ? null : Guid.Parse(reader.GetString(11)),
-                SqliteDatabase.Parse(reader.GetString(12)), reader.GetString(13), reader.IsDBNull(14) ? null : reader.GetString(14),
-                !reader.IsDBNull(15) && TryParse<HistoryOutcome>(reader.GetString(15), out var outcome) ? outcome : null));
+            try
+            {
+                entries.Add(new HistoryEntry(
+                    reader.GetInt64(0), reader.GetString(1), reader.GetString(2), rowState, reader.GetString(4), kind, reader.GetString(6), reader.IsDBNull(7) ? null : reader.GetString(7),
+                    reader.IsDBNull(8) ? null : reader.GetInt32(8), reader.IsDBNull(9) ? null : reader.GetString(9),
+                    reader.IsDBNull(10) ? null : Guid.Parse(reader.GetString(10)), reader.IsDBNull(11) ? null : Guid.Parse(reader.GetString(11)),
+                    SqliteDatabase.Parse(reader.GetString(12)), reader.GetString(13), reader.IsDBNull(14) ? null : reader.GetString(14),
+                    !reader.IsDBNull(15) && TryParse<HistoryOutcome>(reader.GetString(15), out var outcome) ? outcome : null));
+            }
+            catch (FormatException)
+            {
+                // A line that cannot be read (an identifier or a date that is not one) is left out like one of a newer version: it must not stop the page, or the pass that concludes
+            }
         }
         return entries;
     }

@@ -273,6 +273,7 @@ public sealed class ProblemsApiTests
 
         (await anonymous.GetAsync("/api/v1/problems/history", Ct)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
         (await anonymous.PostAsJsonAsync("/api/v1/problems/skip", new { rows = Array.Empty<object>() }, Ct)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await anonymous.PostAsJsonAsync("/api/v1/problems/unskip", new { id = 1 }, Ct)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
         (await reader.PostAsJsonAsync("/api/v1/problems/unskip", new { id = 1 }, Ct)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 

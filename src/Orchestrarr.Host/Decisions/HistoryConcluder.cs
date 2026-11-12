@@ -12,6 +12,7 @@ namespace Orchestrarr.Host.Decisions;
 public sealed class HistoryConcluder(IProblemHistory history, IApprovalStore approvals, IBatchQueue queue, TimeProvider time, ILogger<HistoryConcluder> logger) : BackgroundService
 {
     private const int LinesPerPass = 200;
+    private const int MaxPagesPerPass = 25;
     private static readonly TimeSpan Interval = TimeSpan.FromSeconds(15);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -21,7 +22,15 @@ public sealed class HistoryConcluder(IProblemHistory history, IApprovalStore app
         {
             while (await timer.WaitForNextTickAsync(stoppingToken))
             {
-                ConcludeOnce();
+                try
+                {
+                    ConcludeOnce();
+                }
+                catch (Exception failure) when (failure is not OperationCanceledException)
+                {
+                    // A pass that fails must not stop the host: the next one tries again
+                    logger.LogError(failure, "The pass that writes down the outcomes of the history failed");
+                }
             }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -35,20 +44,26 @@ public sealed class HistoryConcluder(IProblemHistory history, IApprovalStore app
     {
         try
         {
-            var open = history.Unconcluded(LinesPerPass);
-            if (open.Count == 0)
-            {
-                return 0;
-            }
             var byApproval = approvals.List(ProblemsEndpoints.ApprovalsLookedAt).ToDictionary(approval => approval.Id);
             var concluded = 0;
-            foreach (var entry in open)
+            // Page by page from the oldest: lines still in progress do not hold back the ones behind them
+            long after = 0;
+            for (var pages = 0; pages < MaxPagesPerPass; pages++)
             {
-                var outcome = HistoryOutcomeReader.Resolve(entry, byApproval, queue);
-                if (outcome != HistoryOutcome.InProgress)
+                var open = history.Unconcluded(LinesPerPass, after);
+                foreach (var entry in open)
                 {
-                    history.Conclude(entry.Id, outcome);
-                    concluded++;
+                    var outcome = HistoryOutcomeReader.Resolve(entry, byApproval, queue);
+                    if (outcome != HistoryOutcome.InProgress)
+                    {
+                        history.Conclude(entry.Id, outcome);
+                        concluded++;
+                    }
+                    after = entry.Id;
+                }
+                if (open.Count < LinesPerPass)
+                {
+                    break;
                 }
             }
             return concluded;

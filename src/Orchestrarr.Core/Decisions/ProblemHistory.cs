@@ -50,8 +50,8 @@ public interface IProblemHistory
     /// </summary>
     void Conclude(long id, HistoryOutcome outcome);
 
-    /// <summary>The approved lines that have no outcome yet, oldest first: what the concluding pass looks at.</summary>
-    IReadOnlyList<HistoryEntry> Unconcluded(int limit);
+    /// <summary>The approved lines that have no outcome yet, oldest first, from the one after <paramref name="after"/>: what the concluding pass looks at.</summary>
+    IReadOnlyList<HistoryEntry> Unconcluded(int limit, long after = 0);
 
     /// <summary>The skips that are in force.</summary>
     IReadOnlyList<ActiveSkip> ActiveSkips();
@@ -91,11 +91,11 @@ public sealed class InMemoryProblemHistory : IProblemHistory
         }
     }
 
-    public IReadOnlyList<HistoryEntry> Unconcluded(int limit)
+    public IReadOnlyList<HistoryEntry> Unconcluded(int limit, long after = 0)
     {
         lock (_gate)
         {
-            return [.. _entries.Where(entry => entry.State == HistoryState.Approved && !_outcomes.ContainsKey(entry.Id)).OrderBy(entry => entry.Id).Take(limit)];
+            return [.. _entries.Where(entry => entry.State == HistoryState.Approved && entry.Id > after && !_outcomes.ContainsKey(entry.Id)).OrderBy(entry => entry.Id).Take(limit)];
         }
     }
 

@@ -84,5 +84,6 @@ public sealed class SqliteProblemHistoryTests : IDisposable
         history.Conclude(first, HistoryOutcome.Failed);
 
         history.Unconcluded(10).Select(line => line.Id).Should().Equal(second);
+        history.Unconcluded(10, after: second).Should().BeEmpty("the pass moves on from the last line it looked at");
     }
 }

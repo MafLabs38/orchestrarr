@@ -49,6 +49,8 @@ public sealed class LivePublishTests
     [InlineData("POST", "/api/v1/approvals", 201, 4)]
     [InlineData("POST", "/api/v1/accounts/", 201, 5)]
     [InlineData("PUT", "/api/v1/options/x", 200, 4 + 1)]
+    [InlineData("POST", "/api/v1/problems/skip", 200, 4 + 1)]
+    [InlineData("POST", "/api/v1/problems/unskip", 204, 4 + 1)]
     public async Task A_write_that_succeeded_announces_what_it_touches(string method, string path, int status, int expected)
     {
         (await Pass(method, path, status)).Should().Be(expected);
