@@ -109,7 +109,7 @@ function HistoryRow({
       <td>{line.by}</td>
       <td>{line.reason}</td>
       <td className={styles.narrow}>
-        {line.state === 'skipped' && canDecide ? (
+        {line.state === 'skipped' && line.outcome === 'skipped' && canDecide ? (
           <Button onClick={onUnskip} disabled={busy} aria-label={translate('HistoryUnskipOf', { problem: what })}>
             {translate('HistoryUnskip')}
           </Button>

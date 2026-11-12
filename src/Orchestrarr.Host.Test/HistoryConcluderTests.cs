@@ -2,10 +2,14 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Orchestrarr.Core.Applications;
 using Orchestrarr.Core.Approvals;
 using Orchestrarr.Core.Decisions;
+using Orchestrarr.Core.Launch;
 using Orchestrarr.Core.Tasks;
+using Orchestrarr.Core.WorkItems;
 using Orchestrarr.Host.Decisions;
+using Orchestrarr.Host.Tasks;
 
 namespace Orchestrarr.Host.Test;
 
@@ -33,7 +37,8 @@ public sealed class HistoryConcluderTests
 
     private static HistoryConcluder Concluder(TableApiFactory factory) => new(
         factory.Services.GetRequiredService<IProblemHistory>(), factory.Services.GetRequiredService<IApprovalStore>(), factory.Services.GetRequiredService<IBatchQueue>(),
-        TimeProvider.System, NullLogger<HistoryConcluder>.Instance);
+        factory.Services.GetRequiredService<WorkItemCatalog>(), factory.Services.GetRequiredService<IApplicationCatalog>(), factory.Services.GetRequiredService<RunnerRegistry>(),
+        factory.Services.GetRequiredService<RelevancePolicy>(), factory.Services.GetRequiredService<IAuditSink>(), TimeProvider.System, NullLogger<HistoryConcluder>.Instance);
 
     [Fact]
     public async Task A_line_whose_approval_and_run_are_gone_is_ended_once_the_pass_has_run_and_a_read_writes_nothing()
@@ -75,4 +80,33 @@ public sealed class HistoryConcluderTests
         factory.Services.GetRequiredService<IProblemHistory>().Unconcluded(10).Should().ContainSingle();
         (await OutcomeOf(client)).Should().Be("inProgress");
     }
+
+    [Fact]
+    public async Task A_skip_ends_when_its_problem_is_gone_so_that_one_that_comes_back_is_seen_and_the_line_stays_in_the_history()
+    {
+        using var factory = new TableApiFactory();
+        await factory.ConnectRunnerAsync();
+        using var client = await SignedIn(factory);
+        JsonElement table;
+        do
+        {
+            table = await client.GetFromJsonAsync<JsonElement>("/api/v1/problems", Ct);
+            await Task.Delay(50, Ct);
+        }
+        while (table.GetProperty("rows").EnumerateArray().Any(candidate => candidate.GetProperty("kind").GetString() == "pullRequestsNotRead"));
+        var history = factory.Services.GetRequiredService<IProblemHistory>();
+        var present = table.GetProperty("rows").EnumerateArray().First();
+        history.Record(Skipped(present.GetProperty("id").GetString()!));
+        history.Record(Skipped("finding:repository:example/gone:FailingCi"));
+
+        (await Concluder(factory).LapseSkipsOfGoneProblemsAsync(Ct)).Should().Be(1, "only the skip of a problem that is no longer in the table ends");
+
+        history.ActiveSkips().Should().ContainSingle().Which.RowId.Should().Be(present.GetProperty("id").GetString());
+        var lines = (await client.GetFromJsonAsync<JsonElement>("/api/v1/problems/history?state=skipped", Ct)).GetProperty("lines").EnumerateArray().ToList();
+        lines.Should().HaveCount(2);
+        lines.Select(line => line.GetProperty("outcome").GetString()).Should().BeEquivalentTo("skipped", "ended");
+    }
+
+    private static HistoryEntry Skipped(string row) =>
+        new(0, row, "1", HistoryState.Skipped, "example/shop", ProblemKind.FailingCi, "1", null, null, null, null, null, DateTimeOffset.UnixEpoch, "alice", null);
 }

@@ -5,4 +5,5 @@ public static class DecisionAuditEvents
 {
     public const string ProblemSkipped = "problem.skipped";
     public const string ProblemUnskipped = "problem.unskipped";
+    public const string ProblemSkipLapsed = "problem.skip-lapsed";
 }

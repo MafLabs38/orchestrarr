@@ -46,11 +46,25 @@ public sealed class SqliteProblemHistory(SqliteDatabase database) : IProblemHist
         return true;
     });
 
+    public int LapseSkips(IReadOnlyCollection<string> rowIds) => SqliteDatabase.Guard(() =>
+    {
+        var ended = 0;
+        using var connection = database.Connect();
+        foreach (var rowId in rowIds)
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = "UPDATE problem_history SET outcome = 'Ended' WHERE state = 'Skipped' AND undone_at IS NULL AND outcome IS NULL AND row_id = $row;";
+            command.Parameters.AddWithValue("$row", rowId);
+            ended += command.ExecuteNonQuery();
+        }
+        return ended;
+    });
+
     public bool UndoSkip(long id, DateTimeOffset at) => SqliteDatabase.Guard(() =>
     {
         using var connection = database.Connect();
         using var command = connection.CreateCommand();
-        command.CommandText = "UPDATE problem_history SET undone_at = $at WHERE id = $id AND state = 'Skipped' AND undone_at IS NULL;";
+        command.CommandText = "UPDATE problem_history SET undone_at = $at WHERE id = $id AND state = 'Skipped' AND undone_at IS NULL AND outcome IS NULL;";
         command.Parameters.AddWithValue("$at", SqliteDatabase.Format(at));
         command.Parameters.AddWithValue("$id", id);
         return command.ExecuteNonQuery() == 1;
@@ -60,7 +74,7 @@ public sealed class SqliteProblemHistory(SqliteDatabase database) : IProblemHist
     {
         using var connection = database.Connect();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT row_id, target FROM problem_history WHERE state = 'Skipped' AND undone_at IS NULL;";
+        command.CommandText = "SELECT row_id, target FROM problem_history WHERE state = 'Skipped' AND undone_at IS NULL AND outcome IS NULL;";
         using var reader = command.ExecuteReader();
         var skips = new List<ActiveSkip>();
         while (reader.Read())
@@ -70,7 +84,7 @@ public sealed class SqliteProblemHistory(SqliteDatabase database) : IProblemHist
         return skips;
     });
 
-    public IReadOnlyList<HistoryEntry> Page(HistoryState? state, int limit, long? before) => SqliteDatabase.Guard<IReadOnlyList<HistoryEntry>>(() =>
+    public HistoryScan ReadPage(HistoryState? state, int limit, long? before) => SqliteDatabase.Guard(() =>
     {
         using var connection = database.Connect();
         using var command = connection.CreateCommand();
@@ -84,10 +98,10 @@ public sealed class SqliteProblemHistory(SqliteDatabase database) : IProblemHist
         command.Parameters.AddWithValue("$before", before is { } b ? b : DBNull.Value);
         command.Parameters.AddWithValue("$limit", limit);
         using var reader = command.ExecuteReader();
-        return Read(reader);
+        return Read(reader, limit);
     });
 
-    public IReadOnlyList<HistoryEntry> Unconcluded(int limit, long after = 0) => SqliteDatabase.Guard<IReadOnlyList<HistoryEntry>>(() =>
+    public HistoryScan ReadUnconcluded(int limit, long after) => SqliteDatabase.Guard(() =>
     {
         using var connection = database.Connect();
         using var command = connection.CreateCommand();
@@ -100,18 +114,22 @@ public sealed class SqliteProblemHistory(SqliteDatabase database) : IProblemHist
         command.Parameters.AddWithValue("$limit", limit);
         command.Parameters.AddWithValue("$after", after);
         using var reader = command.ExecuteReader();
-        return Read(reader);
+        return Read(reader, limit);
     });
 
     // A name of the enumeration, never a number
     private static bool TryParse<T>(string text, out T value)
         where T : struct, Enum => Enum.TryParse(text, out value) && Enum.IsDefined(value);
 
-    private static List<HistoryEntry> Read(Microsoft.Data.Sqlite.SqliteDataReader reader)
+    private static HistoryScan Read(Microsoft.Data.Sqlite.SqliteDataReader reader, int limit)
     {
         var entries = new List<HistoryEntry>();
+        var scanned = 0;
+        long last = 0;
         while (reader.Read())
         {
+            scanned++;
+            last = reader.GetInt64(0);
             // A value that this version does not know (written by a newer one) is not a reason to lose the page: the line is left out
             if (!TryParse<HistoryState>(reader.GetString(3), out var rowState) || !TryParse<ProblemKind>(reader.GetString(5), out var kind))
             {
@@ -131,6 +149,6 @@ public sealed class SqliteProblemHistory(SqliteDatabase database) : IProblemHist
                 // A line that cannot be read (an identifier or a date that is not one) is left out like one of a newer version: it must not stop the page, or the pass that concludes
             }
         }
-        return entries;
+        return new HistoryScan(entries, scanned == limit ? last : null);
     }
 }

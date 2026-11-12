@@ -33,6 +33,12 @@ public sealed record HistoryEntry(
 public sealed record ActiveSkip(string RowId, string Target);
 
 /// <summary>
+/// What a read of the history found: the lines it could read, and where to continue from. The cursor is the last line looked at when the read was full, whether or not it
+/// could be read (a line that cannot be read must not cut the following pages short); null when there is nothing more.
+/// </summary>
+public sealed record HistoryScan(IReadOnlyList<HistoryEntry> Lines, long? Cursor);
+
+/// <summary>
 /// The memory of what was decided (ADR 0027). Append-only apart from undoing a skip. It holds the photographs of the rows decided and, once it is known, the outcome of an
 /// approval (the approvals and the runs are trimmed after a while; the history is not).
 /// </summary>
@@ -51,13 +57,36 @@ public interface IProblemHistory
     void Conclude(long id, HistoryOutcome outcome);
 
     /// <summary>The approved lines that have no outcome yet, oldest first, from the one after <paramref name="after"/>: what the concluding pass looks at.</summary>
-    IReadOnlyList<HistoryEntry> Unconcluded(int limit, long after = 0);
+    HistoryScan ReadUnconcluded(int limit, long after);
+
+    /// <summary>
+    /// Ends the skips of rows that are gone: a skip is for a problem, and when the problem has ended and comes back, it is a new one that must be seen. The lines stay in the
+    /// history with the outcome <see cref="HistoryOutcome.Ended"/>. Returns how many skips were ended.
+    /// </summary>
+    int LapseSkips(IReadOnlyCollection<string> rowIds);
 
     /// <summary>The skips that are in force.</summary>
     IReadOnlyList<ActiveSkip> ActiveSkips();
 
     /// <summary>The lines, newest first, without the skips that were taken back. <paramref name="before"/> is the identifier to continue from.</summary>
-    IReadOnlyList<HistoryEntry> Page(HistoryState? state, int limit, long? before);
+    HistoryScan ReadPage(HistoryState? state, int limit, long? before);
+
+}
+
+/// <summary>The reads of the history without the cursor.</summary>
+public static class ProblemHistoryExtensions
+{
+    public static IReadOnlyList<HistoryEntry> Page(this IProblemHistory history, HistoryState? state, int limit, long? before)
+    {
+        ArgumentNullException.ThrowIfNull(history);
+        return history.ReadPage(state, limit, before).Lines;
+    }
+
+    public static IReadOnlyList<HistoryEntry> Unconcluded(this IProblemHistory history, int limit, long after = 0)
+    {
+        ArgumentNullException.ThrowIfNull(history);
+        return history.ReadUnconcluded(limit, after).Lines;
+    }
 }
 
 /// <summary>A history in memory, for the tests and for a sandbox that keeps nothing.</summary>
@@ -91,11 +120,25 @@ public sealed class InMemoryProblemHistory : IProblemHistory
         }
     }
 
-    public IReadOnlyList<HistoryEntry> Unconcluded(int limit, long after = 0)
+    public HistoryScan ReadUnconcluded(int limit, long after)
     {
         lock (_gate)
         {
-            return [.. _entries.Where(entry => entry.State == HistoryState.Approved && entry.Id > after && !_outcomes.ContainsKey(entry.Id)).OrderBy(entry => entry.Id).Take(limit)];
+            var lines = _entries.Where(entry => entry.State == HistoryState.Approved && entry.Id > after && !_outcomes.ContainsKey(entry.Id)).OrderBy(entry => entry.Id).Take(limit).ToList();
+            return new HistoryScan(lines, lines.Count == limit ? lines[^1].Id : null);
+        }
+    }
+
+    public int LapseSkips(IReadOnlyCollection<string> rowIds)
+    {
+        lock (_gate)
+        {
+            var lapsing = _entries.Where(entry => entry.State == HistoryState.Skipped && !_undone.Contains(entry.Id) && !_outcomes.ContainsKey(entry.Id) && rowIds.Contains(entry.RowId)).ToList();
+            foreach (var entry in lapsing)
+            {
+                _outcomes[entry.Id] = HistoryOutcome.Ended;
+            }
+            return lapsing.Count;
         }
     }
 
@@ -103,7 +146,7 @@ public sealed class InMemoryProblemHistory : IProblemHistory
     {
         lock (_gate)
         {
-            return _entries.Any(entry => entry.Id == id && entry.State == HistoryState.Skipped) && _undone.Add(id);
+            return _entries.Any(entry => entry.Id == id && entry.State == HistoryState.Skipped) && !_outcomes.ContainsKey(id) && _undone.Add(id);
         }
     }
 
@@ -111,19 +154,21 @@ public sealed class InMemoryProblemHistory : IProblemHistory
     {
         lock (_gate)
         {
-            return [.. _entries.Where(entry => entry.State == HistoryState.Skipped && !_undone.Contains(entry.Id)).Select(entry => new ActiveSkip(entry.RowId, entry.Target))];
+            return [.. _entries.Where(entry => entry.State == HistoryState.Skipped && !_undone.Contains(entry.Id) && !_outcomes.ContainsKey(entry.Id)).Select(entry => new ActiveSkip(entry.RowId, entry.Target))];
         }
     }
 
-    public IReadOnlyList<HistoryEntry> Page(HistoryState? state, int limit, long? before)
+    public HistoryScan ReadPage(HistoryState? state, int limit, long? before)
     {
         lock (_gate)
         {
-            return [.. _entries
+            var lines = _entries
                 .Where(entry => (state is null || entry.State == state) && !_undone.Contains(entry.Id) && (before is null || entry.Id < before))
                 .OrderByDescending(entry => entry.Id)
                 .Take(limit)
-                .Select(entry => _outcomes.TryGetValue(entry.Id, out var outcome) ? entry with { Outcome = outcome } : entry)];
+                .Select(entry => _outcomes.TryGetValue(entry.Id, out var outcome) ? entry with { Outcome = outcome } : entry)
+                .ToList();
+            return new HistoryScan(lines, lines.Count == limit ? lines[^1].Id : null);
         }
     }
 }

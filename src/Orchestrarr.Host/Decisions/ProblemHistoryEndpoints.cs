@@ -43,10 +43,11 @@ internal static class ProblemHistoryEndpoints
             }
             try
             {
-                var page = history.Page(state is null ? null : Enum.Parse<HistoryState>(state, ignoreCase: true), Math.Clamp(limit ?? DefaultPage, 1, MaxPage), before);
+                var size = Math.Clamp(limit ?? DefaultPage, 1, MaxPage);
+                var page = history.ReadPage(state is null ? null : Enum.Parse<HistoryState>(state, ignoreCase: true), size, before);
                 var byApproval = approvals.List(ProblemsEndpoints.ApprovalsLookedAt).ToDictionary(approval => approval.Id);
-                var lines = page.Select(entry => Line(entry, byApproval, queue)).ToList();
-                return Results.Ok(new HistoryReport(lines, page.Count == Math.Clamp(limit ?? DefaultPage, 1, MaxPage) ? page[^1].Id : null));
+                var lines = page.Lines.Select(entry => Line(entry, byApproval, queue)).ToList();
+                return Results.Ok(new HistoryReport(lines, page.Cursor));
             }
             catch (StorageUnavailableException)
             {
@@ -147,7 +148,7 @@ internal static class ProblemHistoryEndpoints
     // What became of an approved line: the outcome kept once it is known (HistoryConcluder writes it down when the run ends), otherwise read from the approval and the run now
     private static HistoryLine Line(HistoryEntry entry, IReadOnlyDictionary<Guid, Approval> approvals, IBatchQueue queue)
     {
-        var outcome = entry.State == HistoryState.Approved ? entry.Outcome ?? HistoryOutcomeReader.Resolve(entry, approvals, queue) : HistoryOutcome.Skipped;
+        var outcome = entry.State == HistoryState.Approved ? entry.Outcome ?? HistoryOutcomeReader.Resolve(entry, approvals, queue) : entry.Outcome ?? HistoryOutcome.Skipped;
         return new HistoryLine(entry.Id, entry.State, outcome, entry.Application, entry.Kind, entry.Description, entry.Repository, entry.PullRequest, entry.HeadSha, entry.BatchId, entry.At, entry.By, entry.Reason);
     }
 }

@@ -29,7 +29,7 @@ internal static class ProblemsEndpoints
         api.MapGet("/problems", async (WorkItemCatalog catalog, IApplicationCatalog applications, RunnerRegistry runners, IBatchQueue queue, IProblemHistory history, IApprovalStore approvals, TimeProvider time, RelevancePolicy policy, bool? refresh, CancellationToken ct) =>
         {
             var report = await catalog.GetAsync(refresh ?? false, ct);
-            var all = DecisionTable.Build(report.Items, applications, Acceptance(runners), WorkshopResults(queue), report.Applications, time.GetUtcNow(), policy);
+            var all = FullTable(report, applications, runners, queue, time, policy);
             var rows = Visible(all, history, approvals);
             return Results.Ok(new ProblemsReport(report.ReadAt, report.SourceKind, report.Stale, report.Error, applications.Version, rows, all.Count - rows.Count));
         }).RequireAuthorization(Permissions.FleetRead);
@@ -85,8 +85,12 @@ internal static class ProblemsEndpoints
             .Select(row => row.PullRequest is { } number && working.Contains($"{row.Source ?? row.Application}#{number}") ? row with { InProgress = true } : row)];
     }
 
+    // Every row there is, before the skips are applied
+    internal static IReadOnlyList<ProblemRow> FullTable(WorkItemReport report, IApplicationCatalog applications, RunnerRegistry runners, IBatchQueue queue, TimeProvider time, RelevancePolicy policy) =>
+        DecisionTable.Build(report.Items, applications, Acceptance(runners), WorkshopResults(queue), report.Applications, time.GetUtcNow(), policy);
+
     internal static IReadOnlyList<ProblemRow> VisibleTable(WorkItemReport report, IApplicationCatalog applications, RunnerRegistry runners, IBatchQueue queue, IProblemHistory history, IApprovalStore approvals, TimeProvider time, RelevancePolicy policy) =>
-        Visible(DecisionTable.Build(report.Items, applications, Acceptance(runners), WorkshopResults(queue), report.Applications, time.GetUtcNow(), policy), history, approvals);
+        Visible(FullTable(report, applications, runners, queue, time, policy), history, approvals);
 
     // What the operator approved, photographed: the live row is gone once the pull request is merged. A history that cannot be written does not undo the approval.
     private static void RecordApproved(IProblemHistory history, ILogger logger, IEnumerable<ProblemRow> table, IReadOnlyList<Approval> approvals, DateTimeOffset at, string by)

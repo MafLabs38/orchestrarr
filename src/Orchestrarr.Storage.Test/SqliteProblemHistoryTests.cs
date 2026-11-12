@@ -86,4 +86,39 @@ public sealed class SqliteProblemHistoryTests : IDisposable
         history.Unconcluded(10).Select(line => line.Id).Should().Equal(second);
         history.Unconcluded(10, after: second).Should().BeEmpty("the pass moves on from the last line it looked at");
     }
+
+    [Fact]
+    public void A_line_that_cannot_be_read_is_left_out_without_cutting_the_pages_short()
+    {
+        var database = _file.Open();
+        var history = new SqliteProblemHistory(database);
+        var ids = Enumerable.Range(1, 3).Select(i => history.Record(Entry($"pr:example/shop#{i}", HistoryState.Approved, minute: i))).ToList();
+        using (var connection = database.Connect())
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = "UPDATE problem_history SET batch_id = 'not an identifier' WHERE id = $id;";
+            command.Parameters.AddWithValue("$id", ids[1]);
+            command.ExecuteNonQuery();
+        }
+
+        var scan = history.ReadPage(null, 3, null);
+
+        scan.Lines.Select(line => line.Id).Should().Equal(ids[2], ids[0]);
+        scan.Cursor.Should().Be(ids[0], "the page was full: there may be more behind it");
+        history.ReadUnconcluded(3, 0).Cursor.Should().Be(ids[2]);
+    }
+
+    [Fact]
+    public void A_skip_that_lapsed_is_no_longer_in_force_cannot_be_taken_back_and_stays_in_the_history()
+    {
+        var history = new SqliteProblemHistory(_file.Open());
+        var skip = history.Record(Entry("pr:example/shop#14", HistoryState.Skipped));
+        history.Record(Entry("pr:example/shop#15", HistoryState.Skipped));
+
+        history.LapseSkips(["pr:example/shop#14"]).Should().Be(1);
+
+        history.ActiveSkips().Should().ContainSingle().Which.RowId.Should().Be("pr:example/shop#15");
+        history.UndoSkip(skip, Noon).Should().BeFalse();
+        history.Page(HistoryState.Skipped, 10, null).Single(line => line.Id == skip).Outcome.Should().Be(HistoryOutcome.Ended);
+    }
 }

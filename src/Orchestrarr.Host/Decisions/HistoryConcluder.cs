@@ -1,15 +1,20 @@
+using Orchestrarr.Core.Applications;
 using Orchestrarr.Core.Approvals;
 using Orchestrarr.Core.Decisions;
+using Orchestrarr.Core.Launch;
 using Orchestrarr.Core.Tasks;
+using Orchestrarr.Core.WorkItems;
+using Orchestrarr.Host.Tasks;
 using Orchestrarr.Storage;
 
 namespace Orchestrarr.Host.Decisions;
 
 /// <summary>
 /// Writes down what became of the approved lines of the history once it is known, on a timer: the approval and the run are trimmed after a while, the history is not.
-/// A read of the history writes nothing (ADR 0027).
+/// It also ends the skips of the problems that are gone, so that one that comes back is seen again. A read of the history writes nothing (ADR 0027).
 /// </summary>
-public sealed class HistoryConcluder(IProblemHistory history, IApprovalStore approvals, IBatchQueue queue, TimeProvider time, ILogger<HistoryConcluder> logger) : BackgroundService
+public sealed class HistoryConcluder(IProblemHistory history, IApprovalStore approvals, IBatchQueue queue, WorkItemCatalog catalog, IApplicationCatalog applications, RunnerRegistry runners,
+    RelevancePolicy policy, IAuditSink audit, TimeProvider time, ILogger<HistoryConcluder> logger) : BackgroundService
 {
     private const int LinesPerPass = 200;
     private const int MaxPagesPerPass = 25;
@@ -25,6 +30,7 @@ public sealed class HistoryConcluder(IProblemHistory history, IApprovalStore app
                 try
                 {
                     ConcludeOnce();
+                    await LapseSkipsOfGoneProblemsAsync(stoppingToken);
                 }
                 catch (Exception failure) when (failure is not OperationCanceledException)
                 {
@@ -39,6 +45,39 @@ public sealed class HistoryConcluder(IProblemHistory history, IApprovalStore app
         }
     }
 
+    /// <summary>
+    /// Ends the skips whose problem is gone from the table. Only when the table is whole: a source that cannot be read, or pull requests not read, would make every
+    /// problem look gone. Each is written to the trail first; one that cannot be traced is left for the next pass.
+    /// </summary>
+    public async Task<int> LapseSkipsOfGoneProblemsAsync(CancellationToken cancellationToken)
+    {
+        var skips = history.ActiveSkips();
+        if (skips.Count == 0)
+        {
+            return 0;
+        }
+        var report = await catalog.GetAsync(refresh: false, cancellationToken);
+        if (report.Stale || report.Error is not null || report.SourceKind == "none")
+        {
+            return 0;
+        }
+        var table = ProblemsEndpoints.FullTable(report, applications, runners, queue, time, policy);
+        if (table.Any(row => row.Kind == ProblemKind.PullRequestsNotRead))
+        {
+            return 0;
+        }
+        var present = table.Select(row => row.Id).ToHashSet(StringComparer.Ordinal);
+        var gone = new List<string>();
+        foreach (var rowId in skips.Select(skip => skip.RowId).Distinct(StringComparer.Ordinal).Where(id => !present.Contains(id)))
+        {
+            if (await audit.TryRecordAsync(new AuditEntry(time.GetUtcNow(), DecisionAuditEvents.ProblemSkipLapsed, "system", null, rowId.Length > 120 ? rowId[..120] : rowId), cancellationToken))
+            {
+                gone.Add(rowId);
+            }
+        }
+        return gone.Count == 0 ? 0 : history.LapseSkips(gone);
+    }
+
     /// <summary>One pass over the approved lines without an outcome; returns how many were concluded.</summary>
     public int ConcludeOnce()
     {
@@ -50,8 +89,8 @@ public sealed class HistoryConcluder(IProblemHistory history, IApprovalStore app
             long after = 0;
             for (var pages = 0; pages < MaxPagesPerPass; pages++)
             {
-                var open = history.Unconcluded(LinesPerPass, after);
-                foreach (var entry in open)
+                var scan = history.ReadUnconcluded(LinesPerPass, after);
+                foreach (var entry in scan.Lines)
                 {
                     var outcome = HistoryOutcomeReader.Resolve(entry, byApproval, queue);
                     if (outcome != HistoryOutcome.InProgress)
@@ -59,12 +98,13 @@ public sealed class HistoryConcluder(IProblemHistory history, IApprovalStore app
                         history.Conclude(entry.Id, outcome);
                         concluded++;
                     }
-                    after = entry.Id;
                 }
-                if (open.Count < LinesPerPass)
+                // Where the read stopped, a line that could not be read included
+                if (scan.Cursor is not { } next)
                 {
                     break;
                 }
+                after = next;
             }
             return concluded;
         }
