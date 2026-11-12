@@ -41,7 +41,7 @@ public sealed partial class GitHubInfrastructureSource : IInfrastructureSource
         ArgumentNullException.ThrowIfNull(options);
         if (string.IsNullOrWhiteSpace(options.Token))
         {
-            throw new InvalidOperationException("GitHub:Token is not set.");
+            throw new InvalidOperationException("GitHub:ContentsToken (or GitHub:Token) is not set.");
         }
         var api = options.ApiUrl;
         if (!api.IsAbsoluteUri || !(api.Scheme == Uri.UriSchemeHttps || (api.Scheme == Uri.UriSchemeHttp && api.IsLoopback)))

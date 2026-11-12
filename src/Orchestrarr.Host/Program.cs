@@ -76,9 +76,8 @@ builder.Services.AddSingleton(provider => provider.GetRequiredService<Descriptio
 builder.Services.AddSingleton<IInfrastructureSource>(provider =>
 {
     var github = builder.Configuration.GetSection(GitHubOptions.SectionName).Get<GitHubOptions>() ?? new GitHubOptions();
-    var token = string.IsNullOrWhiteSpace(github.ContentsToken) ? github.Token : github.ContentsToken;
-    var reader = new GitHubOptions { ApiUrl = github.ApiUrl, WebUrl = github.WebUrl, Token = token, TimeoutSeconds = github.TimeoutSeconds, MaxResponseBytes = github.MaxResponseBytes };
-    return string.IsNullOrWhiteSpace(token) ? new NoInfrastructureSource() : GitHubInfrastructureSource.Create(reader, time: provider.GetRequiredService<TimeProvider>());
+    var reader = github.ForContents();
+    return string.IsNullOrWhiteSpace(reader.Token) ? new NoInfrastructureSource() : GitHubInfrastructureSource.Create(reader, time: provider.GetRequiredService<TimeProvider>());
 });
 builder.Services.AddSingleton(builder.Configuration.GetSection(InfrastructureCatalogOptions.SectionName).Get<InfrastructureCatalogOptions>() ?? new InfrastructureCatalogOptions());
 builder.Services.AddSingleton(provider =>
@@ -87,10 +86,10 @@ builder.Services.AddSingleton(provider =>
         provider.GetRequiredService<InfrastructureCatalogOptions>());
     // A reading that ends in the background is told to the screens (ADR 0025)
     var live = provider.GetRequiredService<ILiveNotifier>();
-    // The table changes, and so does what the bell says of the code (it is carried by the status)
     var log = provider.GetRequiredService<ILoggerFactory>().CreateLogger("Orchestrarr.Infrastructure");
     // The reason of a failed reading is in the log as well as on the bell (the provider owns that no credential is in the message)
     catalog.Failed += failure => log.LogWarning(failure, "The code of the description could not be read; the last reading is kept");
+    // The table changes, and so does what the bell says of the code (it is carried by the status)
     catalog.Changed += () =>
     {
         live.Publish(LiveTopics.Problems);

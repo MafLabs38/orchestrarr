@@ -41,6 +41,21 @@ public sealed class ImageCodeRowsTests
     }
 
     [Fact]
+    public void The_change_of_a_row_is_computed_in_core_from_the_text_that_was_read_and_a_row_without_a_proposal_has_none()
+    {
+        var index = Code("        image: n8nio/n8n:1.108.2\n");
+        var proposing = Row(ImageItem(Behind()), index);
+        var notProposing = Row(ImageItem(Behind()), Code("image: other:1\n"));
+
+        var report = CodeChanges.For(proposing, index)!;
+
+        report.Tag.Should().Be("1.121.0");
+        report.Changes.Should().ContainSingle().Which.After.Should().Be("        image: n8nio/n8n:1.121.0");
+        report.Left.Should().BeEmpty();
+        CodeChanges.For(notProposing, index).Should().BeNull();
+    }
+
+    [Fact]
     public void A_row_that_stopped_because_a_repository_could_not_be_read_carries_the_repository_and_the_reason_a_row_found_in_the_code_carries_none()
     {
         var unreadable = new RepositoryProblem("example/gone", "not found or no access");

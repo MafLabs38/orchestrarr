@@ -25,6 +25,16 @@ public sealed class GitHubOptions
     /// </summary>
     public string? ContentsToken { get; set; }
 
+    /// <summary>The options of the reader of the code: the same address and limits, and the token that carries <c>Contents: read</c> (<see cref="ContentsToken"/>, else <see cref="Token"/>).</summary>
+    public GitHubOptions ForContents() => new()
+    {
+        ApiUrl = ApiUrl,
+        WebUrl = WebUrl,
+        Token = string.IsNullOrWhiteSpace(ContentsToken) ? Token : ContentsToken,
+        TimeoutSeconds = TimeoutSeconds,
+        MaxResponseBytes = MaxResponseBytes,
+    };
+
     /// <summary>
     /// The logins whose pull requests are dependency updates. Null: Dependabot and Renovate. A list given in the configuration replaces
     /// this default (a configuration array would otherwise be added to a default one).

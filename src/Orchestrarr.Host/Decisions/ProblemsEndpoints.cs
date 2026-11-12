@@ -28,12 +28,6 @@ internal sealed record TableInputs(WorkItemReport Report, InfrastructureIndex Co
 /// <summary>The state of the code of the scope as the table found it: how many places it reads, what could not be read, and whether it is the last good reading (ADR 0028).</summary>
 public sealed record CodeScopeStatus(bool InScope, int Repositories, int Files, DateTimeOffset? ReadAt, bool Stale, IReadOnlyList<RepositoryProblem> Problems, string? Error = null);
 
-/// <summary>A change to a file of the scope, computed and not applied: the line before and after, and the unified diff.</summary>
-public sealed record CodeChange(string Repository, string Path, int Line, string Before, string After, string Diff);
-
-/// <summary>What changing the version of a row would write: where, with what, and the places that are not ours to change.</summary>
-public sealed record CodeChangeReport(string RowId, string? Tag, IReadOnlyList<CodeChange> Changes, IReadOnlyList<CodeLocation> Left);
-
 /// <summary><c>GoesUpTo</c> is how far the row went when the operator saw it: the approval is for that, and for no more.</summary>
 public sealed record SelectedRow(string? Id, string? HeadSha, Ceiling? GoesUpTo, bool StopBeforeProduction);
 
@@ -68,23 +62,9 @@ internal static class ProblemsEndpoints
             {
                 return Results.Json(new ErrorResponse("notFound"), statusCode: StatusCodes.Status404NotFound);
             }
-            if (row.ProposedTag is not { } tag || row.Locations is not { Count: > 0 } locations)
-            {
-                return Results.Json(new ErrorResponse("noChange"), statusCode: StatusCodes.Status409Conflict);
-            }
-            var changes = new List<CodeChange>();
-            var left = new List<CodeLocation>();
-            foreach (var location in locations)
-            {
-                var change = code.Index.Content(location.Repository, location.Path) is { } content ? VersionPatch.Replace(content, location, tag) : null;
-                if (change is null)
-                {
-                    left.Add(location);
-                    continue;
-                }
-                changes.Add(new CodeChange(location.Repository, location.Path, location.Line, change.Before, change.After, change.Diff));
-            }
-            return Results.Ok(new CodeChangeReport(row.Id, tag, changes, left));
+            return CodeChanges.For(row, code.Index) is { } changes
+                ? Results.Ok(changes)
+                : Results.Json(new ErrorResponse("noChange"), statusCode: StatusCodes.Status409Conflict);
         }).RequireAuthorization(Permissions.FleetRead);
 
         api.MapPost("/problems/approve", async (ApproveProblemsRequest request, HttpContext context, IApproverAccessor accessor, IProblemHistory history, IApprovalStore approvalStore, ILoggerFactory loggers, TimeProvider time, RelevancePolicy policy, WorkItemCatalog catalog, IApplicationCatalog applications, RunnerRegistry runners, IBatchQueue queue, InfrastructureCatalog infrastructure, ApprovalService service, CancellationToken ct) =>
