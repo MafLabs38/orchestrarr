@@ -1,4 +1,4 @@
-import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { type QueryClient, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 import sendJson from 'Helpers/Hooks/sendJson';
 import useApiQuery, { getJson, refreshIntervalMs } from 'Helpers/Hooks/useApiQuery';
@@ -66,8 +66,7 @@ export function useSkipProblems() {
       sendJson<{ skipped: number }>('POST', `${problemsPath}/skip`, {
         rows: rows.map((row) => ({ id: row.id, description: row.description })),
       }),
-    onSettled: () =>
-      queryClient.invalidateQueries({ predicate: ({ queryKey }) => String(queryKey[0]).startsWith(problemsPath) }),
+    onSettled: () => invalidateProblems(queryClient),
   });
 }
 
@@ -75,9 +74,13 @@ export function useUnskip() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: number) => sendJson<undefined>('POST', `${problemsPath}/unskip`, { id }),
-    onSettled: () =>
-      queryClient.invalidateQueries({ predicate: ({ queryKey }) => String(queryKey[0]).startsWith(problemsPath) }),
+    onSettled: () => invalidateProblems(queryClient),
   });
+}
+
+// The table, its tabs and the history all start with the same path
+function invalidateProblems(queryClient: QueryClient) {
+  return queryClient.invalidateQueries({ predicate: ({ queryKey }) => String(queryKey[0]).startsWith(problemsPath) });
 }
 
 // The history, a page at a time: the oldest lines are read only when asked for

@@ -34,7 +34,7 @@ internal static class ProblemsEndpoints
             return Results.Ok(new ProblemsReport(report.ReadAt, report.SourceKind, report.Stale, report.Error, applications.Version, rows, all.Count - rows.Count));
         }).RequireAuthorization(Permissions.FleetRead);
 
-        api.MapPost("/problems/approve", async (ApproveProblemsRequest request, HttpContext context, IApproverAccessor accessor, IProblemHistory history, IApprovalStore approvalStore, ILogger<ProblemsReport> logger, TimeProvider time, RelevancePolicy policy, WorkItemCatalog catalog, IApplicationCatalog applications, RunnerRegistry runners, IBatchQueue queue, ApprovalService service, CancellationToken ct) =>
+        api.MapPost("/problems/approve", async (ApproveProblemsRequest request, HttpContext context, IApproverAccessor accessor, IProblemHistory history, IApprovalStore approvalStore, ILoggerFactory loggers, TimeProvider time, RelevancePolicy policy, WorkItemCatalog catalog, IApplicationCatalog applications, RunnerRegistry runners, IBatchQueue queue, ApprovalService service, CancellationToken ct) =>
         {
             var (approver, refusal) = ApprovalEndpoints.Authorize(accessor, context);
             if (approver is null)
@@ -57,7 +57,7 @@ internal static class ProblemsEndpoints
             {
                 return ApprovalEndpoints.RefusalResult(code);
             }
-            RecordApproved(history, logger, table.Values, result.Approvals, time.GetUtcNow(), context.User.Identity?.Name ?? approver.Subject);
+            RecordApproved(history, loggers.CreateLogger("Orchestrarr.Decisions"), table.Values, result.Approvals, time.GetUtcNow(), context.User.Identity?.Name ?? approver.Subject);
             return Results.Json(new ApproveResponse([.. result.Approvals.Select(ApprovalEndpoints.ToDto)]), statusCode: StatusCodes.Status201Created);
         }).RequireAuthorization(Permissions.ApprovalsCreate).RequireRateLimiting(ApprovalsServiceCollectionExtensions.ApprovingPolicy);
 
@@ -80,7 +80,8 @@ internal static class ProblemsEndpoints
         {
             return table;
         }
-        return [.. table.Where(row => !skips.Contains((row.Id, row.Description)))
+        // A skip made when the row was less serious lapses as soon as it is a danger: a danger is never hidden
+        return [.. table.Where(row => row.Severity == Core.WorkItems.Severity.Danger || !skips.Contains((row.Id, row.Description)))
             .Select(row => row.PullRequest is { } number && working.Contains($"{row.Source ?? row.Application}#{number}") ? row with { InProgress = true } : row)];
     }
 

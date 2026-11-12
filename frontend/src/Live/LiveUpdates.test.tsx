@@ -114,14 +114,17 @@ describe('invalidateTopic', () => {
     expect(stale()).toEqual(['/api/v1/problems', '/api/v1/runs', '/api/v1/runs/run-1']);
   });
 
-  it('reads the history again when a run ends, so that a line does not stay in progress', async () => {
-    const { queryClient } = setup();
-    queryClient.setQueryData(['/api/v1/problems/history', null], {});
+  it.each(['runs', 'problems'])(
+    'reads the history again when the %s topic changes, so that a line does not stay in progress',
+    async (topic) => {
+      const { queryClient } = setup();
+      queryClient.setQueryData(['/api/v1/problems/history', null], {});
 
-    await invalidateTopic(queryClient, 'runs', 'run-1');
+      await invalidateTopic(queryClient, topic);
 
-    expect(queryClient.getQueryState(['/api/v1/problems/history', null])?.isInvalidated).toBe(true);
-  });
+      expect(queryClient.getQueryState(['/api/v1/problems/history', null])?.isInvalidated).toBe(true);
+    },
+  );
 
   it('reads every run again when the change does not say which', async () => {
     const { queryClient, stale } = setup();

@@ -30,8 +30,6 @@ public static class AuditEvents
     public const string BatchDone = "batch.done";
     public const string BatchRefused = "batch.refused";
     public const string BatchExpired = "batch.expired";
-    public const string ProblemSkipped = "problem.skipped";
-    public const string ProblemUnskipped = "problem.unskipped";
     public const string KillSwitchEngaged = "killswitch.engaged";
     public const string KillSwitchReleased = "killswitch.released";
 

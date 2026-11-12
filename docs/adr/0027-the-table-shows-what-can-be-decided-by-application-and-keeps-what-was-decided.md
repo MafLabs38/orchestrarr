@@ -32,3 +32,5 @@ The first real run of the table on the real fleet showed 135 rows, and a person 
 - A read of the history writes nothing: the outcome of an approved line is written down by a pass on a timer (`HistoryConcluder`), once the run is over. The history and the table are read again when a run ends (the `runs` and `problems` topics of the live channel).
 - The history is the operational record of the operator's decisions, a sibling of the audit trail with the same retention question (Q-24): it is not the knowledge store. Sending outcomes to Mnemarr stays the constellation's path and is not built here.
 - A row of severity danger cannot be set aside (`409` `danger`): it is dealt with at its source, so a skip never hides it from every tab.
+- A skip made when a row was less serious lapses as soon as the row is a danger (a critical alert opens while the count stays the same): a danger is never hidden.
+- A repository is dormant by the day of its last push as the source reports it (Portarr's `pushedAt`, which GitHub moves with a push to any branch); where a bot pushes branches all the time, such a repository is never dormant.

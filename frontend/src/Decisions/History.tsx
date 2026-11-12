@@ -49,7 +49,7 @@ export default function History({ canDecide }: Readonly<{ canDecide: boolean }>)
       </div>
       {unskip.isError ? <Alert kind={kinds.DANGER}>{translate('SkipRefused')}</Alert> : null}
       {isPending ? <CapabilityHint>{translate('Loading')}</CapabilityHint> : null}
-      {error ? <Alert kind={kinds.DANGER}>{translate('CannotReadFleet', { error: error.message })}</Alert> : null}
+      {error ? <Alert kind={kinds.DANGER}>{translate('CannotReadHistory', { error: error.message })}</Alert> : null}
       {data && lines.length === 0 ? <CapabilityHint>{translate('HistoryEmpty')}</CapabilityHint> : null}
       {lines.length > 0 ? (
         <div className={styles.wrap}>

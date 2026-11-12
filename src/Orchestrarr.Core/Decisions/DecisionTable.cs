@@ -172,12 +172,12 @@ public static class DecisionTable
         foreach (var item in items)
         {
             var before = rows.Count;
-            if (IsDormant(item, now, policy))
+            if (DormantDays(item, now, policy) is { } days && item.LastPushAt is { } lastPush)
             {
                 // One row instead of the pull requests and the red build of a repository that nobody works on: the decision is about the repository. The text names the day
                 // of the last push, not the number of days (that one changes every day, and a skip lasts as long as the text stays the same). What is a risk stays as its own
                 // row (an exposed secret, an alert, a scan that cannot be read): a dead repository can still leak.
-                rows.Add(Of(item, $"dormant:{item.Id}", ProblemKind.DormantRepository, $"last push {item.LastPushAt!.Value.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)}", Severity.Info, Days(item, now!.Value), Ceiling.NoAction, CeilingReason.NoActionDefined, item.RepositoryFullName));
+                rows.Add(Of(item, $"dormant:{item.Id}", ProblemKind.DormantRepository, $"last push {lastPush.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)}", Severity.Info, days, Ceiling.NoAction, CeilingReason.NoActionDefined, item.RepositoryFullName));
                 AddOtherProblems(rows, item, policy, dormant: true);
                 NameApplication(rows, before, item, applicationNames ?? []);
                 continue;
@@ -190,10 +190,15 @@ public static class DecisionTable
     }
 
     // No push for longer than the policy says, with a red build: the repository is taken for dead
-    private static bool IsDormant(WorkItem item, DateTimeOffset? now, RelevancePolicy policy) =>
-        now is { } at && item.LastPushAt is not null && Days(item, at) > policy.DormantAfterDays && item.Findings.Any(finding => finding.Kind == FindingKind.FailingCi);
-
-    private static int Days(WorkItem item, DateTimeOffset now) => (int)(now - item.LastPushAt!.Value).TotalDays;
+    private static int? DormantDays(WorkItem item, DateTimeOffset? now, RelevancePolicy policy)
+    {
+        if (now is not { } at || item.LastPushAt is not { } lastPush || !item.Findings.Any(finding => finding.Kind == FindingKind.FailingCi))
+        {
+            return null;
+        }
+        var days = (int)(at - lastPush).TotalDays;
+        return days > policy.DormantAfterDays ? days : null;
+    }
 
     // The application a person knows: when the source says that the repository or the image is one application, its name and its icon; otherwise the repository
     // or the image itself. The repository or the image stays in <c>Source</c>.

@@ -99,7 +99,7 @@ internal static class ProblemHistoryEndpoints
                 foreach (var row in rows)
                 {
                     // The trail comes first: a skip that cannot be traced is not made
-                    if (!await audit.TryRecordAsync(new AuditEntry(now, AuditEvents.ProblemSkipped, approver.Subject, null, Short(row.Id)), ct))
+                    if (!await audit.TryRecordAsync(new AuditEntry(now, DecisionAuditEvents.ProblemSkipped, approver.Subject, null, Short(row.Id)), ct))
                     {
                         return Results.Json(new ErrorResponse(ApiErrors.AuditUnavailable), statusCode: StatusCodes.Status503ServiceUnavailable);
                     }
@@ -128,7 +128,7 @@ internal static class ProblemHistoryEndpoints
             try
             {
                 var now = time.GetUtcNow();
-                if (!await audit.TryRecordAsync(new AuditEntry(now, AuditEvents.ProblemUnskipped, approver.Subject, null, id.ToString(System.Globalization.CultureInfo.InvariantCulture)), ct))
+                if (!await audit.TryRecordAsync(new AuditEntry(now, DecisionAuditEvents.ProblemUnskipped, approver.Subject, null, id.ToString(System.Globalization.CultureInfo.InvariantCulture)), ct))
                 {
                     return Results.Json(new ErrorResponse(ApiErrors.AuditUnavailable), statusCode: StatusCodes.Status503ServiceUnavailable);
                 }

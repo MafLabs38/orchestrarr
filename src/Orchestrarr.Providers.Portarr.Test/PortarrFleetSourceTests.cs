@@ -102,6 +102,28 @@ public sealed class PortarrFleetSourceTests
     }
 
     [Fact]
+    public async Task A_missing_icon_is_remembered_but_a_refusal_or_a_failure_of_portarr_is_asked_again()
+    {
+        var handler = new StubHandler("{}");
+        handler.Others["/api/v1/icons/gone"] = (HttpStatusCode.NotFound, "text/plain", []);
+        handler.Others["/api/v1/icons/down"] = (HttpStatusCode.InternalServerError, "text/plain", []);
+        handler.Others["/api/v1/icons/locked"] = (HttpStatusCode.Unauthorized, "text/plain", []);
+        var source = Source(handler, apiKey: "ptr_secret");
+        var ct = TestContext.Current.CancellationToken;
+
+        foreach (var name in new[] { "gone", "down", "locked" })
+        {
+            (await source.GetAsync(name, ct)).Should().BeNull();
+            (await source.GetAsync(name, ct)).Should().BeNull();
+        }
+
+        int Asked(string name) => handler.Requests.Count(request => request.RequestUri!.AbsolutePath.EndsWith(name, StringComparison.Ordinal));
+        Asked("gone").Should().Be(1, "no icon is an answer, kept for an hour");
+        Asked("down").Should().Be(2, "a failure is not an answer");
+        Asked("locked").Should().Be(2, "a refusal is not an answer");
+    }
+
+    [Fact]
     public async Task Without_an_api_key_no_header_is_sent()
     {
         var handler = new StubHandler("{}");
