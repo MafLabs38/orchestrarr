@@ -2,7 +2,14 @@
   display: inline-flex;
   gap: 6px;
   align-items: center;
-  max-width: 210px;
+  max-width: 150px;
+}
+
+.icon {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
 }
 
 .avatar {

@@ -11,6 +11,8 @@ public sealed class DependencyTitleTests
     [InlineData("chore(deps): Bump actions/checkout from 2 to 7", "actions/checkout", "2", "7", UpdateKind.Major)]
     [InlineData("chore(deps): Bump node from 14-alpine to 26-alpine", "node", "14-alpine", "26-alpine", UpdateKind.Major)]
     [InlineData("build(deps): bump Newtonsoft.Json from v12.0.1 to v13.0.3", "Newtonsoft.Json", "v12.0.1", "v13.0.3", UpdateKind.Major)]
+    [InlineData("chore(deps): Bump dotnet/sdk from `de4fe90` to `212fe4c`", "dotnet/sdk", "`de4fe90`", "`212fe4c`", UpdateKind.Digest)]
+    [InlineData("Bump rust from 7e9e2d0f to 44819b2a", "rust", "7e9e2d0f", "44819b2a", UpdateKind.Digest)]
     public void A_pull_request_that_updates_one_dependency_says_which_and_how_far(string title, string package, string from, string to, UpdateKind kind)
     {
         DependencyTitle.Parse(title).Should().ContainSingle().Which.Should().Be(new DependencyChange(package, from, to, kind));
@@ -87,5 +89,13 @@ public sealed class DependencyTitleTests
     public void The_kind_of_an_update_comes_from_the_first_numbers_that_differ(string from, string to, UpdateKind expected)
     {
         DependencyTitle.Kind(from, to).Should().Be(expected);
+    }
+
+    [Fact]
+    public void A_group_of_packages_is_a_group_and_a_number_is_not_a_digest()
+    {
+        DependencyTitle.Parse("Bump the npm_and_yarn group across 1 directory with 3 updates").Should().ContainSingle().Which.Kind.Should().Be(UpdateKind.Group);
+        DependencyTitle.Kind("1234567", "2345678").Should().NotBe(UpdateKind.Digest, "a number with no letter is not a digest");
+        DependencyTitle.Kind("4.17.4", "4.17.21").Should().Be(UpdateKind.Patch);
     }
 }

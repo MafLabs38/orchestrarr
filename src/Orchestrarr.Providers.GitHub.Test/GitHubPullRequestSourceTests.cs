@@ -36,6 +36,21 @@ public sealed class GitHubPullRequestSourceTests
 
     private void List(string json, string repository = "example/app") => _handler.On($"/repos/{repository}/pulls", json);
 
+
+    [Fact]
+    public void Checks_that_cannot_run_for_a_bot_are_not_a_failure_of_the_code_but_any_other_failure_is()
+    {
+        var needSecrets = new[] { "sonarqube", "ai-review*" };
+        GitHubCheckRun Run(string name, string conclusion) => new("completed", conclusion, name);
+
+        GitHubPullRequestSource.ChecksOf([Run("lint", "success"), Run("sonarqube", "failure"), Run("ai-review (quality-reviewer)", "failure")], needSecrets).Should().Be(ChecksState.NotRun);
+        GitHubPullRequestSource.ChecksOf([Run("lint", "failure"), Run("sonarqube", "failure")], needSecrets).Should().Be(ChecksState.Failing, "one real failure is a failure");
+        GitHubPullRequestSource.ChecksOf([Run("SonarQube", "failure")], needSecrets).Should().Be(ChecksState.NotRun, "names are not case sensitive");
+        GitHubPullRequestSource.ChecksOf([Run("sonarqube", "failure")], null).Should().Be(ChecksState.Failing, "with no list nothing is excused");
+        GitHubPullRequestSource.ChecksOf([new GitHubCheckRun("completed", "failure", null)], needSecrets).Should().Be(ChecksState.Failing, "a check with no name is not excused");
+        GitHubPullRequestSource.ChecksOf([Run("lint", "success"), new GitHubCheckRun("in_progress", null, "build"), Run("sonarqube", "failure")], needSecrets).Should().Be(ChecksState.Pending, "a check still running is waited for");
+        GitHubPullRequestSource.ChecksOf([Run("lint", "success")], needSecrets).Should().Be(ChecksState.Passing);
+    }
     [Fact]
     public async Task The_pull_requests_of_a_bot_are_listed_with_what_they_update_and_everything_the_screens_need()
     {

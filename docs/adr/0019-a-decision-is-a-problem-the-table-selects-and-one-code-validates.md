@@ -1,6 +1,6 @@
 # 0019 — A decision is a problem; a table selects, one code validates, the description sets how far it goes
 
-- **Status**: accepted by the maintainer on 2026-11-10; the screen was mocked up and agreed, and is built (first slice: dependency updates are the actionable rows; alerts, secrets, failing builds and images are shown with "no action defined", Q-30; production is a decision recorded with the approval, the executor validates for real in a container and repairs on paper, ADR 0024; merging is a dry run).
+- **Status**: accepted by the maintainer on 2026-11-10; the screen was mocked up and agreed, and is built (first slice: dependency updates are the actionable rows; alerts, secrets, failing builds and images are shown with "no action defined", Q-30; production is a decision recorded with the approval, the executor validates for real in a container and repairs on paper, ADR 0024; merging is a dry run). Refined by [ADR 0027](0027-the-table-shows-what-can-be-decided-by-application-and-keeps-what-was-decided.md) (tabs, skip, history).
 - **Date**: 2026-11-10
 - **Spec**: D-67 (refines D-15, D-16, D-21; supersedes the plan of ticked steps of ADR 0001 and ADR 0017 for the card)
 - **Supersedes in part**: [ADR 0003](0003-work-items-are-per-repository.md) (the unit of decision)

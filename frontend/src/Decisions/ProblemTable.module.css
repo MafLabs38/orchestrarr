@@ -127,3 +127,25 @@
   font-size: var(--fontSizeMeta);
   color: var(--inkMuted);
 }
+
+.skip {
+  padding: 0 8px;
+  font: inherit;
+  font-size: 0.8rem;
+  color: var(--inkMuted);
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid var(--hairlineStrong);
+  border-radius: var(--radiusPill);
+}
+
+.skip:hover {
+  color: var(--ink);
+  background: var(--paperSunken);
+}
+
+/* The application takes what its name needs and no more: the room goes to the problem */
+.app {
+  width: 1%;
+  max-width: 170px;
+}

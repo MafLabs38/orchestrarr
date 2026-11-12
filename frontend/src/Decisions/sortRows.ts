@@ -21,7 +21,7 @@ const planRank: Record<ProblemRow['goesUpTo'], number> = {
   mergeIntoDevelop: 3,
   production: 4,
 };
-const checksRank: Record<ChecksState, number> = { failing: 0, pending: 1, unknown: 2, passing: 3 };
+const checksRank: Record<ChecksState, number> = { failing: 0, pending: 1, notRun: 2, unknown: 3, passing: 4 };
 const workshopRank: Record<WorkshopVerdict, number> = { fails: 0, unknown: 1, repaired: 2, passes: 3 };
 
 function compareText(a: string, b: string): number {
@@ -51,7 +51,7 @@ export function sortRows(
       case 'problem':
         return compareText(textOf(a).problem, textOf(b).problem);
       case 'checks':
-        return (checksRank[a.checks ?? 'unknown'] ?? 2) - (checksRank[b.checks ?? 'unknown'] ?? 2);
+        return checksRank[a.checks ?? 'unknown'] - checksRank[b.checks ?? 'unknown'];
       case 'workshop':
         return workshopRank[a.workshop] - workshopRank[b.workshop];
       case 'plan':

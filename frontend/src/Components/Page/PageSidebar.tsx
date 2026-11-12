@@ -19,7 +19,7 @@ export default function PageSidebar() {
         end
         icon={<icons.DECISIONS size={iconSizes.LARGE} aria-hidden="true" />}
         label={translate('Decisions')}
-        badge={data?.rows.length}
+        badge={data?.rows.filter((row) => row.tab === 'act').length}
       />
       <SidebarLink
         to="/queue"

@@ -191,7 +191,7 @@ public sealed partial class GitHubPullRequestSource : IPullRequestSource
         var (runs, _) = await GetAsync<GitHubCheckRuns>($"repos/{repository}/commits/{sha}/check-runs?per_page=100", cancellationToken);
         if (runs?.CheckRuns is { Count: > 0 } checkRuns)
         {
-            return ChecksOf(checkRuns);
+            return ChecksOf(checkRuns, _options.NeedSecrets);
         }
 
         // No check run: older CI systems report a commit status instead. A token without that permission reads nothing here, which is unknown.
@@ -214,12 +214,19 @@ public sealed partial class GitHubPullRequestSource : IPullRequestSource
         }
     }
 
-    internal static ChecksState ChecksOf(IReadOnlyList<GitHubCheckRun> runs)
+    internal static ChecksState ChecksOf(IReadOnlyList<GitHubCheckRun> runs, IReadOnlyList<string>? needSecrets = null)
     {
         static bool Failed(GitHubCheckRun run) => run.Conclusion?.ToLowerInvariant() is "failure" or "cancelled" or "timed_out" or "action_required" or "startup_failure";
 
-        if (runs.Any(Failed))
+        var failed = runs.Where(Failed).ToList();
+        if (failed.Count > 0)
         {
+            // These are pull requests of bots: a check that needs a secret cannot run for them, and its failure says nothing about the code
+            if (needSecrets is { Count: > 0 } && failed.All(run => NeedsSecret(run.Name, needSecrets)))
+            {
+                // The others may still fail for a real reason: while one runs, it is running
+                return runs.Any(run => !string.Equals(run.Status, "completed", StringComparison.OrdinalIgnoreCase)) ? ChecksState.Pending : ChecksState.NotRun;
+            }
             return ChecksState.Failing;
         }
 
@@ -243,6 +250,9 @@ public sealed partial class GitHubPullRequestSource : IPullRequestSource
             CreatedAt: listed.CreatedAt ?? default,
             HeadSha: sha);
     }
+
+    private static bool NeedsSecret(string? name, IReadOnlyList<string> patterns) =>
+        name is not null && patterns.Any(pattern => pattern.EndsWith('*') ? name.StartsWith(pattern[..^1], StringComparison.OrdinalIgnoreCase) : string.Equals(name, pattern, StringComparison.OrdinalIgnoreCase));
 
     internal static MergeState MergeOf(string? state)
     {

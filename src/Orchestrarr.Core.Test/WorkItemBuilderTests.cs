@@ -229,12 +229,20 @@ public sealed class WorkItemBuilderTests
 
     [Theory]
     [InlineData(ImageStatus.UpToDate)]
-    [InlineData(ImageStatus.Floating)]
     [InlineData(ImageStatus.Unknown)]
     [InlineData(ImageStatus.Pending)]
-    public void Only_a_behind_or_newer_build_image_is_a_finding(ImageStatus status)
+    public void Only_a_behind_or_newer_build_or_floating_image_is_a_finding(ImageStatus status)
     {
         Build(Snapshot(images: [Image(status: status, placements: Place("a"))])).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void An_image_run_under_a_tag_that_moves_is_a_finding_of_its_own_with_no_latest_version()
+    {
+        var finding = Build(Snapshot(images: [Image("app:latest", status: ImageStatus.Floating, placements: Place("a"))])).Should().ContainSingle().Which.Findings.Should().ContainSingle().Which;
+
+        finding.Kind.Should().Be(FindingKind.FloatingImage);
+        finding.Image!.Latest.Should().BeNull();
     }
 
     [Fact]

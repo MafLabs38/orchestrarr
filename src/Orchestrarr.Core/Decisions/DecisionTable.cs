@@ -1,4 +1,5 @@
 using Orchestrarr.Core.Applications;
+using Orchestrarr.Core.Fleet;
 using Orchestrarr.Core.Forge;
 using Orchestrarr.Core.Tasks;
 using Orchestrarr.Core.WorkItems;
@@ -49,6 +50,18 @@ public enum CeilingReason
 
     /// <summary>The workshop passes this commit while the forge's checks fail: the pipeline of the repository is what to look at.</summary>
     PassesHereChecksFailing,
+
+    /// <summary>The checks could not run for a bot's pull request (they need secrets): the Runner's validation is what counts.</summary>
+    ChecksNotRun,
+
+    /// <summary>A version of Node that is not a long-term release: it is not proposed.</summary>
+    NotLongTermSupport,
+
+    /// <summary>The image comes with the platform (K3s): it is updated with it, not on its own.</summary>
+    ManagedByPlatform,
+
+    /// <summary>A new major version of an image: not a tag to bump, a change to read about and to plan.</summary>
+    MajorNeedsPlan,
 }
 
 /// <summary>What the workshop last said about this very commit of a pull request, for the column that sits beside the forge's checks.</summary>
@@ -65,6 +78,17 @@ public enum WorkshopVerdict
     Repaired,
 }
 
+/// <summary>
+/// Where a row is shown (ADR 0027). <c>Act</c>: something can be done now, the decisions. <c>Configure</c>: it could be done, and something of the setting is missing
+/// (a power not granted, no Runner, no description of the application). <c>Know</c>: it is information, nothing is defined to do about it.
+/// </summary>
+public enum ProblemTab
+{
+    Act,
+    Configure,
+    Know,
+}
+
 /// <summary>The kinds of problem the table shows (one row each).</summary>
 public enum ProblemKind
 {
@@ -76,6 +100,12 @@ public enum ProblemKind
     ImageUpdate,
     DependencyScanUnavailable,
     PullRequestsNotRead,
+
+    /// <summary>The image is run under a tag that moves: pin a version.</summary>
+    FloatingImage,
+
+    /// <summary>No push for a long time and the CI is red: the repository is probably dead, and its pull requests cannot pass. Archive it or fix it.</summary>
+    DormantRepository,
 }
 
 /// <summary>
@@ -98,7 +128,28 @@ public sealed record ProblemRow(
     Ceiling GoesUpTo,
     CeilingReason Why,
     bool CanStopBeforeProduction,
-    WorkshopVerdict Workshop = WorkshopVerdict.Unknown);
+    WorkshopVerdict Workshop = WorkshopVerdict.Unknown,
+    bool InProgress = false,
+    string? ApplicationId = null,
+    string? Icon = null,
+    string? Source = null)
+{
+    /// <summary>
+    /// The tab the row belongs to: what a person sees by default is what they can decide now, and what is serious (an exposed secret, a critical alert), even when nothing
+    /// can be done about it from here: a danger is never in a tab that is not looked at.
+    /// </summary>
+    public ProblemTab Tab
+    {
+        get
+        {
+            if (InProgress || GoesUpTo != Ceiling.NoAction || Severity == WorkItems.Severity.Danger)
+            {
+                return ProblemTab.Act;
+            }
+            return Why is CeilingReason.NotGranted or CeilingReason.NoRunner or CeilingReason.NoDescription ? ProblemTab.Configure : ProblemTab.Know;
+        }
+    }
+}
 
 /// <summary>What a connected runner accepts, as it reported it. The table never promises more than they would run: with none connected, nothing can be run, and every row says so.</summary>
 public sealed record RunnerAcceptance(IReadOnlyList<TaskKind> Kinds, IReadOnlyList<string> Repositories)
@@ -109,18 +160,61 @@ public sealed record RunnerAcceptance(IReadOnlyList<TaskKind> Kinds, IReadOnlyLi
 /// <summary>Builds the rows of the table from the work items, the descriptions and the runners. A pure function: the same input gives the same table.</summary>
 public static class DecisionTable
 {
-    public static IReadOnlyList<ProblemRow> Build(IReadOnlyList<WorkItem> items, IApplicationCatalog applications, IReadOnlyList<RunnerAcceptance> runners, IReadOnlyList<TaskResultRow>? results = null)
+    public static IReadOnlyList<ProblemRow> Build(
+        IReadOnlyList<WorkItem> items, IApplicationCatalog applications, IReadOnlyList<RunnerAcceptance> runners, IReadOnlyList<TaskResultRow>? results = null,
+        IReadOnlyList<ApplicationInfo>? applicationNames = null, DateTimeOffset? now = null, RelevancePolicy? policy = null)
     {
+        policy ??= RelevancePolicy.Default;
         ArgumentNullException.ThrowIfNull(items);
         ArgumentNullException.ThrowIfNull(applications);
         ArgumentNullException.ThrowIfNull(runners);
         var rows = new List<ProblemRow>();
         foreach (var item in items)
         {
-            AddDependencyUpdates(rows, item, applications, runners, results ?? []);
-            AddOtherProblems(rows, item);
+            var before = rows.Count;
+            if (DormantDays(item, now, policy) is { } days && item.LastPushAt is { } lastPush)
+            {
+                // One row instead of the pull requests and the red build of a repository that nobody works on: the decision is about the repository. The text names the day
+                // of the last push, not the number of days (that one changes every day, and a skip lasts as long as the text stays the same). What is a risk stays as its own
+                // row (an exposed secret, an alert, a scan that cannot be read): a dead repository can still leak.
+                rows.Add(Of(item, $"dormant:{item.Id}", ProblemKind.DormantRepository, $"last push {lastPush.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)}", Severity.Info, days, Ceiling.NoAction, CeilingReason.NoActionDefined, item.RepositoryFullName));
+                AddOtherProblems(rows, item, policy, dormant: true);
+                NameApplication(rows, before, item, applicationNames ?? []);
+                continue;
+            }
+            AddDependencyUpdates(rows, item, applications, runners, results ?? [], policy);
+            AddOtherProblems(rows, item, policy);
+            NameApplication(rows, before, item, applicationNames ?? []);
         }
         return rows;
+    }
+
+    /// <summary>The start of the identifier of a row about a pull request: such a row exists only while the pull requests of its repository were read, all of them.</summary>
+    public const string PullRequestRowPrefix = "pr:";
+
+    // No push for longer than the policy says, with a red build: the repository is taken for dead
+    private static int? DormantDays(WorkItem item, DateTimeOffset? now, RelevancePolicy policy)
+    {
+        if (now is not { } at || item.LastPushAt is not { } lastPush || !item.Findings.Any(finding => finding.Kind == FindingKind.FailingCi))
+        {
+            return null;
+        }
+        var days = (int)(at - lastPush).TotalDays;
+        return days > policy.DormantAfterDays ? days : null;
+    }
+
+    // The application a person knows: when the source says that the repository or the image is one application, its name and its icon; otherwise the repository
+    // or the image itself. The repository or the image stays in <c>Source</c>.
+    private static void NameApplication(List<ProblemRow> rows, int from, WorkItem item, IReadOnlyList<ApplicationInfo> names)
+    {
+        var known = item.AppIds.Distinct(StringComparer.Ordinal).Select(id => names.FirstOrDefault(name => name.Id == id)).OfType<ApplicationInfo>().ToList();
+        for (var i = from; i < rows.Count; i++)
+        {
+            var source = rows[i].Application;
+            rows[i] = known.Count == 1
+                ? rows[i] with { Application = known[0].Name, ApplicationId = known[0].Id, Icon = known[0].Icon, Source = source }
+                : rows[i] with { Source = source };
+        }
     }
 
     // The steps a ceiling stands for: the runner validates, and merges from the merge ceiling up. Production is a decision recorded with the approval.
@@ -132,7 +226,7 @@ public static class DecisionTable
         _ => [],
     };
 
-    private static void AddDependencyUpdates(List<ProblemRow> rows, WorkItem item, IApplicationCatalog applications, IReadOnlyList<RunnerAcceptance> runners, IReadOnlyList<TaskResultRow> results)
+    private static void AddDependencyUpdates(List<ProblemRow> rows, WorkItem item, IApplicationCatalog applications, IReadOnlyList<RunnerAcceptance> runners, IReadOnlyList<TaskResultRow> results, RelevancePolicy policy)
     {
         if (item.RepositoryFullName is null)
         {
@@ -148,13 +242,17 @@ public static class DecisionTable
         foreach (var pullRequest in reads.Items.Where(pullRequest => !pullRequest.Draft))
         {
             var (ceiling, why, canStop) = CeilingOf(item, pullRequest, applications, runners);
+            if (IsNotLongTerm(pullRequest, policy))
+            {
+                (ceiling, why, canStop) = (Ceiling.NoAction, CeilingReason.NotLongTermSupport, false);
+            }
             var mine = results.Where(row => string.Equals(row.Repository, item.RepositoryFullName, StringComparison.OrdinalIgnoreCase) && row.PullRequest == pullRequest.Number && string.Equals(row.HeadSha, pullRequest.HeadSha, StringComparison.OrdinalIgnoreCase))
                 .OrderByDescending(row => row.At).ToList();
             (ceiling, why, canStop) = WorkshopWord(item, pullRequest, ceiling, why, canStop, runners, mine);
             var change = pullRequest.Changes.Count == 1 ? pullRequest.Changes[0] : null;
             var description = change is { From: not null, To: not null } ? $"{change.Package} {change.From} → {change.To}" : pullRequest.Title;
             rows.Add(new ProblemRow(
-                $"pr:{item.RepositoryFullName}#{pullRequest.Number}", item.Id, item.RepositoryFullName, ProblemKind.DependencyUpdate, description,
+                $"{PullRequestRowPrefix}{item.RepositoryFullName}#{pullRequest.Number}", item.Id, item.RepositoryFullName, ProblemKind.DependencyUpdate, description,
                 null, null, change?.Kind ?? UpdateKind.Unknown, pullRequest.Checks, pullRequest.Url, pullRequest.Number, pullRequest.HeadSha, ceiling, why, canStop, VerdictOf(mine)));
         }
     }
@@ -208,6 +306,11 @@ public static class DecisionTable
         _ => WorkshopVerdict.Unknown,
     };
 
+    // A package that is moved only to an even major version (Node: the odd ones are never long-term releases, 23, 25…) is not moved to an odd one
+    private static bool IsNotLongTerm(PullRequestInfo pullRequest, RelevancePolicy policy) =>
+        pullRequest.Changes is [{ To: { } to } change] && policy.EvenMajorOnlyPackages.Contains(change.Package, StringComparer.OrdinalIgnoreCase)
+        && int.TryParse(to.TrimStart('v', 'V').Split('-')[0].Split('.')[0], System.Globalization.CultureInfo.InvariantCulture, out var major) && major % 2 == 1;
+
     private static (Ceiling Ceiling, CeilingReason Why, bool CanStop) CeilingOf(WorkItem item, PullRequestInfo pullRequest, IApplicationCatalog applications, IReadOnlyList<RunnerAcceptance> runners)
     {
         var repository = item.RepositoryFullName!;
@@ -247,6 +350,10 @@ public static class DecisionTable
         {
             return (Ceiling.Qualification, CeilingReason.ChecksFailing, false);
         }
+        if (pullRequest.Checks == ChecksState.NotRun)
+        {
+            return (Ceiling.Qualification, CeilingReason.ChecksNotRun, false);
+        }
         if (pullRequest.Checks != ChecksState.Passing)
         {
             return (Ceiling.Qualification, CeilingReason.ChecksNotPassing, false);
@@ -272,7 +379,7 @@ public static class DecisionTable
     }
 
     // What has no action yet (an alert, a secret, a failing build, an image): shown, with "no action defined" (SPEC Q-30)
-    private static void AddOtherProblems(List<ProblemRow> rows, WorkItem item)
+    private static void AddOtherProblems(List<ProblemRow> rows, WorkItem item, RelevancePolicy policy, bool dormant = false)
     {
         var application = item.RepositoryFullName ?? item.Title;
         foreach (var finding in item.Findings)
@@ -284,16 +391,37 @@ public static class DecisionTable
                 FindingKind.SecretScanningAlerts => ProblemKind.ExposedSecret,
                 FindingKind.FailingCi => ProblemKind.FailingCi,
                 FindingKind.OutdatedImage => ProblemKind.ImageUpdate,
+                FindingKind.FloatingImage => ProblemKind.FloatingImage,
                 FindingKind.DependencyScanUnavailable => ProblemKind.DependencyScanUnavailable,
                 _ => null,
             };
-            if (kind is null)
+            // The red build of a dormant repository is part of its own row
+            if (kind is null || (dormant && kind == ProblemKind.FailingCi))
             {
                 continue;
             }
-            var description = finding.Image is { } image ? $"{image.Reference} → {image.Latest}" : finding.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            rows.Add(Of(item, $"finding:{item.Id}:{finding.Kind}", kind.Value, description, finding.Severity, finding.Count, Ceiling.NoAction, CeilingReason.NoActionDefined, application));
+            var description = finding.Image switch
+            {
+                { Latest: null } floating => floating.Reference,
+                { } image => $"{image.Reference} → {image.Latest}",
+                _ => finding.Count.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            };
+            rows.Add(Of(item, $"finding:{item.Id}:{finding.Kind}", kind.Value, description, finding.Severity, finding.Count, Ceiling.NoAction, WhyNoAction(item, finding, policy), application));
         }
+    }
+
+    // Why nothing is defined for a finding: for an image, what makes it a matter of the platform or of planning rather than a tag to change
+    private static CeilingReason WhyNoAction(WorkItem item, Finding finding, RelevancePolicy policy)
+    {
+        if (finding.Kind != FindingKind.OutdatedImage)
+        {
+            return CeilingReason.NoActionDefined;
+        }
+        if (item.Placements.Count > 0 && item.Placements.All(placement => placement.Namespace is { } space && policy.PlatformNamespaces.Contains(space, StringComparer.Ordinal)))
+        {
+            return CeilingReason.ManagedByPlatform;
+        }
+        return finding.Image?.Change == Orchestrarr.Core.Fleet.ImageChange.Major ? CeilingReason.MajorNeedsPlan : CeilingReason.NoActionDefined;
     }
 
     private static ProblemRow Of(WorkItem item, string id, ProblemKind kind, string description, Severity severity, int count, Ceiling ceiling, CeilingReason why, string? application = null) =>

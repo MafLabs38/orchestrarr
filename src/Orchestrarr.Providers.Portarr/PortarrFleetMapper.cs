@@ -8,11 +8,13 @@ internal static class PortarrFleetMapper
 {
     public static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    public static FleetSnapshot Map(PortarrMaintenance report, DateTimeOffset readAt)
+    public static FleetSnapshot Map(PortarrMaintenance report, DateTimeOffset readAt, IReadOnlyList<PortarrApp>? apps = null)
     {
         var repositories = (report.Repositories ?? []).Select(MapRepository).ToList();
         var images = (report.Images ?? []).Select(MapImage).ToList();
-        return new FleetSnapshot(readAt, repositories, images);
+        var applications = (apps ?? []).Where(app => !string.IsNullOrWhiteSpace(app.Id))
+            .Select(app => new ApplicationInfo(app.Id, string.IsNullOrWhiteSpace(app.Name) ? app.Id : app.Name, string.IsNullOrWhiteSpace(app.Icon) ? null : app.Icon)).ToList();
+        return new FleetSnapshot(readAt, repositories, images, applications);
     }
 
     private static RepositoryState MapRepository(PortarrRepository repository)
@@ -28,7 +30,8 @@ internal static class PortarrFleetMapper
             OpenDependencyPullRequests: repository.DependabotPullRequests ?? 0,
             Ci: MapCi(repository.Ci),
             AppIds: repository.AppIds ?? [],
-            ImageReferences: repository.Images ?? []);
+            ImageReferences: repository.Images ?? [],
+            LastPushAt: repository.PushedAt);
     }
 
     // "Other" alerts have no severity: they are not counted, as Portarr does not rank them either. A scan that is off or unknown
@@ -78,7 +81,8 @@ internal static class PortarrFleetMapper
             Status: MapStatus(image.Status),
             Change: MapChange(image.Change),
             RepositoryFullName: image.RepositoryFullName,
-            Placements: [.. (image.Users ?? []).Select(u => new Placement(u.EnvironmentId, u.EnvironmentName, u.Namespace, u.Name))]);
+            Placements: [.. (image.Users ?? []).Select(u => new Placement(u.EnvironmentId, u.EnvironmentName, u.Namespace, u.Name))],
+            AppIds: [.. (image.Users ?? []).SelectMany(u => u.AppIds ?? []).Distinct(StringComparer.Ordinal)]);
     }
 
     private static ImageStatus MapStatus(string? status)

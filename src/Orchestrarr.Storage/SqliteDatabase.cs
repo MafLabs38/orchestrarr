@@ -196,7 +196,7 @@ public sealed class SqliteDatabase : IDisposable
     // A new step is appended here, and SchemaVersion goes up with it.
     private delegate void Step(SqliteConnection connection, bool created, bool startEngagedWhenNew, TimeProvider time);
 
-    private static readonly Step[] Steps = [CreateVersion1, CreateVersion2, CreateVersion3, CreateVersion4, CreateVersion5];
+    private static readonly Step[] Steps = [CreateVersion1, CreateVersion2, CreateVersion3, CreateVersion4, CreateVersion5, CreateVersion6, CreateVersion7];
 
     private static int SchemaVersion => Steps.Length;
 
@@ -393,6 +393,42 @@ public sealed class SqliteDatabase : IDisposable
         if (Convert.ToInt32(Scalar(connection, "SELECT COUNT(*) FROM pragma_table_info('batches') WHERE name = 'executor';"), CultureInfo.InvariantCulture) > 0)
         {
             Run(connection, "ALTER TABLE batches RENAME COLUMN executor TO runner;");
+        }
+    }
+
+    // Version 5 to 6: the history of what was decided about the problems of the table (ADR 0027): photographs of the approved rows and of the skipped ones
+    private static void CreateVersion6(SqliteConnection connection, bool created, bool startEngagedWhenNew, TimeProvider time)
+    {
+        Run(connection, """
+            CREATE TABLE IF NOT EXISTS problem_history (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              row_id TEXT NOT NULL,
+              target TEXT NOT NULL,
+              state TEXT NOT NULL CHECK (state IN ('Approved', 'Skipped')),
+              application TEXT NOT NULL,
+              kind TEXT NOT NULL,
+              description TEXT NOT NULL,
+              repository TEXT NULL,
+              pull_request INTEGER NULL,
+              head_sha TEXT NULL,
+              approval_id TEXT NULL,
+              batch_id TEXT NULL,
+              at TEXT NOT NULL,
+              by TEXT NOT NULL,
+              reason TEXT NULL,
+              undone_at TEXT NULL
+            );
+            CREATE INDEX IF NOT EXISTS problem_history_by_time ON problem_history (id DESC);
+            CREATE INDEX IF NOT EXISTS problem_history_skips ON problem_history (state, undone_at);
+            """);
+    }
+
+    // Version 6 to 7: how an approved line of the history ended, written down when it is known (the approval and the run are trimmed, the history is not)
+    private static void CreateVersion7(SqliteConnection connection, bool created, bool startEngagedWhenNew, TimeProvider time)
+    {
+        if (Convert.ToInt32(Scalar(connection, "SELECT COUNT(*) FROM pragma_table_info('problem_history') WHERE name = 'outcome';"), CultureInfo.InvariantCulture) == 0)
+        {
+            Run(connection, "ALTER TABLE problem_history ADD COLUMN outcome TEXT NULL;");
         }
     }
 

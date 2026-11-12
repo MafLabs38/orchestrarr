@@ -18,7 +18,7 @@ internal sealed record GitHubPullRequest(
     DateTimeOffset? CreatedAt = null,
     string? MergeableState = null);
 
-internal sealed record GitHubCheckRun(string? Status = null, string? Conclusion = null);
+internal sealed record GitHubCheckRun(string? Status = null, string? Conclusion = null, string? Name = null);
 
 internal sealed record GitHubCheckRuns(IReadOnlyList<GitHubCheckRun>? CheckRuns = null);
 

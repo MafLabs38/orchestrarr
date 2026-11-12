@@ -47,7 +47,8 @@ public static class WorkItemBuilder
                 Findings: findings,
                 Plan: RepositoryPlan(repository, findings, placements, powers),
                 Placements: placements,
-                PullRequests: PullRequestsRead.NotNeeded));
+                PullRequests: PullRequestsRead.NotNeeded,
+                LastPushAt: repository.LastPushAt));
         }
 
         // Images that are not built from a repository of the fleet (third-party): only an update is possible. It is deployed and
@@ -64,7 +65,7 @@ public static class WorkItemBuilder
                 Id: $"image:{image.Reference}",
                 Title: image.Reference,
                 RepositoryFullName: null,
-                AppIds: [],
+                AppIds: image.AppIds ?? [],
                 Severity: finding.Severity,
                 Findings: [finding],
                 Plan: [.. DeploySteps(placements, null, powers)],
@@ -115,6 +116,10 @@ public static class WorkItemBuilder
 
     private static Finding? OutdatedImageFinding(ImageState image)
     {
+        if (image.Status == ImageStatus.Floating)
+        {
+            return new Finding(FindingKind.FloatingImage, Severity.Info, 1, Image: new ImageUpdate(image.Reference, image.Current, null, ImageChange.None));
+        }
         if (image.Status is not (ImageStatus.Behind or ImageStatus.NewerBuild))
         {
             return null;

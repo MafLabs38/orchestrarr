@@ -30,6 +30,7 @@ interface ProblemTableProps {
   onSort: (sort: Sort | null) => void;
   onSelect: (row: ProblemRow, selected: boolean) => void;
   onSelectAll: (selected: boolean) => void;
+  onSkip?: (row: ProblemRow) => void;
   onStop: (row: ProblemRow, stop: boolean) => void;
 }
 
@@ -37,7 +38,7 @@ export const isActionable = (row: ProblemRow) => row.goesUpTo !== 'noAction' && 
 
 const columns: { column: SortColumn; label: Parameters<typeof translate>[0]; className?: string }[] = [
   { column: 'number', label: 'ColumnNumber', className: styles.narrow },
-  { column: 'application', label: 'ColumnApplication' },
+  { column: 'application', label: 'ColumnApplication', className: styles.app },
   { column: 'type', label: 'ColumnType' },
   { column: 'problem', label: 'ColumnProblem' },
   { column: 'checks', label: 'ColumnForge', className: styles.narrow },
@@ -90,6 +91,7 @@ export default function ProblemTable({
   onSelect,
   onSelectAll,
   onStop,
+  onSkip,
 }: Readonly<ProblemTableProps>) {
   const actionable = rows.filter(isActionable);
   const allSelected = actionable.length > 0 && actionable.every((row) => selected.has(row.id));
@@ -114,6 +116,11 @@ export default function ProblemTable({
             <th className={styles.narrow} title={translate('StopBeforeProductionHint')}>
               {translate('ColumnProd')}
             </th>
+            {onSkip ? (
+              <th className={styles.narrow} title={translate('SkipHint')}>
+                {translate('ColumnSkip')}
+              </th>
+            ) : null}
           </tr>
         </thead>
         <tbody>
@@ -126,6 +133,7 @@ export default function ProblemTable({
               stops={stops[row.id] ?? false}
               onSelect={onSelect}
               onStop={onStop}
+              onSkip={onSkip}
             />
           ))}
         </tbody>
@@ -147,6 +155,7 @@ const checkIcons: Record<ChecksState, { Icon: typeof icons.SUCCESS; tone: string
   failing: { Icon: icons.DANGER, tone: styles.bad },
   pending: { Icon: icons.PENDING, tone: styles.wait },
   unknown: { Icon: icons.UNKNOWN, tone: styles.none },
+  notRun: { Icon: icons.UNKNOWN, tone: styles.none },
 };
 
 function Checks({ state }: Readonly<{ state: ChecksState | null }>) {
@@ -186,6 +195,7 @@ function ProblemTableRow({
   stops,
   onSelect,
   onStop,
+  onSkip,
 }: Readonly<{
   row: ProblemRow;
   number: number;
@@ -193,6 +203,7 @@ function ProblemTableRow({
   stops: boolean;
   onSelect: (row: ProblemRow, selected: boolean) => void;
   onStop: (row: ProblemRow, stop: boolean) => void;
+  onSkip?: (row: ProblemRow) => void;
 }>) {
   const sentence = describeProblem(row);
   const actionable = isActionable(row);
@@ -208,8 +219,8 @@ function ProblemTableRow({
         />
       </td>
       <td className={classNames(styles.narrow, styles.number)}>{number}</td>
-      <td>
-        <AppCell application={row.application} />
+      <td className={styles.app}>
+        <AppCell application={row.application} icon={row.icon} source={row.source} />
       </td>
       <td>{describeProblemKindShort(row.kind)}</td>
       <td className={styles.problem}>
@@ -237,6 +248,7 @@ function ProblemTableRow({
         {row.updateClass && row.updateClass !== 'unknown' ? (
           <span className={styles.class}>{row.updateClass}</span>
         ) : null}
+        {row.inProgress ? <span className={styles.class}>{translate('InProgress')}</span> : null}
       </td>
       <td className={styles.narrow}>
         <Checks state={row.checks} />
@@ -268,6 +280,25 @@ function ProblemTableRow({
           <span className={styles.none}>—</span>
         )}
       </td>
+      {onSkip ? (
+        <td className={styles.narrow}>
+          {row.severity === 'danger' ? (
+            <span className={styles.none} title={translate('SkipNotForDanger')}>
+              —
+            </span>
+          ) : (
+            <button
+              type="button"
+              className={styles.skip}
+              title={translate('SkipHint')}
+              aria-label={translate('SkipRowOf', { problem: `${row.application} ${sentence}` })}
+              onClick={() => onSkip(row)}
+            >
+              {translate('SkipRow')}
+            </button>
+          )}
+        </td>
+      ) : null}
     </tr>
   );
 }

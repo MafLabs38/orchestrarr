@@ -54,7 +54,7 @@ public static partial class DependencyTitle
 
         if (Group().Match(title) is { Success: true } group)
         {
-            return [new DependencyChange($"{group.Groups["group"].Value} group", null, null, UpdateKind.Unknown)];
+            return [new DependencyChange($"{group.Groups["group"].Value} group", null, null, UpdateKind.Group)];
         }
 
         if (Renovate().Match(title) is { Success: true } renovate)
@@ -75,6 +75,11 @@ public static partial class DependencyTitle
     /// <summary>Major, minor or patch from two versions; unknown when either is not a version (a tag such as <c>14-alpine</c> counts by its numbers).</summary>
     public static UpdateKind Kind(string from, string to)
     {
+        if (IsDigest(from) && IsDigest(to))
+        {
+            return UpdateKind.Digest;
+        }
+
         if (Numbers(from) is not { } before || Numbers(to) is not { } after)
         {
             return UpdateKind.Unknown;
@@ -91,6 +96,13 @@ public static partial class DependencyTitle
         }
 
         return before.Patch != after.Patch ? UpdateKind.Patch : UpdateKind.Unknown;
+    }
+
+    // A digest of an image: seven to sixty-four hexadecimal characters with at least one letter, often between backticks (a version always has a dot or is short)
+    private static bool IsDigest(string text)
+    {
+        var value = text.Trim('`', '"', '\'');
+        return value.Length is >= 7 and <= 64 && value.All(Uri.IsHexDigit) && value.Any(char.IsLetter);
     }
 
     private static (int Major, int Minor, int Patch)? Numbers(string version)

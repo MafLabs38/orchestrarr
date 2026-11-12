@@ -9,7 +9,7 @@ public sealed class LiveChangeMiddleware(RequestDelegate next, ILiveNotifier liv
 {
     private static readonly string[] AfterAWrite = [LiveTopics.Runs, LiveTopics.Approvals, LiveTopics.Audit, LiveTopics.Status];
 
-    private static readonly string[] OwnTopics = [LiveTopics.Accounts, LiveTopics.Options];
+    private static readonly string[] OwnTopics = [LiveTopics.Accounts, LiveTopics.Options, LiveTopics.Problems];
 
     public async Task InvokeAsync(HttpContext context)
     {

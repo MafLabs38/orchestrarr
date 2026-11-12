@@ -19,9 +19,13 @@ internal sealed record PortarrRepository(
     int? DependabotPullRequests = null,
     PortarrCiRun? Ci = null,
     IReadOnlyList<string>? AppIds = null,
-    IReadOnlyList<string>? Images = null);
+    IReadOnlyList<string>? Images = null,
+    DateTimeOffset? PushedAt = null);
 
-internal sealed record PortarrImageUser(string EnvironmentId, string EnvironmentName, string Name, string? Namespace = null);
+internal sealed record PortarrImageUser(string EnvironmentId, string EnvironmentName, string Name, string? Namespace = null, IReadOnlyList<string>? AppIds = null);
+
+// What Orchestrarr reads of the applications of Portarr (GET /api/v1/apps): the name a person knows, and the name of the icon, which Portarr serves.
+internal sealed record PortarrApp(string Id, string? Name = null, string? Icon = null);
 
 internal sealed record PortarrImage(
     string Reference,
