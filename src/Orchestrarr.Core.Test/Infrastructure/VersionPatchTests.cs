@@ -50,6 +50,29 @@ public sealed class VersionPatchTests
         VersionPatch.Replace(block, First("kustomize", block), "local-2")!.After.Should().Be("  newTag: local-2");
     }
 
+    [Theory]
+    [InlineData("  newTag: \"1.9\"", "  newTag: \"1.10\"", "1.10")]
+    [InlineData("  newTag: '1.9'", "  newTag: '1.10'", "1.10")]
+    [InlineData("  newTag: 1.9", "  newTag: \"1.10\"", "1.10")]
+    [InlineData("  newTag: 14", "  newTag: \"15\"", "15")]
+    [InlineData("  newTag: 1.9.0", "  newTag: 1.10.0", "1.10.0")]
+    public void A_new_tag_keeps_the_quotes_of_the_old_one_and_is_quoted_when_YAML_would_not_read_it_as_text(string line, string expected, string newTag)
+    {
+        var content = $"images:\n- name: ghcr.io/example/api\n{line}\n";
+
+        var location = First("kustomize", content);
+        VersionPatch.Replace(content, location, newTag)!.After.Should().Be(expected);
+        location.Image.Tag.Should().Be(line.Split(':')[1].Trim().Trim('"', '\''), "the quotes are YAML's, not the tag's");
+    }
+
+    [Fact]
+    public void A_quoted_tag_of_a_flow_entry_is_read_without_its_quotes()
+    {
+        const string flow = "images:\n- {name: ghcr.io/example/api, newTag: \"1.9\"}\n";
+
+        First("kustomize", flow).Image.Tag.Should().Be("1.9");
+    }
+
     [Fact]
     public void A_terraform_image_changes_inside_its_quotes()
     {

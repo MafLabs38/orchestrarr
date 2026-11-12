@@ -47,10 +47,20 @@ public static partial class VersionPatch
         var flow = FlowTag().Match(line);
         if (flow.Success)
         {
-            return Splice(line, flow.Groups["tag"], newTag);
+            return Splice(line, flow.Groups["tag"], Written(flow.Groups["tag"].Value, newTag));
         }
         var block = BlockTag().Match(line);
-        return block.Success ? Splice(line, block.Groups["tag"], newTag) : null;
+        return block.Success ? Splice(line, block.Groups["tag"], Written(block.Groups["tag"].Value, newTag)) : null;
+    }
+
+    // The tag as YAML must read it: inside the quotes the old one had, and quoted when it was bare and YAML would not read the new one as text ("1.10" is a float, 15 a number)
+    private static string Written(string old, string newTag)
+    {
+        if (old is { Length: >= 2 } && (old[0] == '"' || old[0] == '\'') && old[^1] == old[0])
+        {
+            return $"{old[0]}{newTag}{old[0]}";
+        }
+        return NotText().IsMatch(newTag) ? $"\"{newTag}\"" : newTag;
     }
 
     // The reference as it is written on the line (registry and quotes kept): the name stays, the tag (or digest) becomes the new tag
@@ -88,6 +98,10 @@ public static partial class VersionPatch
 
     [GeneratedRegex(@"(?<=image:\s*|=\s*)(?:""(?<ref>[^""]*)""|'(?<ref>[^']*)'|(?<ref>[^\s#""']+))", RegexOptions.None, 250)]
     private static partial Regex Quoted();
+
+    // What a YAML reader takes for a number or a word, not for a text
+    [GeneratedRegex(@"^(?:[-+]?(?:\d[\d_]*(?:\.[\d_]*)?|\.\d[\d_]*)(?:[eE][-+]?\d+)?|0[xob][0-9a-fA-F_]+|(?i:true|false|yes|no|on|off|null|y|n|~))$", RegexOptions.None, 250)]
+    private static partial Regex NotText();
 
     [GeneratedRegex(@"newTag:\s*(?<tag>[^,\s}#]+)", RegexOptions.None, 250)]
     private static partial Regex FlowTag();

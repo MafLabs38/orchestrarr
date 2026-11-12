@@ -78,7 +78,7 @@ public static partial class VersionParsers
                     yield return pending;
                 }
                 var fields = FlowFields().Matches(flow.Groups["body"].Value).ToDictionary(match => match.Groups["key"].Value, match => match.Groups["value"].Value, StringComparer.Ordinal);
-                var inline = new KustomizeEntry { Name = fields.GetValueOrDefault("name"), NewName = fields.GetValueOrDefault("newName"), Tag = fields.GetValueOrDefault("newTag"), TagLine = i + 1, Managed = ManagedOf(lines[i]) };
+                var inline = new KustomizeEntry { Name = fields.GetValueOrDefault("name"), NewName = fields.GetValueOrDefault("newName"), Tag = Unquoted(fields.GetValueOrDefault("newTag")), TagLine = i + 1, Managed = ManagedOf(lines[i]) };
                 foreach (var location in inline.Flush(repository, path))
                 {
                     yield return location;
@@ -99,7 +99,7 @@ public static partial class VersionParsers
             else if (KustomizeNewTag().Match(lines[i]) is { Success: true } tagged)
             {
                 // Flux rewrites a line that carries its marker: the line is its, not ours
-                (entry.Tag, entry.TagLine, entry.Managed) = (tagged.Groups["tag"].Value, i + 1, ManagedOf(lines[i]));
+                (entry.Tag, entry.TagLine, entry.Managed) = (Unquoted(tagged.Groups["tag"].Value), i + 1, ManagedOf(lines[i]));
             }
         }
         foreach (var last in entry.Flush(repository, path))
@@ -107,6 +107,10 @@ public static partial class VersionParsers
             yield return last;
         }
     }
+
+    // A tag written in quotes is read without them: the quotes are YAML's, not the tag's
+    private static string? Unquoted(string? value) =>
+        value is { Length: >= 2 } && (value[0] == '"' || value[0] == '\'') && value[^1] == value[0] ? value[1..^1] : value;
 
     // The entry being read: what it names, what it becomes and its tag, whatever the order of the keys
     private sealed class KustomizeEntry
