@@ -328,7 +328,7 @@ public static class DecisionTable
         {
             return (Ceiling.NoAction, CeilingReason.NotGranted, false);
         }
-        if (applications.Find(item) is not { } description)
+        if (applications.Find(item.Id) is not { } description)
         {
             return (Ceiling.NoAction, CeilingReason.NoDescription, false);
         }
