@@ -108,7 +108,7 @@ public sealed class LivePublishTests
         new("runner-1", version, [TaskKind.ValidatePullRequest], repositories.Length == 0 ? ["example/*"] : repositories, [], true);
 
     [Fact]
-    public void The_registry_announces_an_runner_that_appears_comes_back_or_changes_and_not_every_call_it_makes()
+    public void The_registry_announces_a_runner_that_appears_comes_back_or_changes_and_not_every_call_it_makes()
     {
         var time = new FakeTimeProvider(new DateTimeOffset(2026, 11, 11, 12, 0, 0, TimeSpan.Zero));
         var registry = new RunnerRegistry(time);

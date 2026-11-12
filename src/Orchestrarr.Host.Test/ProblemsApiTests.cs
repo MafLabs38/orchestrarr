@@ -234,7 +234,7 @@ public sealed class ProblemsApiTests
     }
 
     [Fact]
-    public async Task An_runner_that_only_validates_keeps_every_row_at_the_qualification()
+    public async Task A_runner_that_only_validates_keeps_every_row_at_the_qualification()
     {
         using var factory = new TableApiFactory();
         await factory.ConnectRunnerAsync(TaskKind.ValidatePullRequest);

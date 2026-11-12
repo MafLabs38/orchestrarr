@@ -20,4 +20,5 @@ ADR 0017 called the .NET process that takes approved batches, checks them and ru
 ## Consequences
 
 - The pull request that renames touches launch contract files (rule 15 of `CLAUDE.md`): the maintainer merges it.
-- A sandbox or a deployment that was configured with the old names has to change its configuration; the databases are migrated by the schema step.
+- The database of the control plane is migrated by the schema step. The Runner's own store (`executor.db`, which holds the enrolments of the operators and the codes already used) is moved to `runner.db` at the Runner's start when only the old file exists next to the new default path; a path set by hand is the operator's.
+- The old names are never read silently. The host refuses to start while `Tasks:Executors` is set, and the Runner refuses to start while `Executor` settings, `ORCHESTRARR_Executor__…` variables or an `executor.json` exist: a Runner that started with the defaults would have no rights and no token, and nothing would say why.

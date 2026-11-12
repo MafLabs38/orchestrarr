@@ -58,11 +58,11 @@ describe('NotificationBell', () => {
     const bell = await screen.findByRole('button', { name: 'Notifications (1)' });
     expect(bell).toHaveTextContent('1');
     await userEvent.click(bell);
-    expect(screen.getByText('No runner is connected')).toBeInTheDocument();
+    expect(screen.getByText('No Runner is connected')).toBeInTheDocument();
 
     await userEvent.keyboard('{Escape}');
 
-    expect(screen.queryByText('No runner is connected')).not.toBeInTheDocument();
+    expect(screen.queryByText('No Runner is connected')).not.toBeInTheDocument();
   });
 
   it('says that the global stop is engaged as an important notification', async () => {

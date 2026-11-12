@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using Orchestrarr.Host.Approvals;
 using Orchestrarr.Host.Tasks;
 using Orchestrarr.Host.Storage;
@@ -11,6 +12,16 @@ public sealed class TasksOptionsTests
 
     private static TasksSettings Validate(TasksOptions options) =>
         options.Validate(new ApprovalsOptions(), new StorageOptions { Provider = StorageProvider.Memory }.Validate(Path.GetTempPath(), development: true, approving: true), Path.GetTempPath());
+
+    [Fact]
+    public void The_old_name_of_the_section_is_refused_instead_of_being_ignored()
+    {
+        var old = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["Tasks:Executors:0:Name"] = "x", ["Tasks:Executors:0:Token"] = Token }).Build();
+        var current = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["Tasks:Runners:0:Name"] = "x" }).Build();
+
+        TasksOptions.RenamedSettingsRefusal(old).Should().Contain("Tasks:Runners");
+        TasksOptions.RenamedSettingsRefusal(current).Should().BeNull();
+    }
 
     [Fact]
     public void One_runner_with_a_long_enough_token_is_accepted()

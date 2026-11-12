@@ -248,7 +248,7 @@ describe('Status', () => {
   it('says when no runner has asked for work, and what it accepts and holds when one has', async () => {
     stubApi({ '/api/v1/system/status': status() });
     const { unmount } = renderWithProviders(<Status />);
-    expect(await screen.findByText(/No runner has asked for work yet/)).toBeInTheDocument();
+    expect(await screen.findByText(/No Runner has asked for work yet/)).toBeInTheDocument();
     unmount();
 
     stubApi({
@@ -284,7 +284,7 @@ describe('Status', () => {
     expect(screen.getByText('Accepts: Validate, Merge')).toBeInTheDocument();
     expect(screen.getByText('Repositories: example/*')).toBeInTheDocument();
     expect(screen.getByText(/Merge on example\/\* until 2026-12-09, 5 a day/)).toBeInTheDocument();
-    expect(screen.getByText('A code from your authenticator app, checked by the runner')).toBeInTheDocument();
+    expect(screen.getByText('A code from your authenticator app, checked by the Runner')).toBeInTheDocument();
   });
 
   it('says that a runner does not check the code of the authenticator (development)', async () => {

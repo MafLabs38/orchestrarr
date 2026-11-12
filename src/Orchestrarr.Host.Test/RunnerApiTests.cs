@@ -61,7 +61,7 @@ public sealed class RunnerApiTests : IDisposable
     // --- the routes
 
     [Fact]
-    public async Task An_runner_reads_the_global_stop_while_it_runs_and_only_with_its_token()
+    public async Task A_runner_reads_the_global_stop_while_it_runs_and_only_with_its_token()
     {
         using var factory = Factory();
         var runner = Runner(factory);
@@ -93,10 +93,19 @@ public sealed class RunnerApiTests : IDisposable
         (await factory.CreateClient().PostAsJsonAsync("/api/v1/runner/claim", new ClaimRequest(Hello), RunnerWire.Json, Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
+    [Fact]
+    public async Task The_old_route_of_the_executor_is_gone_there_is_no_alias()
+    {
+        using var factory = Factory(withRunner: true);
+
+        (await factory.CreateClient().PostAsJsonAsync("/api/v1/executor/claim", new ClaimRequest(Hello), RunnerWire.Json, Ct)).StatusCode.Should().BeOneOf(HttpStatusCode.NotFound, HttpStatusCode.Unauthorized);
+        (await Runner(factory, new string('b', 48)).PostAsJsonAsync("/api/v1/executor/claim", new ClaimRequest(Hello), RunnerWire.Json, Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("wrong-token-wrong-token-wrong-token-wrong")]
-    public async Task A_call_without_the_token_of_an_runner_is_refused_and_a_person_cannot_use_the_routes(string? token)
+    public async Task A_call_without_the_token_of_a_runner_is_refused_and_a_person_cannot_use_the_routes(string? token)
     {
         using var factory = Factory();
         var client = factory.CreateClient();
@@ -129,7 +138,7 @@ public sealed class RunnerApiTests : IDisposable
     }
 
     [Fact]
-    public async Task An_runner_sends_no_header_of_the_interface_and_is_not_asked_for_one()
+    public async Task A_runner_sends_no_header_of_the_interface_and_is_not_asked_for_one()
     {
         using var factory = Factory();
         var client = Runner(factory);
@@ -142,7 +151,7 @@ public sealed class RunnerApiTests : IDisposable
     }
 
     [Fact]
-    public async Task The_token_of_an_runner_does_not_open_the_routes_for_people()
+    public async Task The_token_of_a_runner_does_not_open_the_routes_for_people()
     {
         using var factory = Factory();
         var client = Runner(factory);
@@ -209,7 +218,7 @@ public sealed class RunnerApiTests : IDisposable
     }
 
     [Fact]
-    public async Task An_runner_takes_a_batch_once_reports_its_trace_and_ends_it()
+    public async Task A_runner_takes_a_batch_once_reports_its_trace_and_ends_it()
     {
         using var factory = Factory();
         var person = factory.CreateClient();
@@ -255,7 +264,7 @@ public sealed class RunnerApiTests : IDisposable
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task The_status_shows_whether_an_runner_checks_the_code_as_it_said_in_its_hello(bool checksTheCode)
+    public async Task The_status_shows_whether_a_runner_checks_the_code_as_it_said_in_its_hello(bool checksTheCode)
     {
         using var factory = Factory();
         await Runner(factory).PostAsJsonAsync("/api/v1/runner/claim", new ClaimRequest(Hello with { SecondFactorRequired = checksTheCode }), RunnerWire.Json, Ct);

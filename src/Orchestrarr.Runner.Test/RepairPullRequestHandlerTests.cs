@@ -525,7 +525,7 @@ public sealed class RepairPullRequestHandlerTests : IDisposable
     }
 
     [Fact]
-    public void A_repair_changes_nothing_outside_its_sandbox_so_an_runner_that_only_validates_and_repairs_may_run_without_the_code()
+    public void A_repair_changes_nothing_outside_its_sandbox_so_a_runner_that_only_validates_and_repairs_may_run_without_the_code()
     {
         var handlers = new ITaskHandler[] { new RepairPullRequestHandler(Validation(), Repair(), _processes), new DryRunTaskHandler(TaskKind.MergePullRequest) };
 
@@ -789,7 +789,7 @@ public sealed class RepairPullRequestHandlerTests : IDisposable
     [InlineData(false, "Production", false)]
     [InlineData(false, null, false)]
     [InlineData(false, "Staging", false)]
-    public void The_code_of_the_second_factor_may_be_off_on_an_runner_only_in_development_or_testing(bool require, string? environment, bool allowed)
+    public void The_code_of_the_second_factor_may_be_off_on_a_runner_only_in_development_or_testing(bool require, string? environment, bool allowed)
     {
         (RunnerProgram.RelaxationRefusal(new RunnerOptions { RequireSecondFactor = require }, environment) is null).Should().Be(allowed);
     }

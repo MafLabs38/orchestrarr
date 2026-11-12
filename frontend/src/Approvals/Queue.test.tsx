@@ -48,10 +48,10 @@ describe('Queue', () => {
 
     renderWithProviders(<Queue />);
 
-    expect(await screen.findByText('Waiting for the runner')).toBeInTheDocument();
-    expect(screen.getByText('With the runner')).toBeInTheDocument();
+    expect(await screen.findByText('Waiting for the Runner')).toBeInTheDocument();
+    expect(screen.getByText('With the Runner')).toBeInTheDocument();
     expect(screen.getByText('Run ended: see the run')).toBeInTheDocument();
-    expect(screen.getByText('Refused by the runner')).toBeInTheDocument();
+    expect(screen.getByText('Refused by the Runner')).toBeInTheDocument();
     expect(screen.getByText('Expired: approve again')).toBeInTheDocument();
   });
 
@@ -66,7 +66,7 @@ describe('Queue', () => {
   it('says when no runner is connected, and says nothing when one is', async () => {
     stubApi({ [approvalsPath]: [approval], [statusPath]: status() });
     const { unmount } = renderWithProviders(<Queue />);
-    expect(await screen.findByText(/No runner is connected/)).toBeInTheDocument();
+    expect(await screen.findByText(/No Runner is connected/)).toBeInTheDocument();
     unmount();
 
     const connected = {
@@ -86,8 +86,8 @@ describe('Queue', () => {
     };
     stubApi({ [approvalsPath]: [approval], [statusPath]: connected });
     renderWithProviders(<Queue />);
-    await screen.findByText('Waiting for the runner');
-    expect(screen.queryByText(/No runner is connected/)).not.toBeInTheDocument();
+    await screen.findByText('Waiting for the Runner');
+    expect(screen.queryByText(/No Runner is connected/)).not.toBeInTheDocument();
   });
 
   it('says the queue is empty, and what to do', async () => {

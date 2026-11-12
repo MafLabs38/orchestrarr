@@ -216,7 +216,7 @@ public sealed class InMemoryBatchQueueTests
     }
 
     [Fact]
-    public async Task A_batch_that_an_runner_never_answered_ends_as_expired()
+    public async Task A_batch_that_a_runner_never_answered_ends_as_expired()
     {
         var batch = await Queue();
         await _queue.ClaimAsync("runner-1", Ct);

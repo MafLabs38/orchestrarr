@@ -278,7 +278,7 @@ public sealed class ValidatePullRequestHandlerTests : IDisposable
     }
 
     [Fact]
-    public void A_validation_changes_nothing_outside_its_container_so_an_runner_that_only_validates_may_run_without_the_code()
+    public void A_validation_changes_nothing_outside_its_container_so_a_runner_that_only_validates_may_run_without_the_code()
     {
         var handlers = new ITaskHandler[] { new ValidatePullRequestHandler(Options(), _processes), new DryRunTaskHandler(TaskKind.MergePullRequest) };
 

@@ -238,7 +238,7 @@ public sealed class RunnerWorkerTests : IDisposable
     }
 
     [Fact]
-    public async Task The_hello_says_only_the_kinds_the_runner_has_a_runner_for_whatever_its_rights_list_names()
+    public async Task The_hello_says_only_the_kinds_the_runner_has_a_handler_for_whatever_its_rights_list_names()
     {
         _controlPlane.ClaimAsync(Arg.Any<RunnerHello>(), Arg.Any<CancellationToken>()).Returns(new ClaimResult(ClaimStatus.Nothing));
         _world.Rights = new RightsOptions { Kinds = [TaskKind.ValidatePullRequest, TaskKind.MergePullRequest, TaskKind.RepairPullRequest], Repositories = ["example/*"] };

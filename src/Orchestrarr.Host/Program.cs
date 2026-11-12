@@ -44,6 +44,10 @@ var grants = (builder.Configuration.GetSection(PowersOptions.SectionName).Get<Po
 var auth = (builder.Configuration.GetSection(AuthOptions.SectionName).Get<AuthOptions>() ?? new AuthOptions()).Validate();
 // Where the approvals, the trail and the global stop are kept: checked now, so that a file that cannot be used stops the host
 var storage = (builder.Configuration.GetSection(StorageOptions.SectionName).Get<StorageOptions>() ?? new StorageOptions()).Validate(builder.Environment.ContentRootPath, builder.Environment.IsDevelopment(), approving: true);
+if (TasksOptions.RenamedSettingsRefusal(builder.Configuration) is { } renamed)
+{
+    throw new InvalidOperationException(renamed);
+}
 // The tasks and the runners (ADR 0017): the code of the second factor, how long an approval waits, the tokens of the runners. Checked now.
 var tasks = (builder.Configuration.GetSection(TasksOptions.SectionName).Get<TasksOptions>() ?? new TasksOptions()).Validate(approvals, storage, builder.Environment.ContentRootPath);
 if (builder.Environment.IsProduction() && !tasks.Options.RequireSecondFactor)

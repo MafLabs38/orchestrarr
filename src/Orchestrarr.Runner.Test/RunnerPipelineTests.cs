@@ -271,7 +271,7 @@ public sealed class RunnerPipelineTests : IDisposable
     // --- standing delegations
 
     [Fact]
-    public async Task A_batch_under_a_delegation_is_refused_by_an_runner_that_does_not_accept_delegations()
+    public async Task A_batch_under_a_delegation_is_refused_by_a_runner_that_does_not_accept_delegations()
     {
         var delegation = Delegate();
         var rights = new RightsOptions { Kinds = _world.Rights.Kinds, Repositories = _world.Rights.Repositories };
@@ -331,7 +331,7 @@ public sealed class RunnerPipelineTests : IDisposable
         var delegation = Delegate(TaskKind.ValidatePullRequest, quota: 2);
         var batch = await _world.Approved(Delegated(delegation, kinds: [TaskKind.ValidatePullRequest]));
 
-        var result = await Run(batch, null, pipeline: _world.Pipeline([new FailingRunner(TaskKind.ValidatePullRequest)]));
+        var result = await Run(batch, null, pipeline: _world.Pipeline([new FailingHandler(TaskKind.ValidatePullRequest)]));
 
         result.Outcome.Refusal.Should().Be(RunRefusal.DelegationInvalid, "the handler of that kind runs the code of the pull request: a delegation is for what changes nothing and runs nothing");
     }
@@ -374,7 +374,7 @@ public sealed class RunnerPipelineTests : IDisposable
     public async Task A_runner_that_fails_ends_its_task_as_refused_skips_the_merge_after_it_and_the_batch_still_ends()
     {
         var batch = await _world.Approved(RunnerFixture.Batch());
-        var pipeline = _world.Pipeline([new FailingRunner(TaskKind.ValidatePullRequest), new DryRunTaskHandler(TaskKind.MergePullRequest)]);
+        var pipeline = _world.Pipeline([new FailingHandler(TaskKind.ValidatePullRequest), new DryRunTaskHandler(TaskKind.MergePullRequest)]);
 
         var result = await pipeline.RunAsync(new BatchDelivery(batch, _world.CodeAt()), () => false, TestContext.Current.CancellationToken);
 
@@ -389,7 +389,7 @@ public sealed class RunnerPipelineTests : IDisposable
     {
         var batch = await _world.Approved(RunnerFixture.Batch());
         var stop = false;
-        var pipeline = _world.Pipeline([new StoppingRunner(TaskKind.ValidatePullRequest, () => stop = true), new DryRunTaskHandler(TaskKind.MergePullRequest)]);
+        var pipeline = _world.Pipeline([new StoppingHandler(TaskKind.ValidatePullRequest, () => stop = true), new DryRunTaskHandler(TaskKind.MergePullRequest)]);
 
         var result = await pipeline.RunAsync(new BatchDelivery(batch, _world.CodeAt()), () => stop, Ct);
 
@@ -399,7 +399,7 @@ public sealed class RunnerPipelineTests : IDisposable
     }
 
     [Fact]
-    public async Task An_runner_set_not_to_ask_for_the_code_runs_a_batch_without_one_but_still_checks_the_rest()
+    public async Task A_runner_set_not_to_ask_for_the_code_runs_a_batch_without_one_but_still_checks_the_rest()
     {
         var batch = await _world.Approved(RunnerFixture.Batch());
         var pipeline = _world.Pipeline(requireSecondFactor: false);
@@ -414,16 +414,16 @@ public sealed class RunnerPipelineTests : IDisposable
     }
 
     [Fact]
-    public void The_code_cannot_be_switched_off_on_an_runner_with_a_runner_that_is_not_a_dry_run()
+    public void The_code_cannot_be_switched_off_on_a_Runner_with_a_handler_that_is_not_a_dry_run()
     {
-        var build = () => _world.Pipeline([new FailingRunner(TaskKind.ValidatePullRequest)], requireSecondFactor: false);
+        var build = () => _world.Pipeline([new FailingHandler(TaskKind.ValidatePullRequest)], requireSecondFactor: false);
 
         build.Should().Throw<InvalidOperationException>().WithMessage("*dry run*");
         _world.Pipeline([new DryRunTaskHandler(TaskKind.ValidatePullRequest)], requireSecondFactor: false).SecondFactorRequired.Should().BeFalse();
-        _world.Pipeline([new FailingRunner(TaskKind.ValidatePullRequest)]).SecondFactorRequired.Should().BeTrue();
+        _world.Pipeline([new FailingHandler(TaskKind.ValidatePullRequest)]).SecondFactorRequired.Should().BeTrue();
     }
 
-    private sealed class StoppingRunner(TaskKind kind, Action engage) : ITaskHandler
+    private sealed class StoppingHandler(TaskKind kind, Action engage) : ITaskHandler
     {
         public TaskKind Kind => kind;
 
@@ -434,7 +434,7 @@ public sealed class RunnerPipelineTests : IDisposable
         }
     }
 
-    private sealed class FailingRunner(TaskKind kind) : ITaskHandler
+    private sealed class FailingHandler(TaskKind kind) : ITaskHandler
     {
         public TaskKind Kind => kind;
 

@@ -98,7 +98,7 @@ describe('Runs', () => {
 
     expect(await screen.findByText('Done')).toBeInTheDocument();
     expect(screen.getByText('Refused')).toBeInTheDocument();
-    expect(screen.getByText('Waiting for the runner')).toBeInTheDocument();
+    expect(screen.getByText('Waiting for the Runner')).toBeInTheDocument();
     expect(screen.getByText('Refused: the code of the second factor was not accepted')).toBeInTheDocument();
     expect(screen.getAllByText('example/shop')).toHaveLength(3);
     expect(screen.getAllByRole('link', { name: 'Open' })[0]).toHaveAttribute('href', '/runs/b1');
@@ -148,7 +148,7 @@ describe('RunDetail', () => {
 
     renderAt();
 
-    expect(await screen.findByText('Taken by the runner')).toBeInTheDocument();
+    expect(await screen.findByText('Taken by the Runner')).toBeInTheDocument();
     expect(screen.getByText('Second factor')).toBeInTheDocument();
     expect(screen.getByText('code of alice verified')).toBeInTheDocument();
     expect(screen.getByText('aaaaaaaa')).toHaveAttribute('title', 'aaaaaaaa11111111');
@@ -238,7 +238,7 @@ describe('RunDetail', () => {
 
     renderAt();
 
-    expect(await screen.findByText(/No runner has taken it yet/)).toBeInTheDocument();
+    expect(await screen.findByText(/No Runner has taken it yet/)).toBeInTheDocument();
     expect(screen.getByText(/the batch is not the one that was approved/)).toBeInTheDocument();
     expect(screen.getByText('Nothing in the trace yet.')).toBeInTheDocument();
   });

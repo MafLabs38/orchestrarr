@@ -25,7 +25,7 @@ public sealed class TaskModelTests
     }
 
     [Fact]
-    public void Anything_an_runner_acts_on_changes_the_digest()
+    public void Anything_a_runner_acts_on_changes_the_digest()
     {
         var reference = Batch().Digest();
 

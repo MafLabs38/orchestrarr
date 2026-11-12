@@ -111,6 +111,9 @@ public sealed class SqliteNewDatabaseTests : IDisposable
         using var command = reopened.CreateCommand();
         command.CommandText = "SELECT runner FROM batches WHERE id = 'b1';";
         command.ExecuteScalar().Should().Be("old-name");
+        using var version = reopened.CreateCommand();
+        version.CommandText = "PRAGMA user_version;";
+        Convert.ToInt32(version.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture).Should().Be(5);
     }
 
     private sealed class FixedClock(DateTimeOffset now) : TimeProvider

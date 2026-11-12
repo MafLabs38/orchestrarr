@@ -21,7 +21,13 @@ public static class RunnerProgram
             .AddJsonFile("runner.json", optional: true)
             .AddEnvironmentVariables("ORCHESTRARR_")
             .Build();
+        var io = new TerminalIo();
+        if (RenamedSettingsRefusal(configuration, File.Exists("executor.json")) is { } renamed)
+        {
+            return Fail(io, renamed);
+        }
         var options = configuration.GetSection(RunnerOptions.SectionName).Get<RunnerOptions>() ?? new RunnerOptions();
+        MoveOldStore(options.DataPath);
         var command = args.Length > 0 && !args[0].StartsWith("--", StringComparison.Ordinal) ? args[0] : "run";
         var named = Named(args);
         using var cancel = new CancellationTokenSource();
@@ -30,7 +36,6 @@ public static class RunnerProgram
             e.Cancel = true;
             cancel.Cancel();
         };
-        var io = new TerminalIo();
 
         try
         {
@@ -58,6 +63,40 @@ public static class RunnerProgram
         options.RequireSecondFactor || environment is "Development" or "Testing"
             ? null
             : "Runner:RequireSecondFactor=false is for development and tests: set DOTNET_ENVIRONMENT=Development (or Testing) to run without the code, or ask for it.";
+
+    /// <summary>
+    /// A reason when the Runner is still configured with the names from before its rename (ADR 0026): settings under <c>Executor</c> (a file <c>executor.json</c> or
+    /// variables <c>ORCHESTRARR_Executor__…</c>) would be ignored and the Runner would start with the defaults, without its rights or its token. Null when fine.
+    /// </summary>
+    internal static string? RenamedSettingsRefusal(IConfiguration configuration, bool oldFileExists) =>
+        oldFileExists || configuration.GetSection("Executor").Exists()
+            ? "The settings of the Runner moved from Executor to Runner (the executor is the Orchestrarr Runner, ADR 0026): rename executor.json to runner.json and ORCHESTRARR_Executor__… to ORCHESTRARR_Runner__…."
+            : null;
+
+    /// <summary>
+    /// The store of the Runner (its operators, its used codes) was <c>executor.db</c>: when the new default name is used and only the old file exists, it is moved
+    /// with its companions, so that the enrolments are not lost and a code used a minute ago cannot be used again.
+    /// </summary>
+    internal static void MoveOldStore(string dataPath)
+    {
+        if (Path.GetFileName(dataPath) != "runner.db")
+        {
+            return;
+        }
+        var folder = Path.GetDirectoryName(Path.GetFullPath(dataPath)) ?? ".";
+        if (!File.Exists(Path.Combine(folder, "executor.db")) || File.Exists(Path.Combine(folder, "runner.db")))
+        {
+            return;
+        }
+        foreach (var suffix in new[] { string.Empty, "-wal", "-shm" })
+        {
+            var old = Path.Combine(folder, "executor.db" + suffix);
+            if (File.Exists(old))
+            {
+                File.Move(old, Path.Combine(folder, "runner.db" + suffix));
+            }
+        }
+    }
 
     private static int Fail(IConsoleIo io, string message)
     {

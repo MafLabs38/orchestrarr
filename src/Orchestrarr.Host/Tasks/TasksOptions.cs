@@ -45,6 +45,13 @@ public sealed partial class TasksOptions
     /// <summary>The runners that may ask for work, each with a token of its own. None: the routes of the runner are not there.</summary>
     public List<RunnerTokenOptions> Runners { get; set; } = [];
 
+    /// <summary>
+    /// A reason when the configuration still uses the names from before the Orchestrarr Runner (ADR 0026): <c>Tasks:Executors</c> would be ignored, so there would be no
+    /// Runner allowed to take a batch and nothing would say why. Null when the configuration is fine.
+    /// </summary>
+    public static string? RenamedSettingsRefusal(Microsoft.Extensions.Configuration.IConfiguration configuration) =>
+        configuration.GetSection("Tasks:Executors").Exists() ? "Tasks:Executors was renamed Tasks:Runners (the executor is the Orchestrarr Runner, ADR 0026): move the settings (Tasks__Runners__0__Name, Tasks__Runners__0__Token)." : null;
+
     [GeneratedRegex("^[A-Za-z0-9._-]{1,64}$", RegexOptions.None, matchTimeoutMilliseconds: 200)]
     private static partial Regex NameShape();
 
