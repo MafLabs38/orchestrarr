@@ -73,7 +73,12 @@ describe('CodeInfo', () => {
   it('says on the row which repository cannot be read and why, and says nothing for a row that no unreadable repository concerns', async () => {
     const { rerender } = renderWithProviders(
       <RowWarnings
-        row={problem({ warnings: [{ repository: 'example/infra', reason: 'no file matches its paths' }] })}
+        row={problem({
+          warnings: [
+            { repository: 'example/infra', reason: 'no file matches its paths' },
+            { repository: 'example/infra', reason: '2 files could not be read' },
+          ],
+        })}
         sentence="sonarqube"
       />,
     );
@@ -81,8 +86,9 @@ describe('CodeInfo', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Warning about example/shop sonarqube' }));
 
     expect(screen.getByText('A repository of the description cannot be read')).toBeInTheDocument();
-    expect(screen.getByText('example/infra')).toBeInTheDocument();
+    expect(screen.getAllByText('example/infra')).toHaveLength(2);
     expect(screen.getByText(/no file matches its paths/)).toBeInTheDocument();
+    expect(screen.getByText(/2 files could not be read/)).toBeInTheDocument();
 
     rerender(<RowWarnings row={problem({ warnings: null })} sentence="sonarqube" />);
     expect(screen.queryByRole('button', { name: /Warning about/ })).not.toBeInTheDocument();

@@ -97,7 +97,7 @@ export function RowWarnings({ row, sentence }: Readonly<{ row: ProblemRow; sente
       <strong>{translate('CodeWarning')}</strong>
       <ul className={styles.places}>
         {row.warnings.map((warning) => (
-          <li key={warning.repository}>
+          <li key={`${warning.repository}:${warning.reason}`}>
             <code>{warning.repository}</code> {warning.reason}
           </li>
         ))}

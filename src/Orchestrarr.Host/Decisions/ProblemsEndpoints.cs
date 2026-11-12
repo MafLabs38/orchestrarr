@@ -16,8 +16,8 @@ public sealed record ProblemsReport(
     DateTimeOffset? ReadAt, string SourceKind, bool Stale, SourceError? Error, string DescriptionsVersion, IReadOnlyList<ProblemRow> Rows, int Skipped = 0, CodeScopeStatus? Code = null);
 
 /// <summary>
-/// Everything the table is built from besides the Runners and the clock: the work items, the code of the scope and the scope. Built in one place, so
-/// that every route that builds the table (the screen, the skip, the approval, the pass that ends the skips) builds it from the same inputs.
+/// Everything the table is built from besides the Runners and the clock: the work items, the code of the scope and the scope. Built in one place. The screen and the change read the code with a wait, the skip, the approval and the pass that
+/// ends the skips take what was read last, so a reading that ends between two requests can change a row: the approval checks the row it was given against the table and refuses a row that moved.
 /// </summary>
 internal sealed record TableInputs(WorkItemReport Report, InfrastructureIndex Code, DescriptionScope Scope)
 {
