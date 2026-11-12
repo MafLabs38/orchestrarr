@@ -23,10 +23,11 @@ describe('describeError', () => {
 
 describe('the words of the table', () => {
   it.each<[Ceiling, string]>([
-    ['noAction', 'No action defined'],
-    ['qualification', 'Qualification'],
-    ['mergeIntoDevelop', 'Merge into develop'],
-    ['production', 'Production'],
+    ['noAction', 'No action'],
+    ['qualification', 'Validate only'],
+    ['repair', 'Validate, then AI repair'],
+    ['mergeIntoDevelop', 'Validate, then merge'],
+    ['production', 'Validate, merge, production'],
   ])('words how far a problem goes: %s', (ceiling, expected) => {
     expect(describeCeiling(ceiling)).toBe(expected);
   });

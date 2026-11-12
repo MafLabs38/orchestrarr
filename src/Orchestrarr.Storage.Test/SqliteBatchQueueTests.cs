@@ -126,6 +126,67 @@ public sealed class SqliteBatchQueueTests : IDisposable
     }
 
     [Fact]
+    public async Task Lines_that_are_sent_again_after_a_lost_answer_are_skipped_and_the_rest_is_taken()
+    {
+        var batch = await Queue();
+        await _queue.ClaimAsync("executor-1", Ct);
+        var lines = Chain(batch, RunEvents.Claimed, RunEvents.SecondFactorChecked, RunEvents.RunCompleted);
+        (await _queue.AppendEventsAsync(batch.Id, "executor-1", lines[..2], Ct)).Should().Be(QueueResult.Ok);
+
+        (await _queue.AppendEventsAsync(batch.Id, "executor-1", lines, Ct)).Should().Be(QueueResult.Ok, "the first two are held, the third is new");
+
+        _queue.Find(batch.Id)!.Events.Select(line => line.Sequence).Should().Equal(1, 2, 3);
+        (await _queue.AppendEventsAsync(batch.Id, "executor-1", [lines[0] with { Detail = "changed" }], Ct)).Should().Be(QueueResult.Invalid, "a held line that differs is refused");
+    }
+
+    [Fact]
+    public async Task A_send_that_is_all_held_is_taken_and_a_gap_or_an_empty_send_behaves()
+    {
+        var batch = await Queue();
+        await _queue.ClaimAsync("executor-1", Ct);
+        var lines = Chain(batch, RunEvents.Claimed, RunEvents.SecondFactorChecked, RunEvents.RunCompleted);
+        await _queue.AppendEventsAsync(batch.Id, "executor-1", lines[..2], Ct);
+
+        (await _queue.AppendEventsAsync(batch.Id, "executor-1", lines[..2], Ct)).Should().Be(QueueResult.Ok, "all held: nothing added");
+        (await _queue.AppendEventsAsync(batch.Id, "executor-1", [], Ct)).Should().Be(QueueResult.Ok, "an empty send says the executor is alive");
+        (await _queue.AppendEventsAsync(batch.Id, "executor-2", [], Ct)).Should().Be(QueueResult.NotYours);
+        _queue.Find(batch.Id)!.Events.Should().HaveCount(2);
+        var gap = Chain(batch, RunEvents.Claimed, RunEvents.SecondFactorChecked, RunEvents.BatchChecked, RunEvents.RunCompleted);
+        (await _queue.AppendEventsAsync(batch.Id, "executor-1", [gap[3]], Ct)).Should().Be(QueueResult.Invalid, "sequence 4 when two are held");
+    }
+
+    [Fact]
+    public async Task A_refused_send_does_not_renew_the_delivery_and_an_empty_send_does()
+    {
+        var batch = await Queue();
+        await _queue.ClaimAsync("executor-1", Ct);
+        var lines = Chain(batch, RunEvents.Claimed, RunEvents.SecondFactorChecked);
+        _time.Advance(Options.DeliveryTimeout - TimeSpan.FromMinutes(1));
+        (await _queue.AppendEventsAsync(batch.Id, "executor-1", [lines[1]], Ct)).Should().Be(QueueResult.Invalid);
+        _time.Advance(TimeSpan.FromMinutes(2));
+
+        await _queue.ClaimAsync("executor-1", Ct);
+
+        _queue.Find(batch.Id)!.Summary.State.Should().Be(BatchState.Expired, "junk does not keep a batch alive");
+    }
+
+    [Fact]
+    public async Task A_run_that_keeps_sending_lines_is_not_expired_however_long_it_lasts()
+    {
+        var batch = await Queue();
+        await _queue.ClaimAsync("executor-1", Ct);
+        var lines = Chain(batch, RunEvents.Claimed, RunEvents.SecondFactorChecked, RunEvents.RunCompleted);
+        _time.Advance(Options.DeliveryTimeout - TimeSpan.FromMinutes(1));
+        (await _queue.AppendEventsAsync(batch.Id, "executor-1", lines[..1], Ct)).Should().Be(QueueResult.Ok);
+        _time.Advance(Options.DeliveryTimeout - TimeSpan.FromMinutes(1));
+        (await _queue.AppendEventsAsync(batch.Id, "executor-1", lines[1..2], Ct)).Should().Be(QueueResult.Ok, "the line before renewed the delivery");
+
+        await _queue.ClaimAsync("executor-1", Ct);
+
+        _queue.Find(batch.Id)!.Summary.State.Should().Be(BatchState.Delivered);
+    }
+
+    [Fact]
     public async Task A_batch_handed_out_and_never_answered_ends_as_expired()
     {
         var batch = await Queue();
@@ -192,6 +253,31 @@ public sealed class SqliteBatchQueueTests : IDisposable
         (await _queue.CompleteAsync(batch.Id, "executor-2", Done(batch), Ct)).Should().Be(QueueResult.NotYours);
         (await _queue.CompleteAsync(Guid.NewGuid(), "executor-1", Done(batch), Ct)).Should().Be(QueueResult.NotFound);
     }
+
+    [Fact]
+    public async Task What_became_of_the_tasks_that_ended_is_listed_newest_first_with_the_whole_row_and_a_running_batch_has_none()
+    {
+        var first = await Queue();
+        await _queue.ClaimAsync("executor-1", Ct);
+        _queue.TaskResults(10).Should().BeEmpty("nothing has ended");
+        await _queue.CompleteAsync(first.Id, "executor-1", Outcome(first, TaskResult.Failed, "npm test failed (exit 1)"), Ct);
+        _time.Advance(TimeSpan.FromMinutes(5));
+        var second = await Queue();
+        await _queue.ClaimAsync("executor-1", Ct);
+        await _queue.CompleteAsync(second.Id, "executor-1", Outcome(second, TaskResult.Passed, "the validation passes"), Ct);
+
+        var rows = _queue.TaskResults(10);
+        var lastTask = second.Tasks[^1];
+
+        rows.Should().HaveCount(4);
+        rows.Select(row => row.Result).Distinct().Should().Equal(TaskResult.Passed, TaskResult.Failed);
+        rows[0].Should().Match<TaskResultRow>(row => row.Reason == "the validation passes" && row.At == Start.AddMinutes(5) && row.Repository == lastTask.Repository && row.HeadSha == lastTask.HeadSha && row.Kind == lastTask.Kind, "the last task of the newest batch is the first row");
+        rows[^1].At.Should().Be(Start);
+        _queue.TaskResults(1).Should().HaveCount(1);
+    }
+
+    private static BatchOutcome Outcome(TaskBatch batch, TaskResult result, string reason) =>
+        new(BatchState.Done, null, [.. batch.Tasks.Select(task => new TaskOutcome(task.Id, result, reason))]);
 
     [Fact]
     public async Task A_batch_that_ended_done_spends_its_approvals_keeps_each_outcome_and_may_be_approved_again()

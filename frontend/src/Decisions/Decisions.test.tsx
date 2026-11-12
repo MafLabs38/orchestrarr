@@ -92,20 +92,65 @@ afterEach(() => {
 });
 
 describe('Decisions', () => {
-  it('shows one row per problem with how far it goes and why it stops', async () => {
+  it('shows one numbered line per problem: what it is, the forge and the workshop, the plan step by step and why in a few words', async () => {
     stub();
 
     renderWithProviders(<Decisions />);
 
     expect(await screen.findByText('express 4.16.0 → 4.21.2')).toBeInTheDocument();
-    const table = within(screen.getByRole('table'));
-    expect(table.getByText('Production')).toBeInTheDocument();
-    expect(table.getByText('Qualification')).toBeInTheDocument();
-    expect(table.getByText(/checks fail on the pull request/)).toBeInTheDocument();
-    expect(table.getByText('Merge into develop')).toBeInTheDocument();
-    expect(table.getByText(/stops before production by default/)).toBeInTheDocument();
-    expect(table.getByText('No action defined')).toBeInTheDocument();
-    expect(table.getByText('Exposed secret')).toBeInTheDocument();
+    const lines = within(screen.getByRole('table')).getAllByRole('row').slice(1);
+    expect(lines).toHaveLength(4);
+    expect(lines[0]).toHaveTextContent(/^1.*shop.*Update.*express 4.16.0 → 4.21.2.*1Validate2Merge3Prod.*Whole chain/);
+    expect(lines[1]).toHaveTextContent(/^2.*lodash 4.17.4 → 4.17.21.*1Validate.*CI red/);
+    expect(lines[2]).toHaveTextContent(/^3.*web-portal.*react 17.0.2 → 18.3.1.*1Validate2Merge.*Stops at develop/);
+    expect(lines[3]).toHaveTextContent(/^4.*api.*Secret.*No action.*No task yet/);
+  });
+
+  it('names the severity of an alert for a screen reader, not by colour alone, and a repair row offers no merge', async () => {
+    const alert = problem({
+      id: 'finding:x',
+      kind: 'dependencyAlert',
+      severity: 'danger',
+      count: 3,
+      pullRequest: null,
+      headSha: null,
+      goesUpTo: 'noAction',
+      why: 'noActionDefined',
+      url: null,
+      checks: null,
+      canStopBeforeProduction: false,
+    });
+    const failing = problem({
+      id: 'pr:example/shop#9',
+      description: 'express 4 → 5',
+      pullRequest: 9,
+      headSha: head('d'),
+      goesUpTo: 'repair',
+      why: 'qualificationFailed',
+      workshop: 'fails',
+      canStopBeforeProduction: false,
+    });
+    stub(problemsReport([alert, failing]));
+    renderWithProviders(<Decisions />);
+    await screen.findByText('express 4 → 5');
+
+    expect(screen.getByRole('img', { name: 'Urgent' })).toBeInTheDocument();
+    const line = within(screen.getByRole('table'))
+      .getAllByRole('row')
+      .find((row) => row.textContent?.includes('express 4 → 5'));
+    expect(line).toHaveTextContent(/1Validate2Repair/);
+    expect(line).not.toHaveTextContent(/Merge/);
+  });
+
+  it('puts the long reason in a bubble beside the short one, so that a line stays one line', async () => {
+    stub();
+    renderWithProviders(<Decisions />);
+    await screen.findByText('express 4.16.0 → 4.21.2');
+    expect(screen.queryByText(/The checks fail on the forge/)).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /Why: example\/shop lodash/ }));
+
+    expect(screen.getByRole('note')).toHaveTextContent(/The checks fail on the forge for this pull request/);
   });
 
   it('cannot select a problem that has no action', async () => {
@@ -136,11 +181,11 @@ describe('Decisions', () => {
     expect(screen.getByText('react 17.0.2 → 18.3.1')).toBeInTheDocument();
 
     await userEvent.selectOptions(screen.getByLabelText('Application'), '');
-    await userEvent.selectOptions(screen.getByLabelText('Goes up to'), 'noAction');
-    expect(within(screen.getByRole('table')).getByText('Exposed secret')).toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText('Plan'), 'noAction');
+    expect(within(screen.getByRole('table')).getByText('Secret')).toBeInTheDocument();
     expect(screen.queryByText('react 17.0.2 → 18.3.1')).not.toBeInTheDocument();
 
-    await userEvent.selectOptions(screen.getByLabelText('Goes up to'), '');
+    await userEvent.selectOptions(screen.getByLabelText('Plan'), '');
     await userEvent.selectOptions(screen.getByLabelText('Type'), 'exposedSecret');
     expect(screen.getAllByRole('row')).toHaveLength(2);
 
@@ -181,6 +226,106 @@ describe('Decisions', () => {
     expect(screen.getByText(/example\/shop: .*merge into develop → stops before production/)).toBeInTheDocument();
   });
 
+  it('shows a pull request that fails as a repair, says what it will do and sends the ceiling it saw', async () => {
+    const failing = problem({
+      id: 'pr:example/shop#9',
+      description: 'express 4.16.0 → 5.3.0',
+      updateClass: 'major',
+      checks: 'failing',
+      goesUpTo: 'repair',
+      why: 'qualificationFailed',
+      canStopBeforeProduction: false,
+      pullRequest: 9,
+      headSha: head('d'),
+    });
+    const fetchMock = stub(problemsReport([failing]), { requiresSecondFactor: false });
+    renderWithProviders(<Decisions />);
+
+    await userEvent.click(await screen.findByLabelText(/Select example\/shop express/));
+
+    const line = within(screen.getByRole('table')).getAllByRole('row')[1];
+    expect(line).toHaveTextContent(/1Validate2Repair.*Fails here/);
+    expect(
+      screen.getByText(/example\/shop: an agent tries to repair 1 in the workshop.*nothing is pushed/),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Try to repair/)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Validate the selection' }));
+    await waitFor(() => expect(posted(fetchMock)).toBeDefined());
+    expect(posted(fetchMock)).toMatchObject({ rows: [{ id: 'pr:example/shop#9', goesUpTo: 'repair' }] });
+  });
+
+  it('sorts by a column when its header is clicked, ascending then descending then back, and a line keeps its number', async () => {
+    stub();
+    renderWithProviders(<Decisions />);
+    await screen.findByText('express 4.16.0 → 4.21.2');
+    const order = () =>
+      within(screen.getByRole('table'))
+        .getAllByRole('row')
+        .slice(1)
+        .map((line) => line.textContent?.match(/^\d+/)?.[0]);
+    expect(order()).toEqual(['1', '2', '3', '4']);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Sort by Plan' }));
+    expect(order()).toEqual(['4', '2', '3', '1']);
+    expect(screen.getByRole('columnheader', { name: /Plan/ })).toHaveAttribute('aria-sort', 'ascending');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Sort by Plan' }));
+    expect(order()).toEqual(['1', '3', '2', '4']);
+    expect(screen.getByRole('columnheader', { name: /Plan/ })).toHaveAttribute('aria-sort', 'descending');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Sort by Plan' }));
+    expect(order()).toEqual(['1', '2', '3', '4']);
+  });
+
+  it('sorts by application so that the lines of one application come together, whatever the filters', async () => {
+    stub();
+    renderWithProviders(<Decisions />);
+    await screen.findByText('express 4.16.0 → 4.21.2');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Sort by Application' }));
+
+    const apps = within(screen.getByRole('table'))
+      .getAllByRole('row')
+      .slice(1)
+      .map((line) => line.textContent);
+    expect(apps[0]).toMatch(/api/);
+    expect(apps.at(-1)).toMatch(/web-portal/);
+  });
+
+  it('shows what the workshop said of the commit and filters on it', async () => {
+    const failed = problem({
+      id: 'pr:example/shop#9',
+      description: 'express 4.16.0 → 5.3.0',
+      pullRequest: 9,
+      headSha: head('d'),
+      workshop: 'fails',
+      goesUpTo: 'repair',
+      why: 'qualificationFailed',
+      canStopBeforeProduction: false,
+    });
+    const passed = problem({
+      id: 'pr:example/shop#8',
+      description: 'mocha 8 → 12',
+      pullRequest: 8,
+      headSha: head('e'),
+      workshop: 'passes',
+      goesUpTo: 'qualification',
+      why: 'passesHereChecksFailing',
+      canStopBeforeProduction: false,
+    });
+    stub(problemsReport([failed, passed]), { requiresSecondFactor: false });
+    renderWithProviders(<Decisions />);
+    await screen.findByText('express 4.16.0 → 5.3.0');
+    const table = within(screen.getByRole('table'));
+    expect(table.getByText('fails')).toBeInTheDocument();
+    expect(table.getByText('passes')).toBeInTheDocument();
+
+    await userEvent.selectOptions(screen.getByLabelText('Workshop'), 'fails');
+
+    expect(screen.queryByText('mocha 8 → 12')).not.toBeInTheDocument();
+    expect(screen.getByText('express 4.16.0 → 5.3.0')).toBeInTheDocument();
+  });
+
   it('selects every problem shown that can be done, and none of the others', async () => {
     stub();
     renderWithProviders(<Decisions />);
@@ -206,7 +351,12 @@ describe('Decisions', () => {
     await waitFor(() => expect(posted(fetchMock)).toBeDefined());
     expect(posted(fetchMock)).toEqual({
       rows: [
-        { id: 'pr:example/shop#2', headSha: head('a'), goesUpTo: 'production', stopBeforeProduction: true },
+        {
+          id: 'pr:example/shop#2',
+          headSha: head('a'),
+          goesUpTo: 'production',
+          stopBeforeProduction: true,
+        },
         {
           id: 'pr:example/web-portal#4',
           headSha: head('c'),

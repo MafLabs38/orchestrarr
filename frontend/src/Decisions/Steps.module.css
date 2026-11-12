@@ -1,0 +1,50 @@
+.steps {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+  white-space: nowrap;
+}
+
+.step,
+.ai {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+
+/* The only step that calls an agent has the accent colour, and a mark */
+.ai {
+  font-weight: 700;
+  color: var(--accentText);
+}
+
+.step + .step::before,
+.step + .ai::before {
+  margin-right: 2px;
+  color: var(--inkMuted);
+  content: '›';
+}
+
+.number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--inkOnAccent);
+  background: var(--inkMuted);
+  border-radius: var(--radiusPill);
+}
+
+.ai .number {
+  background: var(--accent);
+}
+
+.none {
+  color: var(--inkMuted);
+}

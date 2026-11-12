@@ -3,7 +3,7 @@
 
 export type Severity = 'info' | 'warning' | 'danger';
 
-export type StepKind = 'validate' | 'mergePullRequests' | 'mergeFix' | 'deploy';
+export type StepKind = 'validate' | 'mergePullRequests' | 'mergeFix' | 'deploy' | 'repair';
 
 export type ChecksState = 'unknown' | 'pending' | 'passing' | 'failing';
 
@@ -22,7 +22,7 @@ export interface SystemStatus {
   executors: ExecutorStatus[];
 }
 
-export type TaskKind = 'validatePullRequest' | 'mergePullRequest';
+export type TaskKind = 'validatePullRequest' | 'mergePullRequest' | 'repairPullRequest';
 
 export interface DelegationInfo {
   id: string;
@@ -41,7 +41,7 @@ export interface ExecutorStatus {
   kinds: TaskKind[];
   repositories: string[];
   delegations: DelegationInfo[];
-  // Whether this executor checks the code of the authenticator (false only in development, with dry runs only)
+  // Whether this executor checks the code of the authenticator (false only in development, while every runner changes nothing outside its sandbox)
   secondFactorRequired: boolean;
 }
 
@@ -91,7 +91,7 @@ export interface Role {
 }
 
 // Where an approval is in its life: a dry run spends it, so a real run needs a new approval.
-export type ApprovalState = 'waiting' | 'taken' | 'dryRunDone' | 'refused' | 'expired';
+export type ApprovalState = 'waiting' | 'taken' | 'ended' | 'refused' | 'expired';
 
 // A decision of the operator, recorded: these steps on this pull request at this commit. It makes a batch of tasks that the executor takes.
 export interface Approval {
@@ -110,7 +110,7 @@ export interface Approval {
 
 export type BatchState = 'waiting' | 'delivered' | 'done' | 'refused' | 'expired';
 
-export type TaskResult = 'dryRun' | 'refused' | 'skipped';
+export type TaskResult = 'dryRun' | 'refused' | 'skipped' | 'passed' | 'failed' | 'repaired';
 
 // Why the executor refused a batch: a code, which the interface words.
 export type RunRefusal =
@@ -195,6 +195,7 @@ export type ApprovalError =
   | 'noPullRequests'
   | 'alreadyApproved'
   | 'tooManyPullRequests'
+  | 'tooManyRepairs'
   | 'secondFactorRequired'
   | 'storeFull'
   | 'auditUnavailable'
@@ -212,7 +213,7 @@ export interface OptionState {
 
 // How far a problem can go by itself, and why it stops there (ADR 0019): computed by the server from the description of the application,
 // what the connected executors accept and the state of the problem.
-export type Ceiling = 'noAction' | 'qualification' | 'mergeIntoDevelop' | 'production';
+export type Ceiling = 'noAction' | 'qualification' | 'mergeIntoDevelop' | 'production' | 'repair';
 
 export type CeilingReason =
   | 'none'
@@ -227,7 +228,14 @@ export type CeilingReason =
   | 'cannotBeMergedNow'
   | 'noRollbackDescribed'
   | 'noCheckAfterDeployDescribed'
-  | 'updateClassStopsBeforeProduction';
+  | 'updateClassStopsBeforeProduction'
+  | 'qualificationFailed'
+  | 'repairFailed'
+  | 'patchReady'
+  | 'passesHereChecksFailing';
+
+// What the workshop last said about this very commit: the column beside the forge's checks
+export type WorkshopVerdict = 'unknown' | 'passes' | 'fails' | 'repaired';
 
 export type ProblemKind =
   | 'dependencyUpdate'
@@ -256,6 +264,7 @@ export interface ProblemRow {
   goesUpTo: Ceiling;
   why: CeilingReason;
   canStopBeforeProduction: boolean;
+  workshop: WorkshopVerdict;
 }
 
 export interface ProblemsReport {

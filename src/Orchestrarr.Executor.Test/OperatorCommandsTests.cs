@@ -96,6 +96,14 @@ public sealed class OperatorCommandsTests : IDisposable
     }
 
     [Fact]
+    public async Task A_repair_cannot_be_delegated_because_it_spends_the_subscription()
+    {
+        (await Commands().AddDelegationAsync("alice", TaskKind.RepairPullRequest, "example/*", 30, 5, Ct)).Should().Be(2);
+
+        _world.Store.Delegations(includeEnded: true).Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task A_merge_cannot_be_delegated_yet()
     {
         (await Commands().AddDelegationAsync("alice", TaskKind.MergePullRequest, "example/*", 30, 5, Ct)).Should().Be(2);

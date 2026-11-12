@@ -9,7 +9,7 @@ namespace Orchestrarr.Host.Approvals;
 /// </summary>
 public sealed record ApproveRequest(string WorkItemId, IReadOnlyList<StepKind> Steps, IReadOnlyList<SeenPullRequest> PullRequests, string? SecondFactorCode = null);
 
-public sealed record ApprovalDto(Guid Id, string WorkItemId, string Repository, int PullRequest, string HeadSha, IReadOnlyList<StepKind> Steps, string Approver, DateTimeOffset ApprovedAt, ApprovalState State, Guid? BatchId, DateTimeOffset? EndedAt);
+public sealed record ApprovalDto(Guid Id, string WorkItemId, string Repository, int PullRequest, string HeadSha, IReadOnlyList<StepKind> Steps, string Approver, DateTimeOffset ApprovedAt, string State, Guid? BatchId, DateTimeOffset? EndedAt);
 
 public sealed record ApproveResponse(IReadOnlyList<ApprovalDto> Approvals);
 

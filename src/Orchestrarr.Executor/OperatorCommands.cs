@@ -71,6 +71,12 @@ public sealed partial class OperatorCommands(ExecutorStore store, SecondFactorGu
             io.WriteLine("A merge cannot be delegated yet: which kinds may run without a code is still to be decided (ADR 0017).");
             return 2;
         }
+        if (kind == TaskKind.RepairPullRequest)
+        {
+            // An agent run spends the subscription and holds its token: it is each time a decision of a person (ADR 0024)
+            io.WriteLine("A repair cannot be delegated: it is each time a decision of a person, because it spends the subscription (ADR 0024).");
+            return 2;
+        }
         if (!await ConfirmAsync(subject, cancellationToken))
         {
             return 1;

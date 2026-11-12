@@ -159,6 +159,19 @@ public sealed class ApprovalServiceTests
     }
 
     [Fact]
+    public async Task A_card_with_more_repairs_than_one_approval_may_start_is_refused_at_once()
+    {
+        _powers = new ConfiguredPowerPolicy([new PowerGrant(PowerGrant.Wildcard, [StepKind.Validate, StepKind.MergePullRequests, StepKind.Repair])]);
+        var pullRequests = Enumerable.Range(1, TaskLimits.MaxRepairsPerBatch + 1).Select(number => PullRequest(number, HeadA)).ToArray();
+        var seen = pullRequests.Select(pullRequest => new SeenPullRequest(pullRequest.Number, HeadA)).ToArray();
+
+        var result = await Approve(await Service(pullRequests), [StepKind.Repair], seen: seen);
+
+        result.Refusal.Should().Be(ApprovalRefusal.TooManyRepairs);
+        _store.List().Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task The_second_batch_holds_only_the_tasks_of_the_new_pull_requests()
     {
         await Approve(await Service(PullRequest(1, HeadA)));
@@ -336,6 +349,31 @@ public sealed class ApprovalServiceTests
         var result = await Approve(await Service(), steps: [StepKind.Validate, StepKind.MergeFix]);
 
         result.Refusal.Should().Be(ApprovalRefusal.StepNotSupported);
+    }
+
+    [Theory]
+    [InlineData(StepKind.Validate)]
+    [InlineData(StepKind.MergePullRequests)]
+    public async Task A_repair_stands_alone_it_is_never_combined_with_a_validation_or_a_merge(StepKind other)
+    {
+        _powers = new ConfiguredPowerPolicy([new PowerGrant(PowerGrant.Wildcard, [StepKind.Validate, StepKind.MergePullRequests, StepKind.Repair])]);
+
+        var combined = await Approve(await Service(), steps: [StepKind.Repair, other]);
+        var alone = await Approve(await Service(), steps: [StepKind.Repair]);
+
+        combined.Refusal.Should().Be(ApprovalRefusal.StepNotSupported, "a repair validates by itself and its patch is not pushed: a merge would merge what was not repaired");
+        alone.Recorded.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task A_repair_that_is_not_granted_is_refused_and_nothing_is_queued()
+    {
+        _powers = new ConfiguredPowerPolicy([new PowerGrant(PowerGrant.Wildcard, [StepKind.Validate, StepKind.MergePullRequests])]);
+
+        var result = await Approve(await Service(), steps: [StepKind.Repair]);
+
+        result.Refusal.Should().Be(ApprovalRefusal.StepNotGranted);
+        _store.List().Should().BeEmpty();
     }
 
     [Fact]

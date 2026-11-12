@@ -54,6 +54,8 @@ public sealed class BatchExpirySweeperTests
             return ValueTask.FromResult(Succeeds);
         }
 
+        public IReadOnlyList<TaskResultRow> TaskResults(int limit) => throw new NotSupportedException();
+
         public ValueTask<ClaimResult> ClaimAsync(string executor, CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public ValueTask<QueueResult> AppendEventsAsync(Guid batchId, string executor, IReadOnlyList<RunEvent> events, CancellationToken cancellationToken) => throw new NotSupportedException();

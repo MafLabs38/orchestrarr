@@ -233,6 +233,11 @@ public sealed class SqliteBatchQueue(SqliteDatabase database, IKillSwitch killSw
         }
         var (count, lastSequence, lastHash) = LastEvent(connection, batchId);
         var previous = lastHash ?? state.Value.Digest;
+        if (RunEvent.NotYetHeld(events, lastSequence, sequence => HeldHash(connection, batchId, sequence)) is not { } fresh)
+        {
+            return (false, QueueResult.Invalid);
+        }
+        events = fresh;
         if (count + events.Count > options.MaxEventsPerRun
             || events.Any(line => (line.Detail?.Length ?? 0) > options.MaxEventDetail || line.Type.Length > 64)
             || !RunEvent.Continues(previous, lastSequence, events))
@@ -253,6 +258,12 @@ public sealed class SqliteBatchQueue(SqliteDatabase database, IKillSwitch killSw
             command.Parameters.AddWithValue("$hash", line.Hash);
             command.ExecuteNonQuery();
         }
+        // A run that keeps sending lines is alive: the delivery timeout means "the executor went silent", not "the run is long"
+        using var renew = connection.CreateCommand();
+        renew.CommandText = "UPDATE batches SET delivered_at = $now WHERE id = $id AND state = 'Delivered';";
+        renew.Parameters.AddWithValue("$now", SqliteDatabase.Format(time.GetUtcNow()));
+        renew.Parameters.AddWithValue("$id", batchId.ToString("D"));
+        renew.ExecuteNonQuery();
         return (true, QueueResult.Ok);
     }
 
@@ -280,8 +291,8 @@ public sealed class SqliteBatchQueue(SqliteDatabase database, IKillSwitch killSw
         {
             return (false, QueueResult.NotYours);
         }
-        var known = ReadTasks(connection, batchId).Select(task => task.Spec.Id).ToHashSet();
-        if (outcome.Final is not (BatchState.Done or BatchState.Refused) || outcome.Tasks.Any(task => !known.Contains(task.TaskId)))
+        var known = ReadTasks(connection, batchId).ToDictionary(task => task.Spec.Id, task => task.Spec.Kind);
+        if (outcome.Final is not (BatchState.Done or BatchState.Refused) || outcome.Tasks.Any(task => !known.TryGetValue(task.TaskId, out var kind) || !TaskResultRules.Fits(kind, task.Result)))
         {
             return (false, QueueResult.Invalid);
         }
@@ -336,6 +347,23 @@ public sealed class SqliteBatchQueue(SqliteDatabase database, IKillSwitch killSw
         return runs;
     });
 
+    public IReadOnlyList<TaskResultRow> TaskResults(int limit) => SqliteDatabase.Guard<IReadOnlyList<TaskResultRow>>(() =>
+    {
+        using var connection = database.Connect();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT t.repository, t.pull_request, t.head_sha, t.kind, t.result, t.reason, b.ended_at FROM tasks t JOIN batches b ON b.id = t.batch_id WHERE t.result IS NOT NULL AND b.ended_at IS NOT NULL ORDER BY b.ended_at DESC, t.sequence DESC LIMIT $limit;";
+        command.Parameters.AddWithValue("$limit", limit);
+        using var reader = command.ExecuteReader();
+        var rows = new List<TaskResultRow>();
+        while (reader.Read())
+        {
+            rows.Add(new TaskResultRow(
+                reader.GetString(0), reader.GetInt32(1), reader.GetString(2), Enum.Parse<TaskKind>(reader.GetString(3)), Enum.Parse<TaskResult>(reader.GetString(4)),
+                reader.IsDBNull(5) ? null : reader.GetString(5), SqliteDatabase.Parse(reader.GetString(6))));
+        }
+        return rows;
+    });
+
     public RunDetail? Find(Guid batchId) => SqliteDatabase.Guard(() =>
     {
         using var connection = database.Connect();
@@ -386,6 +414,15 @@ public sealed class SqliteBatchQueue(SqliteDatabase database, IKillSwitch killSw
         }
         string? executor = reader.IsDBNull(1) ? null : reader.GetString(1);
         return (Enum.Parse<BatchState>(reader.GetString(0)), executor, reader.GetString(2));
+    }
+
+    private static string? HeldHash(SqliteConnection connection, Guid batchId, long sequence)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT hash FROM run_events WHERE batch_id = $batch AND sequence = $sequence;";
+        command.Parameters.AddWithValue("$batch", batchId.ToString("D"));
+        command.Parameters.AddWithValue("$sequence", sequence);
+        return command.ExecuteScalar() as string;
     }
 
     private static (int Count, long LastSequence, string? LastHash) LastEvent(SqliteConnection connection, Guid batchId)

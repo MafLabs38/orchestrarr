@@ -95,8 +95,17 @@ public sealed class WorkItemBuilderTests
         item.Plan.Select(s => (s.Kind, s.EnvironmentName, s.Ticked, s.Available)).Should().Equal(
             (StepKind.Validate, null, true, true),
             (StepKind.MergePullRequests, null, true, true),
+            (StepKind.Repair, null, false, true),
             (StepKind.Deploy, "Server A", true, true),
             (StepKind.Deploy, "Server B", true, true));
+    }
+
+    [Fact]
+    public void A_repository_with_no_open_pull_request_has_no_repair_step()
+    {
+        var item = Build(Snapshot([Repository(pullRequests: 0, dependencyAlerts: new AlertCounts(1, 0, 0, 0))])).Should().ContainSingle().Which;
+
+        item.Plan.Should().NotContain(step => step.Kind == StepKind.Repair);
     }
 
     [Fact]
@@ -141,6 +150,7 @@ public sealed class WorkItemBuilderTests
         item.Plan.Select(s => (s.Kind, s.EnvironmentId, s.Granted)).Should().Equal(
             (StepKind.Validate, null, true),
             (StepKind.MergePullRequests, null, false),
+            (StepKind.Repair, null, false),
             (StepKind.Deploy, "a", true),
             (StepKind.Deploy, "b", false));
     }

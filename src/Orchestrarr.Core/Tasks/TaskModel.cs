@@ -10,6 +10,9 @@ public enum TaskKind
 {
     ValidatePullRequest,
     MergePullRequest,
+
+    /// <summary>Validate the pull request in the workshop and, if it fails, let an agent try to make it pass. The result is a patch in the trace: nothing is pushed.</summary>
+    RepairPullRequest,
 }
 
 /// <summary>Where a batch is: waiting for the executor, with it, or ended. A batch that ends never starts again; a new approval makes a new batch.</summary>
@@ -34,6 +37,15 @@ public enum TaskResult
     DryRun,
     Refused,
     Skipped,
+
+    /// <summary>The task ran and every check passed (a validation: the build and the tests are green).</summary>
+    Passed,
+
+    /// <summary>A repair worked: an agent changed the code, the executor ran the steps again on a clean checkout with exactly that patch, and they pass. The patch is in the trace; nothing was pushed.</summary>
+    Repaired,
+
+    /// <summary>The task ran and a check did not pass. It is a result, not an error: what follows for the same approval does not run.</summary>
+    Failed,
 }
 
 /// <summary>Why the executor refused a batch or a task. A code, never a sentence (an attacker learns nothing from the difference).</summary>
@@ -50,6 +62,17 @@ public enum RunRefusal
     Malformed,
 }
 
+/// <summary>Which results a kind of task can have: what an executor reports is checked against what it was asked to do, because the table reads these results.</summary>
+public static class TaskResultRules
+{
+    public static bool Fits(TaskKind kind, TaskResult result) => result switch
+    {
+        TaskResult.Repaired => kind == TaskKind.RepairPullRequest,
+        TaskResult.DryRun => kind != TaskKind.RepairPullRequest,
+        _ => true,
+    };
+}
+
 /// <summary>One thing to do, in the order of its batch. <c>ApprovalId</c> ties it to the decision of the operator that it carries out.</summary>
 public sealed record TaskSpec(Guid Id, int Sequence, TaskKind Kind, string Repository, int PullRequest, string HeadSha, Guid ApprovalId);
 
@@ -58,6 +81,28 @@ public static class TaskLimits
 {
     /// <summary>The most tasks one batch may hold (two per pull request when validating and merging).</summary>
     public const int MaxTasksPerBatch = 200;
+
+    /// <summary>
+    /// The most repairs one batch may hold: each is an agent run of up to a quarter of an hour that spends the subscription, so one code starts a few, not
+    /// two hundred (the budget of an approval, F-SAF-01). A trace of a batch of repairs also has to fit in the limit of a run.
+    /// </summary>
+    public const int MaxRepairsPerBatch = 5;
+
+    /// <summary>
+    /// The most characters of the detail of one trace line. A line that carries the end of a command's output needs room; a longer one is cut by the
+    /// executor before it is sent (a trace the control plane refuses as a whole is worse than a cut line).
+    /// </summary>
+    public const int MaxEventDetail = 4000;
+
+    /// <summary>
+    /// The most lines a run may hold. A repair writes about 170 (the agent's work is capped at 150, then the steps, the patch and the verdict) and a batch holds
+    /// several tasks: the executor keeps room for what must arrive (the end of each task, the patch, the end of the run) by cutting the other lines first,
+    /// see <c>RunTrace</c>.
+    /// </summary>
+    public const int MaxEventsPerRun = 5000;
+
+    /// <summary>The room kept at the end of a run's trace for the lines that must arrive: verdicts, patches, the end of the run.</summary>
+    public const int EventsKeptForTheEnd = 300;
 }
 
 /// <summary>
@@ -141,6 +186,29 @@ public sealed record RunEvent(long Sequence, DateTimeOffset At, string Type, Gui
         return Convert.ToHexString(SHA256.HashData(writer.ToArray())).ToLowerInvariant();
     }
 
+    /// <summary>
+    /// The lines of a send that the queue does not hold yet. A send whose answer was lost is sent again by the executor: the lines the queue already holds
+    /// (same sequence, same hash) are skipped and the rest is taken; null when a line it holds differs from the one sent.
+    /// </summary>
+    public static List<RunEvent>? NotYetHeld(IReadOnlyList<RunEvent> events, long lastSequence, Func<long, string?> heldHash)
+    {
+        ArgumentNullException.ThrowIfNull(events);
+        ArgumentNullException.ThrowIfNull(heldHash);
+        var fresh = new List<RunEvent>();
+        foreach (var line in events)
+        {
+            if (line.Sequence > lastSequence)
+            {
+                fresh.Add(line);
+            }
+            else if (heldHash(line.Sequence) != line.Hash || line.Hash != Compute(line.PreviousHash, line.Sequence, line.At, line.Type, line.TaskId, line.Detail))
+            {
+                return null;
+            }
+        }
+        return fresh;
+    }
+
     /// <summary>Whether these lines continue a chain that stood at <paramref name="previousHash"/> and <paramref name="lastSequence"/>, each intact.</summary>
     public static bool Continues(string previousHash, long lastSequence, IReadOnlyList<RunEvent> events)
     {
@@ -169,6 +237,13 @@ public static class RunEvents
     public const string RightsChecked = "run.rights";
     public const string DoubleControl = "run.double-control";
     public const string TaskDryRun = "task.dry-run";
+    public const string TaskStarted = "task.started";
+    public const string TaskStep = "task.step";
+    public const string TaskPassed = "task.passed";
+    public const string TaskPatch = "task.patch";
+    public const string TaskAgent = "task.agent";
+    public const string TraceCut = "trace.cut";
+    public const string TaskFailed = "task.failed";
     public const string TaskRefused = "task.refused";
     public const string TaskSkipped = "task.skipped";
     public const string RunCompleted = "run.completed";

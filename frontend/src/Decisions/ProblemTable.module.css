@@ -2,24 +2,83 @@
   overflow-x: auto;
 }
 
+/* A real table: a thin line between the columns and between the rows, and a dense body. The thick strokes stay on the frame, the title and the buttons. */
 .table {
   width: 100%;
-  min-width: 980px;
+  min-width: 1080px;
+  font-size: 0.85rem;
   border-collapse: collapse;
+  border: var(--borderWidth) solid var(--hairlineStrong);
 }
 
 .table th,
 .table td {
-  padding: 9px 10px;
+  padding: 4px 8px;
   text-align: left;
-  vertical-align: top;
-  border-bottom: var(--borderWidth) solid var(--hairline);
+  white-space: nowrap;
+  vertical-align: middle;
+  border: 1px solid var(--hairline);
 }
 
 .table th {
   color: var(--inkMuted);
   font-weight: 800;
-  white-space: nowrap;
+  background: var(--paperWarm);
+}
+
+.narrow {
+  width: 1%;
+  text-align: center;
+}
+
+.sort {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+}
+
+.sort:hover {
+  color: var(--ink);
+}
+
+.number {
+  font-weight: 800;
+  color: var(--inkMuted);
+  font-variant-numeric: tabular-nums;
+}
+
+.problem {
+  max-width: 340px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.problem a {
+  color: inherit;
+}
+
+.class {
+  padding: 0 6px;
+  margin-left: 6px;
+  font-size: 0.75rem;
+  color: var(--inkMuted);
+  border: 1px solid var(--hairlineStrong);
+  border-radius: var(--radiusPill);
+}
+
+.dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 6px;
+  vertical-align: middle;
+  border-radius: 50%;
 }
 
 .selected {
@@ -34,17 +93,37 @@
   color: var(--inkMuted);
 }
 
-.why {
-  display: block;
-  margin-top: 4px;
-  color: var(--inkMuted);
-  font-size: var(--fontSizeMeta);
+.good {
+  color: var(--successColor);
 }
 
-.stop {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--inkMuted);
+.bad {
+  color: var(--dangerColor);
+}
+
+.wait {
+  color: var(--warningColor);
+}
+
+.info {
+  background: var(--infoColor);
+}
+
+.dot.bad {
+  background: var(--dangerColor);
+}
+
+.dot.wait {
+  background: var(--warningColor);
+}
+
+.ai {
+  font-weight: 700;
+  color: var(--accentText);
+}
+
+.legend {
+  margin: 6px 0 0;
   font-size: var(--fontSizeMeta);
+  color: var(--inkMuted);
 }

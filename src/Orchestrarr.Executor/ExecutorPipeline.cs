@@ -13,9 +13,16 @@ public interface ITaskRunner
 
     /// <summary>
     /// True when the runner only says what it would have done and changes nothing. The default is false: a runner is taken for a real one until it
-    /// says otherwise, because the code of the second factor may be switched off only on an executor whose every runner is a dry run (ADR 0023).
+    /// says otherwise, because the code of the second factor may be switched off only on an executor whose every runner changes nothing outside its sandbox (ADR 0023, ADR 0024); a dry run is the default case of that.
     /// </summary>
     bool IsDryRun => false;
+
+    /// <summary>
+    /// True when the runner writes nothing to a repository or to the host: a dry run, or a validation that builds and tests in a throwaway container and
+    /// writes nowhere (it may still run code in that container, with network access where a step asks for it; a repair also holds a credential). The code of the second factor may be switched off only while every runner is like this (ADR 0023). The default follows
+    /// <see cref="IsDryRun"/>: a runner is taken for one that changes things until it says otherwise.
+    /// </summary>
+    bool ChangesNothing => IsDryRun;
 
     ValueTask<TaskOutcome> RunAsync(TaskSpec task, RunTrace trace, CancellationToken cancellationToken);
 }
@@ -28,24 +35,122 @@ public sealed class RunTrace
     private readonly TimeProvider _time;
     private readonly ExecutorStore _store;
     private readonly List<RunEvent> _events = [];
+    private readonly Lock _gate = new();
+    private readonly Action<RunEvent>? _onAdded;
+    private readonly List<string> _secrets = [];
     private string _previous;
 
-    internal RunTrace(Guid batchId, string digest, TimeProvider time, ExecutorStore store)
+    internal RunTrace(Guid batchId, string digest, TimeProvider time, ExecutorStore store, Action<RunEvent>? onAdded = null)
     {
         _batchId = batchId;
         _previous = digest;
         _time = time;
         _store = store;
+        _onAdded = onAdded;
     }
 
-    public IReadOnlyList<RunEvent> Events => _events;
+    /// <summary>The lines so far. A copy: the lines of an agent arrive from another thread while the run goes on.</summary>
+    public IReadOnlyList<RunEvent> Events
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _events];
+            }
+        }
+    }
+
+    /// <summary>
+    /// A secret the run holds (a token): it is replaced by <c>***</c>, in the form it has and in base64, in every line written from now on, so that nothing a
+    /// command prints, an agent says or a patch contains can put it in a trace that any reader sees.
+    /// </summary>
+    public void Redact(string secret)
+    {
+        if (secret.Length < 8)
+        {
+            return;
+        }
+        lock (_gate)
+        {
+            _secrets.Add(secret);
+            _secrets.Add(Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(secret)));
+        }
+    }
+
+    /// <summary>The text with every registered secret masked, before it is cut into pieces: a secret split between two pieces would no longer be found.</summary>
+    public string Masked(string text)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        lock (_gate)
+        {
+            foreach (var secret in _secrets)
+            {
+                text = text.Replace(secret, "***", StringComparison.Ordinal);
+            }
+        }
+        return text;
+    }
+
+    // The end of a long line is what matters (the last lines of an output): the start is dropped, and the cut is visible
+    private string? Cut(string? detail)
+    {
+        if (detail is null)
+        {
+            return null;
+        }
+        foreach (var secret in _secrets)
+        {
+            detail = detail.Replace(secret, "***", StringComparison.Ordinal);
+        }
+        return detail.Length > TaskLimits.MaxEventDetail ? "…" + detail[^(TaskLimits.MaxEventDetail - 1)..] : detail;
+    }
+
+    // What must reach the control plane even when the trace is long: where each task ended, the patch, the end of the run
+    private static readonly HashSet<string> Essential =
+    [
+        RunEvents.Stopped, RunEvents.TaskPassed, RunEvents.TaskFailed, RunEvents.TaskRefused, RunEvents.TaskSkipped, RunEvents.TaskPatch, RunEvents.RunCompleted, RunEvents.RunRefused,
+    ];
 
     public void Add(string type, Guid? taskId = null, string? detail = null)
     {
-        var line = RunEvent.Create(_previous, _events.Count + 1L, _time.GetUtcNow(), type, taskId, detail);
+        lock (_gate)
+        {
+            // The control plane refuses a trace past its limit, and a refused trace loses the end of the run, patch included. Past the budget, the lines that
+            // only tell how a step went are left out (neither side keeps them; the output of a step is cut anyway), one line says so, and what must arrive still does.
+            if (_events.Count >= TaskLimits.MaxEventsPerRun - TaskLimits.EventsKeptForTheEnd && !Essential.Contains(type))
+            {
+                if (!_cut)
+                {
+                    _cut = true;
+                    Told(AppendLocked(RunEvents.TraceCut, null, "the trace is long: the lines that only tell how a step went are no longer sent; where each task ended and the patch still are"));
+                }
+            }
+            else if (_events.Count < TaskLimits.MaxEventsPerRun - EndOfTheRun || EndsTheRun.Contains(type))
+            {
+                // Even what is essential has a ceiling: the control plane refuses a trace past its limit, and the end of the run must always fit
+                Told(AppendLocked(type, taskId, detail));
+            }
+        }
+    }
+
+    // Told under the lock, so that the lines reach the listener in the order of the chain whatever thread added them; the listener only queues the line
+    private void Told(RunEvent line) => _onAdded?.Invoke(line);
+
+    // The last places are kept for the lines that end the run
+    private const int EndOfTheRun = 3;
+
+    private static readonly HashSet<string> EndsTheRun = [RunEvents.Stopped, RunEvents.RunCompleted, RunEvents.RunRefused];
+
+    private bool _cut;
+
+    private RunEvent AppendLocked(string type, Guid? taskId, string? detail)
+    {
+        var line = RunEvent.Create(_previous, _events.Count + 1L, _time.GetUtcNow(), type, taskId, Cut(detail));
         _store.AppendTrace(_runId, _batchId, line);
         _events.Add(line);
         _previous = line.Hash;
+        return line;
     }
 }
 
@@ -65,30 +170,33 @@ public sealed class ExecutorPipeline(
     string executorName,
     bool requireSecondFactor = true)
 {
-    // Without the code of the second factor nothing stops a taken-over control plane from queueing a task, so it can be switched off only while no runner can change anything
+    // Without the code of the second factor nothing stops a taken-over control plane from queueing a task, so it can be switched off only while no runner can change anything outside its sandbox
     private readonly bool _requireSecondFactor = Resolve(requireSecondFactor, runners);
 
     private readonly Dictionary<TaskKind, ITaskRunner> _runners = runners.ToDictionary(runner => runner.Kind);
 
-    /// <summary>Whether the code of the second factor is checked on this executor: false only by its own setting, and only with dry runs.</summary>
+    /// <summary>The kinds of task that have a runner here: what the executor can say it accepts, whatever its rights list names.</summary>
+    public IReadOnlyCollection<TaskKind> RunnerKinds => _runners.Keys;
+
+    /// <summary>Whether the code of the second factor is checked on this executor: false only by its own setting, and only while every runner changes nothing outside its sandbox.</summary>
     public bool SecondFactorRequired => _requireSecondFactor;
 
     private static bool Resolve(bool require, IEnumerable<ITaskRunner> runners)
     {
-        if (!require && runners.Any(runner => !runner.IsDryRun))
+        if (!require && runners.Any(runner => !runner.ChangesNothing))
         {
-            throw new InvalidOperationException("The code of the second factor can be switched off only on an executor whose every runner is a dry run.");
+            throw new InvalidOperationException("The code of the second factor can be switched off only on an executor whose every runner changes nothing outside its sandbox (a dry run, a validation or a repair: ADR 0023, ADR 0024).");
         }
         return require;
     }
 
     // isStopped is read before the batch is accepted and again before each task: a stop engaged during a run ends it before the next task
-    public async Task<PipelineResult> RunAsync(BatchDelivery delivery, Func<bool> isStopped, CancellationToken cancellationToken)
+    public async Task<PipelineResult> RunAsync(BatchDelivery delivery, Func<bool> isStopped, CancellationToken cancellationToken, Action<RunEvent>? onEvent = null)
     {
         ArgumentNullException.ThrowIfNull(delivery);
         ArgumentNullException.ThrowIfNull(isStopped);
         var batch = delivery.Batch;
-        var trace = new RunTrace(batch.Id, batch.Digest(), time, store);
+        var trace = new RunTrace(batch.Id, batch.Digest(), time, store, onEvent);
         trace.Add(RunEvents.Claimed, null, $"executor {executorName}, {batch.Tasks.Count} tasks");
 
         var refusal = await FirstRefusalAsync(delivery, isStopped(), trace, cancellationToken);
@@ -132,10 +240,22 @@ public sealed class ExecutorPipeline(
             {
                 var outcome = await runner.RunAsync(task, trace, cancellationToken);
                 outcomes.Add(outcome);
-                if (outcome.Result == TaskResult.Refused)
+                if (outcome.Result is TaskResult.Refused or TaskResult.Failed)
                 {
                     stoppedApprovals.Add(task.ApprovalId);
                 }
+            }
+            catch (OperationCanceledException) when (isStopped())
+            {
+                // The stop was engaged while the task ran (the runner has killed its container): the task ends as skipped, and what follows for this approval does not run
+                if (!stopNoted)
+                {
+                    trace.Add(RunEvents.Stopped, null, "the stop was engaged while a task ran");
+                    stopNoted = true;
+                }
+                trace.Add(RunEvents.TaskSkipped, task.Id, "the stop was engaged while this task ran");
+                outcomes.Add(new TaskOutcome(task.Id, TaskResult.Skipped, "stopped while it ran"));
+                stoppedApprovals.Add(task.ApprovalId);
             }
             catch (Exception failure) when (failure is not OperationCanceledException)
             {
@@ -198,7 +318,7 @@ public sealed class ExecutorPipeline(
             if (!_requireSecondFactor)
             {
                 // Development only: the journal, the rights and the time were checked above, the code is not asked for
-                trace.Add(RunEvents.SecondFactorChecked, null, "not required on this executor (development: only dry runs)");
+                trace.Add(RunEvents.SecondFactorChecked, null, "not required on this executor (development: its runners change nothing outside their sandbox)");
                 return null;
             }
             return await CheckSecondFactorAsync(delivery, trace, cancellationToken);
@@ -247,6 +367,8 @@ public sealed class ExecutorPipeline(
             || delegation.RevokedAt is not null
             || delegation.ExpiresAt <= now
             || batch.ApproverSubject != $"delegation:{delegation.Id:D}"
+            // A delegation is a decision made once for many runs, with no code: it covers only what changes nothing and runs nothing of a pull request
+            || !(_runners.TryGetValue(delegation.Kind, out var covered) && covered.IsDryRun)
             || batch.Tasks.Any(task => task.Kind != delegation.Kind || !TaskShape.Matches(delegation.Repository, task.Repository)))
         {
             trace.Add(RunEvents.DelegationChecked, null, "refused: no delegation in force covers this batch");

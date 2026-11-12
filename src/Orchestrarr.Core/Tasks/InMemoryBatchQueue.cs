@@ -112,6 +112,12 @@ public sealed class InMemoryBatchQueue(InMemoryApprovalStore approvals, IAuditSi
             }
             var previous = entry.Events.Count == 0 ? entry.Batch.Digest() : entry.Events[^1].Hash;
             var last = entry.Events.Count == 0 ? 0 : entry.Events[^1].Sequence;
+            var held = entry.Events;
+            if (RunEvent.NotYetHeld(events, last, sequence => held.Find(line => line.Sequence == sequence)?.Hash) is not { } fresh)
+            {
+                return ValueTask.FromResult(QueueResult.Invalid);
+            }
+            events = fresh;
             if (entry.Events.Count + events.Count > options.MaxEventsPerRun
                 || events.Any(line => (line.Detail?.Length ?? 0) > options.MaxEventDetail || line.Type.Length > 64)
                 || !RunEvent.Continues(previous, last, events))
@@ -119,6 +125,8 @@ public sealed class InMemoryBatchQueue(InMemoryApprovalStore approvals, IAuditSi
                 return ValueTask.FromResult(QueueResult.Invalid);
             }
             entry.Events.AddRange(events);
+            // A run that keeps sending lines is alive: the delivery timeout means "the executor went silent", not "the run is long"
+            entry.DeliveredAt = time.GetUtcNow();
             return ValueTask.FromResult(QueueResult.Ok);
         }
     }
@@ -135,12 +143,12 @@ public sealed class InMemoryBatchQueue(InMemoryApprovalStore approvals, IAuditSi
         {
             return QueueResult.NotFound;
         }
-        var known = entry.Batch.Tasks.Select(task => task.Id).ToHashSet();
+        var known = entry.Batch.Tasks.ToDictionary(task => task.Id, task => task.Kind);
         if (entry.State != BatchState.Delivered || entry.Executor != executor)
         {
             return QueueResult.NotYours;
         }
-        if (outcome.Final is not (BatchState.Done or BatchState.Refused) || outcome.Tasks.Any(task => !known.Contains(task.TaskId)))
+        if (outcome.Final is not (BatchState.Done or BatchState.Refused) || outcome.Tasks.Any(task => !known.TryGetValue(task.TaskId, out var kind) || !TaskResultRules.Fits(kind, task.Result)))
         {
             return QueueResult.Invalid;
         }
@@ -173,6 +181,19 @@ public sealed class InMemoryBatchQueue(InMemoryApprovalStore approvals, IAuditSi
         lock (_gate)
         {
             return [.. _entries.OrderByDescending(entry => entry.Batch.CreatedAt).Take(limit).Select(Summary)];
+        }
+    }
+
+    public IReadOnlyList<TaskResultRow> TaskResults(int limit)
+    {
+        lock (_gate)
+        {
+            return [.. _entries
+                .Where(entry => entry.EndedAt is not null)
+                .OrderByDescending(entry => entry.EndedAt)
+                .SelectMany(entry => entry.Batch.Tasks.Where(task => entry.Outcomes.ContainsKey(task.Id)).OrderByDescending(task => task.Sequence)
+                    .Select(task => new TaskResultRow(task.Repository, task.PullRequest, task.HeadSha, task.Kind, entry.Outcomes[task.Id].Result, entry.Outcomes[task.Id].Reason, entry.EndedAt!.Value)))
+                .Take(limit)];
         }
     }
 

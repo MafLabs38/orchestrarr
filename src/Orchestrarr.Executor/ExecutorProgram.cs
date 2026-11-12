@@ -40,7 +40,7 @@ public static class ExecutorProgram
                 "operators" => Commands(options, io).ListOperators(),
                 "acts" => Commands(options, io).ListActs(),
                 "delegations" => await DelegationsAsync(args, named, Commands(options, io), io, cancel.Token),
-                "run" => await HostAsync(options, cancel.Token),
+                "run" => RelaxationRefusal(options, Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT") ?? Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")) is { } refusal ? Fail(io, refusal) : await HostAsync(options, cancel.Token),
                 _ => Fail(io, "Unknown command. Known: run, enroll-operator, operators, acts, delegations."),
             };
         }
@@ -49,6 +49,15 @@ public static class ExecutorProgram
             return Fail(io, failure.Message);
         }
     }
+
+    /// <summary>
+    /// The code of the second factor may be off on an executor only in Development or Testing, as it may be on the host (ADR 0023): an executor that is run
+    /// with no environment named, or as Production (the default), refuses to start without it. A reason, or null when it may start.
+    /// </summary>
+    internal static string? RelaxationRefusal(ExecutorOptions options, string? environment) =>
+        options.RequireSecondFactor || environment is "Development" or "Testing"
+            ? null
+            : "Executor:RequireSecondFactor=false is for development and tests: set DOTNET_ENVIRONMENT=Development (or Testing) to run without the code, or ask for it.";
 
     private static int Fail(IConsoleIo io, string message)
     {
@@ -93,6 +102,21 @@ public static class ExecutorProgram
         }
     }
 
+    /// <summary>
+    /// The runners this executor offers. Validating runs for real when profiles are configured, otherwise it is a dry run; merging is always a dry run (no
+    /// write power yet); repairing is offered only when the validation (its profile says how to check a repair) and the agent's image and token are configured.
+    /// </summary>
+    internal static List<ITaskRunner> RunnersFor(ExecutorOptions options, IProcessRunner processes)
+    {
+        ITaskRunner validate = options.Validation.IsConfigured ? new ValidatePullRequestRunner(options.Validation, processes) : new DryRunTaskRunner(TaskKind.ValidatePullRequest);
+        List<ITaskRunner> runners = [validate, new DryRunTaskRunner(TaskKind.MergePullRequest)];
+        if (options.Validation.IsConfigured && options.Repair.IsConfigured)
+        {
+            runners.Add(new RepairPullRequestRunner(options.Validation, options.Repair, processes));
+        }
+        return runners;
+    }
+
     private static async Task<int> HostAsync(ExecutorOptions options, CancellationToken cancellationToken)
     {
         var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { Args = [] });
@@ -102,7 +126,7 @@ public static class ExecutorProgram
         builder.Services.AddSingleton(provider => new SecondFactorGuard(provider.GetRequiredService<ExecutorStore>(), provider.GetRequiredService<ExecutorStore>(), provider.GetRequiredService<TimeProvider>(), SecondFactor()));
         // With no journal configured the double control has nothing to read, so every batch is refused: that is the safe state
         builder.Services.AddSingleton<IApprovalJournalReader>(new FileApprovalJournal(options.JournalPath.Length > 0 ? options.JournalPath : Path.Combine(AppContext.BaseDirectory, "no-journal.jsonl")));
-        builder.Services.AddSingleton<IEnumerable<ITaskRunner>>([new DryRunTaskRunner(TaskKind.ValidatePullRequest), new DryRunTaskRunner(TaskKind.MergePullRequest)]);
+        builder.Services.AddSingleton<IEnumerable<ITaskRunner>>(RunnersFor(options, new SystemProcessRunner()));
         builder.Services.AddSingleton(provider => new ExecutorPipeline(
             provider.GetRequiredService<ExecutorStore>(),
             provider.GetRequiredService<SecondFactorGuard>(),

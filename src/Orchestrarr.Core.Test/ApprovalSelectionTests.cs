@@ -64,6 +64,18 @@ public sealed class ApprovalSelectionTests
         service.ApproveSelectionAsync(approver ?? Operator, selection, code, Ct);
 
     [Fact]
+    public async Task A_repair_becomes_one_repair_task_with_no_validation_or_merge_beside_it()
+    {
+        var service = await Service(new ConfiguredPowerPolicy([new PowerGrant(PowerGrant.Wildcard, [StepKind.Validate, StepKind.MergePullRequests, StepKind.Repair])]));
+
+        var result = await Approve(service, [Problem(Shop, 1, HeadA, [StepKind.Repair], "goesUpTo=Qualification repair=True")]);
+
+        result.Recorded.Should().BeTrue();
+        var batch = (await _queue.ClaimAsync("executor-1", Ct)).Delivery!.Batch;
+        batch.Tasks.Select(task => task.Kind).Should().Equal(TaskKind.RepairPullRequest);
+    }
+
+    [Fact]
     public async Task Problems_of_two_applications_become_one_batch_checked_once_with_the_steps_each_row_stands_for()
     {
         var service = await Service();
@@ -171,6 +183,18 @@ public sealed class ApprovalSelectionTests
         (await Approve(service, selection)).Recorded.Should().BeTrue();
 
         (await Approve(service, selection)).Refusal.Should().Be(ApprovalRefusal.AlreadyApproved);
+    }
+
+    [Fact]
+    public async Task A_selection_with_more_repairs_than_one_approval_may_start_is_refused_now()
+    {
+        var many = Enumerable.Range(1, TaskLimits.MaxRepairsPerBatch + 1).Select(number => PullRequest("example/shop", number, new string((char)('a' + (number % 6)), 40))).ToList();
+        _forge.Set("example/shop", many);
+        var service = await ServiceWithoutReset(["example/shop"], new ConfiguredPowerPolicy([new PowerGrant(PowerGrant.Wildcard, [StepKind.Validate, StepKind.MergePullRequests, StepKind.Repair])]));
+
+        var result = await Approve(service, [.. many.Select(pullRequest => Problem(Shop, pullRequest.Number, pullRequest.HeadSha, [StepKind.Repair], "goesUpTo=Qualification repair=True"))]);
+
+        result.Refusal.Should().Be(ApprovalRefusal.TooManyRepairs);
     }
 
     [Fact]

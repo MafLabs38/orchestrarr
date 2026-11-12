@@ -24,8 +24,14 @@ interface SelectionBarProps {
 // What the validation of the selection will do, application by application: one batch each, built and qualified once
 function planLines(chosen: ProblemRow[], stops: Readonly<Record<string, boolean>>): string[] {
   const apps = [...new Set(chosen.map((row) => row.application))];
-  return apps.map((app) => {
-    const rows = chosen.filter((row) => row.application === app);
+  return apps.flatMap((app) => {
+    const all = chosen.filter((row) => row.application === app);
+    const repairing = all.filter((row) => row.goesUpTo === 'repair');
+    const rows = all.filter((row) => row.goesUpTo !== 'repair');
+    const lines = repairing.length > 0 ? [translate('PlanRepair', { app, count: repairing.length })] : [];
+    if (rows.length === 0) {
+      return lines;
+    }
     const promotes = rows.some((row) => row.goesUpTo === 'production' && !stops[row.id]);
     const merges = rows.some((row) => row.goesUpTo === 'mergeIntoDevelop' || row.goesUpTo === 'production');
     let key: 'PlanQualifyOnly' | 'PlanMerge' | 'PlanPromote' = 'PlanQualifyOnly';
@@ -34,7 +40,7 @@ function planLines(chosen: ProblemRow[], stops: Readonly<Record<string, boolean>
     } else if (merges) {
       key = 'PlanMerge';
     }
-    return translate(key, { app, count: rows.length });
+    return [...lines, translate(key, { app, count: rows.length })];
   });
 }
 

@@ -11,17 +11,27 @@ import * as icons from 'Helpers/Props/icons';
 import { kinds } from 'Helpers/Props/kinds';
 import { iconSizes } from 'Helpers/Props/sizes';
 import useSystemStatus from 'System/useSystemStatus';
-import type { Ceiling, ProblemRow, ProblemsReport } from 'typings/api';
-import { describeCeiling, describeError, describeProblem, describeProblemKind } from 'Utilities/describe';
+import type { Ceiling, ProblemRow, ProblemsReport, WorkshopVerdict } from 'typings/api';
+import {
+  describeCeiling,
+  describeError,
+  describeProblem,
+  describeProblemKind,
+  describeProblemKindShort,
+  describeWhyShort,
+  describeWorkshop,
+} from 'Utilities/describe';
 import formatTime from 'Utilities/formatTime';
 import translate from 'Utilities/translate';
 
 import styles from './Decisions.module.css';
 import ProblemTable, { isActionable } from './ProblemTable';
 import SelectionBar from './SelectionBar';
+import { type Sort, sortRows } from './sortRows';
 import useProblems, { useRefreshProblems } from './useProblems';
 
-const ceilingOrder: Ceiling[] = ['production', 'mergeIntoDevelop', 'qualification', 'noAction'];
+const ceilingOrder: Ceiling[] = ['production', 'mergeIntoDevelop', 'repair', 'qualification', 'noAction'];
+const workshopOrder: WorkshopVerdict[] = ['fails', 'passes', 'repaired', 'unknown'];
 
 export default function Decisions() {
   const { data: report, error, isPending } = useProblems();
@@ -49,16 +59,18 @@ interface Filters {
   application: string;
   type: string;
   goesUp: string;
+  workshop: string;
   text: string;
 }
 
-const noFilters: Filters = { application: '', type: '', goesUp: '', text: '' };
+const noFilters: Filters = { application: '', type: '', goesUp: '', workshop: '', text: '' };
 
 function matches(row: ProblemRow, filters: Filters): boolean {
   return (
     (!filters.application || row.application === filters.application) &&
     (!filters.type || row.kind === filters.type) &&
     (!filters.goesUp || row.goesUpTo === filters.goesUp) &&
+    (!filters.workshop || row.workshop === filters.workshop) &&
     (!filters.text || `${row.application} ${describeProblem(row)}`.toLowerCase().includes(filters.text.toLowerCase()))
   );
 }
@@ -69,12 +81,23 @@ function Table({ report }: Readonly<{ report: ProblemsReport }>) {
   // The selection remembers the commit that was shown: a row whose pull request moved since is no longer what was chosen
   const [chosenAt, setChosenAt] = useState<Record<string, string>>({});
   const [stops, setStops] = useState<Record<string, boolean>>({});
+  const [sort, setSort] = useState<Sort | null>(null);
 
   if (report.error && report.rows.length === 0) {
     return <Alert kind={kinds.DANGER}>{translate('CannotReadFleet', { error: describeError(report.error) })}</Alert>;
   }
 
-  const shown = report.rows.filter((row) => matches(row, filters));
+  const numbers = new Map(report.rows.map((row, index) => [row.id, index + 1]));
+  const shown = sortRows(
+    report.rows.filter((row) => matches(row, filters)),
+    numbers,
+    sort,
+    (row) => ({
+      type: describeProblemKindShort(row.kind),
+      problem: `${describeProblem(row)}`,
+      why: describeWhyShort(row.why),
+    }),
+  );
   const chosen = report.rows.filter((row) => isActionable(row) && chosenAt[row.id] === row.headSha);
   const selected = new Set(chosen.map((row) => row.id));
   const applications = [...new Set(report.rows.map((row) => row.application))].sort((a, b) => a.localeCompare(b));
@@ -136,6 +159,17 @@ function Table({ report }: Readonly<{ report: ProblemsReport }>) {
               </select>
             </label>
             <label className={styles.filter}>
+              {translate('FilterWorkshop')}
+              <select value={filters.workshop} onChange={(event) => set({ workshop: event.target.value })}>
+                <option value="">{translate('FilterAnyWorkshop')}</option>
+                {workshopOrder.map((verdict) => (
+                  <option key={verdict} value={verdict}>
+                    {describeWorkshop(verdict)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className={styles.filter}>
               {translate('FilterGoesUp')}
               <select value={filters.goesUp} onChange={(event) => set({ goesUp: event.target.value })}>
                 <option value="">{translate('FilterAnyGoesUp')}</option>
@@ -163,8 +197,11 @@ function Table({ report }: Readonly<{ report: ProblemsReport }>) {
           ) : (
             <ProblemTable
               rows={shown}
+              numbers={numbers}
               selected={selected}
               stops={stops}
+              sort={sort}
+              onSort={setSort}
               onSelect={select}
               onSelectAll={selectAll}
               onStop={(row, stop) => setStops((current) => ({ ...current, [row.id]: stop }))}

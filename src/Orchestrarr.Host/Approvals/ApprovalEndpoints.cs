@@ -122,5 +122,16 @@ internal static class ApprovalEndpoints
     private static string JsonCode(ApprovalRefusal refusal) => JsonNamingPolicy.CamelCase.ConvertName(refusal.ToString());
 
     internal static ApprovalDto ToDto(Approval approval) =>
-        new(approval.Id, approval.WorkItemId, approval.Repository, approval.PullRequest, approval.HeadSha, approval.Steps, approval.ApproverSubject, approval.ApprovedAt, approval.State, approval.BatchId, approval.EndedAt);
+        new(approval.Id, approval.WorkItemId, approval.Repository, approval.PullRequest, approval.HeadSha, approval.Steps, approval.ApproverSubject, approval.ApprovedAt, StateWord(approval.State), approval.BatchId, approval.EndedAt);
+
+    // What the API says of a state: the words of D-22. A run that has ended is "ended", whatever its result (it is in the run); the stored name of that state is older.
+    private static string StateWord(ApprovalState state) => state switch
+    {
+        ApprovalState.Waiting => "waiting",
+        ApprovalState.Taken => "taken",
+        ApprovalState.DryRunDone => "ended",
+        ApprovalState.Refused => "refused",
+        ApprovalState.Expired => "expired",
+        _ => "waiting",
+    };
 }

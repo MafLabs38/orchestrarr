@@ -31,6 +31,28 @@ public sealed class DecisionSelectionTests
     }
 
     [Fact]
+    public void A_row_that_goes_up_to_the_repair_stands_for_the_repair_alone()
+    {
+        var failing = Row("pr:example/shop#3", Ceiling.Repair, 3, canStop: false);
+
+        var resolution = DecisionSelection.Resolve(Table(failing), [Chose(failing)], "abc", "abc");
+
+        resolution.Refused.Should().BeFalse();
+        resolution.Selection.Single().Steps.Should().Equal(StepKind.Repair);
+        resolution.Selection.Single().Note.Should().Contain("goesUpTo=Repair");
+    }
+
+    [Fact]
+    public void A_row_that_was_a_repair_when_the_operator_looked_and_is_not_any_more_refuses_the_selection()
+    {
+        var current = Row("pr:example/shop#4", Ceiling.Qualification, 4, canStop: false);
+
+        var resolution = DecisionSelection.Resolve(Table(current), [Chose(current, goesUpTo: Ceiling.Repair)], "abc", "abc");
+
+        resolution.Refused.Should().BeTrue();
+    }
+
+    [Fact]
     public void No_descriptions_are_noted_as_none()
     {
         DecisionSelection.Resolve(Table(Row()), [Chose(Row())], string.Empty, string.Empty).Selection.Single().Note.Should().EndWith("descriptions=none");

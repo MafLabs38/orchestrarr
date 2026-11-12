@@ -75,6 +75,9 @@ public sealed class WorkItemCatalog : IDisposable
     /// <summary>Completes when the pull requests of the last read are all read or failed. For tests.</summary>
     internal Task EnrichmentIdle => _enrichment;
 
+    /// <summary>Raised when the table has new things to show: a read of the fleet, a pull request list that arrived or timed out. The handler must not wait.</summary>
+    public event Action? Changed;
+
     /// <summary>What was read last, without reading anything: null before the first read. The status page uses it.</summary>
     public WorkItemReport? Peek() => _last;
 
@@ -103,6 +106,9 @@ public sealed class WorkItemCatalog : IDisposable
                     _enrichment = StartEnrichment(_generation, items, refresh);
                     enrichment = _enrichment;
                 }
+
+                // Told outside the lock: a listener is foreign code
+                Changed?.Invoke();
             }
             catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
             {
@@ -234,6 +240,8 @@ public sealed class WorkItemCatalog : IDisposable
                     WaitsForPullRequests(item) && string.Equals(item.RepositoryFullName, repository, StringComparison.OrdinalIgnoreCase) ? item with { PullRequests = read } : item)],
             };
         }
+
+        Changed?.Invoke();
     }
 
     private void ApplyTimeout(int generation)
@@ -259,6 +267,9 @@ public sealed class WorkItemCatalog : IDisposable
                 })],
             };
         }
+
+        // The rows that were waiting say so now: the screens are told, not left to the next poll
+        Changed?.Invoke();
     }
 
     // A repository name comes from another system: it goes into the log without anything that could forge a line

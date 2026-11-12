@@ -14,6 +14,7 @@ using Orchestrarr.Host;
 using Orchestrarr.Host.Approvals;
 using Orchestrarr.Host.Accounts;
 using Orchestrarr.Host.Decisions;
+using Orchestrarr.Host.Live;
 using Orchestrarr.Host.Settings;
 using Orchestrarr.Host.Storage;
 using Orchestrarr.Host.Tasks;
@@ -27,6 +28,11 @@ builder.Services.Configure<JsonOptions>(options =>
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
 });
 builder.Services.AddSingleton(TimeProvider.System);
+// What changes is pushed to the screens as it changes (ADR 0025): a WebSocket that says what to read again, never the data itself
+builder.Services.AddSignalR();
+builder.Services.AddSingleton<LiveBroadcaster>();
+builder.Services.AddSingleton<ILiveNotifier>(provider => provider.GetRequiredService<LiveBroadcaster>());
+builder.Services.AddHostedService(provider => provider.GetRequiredService<LiveBroadcaster>());
 builder.Services.AddSingleton(provider => FleetSourceFactory.Create(builder.Configuration, builder.Environment.ContentRootPath, provider.GetRequiredService<TimeProvider>()));
 builder.Services.AddSingleton(provider => PullRequestSourceFactory.Create(builder.Configuration, builder.Environment.ContentRootPath, provider.GetRequiredService<TimeProvider>()));
 // Approving: recording the operator's decision, with its trail and the global stop. Nothing here runs anything yet.
@@ -75,6 +81,12 @@ if (app.Environment.WebRootFileProvider.GetDirectoryContents("/").Exists)
 // Everything the API says, reads included, is for a person who signed in: who approved what is not for anybody (the fallback policy)
 app.UseOrchestrarrSecurity();
 
+// A change made through the API (an approval, the stop, an option, an account) is told to every screen once it has succeeded
+var live = app.Services.GetRequiredService<ILiveNotifier>();
+app.UseMiddleware<LiveChangeMiddleware>();
+app.Services.GetRequiredService<WorkItemCatalog>().Changed += () => live.Publish(LiveTopics.Problems);
+app.Services.GetRequiredService<ExecutorRegistry>().Changed += () => live.Publish(LiveTopics.Status);
+
 var api = app.MapGroup("/api/v1");
 api.MapAuthEndpoints();
 api.MapAccountEndpoints();
@@ -86,7 +98,7 @@ app.UseRateLimiter();
 // For a probe of the deployment: it says the host is up and nothing else
 app.MapGet("/health", () => Results.Ok(new HealthStatus("ok"))).AllowAnonymous();
 
-// The decision cards waiting for the operator, and the approvals recorded for the launcher. Approving records a decision; nothing runs.
+// The decision cards waiting for the operator, and the approvals recorded for the launcher. Approving records a decision; the executor takes it from the queue.
 api.MapGet("/work-items", async (WorkItemCatalog catalog, bool? refresh, CancellationToken ct) =>
     Results.Ok(await catalog.GetAsync(refresh ?? false, ct))).RequireAuthorization(Permissions.FleetRead);
 
@@ -94,6 +106,8 @@ api.MapGet("/work-items/{**id}", async (WorkItemCatalog catalog, string id, Canc
     await catalog.FindAsync(id, ct) is { } item ? Results.Ok(item) : Results.NotFound()).RequireAuthorization(Permissions.FleetRead);
 
 api.MapApprovalEndpoints();
+// The WebSocket of the screens: for whoever may read the fleet
+app.MapHub<LiveHub>(LiveHub.Path, options => options.CloseOnAuthenticationExpiration = true).RequireAuthorization(Permissions.FleetRead);
 api.MapProblemsEndpoints();
 api.MapRunEndpoints();
 // The routes of the executors carry their own token and no session: they are mapped outside the group that needs a person

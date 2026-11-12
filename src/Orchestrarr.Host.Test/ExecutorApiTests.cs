@@ -61,6 +61,31 @@ public sealed class ExecutorApiTests : IDisposable
     // --- the routes
 
     [Fact]
+    public async Task An_executor_reads_the_global_stop_while_it_runs_and_only_with_its_token()
+    {
+        using var factory = Factory();
+        var executor = Executor(factory);
+        var person = factory.CreateClient();
+
+        (await Json(await executor.GetAsync("/api/v1/executor/stop", Ct))).GetProperty("engaged").GetBoolean().Should().BeFalse();
+        (await person.PutAsJsonAsync("/api/v1/safety/kill-switch", new { engaged = true }, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await Json(await executor.GetAsync("/api/v1/executor/stop", Ct))).GetProperty("engaged").GetBoolean().Should().BeTrue();
+        (await Executor(factory, new string('b', 48)).GetAsync("/api/v1/executor/stop", Ct)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await person.GetAsync("/api/v1/executor/stop", Ct)).StatusCode.Should().Be(HttpStatusCode.Unauthorized, "a person's session is not an executor's token");
+    }
+
+    [Fact]
+    public async Task The_real_client_of_the_executor_reads_the_global_stop()
+    {
+        using var factory = Factory();
+        var client = new ControlPlaneClient(factory.CreateClient(), new ControlPlaneOptions { Url = "http://localhost", Token = Token });
+
+        (await client.GlobalStopEngagedAsync(Ct)).Should().BeFalse();
+        await factory.CreateClient().PutAsJsonAsync("/api/v1/safety/kill-switch", new { engaged = true }, Ct);
+        (await client.GlobalStopEngagedAsync(Ct)).Should().BeTrue();
+    }
+
+    [Fact]
     public async Task With_no_executor_configured_the_routes_are_not_there()
     {
         using var factory = Factory(withExecutor: false);
@@ -209,7 +234,7 @@ public sealed class ExecutorApiTests : IDisposable
         var run = await Json(await person.GetAsync($"/api/v1/runs/{batch.Id}", Ct));
         run.GetProperty("summary").GetProperty("state").GetString().Should().Be("done");
         run.GetProperty("events").GetArrayLength().Should().Be(1);
-        (await Json(await person.GetAsync("/api/v1/approvals", Ct))).EnumerateArray().Should().OnlyContain(a => a.GetProperty("state").GetString() == "dryRunDone");
+        (await Json(await person.GetAsync("/api/v1/approvals", Ct))).EnumerateArray().Should().OnlyContain(a => a.GetProperty("state").GetString() == "ended");
         (await Approve(person)).StatusCode.Should().Be(HttpStatusCode.Created, "a dry run spends the approval: it may be given again");
     }
 

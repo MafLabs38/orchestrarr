@@ -1,0 +1,33 @@
+.container {
+  display: inline-block;
+}
+
+.button {
+  display: inline-flex;
+  padding: 0 2px;
+  color: var(--inkMuted);
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  vertical-align: middle;
+}
+
+.button:hover,
+.button[aria-expanded='true'] {
+  color: var(--accentText);
+}
+
+.bubble {
+  position: fixed;
+  z-index: 30;
+  width: 300px;
+  padding: 10px 12px;
+  font-size: var(--fontSizeMeta);
+  line-height: 1.4;
+  white-space: normal;
+  color: var(--ink);
+  background: var(--paperWarm);
+  border: var(--borderWidth) solid var(--hairlineStrong);
+  border-radius: var(--radiusMedium);
+  box-shadow: var(--shadowCard);
+}

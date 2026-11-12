@@ -20,9 +20,9 @@ public sealed class DecisionTableTests
 
     private static PlanStep Step(StepKind kind, bool available = true, bool granted = true) => new(kind, null, null, true, available, granted, null);
 
-    private static WorkItem Item(IReadOnlyList<PullRequestInfo>? pulls = null, IReadOnlyList<Finding>? findings = null, PullRequestsRead? read = null, bool grantMerge = true, bool grantValidate = true, string id = Id) =>
+    private static WorkItem Item(IReadOnlyList<PullRequestInfo>? pulls = null, IReadOnlyList<Finding>? findings = null, PullRequestsRead? read = null, bool grantMerge = true, bool grantValidate = true, string id = Id, bool grantRepair = true) =>
         new(id, "example/shop", "example/shop", [], Severity.Info, findings ?? [new Finding(FindingKind.OpenDependencyPullRequests, Severity.Info, (pulls ?? [Pull()]).Count)],
-            [Step(StepKind.Validate, granted: grantValidate), Step(StepKind.MergePullRequests, granted: grantMerge)], [],
+            [Step(StepKind.Validate, granted: grantValidate), Step(StepKind.MergePullRequests, granted: grantMerge), Step(StepKind.Repair, granted: grantRepair)], [],
             read ?? new PullRequestsRead(PullRequestsStatus.Read, pulls ?? [Pull()]));
 
     private static IApplicationCatalog Described(string mode = "smoke", bool rollback = true, bool check = true, string promote = "\"patch\", \"minor\"") =>
@@ -33,10 +33,12 @@ public sealed class DecisionTableTests
               "update": { "promote": [{{promote}}] } } ] }
             """);
 
-    private static IReadOnlyList<ProblemRow> Table(WorkItem item, IApplicationCatalog? applications = null, IReadOnlyList<ExecutorAcceptance>? executors = null) =>
-        DecisionTable.Build([item], applications ?? Described(), executors ?? [Everything]);
+    private static IReadOnlyList<ProblemRow> Table(WorkItem item, IApplicationCatalog? applications = null, IReadOnlyList<ExecutorAcceptance>? executors = null, IReadOnlyList<TaskResultRow>? results = null) =>
+        DecisionTable.Build([item], applications ?? Described(), executors ?? [Everything], results);
 
     private static readonly ExecutorAcceptance Everything = new([TaskKind.ValidatePullRequest, TaskKind.MergePullRequest], ["example/*"]);
+
+    private static readonly ExecutorAcceptance Repairing = new([TaskKind.ValidatePullRequest, TaskKind.MergePullRequest, TaskKind.RepairPullRequest], ["example/*"]);
 
     private static ProblemRow Only(IReadOnlyList<ProblemRow> rows) => rows.Single(row => row.Kind == ProblemKind.DependencyUpdate);
 
@@ -86,6 +88,111 @@ public sealed class DecisionTableTests
 
         row.GoesUpTo.Should().Be(Ceiling.Qualification);
         row.Why.Should().Be(CeilingReason.QualificationNotDescribed);
+    }
+
+    private static TaskResultRow Said(TaskKind kind, TaskResult result, string? reason = null, int minutes = 0, string? head = null) =>
+        new("example/shop", 1, head ?? Head, kind, result, reason, At.AddMinutes(minutes));
+
+    private static IReadOnlyList<ProblemRow> TableWith(WorkItem item, params TaskResultRow[] results) =>
+        DecisionTable.Build([item], Described(), [Repairing], results);
+
+    [Fact]
+    public void A_pull_request_whose_checks_fail_on_the_forge_goes_up_to_the_repair_where_one_can_be_tried()
+    {
+        var row = Only(TableWith(Item([Pull(checks: ChecksState.Failing)])));
+
+        row.GoesUpTo.Should().Be(Ceiling.Repair);
+        row.Why.Should().Be(CeilingReason.ChecksFailing);
+        DecisionTable.StepsOf(row.GoesUpTo).Should().Equal(StepKind.Repair);
+    }
+
+    [Fact]
+    public void Where_no_repair_can_be_tried_a_failing_pull_request_stays_at_the_qualification()
+    {
+        Only(Table(Item([Pull(checks: ChecksState.Failing)]), executors: [Everything])).GoesUpTo.Should().Be(Ceiling.Qualification, "no executor accepts the repair");
+        Only(TableWith(Item([Pull(checks: ChecksState.Failing)], grantRepair: false))).GoesUpTo.Should().Be(Ceiling.Qualification, "the repair is not granted");
+    }
+
+    [Fact]
+    public void A_pull_request_that_passes_on_the_forge_but_failed_in_the_workshop_becomes_a_repair()
+    {
+        var row = Only(TableWith(Item(), Said(TaskKind.ValidatePullRequest, TaskResult.Failed, "npm test failed (exit 1)")));
+
+        row.GoesUpTo.Should().Be(Ceiling.Repair);
+        row.Why.Should().Be(CeilingReason.QualificationFailed);
+        row.Workshop.Should().Be(WorkshopVerdict.Fails);
+    }
+
+    [Fact]
+    public void The_latest_word_of_the_workshop_on_the_commit_counts_and_a_new_commit_starts_again()
+    {
+        var failedThenPassed = TableWith(Item(), Said(TaskKind.ValidatePullRequest, TaskResult.Failed, minutes: 0), Said(TaskKind.ValidatePullRequest, TaskResult.Passed, minutes: 5));
+        var other = TableWith(Item(), Said(TaskKind.ValidatePullRequest, TaskResult.Failed, head: new string('f', 40)));
+
+        Only(failedThenPassed).GoesUpTo.Should().Be(Ceiling.Production, "it passed since");
+        Only(other).GoesUpTo.Should().Be(Ceiling.Production, "the failure was on another commit");
+    }
+
+    [Fact]
+    public void A_repair_that_did_not_work_can_be_tried_again()
+    {
+        var row = Only(TableWith(Item([Pull(checks: ChecksState.Failing)]), Said(TaskKind.RepairPullRequest, TaskResult.Failed, "the agent made no change")));
+
+        row.GoesUpTo.Should().Be(Ceiling.Repair);
+        row.Why.Should().Be(CeilingReason.RepairFailed);
+    }
+
+    [Fact]
+    public void A_repair_that_worked_leaves_a_patch_and_nothing_to_select_because_applying_it_is_not_built()
+    {
+        var row = Only(TableWith(Item([Pull(checks: ChecksState.Failing)]), Said(TaskKind.RepairPullRequest, TaskResult.Repaired, "repaired: 1 file(s) changed")));
+
+        row.GoesUpTo.Should().Be(Ceiling.NoAction);
+        row.Why.Should().Be(CeilingReason.PatchReady);
+        row.Workshop.Should().Be(WorkshopVerdict.Repaired);
+    }
+
+    [Fact]
+    public void A_task_that_was_refused_or_only_dry_run_after_a_failure_says_nothing_about_the_code_so_the_failure_still_counts()
+    {
+        var row = Only(TableWith(Item(), Said(TaskKind.ValidatePullRequest, TaskResult.Failed, minutes: 0), Said(TaskKind.ValidatePullRequest, TaskResult.Refused, minutes: 5), Said(TaskKind.MergePullRequest, TaskResult.DryRun, minutes: 6)));
+
+        row.Workshop.Should().Be(WorkshopVerdict.Fails);
+        row.GoesUpTo.Should().Be(Ceiling.Repair);
+    }
+
+    [Fact]
+    public void When_the_workshop_failed_and_no_repair_can_be_tried_the_pull_request_stays_at_the_qualification()
+    {
+        var row = Only(Table(Item(grantRepair: false), executors: [Repairing], results: [Said(TaskKind.ValidatePullRequest, TaskResult.Failed)]));
+
+        row.GoesUpTo.Should().Be(Ceiling.Qualification);
+        row.Why.Should().Be(CeilingReason.QualificationFailed);
+    }
+
+    [Fact]
+    public void A_newer_validation_that_passes_after_a_repair_is_the_latest_word()
+    {
+        var row = Only(TableWith(Item(), Said(TaskKind.RepairPullRequest, TaskResult.Repaired, "repaired: 1 file(s) changed", minutes: 0), Said(TaskKind.ValidatePullRequest, TaskResult.Passed, minutes: 5)));
+
+        row.Workshop.Should().Be(WorkshopVerdict.Passes);
+        row.Why.Should().NotBe(CeilingReason.PatchReady);
+    }
+
+    [Fact]
+    public void A_pull_request_that_passes_in_the_workshop_while_the_forge_fails_points_at_the_pipeline_not_at_a_repair()
+    {
+        var row = Only(TableWith(Item([Pull(checks: ChecksState.Failing)]), Said(TaskKind.RepairPullRequest, TaskResult.Passed, "nothing to repair: the validation passes")));
+
+        row.GoesUpTo.Should().Be(Ceiling.Qualification);
+        row.Why.Should().Be(CeilingReason.PassesHereChecksFailing);
+        row.Workshop.Should().Be(WorkshopVerdict.Passes);
+    }
+
+    [Fact]
+    public void A_commit_the_workshop_never_ran_has_no_verdict()
+    {
+        Only(TableWith(Item())).Workshop.Should().Be(WorkshopVerdict.Unknown);
     }
 
     [Theory]

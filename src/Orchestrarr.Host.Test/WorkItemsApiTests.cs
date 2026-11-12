@@ -51,11 +51,13 @@ public sealed class WorkItemsApiTests : IClassFixture<SampleApiFactory>
         var item = await factory.CreateClient().GetFromJsonAsync<JsonElement>("/api/v1/work-items/repository:example/shop", TestContext.Current.CancellationToken);
 
         var plan = item.GetProperty("plan").EnumerateArray().ToList();
-        plan.Select(s => s.GetProperty("kind").GetString()).Should().Equal("validate", "mergePullRequests", "deploy");
-        plan.Should().OnlyContain(s => s.GetProperty("ticked").GetBoolean() && s.GetProperty("available").GetBoolean());
+        plan.Select(s => s.GetProperty("kind").GetString()).Should().Equal("validate", "mergePullRequests", "repair", "deploy");
+        plan.Should().OnlyContain(s => s.GetProperty("available").GetBoolean());
+        plan.Where(s => s.GetProperty("kind").GetString() != "repair").Should().OnlyContain(s => s.GetProperty("ticked").GetBoolean());
+        plan.Single(s => s.GetProperty("kind").GetString() == "repair").GetProperty("ticked").GetBoolean().Should().BeFalse("it calls an agent, so it is chosen");
         plan.Should().OnlyContain(s => !s.GetProperty("granted").GetBoolean());
-        plan[2].GetProperty("environmentId").GetString().Should().Be("cluster");
-        plan[2].GetProperty("environmentName").GetString().Should().Be("Kubernetes cluster");
+        plan[3].GetProperty("environmentId").GetString().Should().Be("cluster");
+        plan[3].GetProperty("environmentName").GetString().Should().Be("Kubernetes cluster");
     }
 
     [Fact]
@@ -93,7 +95,9 @@ public sealed class WorkItemsApiTests : IClassFixture<SampleApiFactory>
             "POST /api/v1/approvals", "POST /api/v1/problems/approve", "PUT /api/v1/safety/kill-switch", "PUT /api/v1/options/{id}",
             "POST /api/v1/auth/login", "POST /api/v1/auth/logout", "POST /api/v1/auth/password",
             "POST /api/v1/accounts/", "PUT /api/v1/accounts/{id:guid}", "POST /api/v1/accounts/{id:guid}/password", "DELETE /api/v1/accounts/{id:guid}");
-        routes.Except(withMethods).Should().ContainSingle().Which.RoutePattern.RawText.Should().Contain("{*path");
+        // The channel of the screens (ADR 0025) is a WebSocket and its negotiation: it carries what to read again, never data, and needs the same session
+        var others = routes.Except(withMethods).Where(e => e.RoutePattern.RawText?.StartsWith("/api/v1/live", StringComparison.Ordinal) != true).ToList();
+        others.Should().ContainSingle().Which.RoutePattern.RawText.Should().Contain("{*path");
     }
 
     [Theory]

@@ -8,10 +8,12 @@ import type {
   ProblemKind,
   ProblemRow,
   RunRefusal,
+  Severity,
   SourceError,
   StepKind,
   TaskKind,
   TaskResult,
+  WorkshopVerdict,
 } from 'typings/api';
 
 import translate from './translate';
@@ -22,6 +24,7 @@ const stepKinds = {
   mergePullRequests: 'StepMergePullRequests',
   mergeFix: 'StepMergeFix',
   deploy: 'StepDeployAnywhere',
+  repair: 'StepRepair',
 } as const satisfies Record<StepKind, string>;
 
 // The label of a kind of step, where no environment is shown (the queue).
@@ -76,6 +79,7 @@ const approvalErrors = {
   noPullRequests: 'ApprovalErrorNoPullRequests',
   alreadyApproved: 'ApprovalErrorAlreadyApproved',
   tooManyPullRequests: 'ApprovalErrorTooManyPullRequests',
+  tooManyRepairs: 'ApprovalErrorTooManyRepairs',
   secondFactorRequired: 'ApprovalErrorSecondFactorRequired',
   storeFull: 'ApprovalErrorStoreFull',
   auditUnavailable: 'ApprovalErrorAuditUnavailable',
@@ -116,7 +120,7 @@ export function describeChecks(state: ChecksState): string {
 const approvalStates = {
   waiting: 'ApprovalStateWaiting',
   taken: 'ApprovalStateTaken',
-  dryRunDone: 'ApprovalStateDryRunDone',
+  ended: 'ApprovalStateEnded',
   refused: 'ApprovalStateRefused',
   expired: 'ApprovalStateExpired',
 } as const satisfies Record<ApprovalState, string>;
@@ -159,6 +163,7 @@ export function describeRunRefusal(refusal: string): string {
 const taskKinds = {
   validatePullRequest: 'TaskKindValidatePullRequest',
   mergePullRequest: 'TaskKindMergePullRequest',
+  repairPullRequest: 'TaskKindRepairPullRequest',
 } as const satisfies Record<TaskKind, string>;
 
 export function describeTaskKind(kind: TaskKind): string {
@@ -169,6 +174,9 @@ const taskResults = {
   dryRun: 'TaskResultDryRun',
   refused: 'TaskResultRefused',
   skipped: 'TaskResultSkipped',
+  passed: 'TaskResultPassed',
+  failed: 'TaskResultFailed',
+  repaired: 'TaskResultRepaired',
 } as const satisfies Record<TaskResult, string>;
 
 export function describeTaskResult(result: TaskResult | null): string {
@@ -184,6 +192,12 @@ const runEvents = {
   'run.rights': 'RunEventRights',
   'run.double-control': 'RunEventDoubleControl',
   'task.dry-run': 'RunEventTaskDryRun',
+  'task.started': 'RunEventTaskStarted',
+  'task.step': 'RunEventTaskStep',
+  'task.passed': 'RunEventTaskPassed',
+  'task.patch': 'RunEventTaskPatch',
+  'task.agent': 'RunEventTaskAgent',
+  'task.failed': 'RunEventTaskFailed',
   'task.refused': 'RunEventTaskRefused',
   'task.skipped': 'RunEventTaskSkipped',
   'run.completed': 'RunEventCompleted',
@@ -200,6 +214,7 @@ const ceilings = {
   qualification: 'GoesUpQualification',
   mergeIntoDevelop: 'GoesUpMergeIntoDevelop',
   production: 'GoesUpProduction',
+  repair: 'GoesUpRepair',
 } as const satisfies Record<Ceiling, string>;
 
 export function describeCeiling(ceiling: Ceiling): string {
@@ -220,6 +235,10 @@ const whys = {
   noRollbackDescribed: 'WhyNoRollbackDescribed',
   noCheckAfterDeployDescribed: 'WhyNoCheckAfterDeployDescribed',
   updateClassStopsBeforeProduction: 'WhyUpdateClassStopsBeforeProduction',
+  qualificationFailed: 'WhyQualificationFailed',
+  repairFailed: 'WhyRepairFailed',
+  patchReady: 'WhyPatchReady',
+  passesHereChecksFailing: 'WhyPassesHereChecksFailing',
 } as const satisfies Record<CeilingReason, string>;
 
 // Why a problem stops where it does, from the code of the server
@@ -260,4 +279,65 @@ export function describeProblem(row: ProblemRow): string {
     default:
       return row.description;
   }
+}
+
+// The same, in two to four words, for the column of the table: the sentence is in the bubble beside it
+const whyShorts = {
+  none: 'WhyShortNone',
+  noDescription: 'WhyShortNoDescription',
+  noActionDefined: 'WhyShortNoActionDefined',
+  pullRequestsNotCurrent: 'WhyShortPullRequestsNotCurrent',
+  notGranted: 'WhyShortNotGranted',
+  noExecutor: 'WhyShortNoExecutor',
+  qualificationNotDescribed: 'WhyShortQualificationNotDescribed',
+  checksFailing: 'WhyShortChecksFailing',
+  checksNotPassing: 'WhyShortChecksNotPassing',
+  cannotBeMergedNow: 'WhyShortCannotBeMergedNow',
+  noRollbackDescribed: 'WhyShortNoRollbackDescribed',
+  noCheckAfterDeployDescribed: 'WhyShortNoCheckAfterDeployDescribed',
+  updateClassStopsBeforeProduction: 'WhyShortUpdateClassStopsBeforeProduction',
+  qualificationFailed: 'WhyShortQualificationFailed',
+  repairFailed: 'WhyShortRepairFailed',
+  patchReady: 'WhyShortPatchReady',
+  passesHereChecksFailing: 'WhyShortPassesHereChecksFailing',
+} as const satisfies Record<CeilingReason, string>;
+
+export function describeWhyShort(reason: CeilingReason): string {
+  return translate(whyShorts[reason]);
+}
+
+const problemKindShorts = {
+  dependencyUpdate: 'KindShortDependencyUpdate',
+  dependencyAlert: 'KindShortDependencyAlert',
+  codeScanningAlert: 'KindShortCodeScanningAlert',
+  exposedSecret: 'KindShortExposedSecret',
+  failingCi: 'KindShortFailingCi',
+  imageUpdate: 'KindShortImageUpdate',
+  dependencyScanUnavailable: 'KindShortDependencyScanUnavailable',
+  pullRequestsNotRead: 'KindShortPullRequestsNotRead',
+} as const satisfies Record<ProblemKind, string>;
+
+export function describeProblemKindShort(kind: ProblemKind): string {
+  return translate(problemKindShorts[kind]);
+}
+
+const workshops = {
+  unknown: 'WorkshopUnknown',
+  passes: 'WorkshopPasses',
+  fails: 'WorkshopFails',
+  repaired: 'WorkshopRepaired',
+} as const satisfies Record<WorkshopVerdict, string>;
+
+export function describeWorkshop(verdict: WorkshopVerdict): string {
+  return translate(workshops[verdict]);
+}
+
+const severities = {
+  danger: 'SeverityDanger',
+  warning: 'SeverityWarning',
+  info: 'SeverityInfo',
+} as const satisfies Record<Severity, string>;
+
+export function describeSeverity(severity: Severity): string {
+  return translate(severities[severity]);
 }

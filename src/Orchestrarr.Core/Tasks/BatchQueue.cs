@@ -43,6 +43,9 @@ public sealed record RunSummary(
 
 public sealed record RunTask(TaskSpec Spec, TaskResult? Result, string? Reason);
 
+/// <summary>What became of one task of an ended batch, on one commit of one pull request.</summary>
+public sealed record TaskResultRow(string Repository, int PullRequest, string HeadSha, TaskKind Kind, TaskResult Result, string? Reason, DateTimeOffset At);
+
 /// <summary>A run with everything it left: its tasks, what became of each, and the chained lines of its trace.</summary>
 public sealed record RunDetail(RunSummary Summary, IReadOnlyList<RunTask> Tasks, IReadOnlyList<RunEvent> Events);
 
@@ -74,6 +77,9 @@ public interface IBatchQueue
     IReadOnlyList<RunSummary> Runs(int limit);
 
     RunDetail? Find(Guid batchId);
+
+    /// <summary>What became of the tasks that ended, newest first: the workshop's latest word on a pull request, which the table reads.</summary>
+    IReadOnlyList<TaskResultRow> TaskResults(int limit);
 }
 
 public sealed record TaskOptions
@@ -82,15 +88,15 @@ public sealed record TaskOptions
     public TimeSpan BatchLifetime { get; init; } = TimeSpan.FromHours(1);
 
     /// <summary>How long a batch may stay with an executor that does not answer, before it ends as expired.</summary>
-    public TimeSpan DeliveryTimeout { get; init; } = TimeSpan.FromMinutes(10);
+    public TimeSpan DeliveryTimeout { get; init; } = TimeSpan.FromMinutes(30);
 
     /// <summary>Whether an approval needs the code of the second factor (the executor checks it). Off only for a sandbox with no executor.</summary>
     public bool RequireSecondFactor { get; init; } = true;
 
     /// <summary>The most lines a run may hold, and the longest line: an executor that was taken over cannot fill the store.</summary>
-    public int MaxEventsPerRun { get; init; } = 500;
+    public int MaxEventsPerRun { get; init; } = TaskLimits.MaxEventsPerRun;
 
-    public int MaxEventDetail { get; init; } = 500;
+    public int MaxEventDetail { get; init; } = TaskLimits.MaxEventDetail;
 
     /// <summary>How often the host ends the batches that are past their time, whether or not an executor asks for work.</summary>
     public TimeSpan ExpirySweepInterval { get; init; } = TimeSpan.FromSeconds(15);

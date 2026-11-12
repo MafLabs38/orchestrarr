@@ -38,6 +38,9 @@ public enum StepKind
     MergePullRequests,
     MergeFix,
     Deploy,
+
+    /// <summary>An agent tries to repair a pull request whose checks fail; the patch is shown, nothing is pushed. It stands alone: it validates by itself first.</summary>
+    Repair,
 }
 
 /// <summary>Why a step cannot be done.</summary>
