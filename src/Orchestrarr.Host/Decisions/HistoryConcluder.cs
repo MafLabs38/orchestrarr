@@ -71,12 +71,14 @@ public sealed class HistoryConcluder(IProblemHistory history, IApprovalStore app
             return 0;
         }
         var releases = k3s.Peek();
-        var table = ProblemsEndpoints.FullTable(report, applications, runners, queue, time, policy, infrastructure.Peek().Index, infrastructure.Scope, releases);
+        // One reading of the code for the table and for the guard: a reading that ends in between would give the two different inputs
+        var code = infrastructure.Peek();
+        var table = ProblemsEndpoints.FullTable(report, applications, runners, queue, time, policy, code.Index, infrastructure.Scope, releases);
         if (table.Any(row => row.Kind == ProblemKind.PullRequestsNotRead))
         {
             return 0;
         }
-        var missing = MissingSkips(skips, table, report.Items, platformsKnown: infrastructure.Scope.Platforms.Count == 0 || (releases is not null && infrastructure.Peek().Index is { InScope: true, Problems.Count: 0 }));
+        var missing = MissingSkips(skips, table, report.Items, platformsKnown: infrastructure.Scope.Platforms.Count == 0 || (releases is not null && code.Index is { InScope: true, Problems.Count: 0 }));
         foreach (var key in _missing.Keys.Where(key => !missing.Contains(key)).ToList())
         {
             _missing.Remove(key);
@@ -111,7 +113,7 @@ public sealed class HistoryConcluder(IProblemHistory history, IApprovalStore app
         var pullRequestsWhole = items.All(item => item.PullRequests is { Status: PullRequestsStatus.Read or PullRequestsStatus.NotNeeded, Truncated: false });
         return [.. skips.Where(skip => !present.Contains((skip.RowId, skip.Target))
             && (pullRequestsWhole || !skip.RowId.StartsWith(DecisionTable.PullRequestRowPrefix, StringComparison.Ordinal))
-            && (platformsKnown || !skip.RowId.StartsWith("platform:", StringComparison.Ordinal))).Distinct()];
+            && (platformsKnown || !skip.RowId.StartsWith(PlatformRows.RowPrefix, StringComparison.Ordinal))).Distinct()];
     }
 
     /// <summary>One pass over the approved lines without an outcome; returns how many were concluded.</summary>

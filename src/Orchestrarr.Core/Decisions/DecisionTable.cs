@@ -439,61 +439,11 @@ public static class DecisionTable
                 { } image => $"{image.Reference} → {image.Latest}",
                 _ => finding.Count.ToString(System.Globalization.CultureInfo.InvariantCulture),
             };
-            var (why, locations, proposed) = CodeOf(item, finding, policy, infrastructure);
+            var verdict = ImageCode.Of(item, finding, WhyNoAction(item, finding, policy), infrastructure);
             // A repository that builds several images has a finding for each: the row of each has its own places and its own change
             var several = finding.Image is not null && item.Findings.Count(other => other.Kind == finding.Kind && other.Image is not null) > 1;
-            rows.Add(Of(item, several ? $"finding:{item.Id}:{finding.Kind}:{finding.Image!.Reference}" : $"finding:{item.Id}:{finding.Kind}", kind.Value, description, finding.Severity, finding.Count, Ceiling.NoAction, why, application) with { Locations = locations, ProposedTag = proposed });
+            rows.Add(Of(item, several ? $"finding:{item.Id}:{finding.Kind}:{finding.Image!.Reference}" : $"finding:{item.Id}:{finding.Kind}", kind.Value, description, finding.Severity, finding.Count, Ceiling.NoAction, verdict.Why, application) with { Locations = verdict.Locations, ProposedTag = verdict.ProposedTag });
         }
-    }
-
-    // Where the version of an image is written in the code of the scope, and what that changes about the row (ADR 0028). Without a scope, nothing is said about the code.
-    private static (CeilingReason Why, IReadOnlyList<CodeLocation>? Locations, string? ProposedTag) CodeOf(WorkItem item, Finding finding, RelevancePolicy policy, InfrastructureIndex? infrastructure)
-    {
-        var why = WhyNoAction(item, finding, policy);
-        if (infrastructure is not { InScope: true } || finding.Image is not { } update || ImageReference.Parse(update.Reference) is not { } reference || why == CeilingReason.ManagedByPlatform)
-        {
-            return (why, null, null);
-        }
-        // The same image can be written at several versions (a database of two majors): the places that write the version that runs are the ones this row is about
-        // A repository that deploys to one environment is about the workloads of that environment, not of another one: the placements of this image, not of the whole item
-        var placements = update.Placements ?? item.Placements;
-        var everywhere = infrastructure.Find(reference).Where(location => location.Environment is null || placements.Count == 0 || placements.Any(placement => placement.EnvironmentId == location.Environment)).ToList();
-        var runningTag = reference.Tag ?? update.Current;
-        var exact = everywhere.Where(location => string.Equals(location.Image.Tag, runningTag, StringComparison.OrdinalIgnoreCase)).ToList();
-        IReadOnlyList<CodeLocation> locations = exact.Count > 0 ? exact : everywhere;
-        if (locations.Count == 0)
-        {
-            // With a repository that could not be read, "written nowhere" is not known
-            return (infrastructure.Problems.Count > 0 ? CeilingReason.CodeNotFullyRead : CeilingReason.NotInScope, [], null);
-        }
-        var ours = locations.Where(location => location.Managed is null).ToList();
-        if (ours.Count == 0)
-        {
-            return (CeilingReason.ManagedByAutomation, locations, null);
-        }
-        if (finding.Kind == FindingKind.OutdatedImage && exact.Count == 0 && update.Current is not null)
-        {
-            return (CeilingReason.CodeDiffersFromRunning, locations, null);
-        }
-        if (ours.Any(location => location.Image.Digest is not null))
-        {
-            return (CeilingReason.PinnedByDigest, locations, null);
-        }
-        // One environment at a time: several placements, or places that belong to several environments when the placements are not known, propose nothing
-        var environments = placements.Select(placement => placement.EnvironmentId).Concat(ours.Select(location => location.Environment).OfType<string>()).Distinct(StringComparer.Ordinal).Count();
-        if (environments > 1)
-        {
-            return (CeilingReason.SeveralEnvironments, locations, null);
-        }
-        if (why == CeilingReason.MajorNeedsPlan)
-        {
-            return (why, locations, null);
-        }
-        // An outdated image goes to the latest version; a floating one is pinned to the version that runs, which changes nothing that is deployed
-        var proposed = finding.Kind == FindingKind.OutdatedImage ? update.Latest : update.Current;
-        // A tag that is not a version (latest, a branch) and the tag that is already written change nothing: nothing is proposed
-        var usable = ImageReference.IsTag(proposed) && !string.Equals(proposed, reference.Tag, StringComparison.OrdinalIgnoreCase) && ImageReference.Parse($"{reference.Name}:{proposed}") is { IsFloating: false };
-        return usable ? (CeilingReason.CodeChangeShown, locations, proposed) : (why, locations, null);
     }
 
     // Why nothing is defined for a finding: for an image, what makes it a matter of the platform or of planning rather than a tag to change

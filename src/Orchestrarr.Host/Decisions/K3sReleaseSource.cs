@@ -37,6 +37,7 @@ public sealed class K3sReleaseSource : IK3sReleases, IDisposable
     private readonly object _gate = new();
     private (DateTimeOffset At, K3sReleases? Releases)? _last;
     private Task? _reading;
+    private DateTimeOffset? _notBefore;
 
     public K3sReleaseSource(PlatformOptions options, TimeProvider time, HttpMessageHandler? handler = null)
     {
@@ -74,9 +75,10 @@ public sealed class K3sReleaseSource : IK3sReleases, IDisposable
         Task reading;
         lock (_gate)
         {
-            if (_last is { } kept && _time.GetUtcNow() - kept.At < _keep)
+            var now = _time.GetUtcNow();
+            if ((_last is { } kept && now - kept.At < _keep) || (_notBefore is { } until && now < until))
             {
-                return kept.Releases;
+                return _last?.Releases;
             }
             _reading ??= Task.Run(ReadAsync, CancellationToken.None);
             reading = _reading;
@@ -96,7 +98,15 @@ public sealed class K3sReleaseSource : IK3sReleases, IDisposable
             lock (_gate)
             {
                 // An answer that says nothing usable does not replace the last good one, and is tried again in a minute like a failure
-                _last = releases is null ? (_time.GetUtcNow() - _keep + TimeSpan.FromMinutes(1), _last?.Releases) : (_time.GetUtcNow(), releases);
+                if (releases is null)
+                {
+                    _notBefore = _time.GetUtcNow() + TimeSpan.FromMinutes(1);
+                }
+                else
+                {
+                    _last = (_time.GetUtcNow(), releases);
+                    _notBefore = null;
+                }
             }
         }
         catch (Exception failure) when (failure is not OutOfMemoryException)
@@ -104,7 +114,7 @@ public sealed class K3sReleaseSource : IK3sReleases, IDisposable
             // The last good answer stays; the next try is a minute away, not at every read of the table
             lock (_gate)
             {
-                _last = (_time.GetUtcNow() - _keep + TimeSpan.FromMinutes(1), _last?.Releases);
+                _notBefore = _time.GetUtcNow() + TimeSpan.FromMinutes(1);
             }
         }
         finally

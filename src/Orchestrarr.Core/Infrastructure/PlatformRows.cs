@@ -10,6 +10,9 @@ namespace Orchestrarr.Core.Infrastructure;
 /// </summary>
 public static class PlatformRows
 {
+    /// <summary>The start of the identifier of a row about a platform: such a row exists only while the releases are known.</summary>
+    public const string RowPrefix = "platform:";
+
     public static IReadOnlyList<ProblemRow> Build(IReadOnlyList<PlatformScope> platforms, InfrastructureIndex index, K3sReleases? releases)
     {
         ArgumentNullException.ThrowIfNull(platforms);
@@ -50,6 +53,6 @@ public static class PlatformRows
     }
 
     private static ProblemRow Row(PlatformScope platform, string part, string description, UpdateKind? kind, CeilingReason why, CodeLocation? location) =>
-        new($"platform:{platform.Id}:{part}", $"platform:{platform.Id}", platform.Id, ProblemKind.PlatformUpdate, description, Severity.Info, 1, kind, null, null, null, null, Ceiling.NoAction, why, false,
+        new($"{RowPrefix}{platform.Id}:{part}", $"{RowPrefix}{platform.Id}", platform.Id, ProblemKind.PlatformUpdate, description, Severity.Info, 1, kind, null, null, null, null, Ceiling.NoAction, why, false,
             Locations: location is null ? null : [location]);
 }

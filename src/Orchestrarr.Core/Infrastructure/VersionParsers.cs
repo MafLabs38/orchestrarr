@@ -8,6 +8,14 @@ namespace Orchestrarr.Core.Infrastructure;
 /// </summary>
 public static partial class VersionParsers
 {
+    /// <summary>The automation that rewrites a line that carries its marker: Flux.</summary>
+    public const string Flux = "flux";
+
+    private const string FluxMarker = "$imagepolicy";
+
+    /// <summary>Flux rewrites a line that carries its marker: the line is its, not ours.</summary>
+    private static string? ManagedOf(string line) => line.Contains(FluxMarker, StringComparison.Ordinal) ? Flux : null;
+
     private delegate IEnumerable<CodeLocation> Reader(string repository, string path, string content);
 
     // The kinds of files the description may name, and how each is read: the validation of the description and the reading are one list
@@ -69,7 +77,7 @@ public static partial class VersionParsers
                 continue;
             }
             // Flux rewrites a line that carries its marker: the line is its, not ours
-            var managed = lines[i].Contains("$imagepolicy", StringComparison.Ordinal) ? "flux" : null;
+            var managed = ManagedOf(lines[i]);
             yield return new CodeLocation(repository, path, i + 1, VersionForm.ImageLine, image, managed);
         }
     }
@@ -90,13 +98,13 @@ public static partial class VersionParsers
             {
                 if (Entry(name, newName, tag) is { } pending)
                 {
-                    yield return new CodeLocation(repository, path, tagLine, VersionForm.KustomizeTag, pending, flux ? "flux" : null);
+                    yield return new CodeLocation(repository, path, tagLine, VersionForm.KustomizeTag, pending, flux ? Flux : null);
                 }
                 (name, newName, tag) = (null, null, null);
                 var fields = FlowFields().Matches(flow.Groups["body"].Value).ToDictionary(match => match.Groups["key"].Value, match => match.Groups["value"].Value, StringComparer.Ordinal);
                 if (Entry(fields.GetValueOrDefault("name"), fields.GetValueOrDefault("newName"), fields.GetValueOrDefault("newTag")) is { } image)
                 {
-                    yield return new CodeLocation(repository, path, i + 1, VersionForm.KustomizeTag, image, lines[i].Contains("$imagepolicy", StringComparison.Ordinal) ? "flux" : null);
+                    yield return new CodeLocation(repository, path, i + 1, VersionForm.KustomizeTag, image, ManagedOf(lines[i]));
                 }
                 continue;
             }
@@ -105,7 +113,7 @@ public static partial class VersionParsers
             {
                 if (Entry(name, newName, tag) is { } pending)
                 {
-                    yield return new CodeLocation(repository, path, tagLine, VersionForm.KustomizeTag, pending, flux ? "flux" : null);
+                    yield return new CodeLocation(repository, path, tagLine, VersionForm.KustomizeTag, pending, flux ? Flux : null);
                 }
                 (name, newName, tag, flux) = (named.Groups["name"].Value, null, null, false);
                 continue;
@@ -118,12 +126,12 @@ public static partial class VersionParsers
             {
                 (tag, tagLine) = (tagged.Groups["tag"].Value, i + 1);
                 // Flux rewrites a line that carries its marker: the line is its, not ours
-                flux = lines[i].Contains("$imagepolicy", StringComparison.Ordinal);
+                flux = ManagedOf(lines[i]) is not null;
             }
         }
         if (Entry(name, newName, tag) is { } last)
         {
-            yield return new CodeLocation(repository, path, tagLine, VersionForm.KustomizeTag, last, flux ? "flux" : null);
+            yield return new CodeLocation(repository, path, tagLine, VersionForm.KustomizeTag, last, flux ? Flux : null);
         }
     }
 

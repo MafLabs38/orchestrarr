@@ -44,7 +44,7 @@ internal static class ProblemsEndpoints
             var all = FullTable(report, applications, runners, queue, time, policy, code.Index, infrastructure.Scope, await k3s.GetAsync(ct));
             var rows = Visible(all, history, approvals);
             return Results.Ok(new ProblemsReport(report.ReadAt, report.SourceKind, report.Stale, report.Error, applications.Version, rows, all.Count - rows.Count,
-                new CodeScopeStatus(code.Index.InScope, infrastructure.Scope.Repositories.Count, code.Index.FileCount, code.ReadAt, code.Stale, code.Index.Problems, code.Error)));
+                new CodeScopeStatus(code.Index.InScope, infrastructure.Scope.Repositories.Count, code.Index.FileCount, code.ReadAt, code.Stale, [.. code.Index.Problems, .. ScopeChecks.UnknownEnvironments(infrastructure.Scope, report.Items.SelectMany(item => item.Placements).Select(placement => placement.EnvironmentId))], code.Error)));
         }).RequireAuthorization(Permissions.FleetRead);
 
         // The change that would write the proposed version where the code of the scope writes it: shown, never applied (Orchestrarr holds no write power, ADR 0028)
