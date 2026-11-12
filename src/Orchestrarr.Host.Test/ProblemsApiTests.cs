@@ -152,6 +152,34 @@ public sealed class ProblemsApiTests
         (await Table(operatorClient)).GetProperty("skipped").GetInt32().Should().Be(0);
     }
 
+        [Fact]
+    public async Task Nobody_signed_out_reads_the_history_or_sets_a_row_aside_and_a_reader_cannot_take_a_skip_back()
+    {
+        using var factory = new TableApiFactory();
+        await factory.ConnectRunnerAsync();
+        using var anonymous = factory.CreateClient();
+        anonymous.DefaultRequestHeaders.Add("X-Orchestrarr-Request", "test");
+        using var reader = await SignedIn(factory, "Reader");
+
+        (await anonymous.GetAsync("/api/v1/problems/history", Ct)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await anonymous.PostAsJsonAsync("/api/v1/problems/skip", new { rows = Array.Empty<object>() }, Ct)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await reader.PostAsJsonAsync("/api/v1/problems/unskip", new { id = 1 }, Ct)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Theory]
+    [InlineData("state=7")]
+    [InlineData("state=nonsense")]
+    public async Task A_state_that_is_not_one_of_the_two_is_refused_and_the_page_size_is_bounded(string query)
+    {
+        using var factory = new TableApiFactory();
+        await factory.ConnectRunnerAsync();
+        using var reader = await SignedIn(factory, "Reader");
+
+        (await reader.GetAsync($"/api/v1/problems/history?{query}", Ct)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await reader.GetAsync("/api/v1/problems/history?limit=0", Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await reader.GetAsync("/api/v1/problems/history?limit=100000", Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
     [Fact]
     public async Task An_approved_row_is_marked_in_progress_and_the_history_keeps_its_photograph_with_the_outcome()
     {
