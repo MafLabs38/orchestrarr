@@ -137,6 +137,21 @@ public sealed class GitHubInfrastructureSourceTests
         snapshot.Files.Single().Environment.Should().Be("k3s");
     }
 
+    [Fact]
+    public async Task A_repository_named_for_each_environment_is_read_once_and_each_file_goes_with_the_environment_of_the_path_that_matched_it()
+    {
+        Tree("example/infra", string.Join(",", Entry("overlays/staging/kustomization.yaml", ShaA), Entry("overlays/prod/kustomization.yaml", ShaB), Entry("base/app.yaml", ShaA)));
+        Blob("example/infra", ShaA, "image: a:1\n");
+        Blob("example/infra", ShaB, "image: a:2\n");
+
+        var snapshot = await Source().ReadAsync(
+            [new RepositoryScope("example/infra", "kustomize", ["overlays/staging/**"], "staging"), new RepositoryScope("example/infra", "kustomize", ["overlays/prod/**"], "production")],
+            TestContext.Current.CancellationToken);
+
+        snapshot.Files.Select(file => (file.Path, file.Environment)).Should().Equal(("overlays/staging/kustomization.yaml", "staging"), ("overlays/prod/kustomization.yaml", "production"));
+        _handler.Calls("/repos/example/infra/git/trees/HEAD").Should().Be(1);
+    }
+
     private sealed class Routes : HttpMessageHandler
     {
         private readonly Dictionary<string, (string Body, HttpStatusCode Status)> _routes = [];

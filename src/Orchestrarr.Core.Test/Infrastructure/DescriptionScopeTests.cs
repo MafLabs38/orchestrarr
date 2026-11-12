@@ -34,6 +34,27 @@ public sealed class DescriptionScopeTests
     }
 
     [Fact]
+    public void A_repository_may_be_named_once_for_each_kind_of_files_and_each_environment_but_not_twice_for_the_same()
+    {
+        const string perEnvironment = """
+            { "environments": [ { "id": "staging" }, { "id": "production" } ],
+              "repositories": [
+                { "repository": "example/infra", "kind": "kustomize", "paths": ["overlays/staging/**"], "environment": "staging" },
+                { "repository": "example/infra", "kind": "kustomize", "paths": ["overlays/prod/**"], "environment": "production" },
+                { "repository": "example/infra", "kind": "terraform-docker", "paths": ["tf/*.tf"] } ] }
+            """;
+        const string twice = """
+            { "repositories": [
+                { "repository": "example/infra", "kind": "kustomize", "paths": ["a/**"] },
+                { "repository": "example/infra", "kind": "kustomize", "paths": ["b/**"] } ] }
+            """;
+
+        DescriptionScope.Parse(perEnvironment).Repositories.Should().HaveCount(3);
+        var act = () => DescriptionScope.Parse(twice);
+        act.Should().Throw<InvalidOperationException>().WithMessage("*twice*");
+    }
+
+    [Fact]
     public void A_description_with_no_section_is_an_empty_scope()
     {
         DescriptionScope.Parse("{}").Repositories.Should().BeEmpty();

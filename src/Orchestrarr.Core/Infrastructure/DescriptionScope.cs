@@ -46,7 +46,7 @@ public sealed record DescriptionScope(IReadOnlyList<EnvironmentScope> Environmen
             var environments = Section(root, "environments").Select(Environment).ToList();
             Distinct(environments.Select(environment => environment.Id), "environments");
             var repositories = Section(root, "repositories").Select(element => Repository(element, environments)).ToList();
-            Distinct(repositories.Select(repository => repository.Repository), "repositories");
+            Distinct(repositories.Select(repository => $"{repository.Repository} ({repository.Kind}, {repository.Environment ?? "any environment"})"), "repositories");
             var platforms = Section(root, "platforms").Select(element => Platform(element, repositories, environments)).ToList();
             Distinct(platforms.Select(platform => platform.Id), "platforms");
             return new DescriptionScope(environments, platforms, repositories);

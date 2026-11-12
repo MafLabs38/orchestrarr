@@ -62,70 +62,90 @@ public sealed partial class GitHubInfrastructureSource : IInfrastructureSource
         return new GitHubInfrastructureSource(http, time ?? TimeProvider.System);
     }
 
+    private sealed record TreeEntry(string Path, string? Sha, long Size);
+
     public async Task<InfrastructureSnapshot> ReadAsync(IReadOnlyList<RepositoryScope> scope, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(scope);
         var files = new List<InfrastructureFile>();
         var problems = new List<RepositoryProblem>();
-        foreach (var repository in scope)
+        // A repository may be named more than once (an overlay for each environment): its tree is read once
+        foreach (var group in scope.GroupBy(repository => repository.Repository, StringComparer.Ordinal))
         {
+            var messages = new List<string>();
             try
             {
-                var (read, problem) = await ReadRepositoryAsync(repository, cancellationToken);
-                files.AddRange(read);
+                var (tree, problem) = await ReadTreeAsync(group.Key, cancellationToken);
                 if (problem is not null)
                 {
-                    problems.Add(new RepositoryProblem(repository.Repository, problem));
+                    messages.Add(problem);
+                }
+                foreach (var repository in tree is null ? Enumerable.Empty<RepositoryScope>() : group)
+                {
+                    var (read, unreadable) = await ReadFilesAsync(repository, tree!, cancellationToken);
+                    files.AddRange(read);
+                    if (unreadable is not null)
+                    {
+                        messages.Add(unreadable);
+                    }
                 }
             }
             catch (Exception failure) when (failure is HttpRequestException or TaskCanceledException && !cancellationToken.IsCancellationRequested)
             {
-                problems.Add(new RepositoryProblem(repository.Repository, "unreachable"));
+                messages.Add("unreachable");
             }
             catch (Exception failure) when (failure is JsonException or KeyNotFoundException or InvalidOperationException or FormatException)
             {
                 // An answer that is not what the API documents: the repository is told, the others are still read
-                problems.Add(new RepositoryProblem(repository.Repository, "unreadable answer"));
+                messages.Add("unreadable answer");
             }
+            problems.AddRange(messages.Distinct(StringComparer.Ordinal).Select(message => new RepositoryProblem(group.Key, message)));
         }
         return new InfrastructureSnapshot(_time.GetUtcNow(), files, problems);
     }
 
-    private async Task<(List<InfrastructureFile> Files, string? Problem)> ReadRepositoryAsync(RepositoryScope repository, CancellationToken cancellationToken)
+    private async Task<(List<TreeEntry>? Tree, string? Problem)> ReadTreeAsync(string repository, CancellationToken cancellationToken)
     {
-        var read = new List<InfrastructureFile>();
-        if (!RepositoryName().IsMatch(repository.Repository) || repository.Repository.EndsWith("/.", StringComparison.Ordinal) || repository.Repository.EndsWith("/..", StringComparison.Ordinal))
+        if (!RepositoryName().IsMatch(repository) || repository.EndsWith("/.", StringComparison.Ordinal) || repository.EndsWith("/..", StringComparison.Ordinal))
         {
-            return (read, "not a repository name");
+            return (null, "not a repository name");
         }
-        using var tree = await _http.GetAsync($"repos/{repository.Repository}/git/trees/HEAD?recursive=1", cancellationToken);
+        using var tree = await _http.GetAsync($"repos/{repository}/git/trees/HEAD?recursive=1", cancellationToken);
         if (tree.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized)
         {
-            return (read, tree.StatusCode == HttpStatusCode.NotFound ? "not found or no access" : "refused");
+            return (null, tree.StatusCode == HttpStatusCode.NotFound ? "not found or no access" : "refused");
         }
         tree.EnsureSuccessStatusCode();
         using var document = JsonDocument.Parse(await tree.Content.ReadAsStringAsync(cancellationToken));
         if (document.RootElement.TryGetProperty("truncated", out var truncated) && truncated.ValueKind == JsonValueKind.True)
         {
-            return (read, "tree too large");
+            return (null, "tree too large");
         }
-        var wanted = new List<(string Path, string Sha)>();
-        var skipped = 0;
+        var entries = new List<TreeEntry>();
         foreach (var entry in document.RootElement.GetProperty("tree").EnumerateArray())
         {
-            var path = entry.GetProperty("path").GetString();
-            if (path is null || entry.GetProperty("type").GetString() != "blob" || PathGlob.IsSecretFile(path) || !repository.Paths.Any(pattern => PathGlob.IsMatch(pattern, path)))
+            if (entry.GetProperty("path").GetString() is { } path && entry.GetProperty("type").GetString() == "blob")
             {
-                continue;
+                entries.Add(new TreeEntry(path, entry.GetProperty("sha").GetString(), entry.TryGetProperty("size", out var size) ? size.GetInt64() : 0));
             }
-            var sha = entry.GetProperty("sha").GetString();
+        }
+        return (entries, null);
+    }
+
+    private async Task<(List<InfrastructureFile> Files, string? Problem)> ReadFilesAsync(RepositoryScope repository, List<TreeEntry> tree, CancellationToken cancellationToken)
+    {
+        var read = new List<InfrastructureFile>();
+        var wanted = new List<(string Path, string Sha)>();
+        var skipped = 0;
+        foreach (var entry in tree.Where(entry => !PathGlob.IsSecretFile(entry.Path) && repository.Paths.Any(pattern => PathGlob.IsMatch(pattern, entry.Path))))
+        {
             // A file that is too big, or whose identifier is not one, is not read and is told, as the files that cannot be read are
-            if ((entry.TryGetProperty("size", out var size) && size.GetInt64() > MaxFileBytes) || sha is null || !ObjectId().IsMatch(sha))
+            if (entry.Size > MaxFileBytes || entry.Sha is null || !ObjectId().IsMatch(entry.Sha))
             {
                 skipped++;
                 continue;
             }
-            wanted.Add((path, sha));
+            wanted.Add((entry.Path, entry.Sha));
         }
         if (wanted.Count > MaxFilesPerRepository)
         {
