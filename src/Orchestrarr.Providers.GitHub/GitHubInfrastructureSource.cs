@@ -80,13 +80,16 @@ public sealed partial class GitHubInfrastructureSource : IInfrastructureSource
                 {
                     messages.Add(problem);
                 }
-                foreach (var repository in tree is null ? Enumerable.Empty<RepositoryScope>() : group)
+                if (tree is not null)
                 {
-                    var (read, unreadable) = await ReadFilesAsync(repository, tree!, cancellationToken);
-                    files.AddRange(read);
-                    if (unreadable is not null)
+                    foreach (var repository in group)
                     {
-                        messages.Add(unreadable);
+                        var (read, unreadable) = await ReadFilesAsync(repository, tree, cancellationToken);
+                        files.AddRange(read);
+                        if (unreadable is not null)
+                        {
+                            messages.Add(unreadable);
+                        }
                     }
                 }
             }
@@ -167,7 +170,8 @@ public sealed partial class GitHubInfrastructureSource : IInfrastructureSource
                 continue;
             }
             using var blobDocument = JsonDocument.Parse(await blob.Content.ReadAsStringAsync(cancellationToken));
-            var content = Encoding.UTF8.GetString(Convert.FromBase64String(blobDocument.RootElement.GetProperty("content").GetString()!.Replace("\n", string.Empty, StringComparison.Ordinal)));
+            var encoded = blobDocument.RootElement.GetProperty("content").GetString() ?? string.Empty;
+            var content = Encoding.UTF8.GetString(Convert.FromBase64String(encoded.Replace("\n", string.Empty, StringComparison.Ordinal)));
             _files[(repository.Repository, path)] = (sha, content);
             read.Add(new InfrastructureFile(repository.Repository, path, repository.Kind, content, repository.Environment));
         }

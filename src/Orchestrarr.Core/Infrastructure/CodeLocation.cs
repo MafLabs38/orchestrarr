@@ -12,7 +12,7 @@ public enum VersionForm
     /// <summary>A string <c>"name:tag"</c> assigned to <c>name</c> or <c>image</c> in a Terraform file.</summary>
     TerraformImage,
 
-    /// <summary>A value of a variable file, for example the version of K3s.</summary>
+    /// <summary>A value of a variable file, for example the version of K3s: see <see cref="CodeLocation.OfVariable"/>.</summary>
     Variable,
 }
 
@@ -20,4 +20,12 @@ public enum VersionForm
 /// Where the version of an image is written in the code that deploys it (ADR 0028): the repository, the file, the line, the form, and what is written there.
 /// <c>Managed</c> names the automation that rewrites the line by itself (Flux), so that Orchestrarr does not. <c>Environment</c> is the environment the repository deploys to, when the description says.
 /// </summary>
-public sealed record CodeLocation(string Repository, string Path, int Line, VersionForm Form, ImageReference Image, string? Managed = null, string? Environment = null);
+public sealed record CodeLocation(string Repository, string Path, int Line, VersionForm Form, ImageReference Image, string? Managed = null, string? Environment = null)
+{
+    /// <summary>
+    /// The place of a value in a file of variables (the version of a platform). It uses the same shape as an image so that the screens show every place alike: the
+    /// <c>Name</c> is the key of the variable and the <c>Tag</c> its value. This is the only place where that is decided.
+    /// </summary>
+    public static CodeLocation OfVariable(string repository, string path, int line, string key, string value) =>
+        new(repository, path, line, VersionForm.Variable, new ImageReference(key, value, null));
+}

@@ -86,58 +86,69 @@ public static partial class VersionParsers
     private static IEnumerable<CodeLocation> KustomizeTags(string repository, string path, string content)
     {
         var lines = content.Split('\n');
-        string? name = null;
-        string? newName = null;
-        string? tag = null;
-        var tagLine = 0;
-        var flux = false;
+        var entry = new KustomizeEntry();
         for (var i = 0; i < lines.Length; i++)
         {
-            var flow = KustomizeFlow().Match(lines[i]);
-            if (flow.Success)
+            if (KustomizeFlow().Match(lines[i]) is { Success: true } flow)
             {
-                if (Entry(name, newName, tag) is { } pending)
+                foreach (var pending in entry.Flush(repository, path))
                 {
-                    yield return new CodeLocation(repository, path, tagLine, VersionForm.KustomizeTag, pending, flux ? Flux : null);
+                    yield return pending;
                 }
-                (name, newName, tag) = (null, null, null);
                 var fields = FlowFields().Matches(flow.Groups["body"].Value).ToDictionary(match => match.Groups["key"].Value, match => match.Groups["value"].Value, StringComparer.Ordinal);
-                if (Entry(fields.GetValueOrDefault("name"), fields.GetValueOrDefault("newName"), fields.GetValueOrDefault("newTag")) is { } image)
+                var inline = new KustomizeEntry { Name = fields.GetValueOrDefault("name"), NewName = fields.GetValueOrDefault("newName"), Tag = fields.GetValueOrDefault("newTag"), TagLine = i + 1, Managed = ManagedOf(lines[i]) };
+                foreach (var location in inline.Flush(repository, path))
                 {
-                    yield return new CodeLocation(repository, path, i + 1, VersionForm.KustomizeTag, image, ManagedOf(lines[i]));
+                    yield return location;
                 }
-                continue;
             }
-            var named = KustomizeName().Match(lines[i]);
-            if (named.Success)
+            else if (KustomizeName().Match(lines[i]) is { Success: true } named)
             {
-                if (Entry(name, newName, tag) is { } pending)
+                foreach (var pending in entry.Flush(repository, path))
                 {
-                    yield return new CodeLocation(repository, path, tagLine, VersionForm.KustomizeTag, pending, flux ? Flux : null);
+                    yield return pending;
                 }
-                (name, newName, tag, flux) = (named.Groups["name"].Value, null, null, false);
-                continue;
+                entry = new KustomizeEntry { Name = named.Groups["name"].Value };
             }
-            if (KustomizeNewName().Match(lines[i]) is { Success: true } renamed)
+            else if (KustomizeNewName().Match(lines[i]) is { Success: true } renamed)
             {
-                newName = renamed.Groups["name"].Value;
+                entry.NewName = renamed.Groups["name"].Value;
             }
             else if (KustomizeNewTag().Match(lines[i]) is { Success: true } tagged)
             {
-                (tag, tagLine) = (tagged.Groups["tag"].Value, i + 1);
                 // Flux rewrites a line that carries its marker: the line is its, not ours
-                flux = ManagedOf(lines[i]) is not null;
+                (entry.Tag, entry.TagLine, entry.Managed) = (tagged.Groups["tag"].Value, i + 1, ManagedOf(lines[i]));
             }
         }
-        if (Entry(name, newName, tag) is { } last)
+        foreach (var last in entry.Flush(repository, path))
         {
-            yield return new CodeLocation(repository, path, tagLine, VersionForm.KustomizeTag, last, flux ? Flux : null);
+            yield return last;
         }
     }
 
-    // The image that is deployed: the new name when there is one, else the name; with the tag
-    private static ImageReference? Entry(string? name, string? newName, string? tag) =>
-        tag is null || (newName ?? name) is not { } deployed ? null : ImageReference.Parse($"{deployed}:{tag}");
+    // The entry being read: what it names, what it becomes and its tag, whatever the order of the keys
+    private sealed class KustomizeEntry
+    {
+        public string? Name { get; set; }
+
+        public string? NewName { get; set; }
+
+        public string? Tag { get; set; }
+
+        public int TagLine { get; set; }
+
+        public string? Managed { get; set; }
+
+        // The image that is deployed: the new name when there is one, else the name; with the tag. Nothing for an entry with no tag.
+        public IEnumerable<CodeLocation> Flush(string repository, string path)
+        {
+            if (Tag is not null && (NewName ?? Name) is { } deployed && ImageReference.Parse($"{deployed}:{Tag}") is { } image)
+            {
+                yield return new CodeLocation(repository, path, TagLine, VersionForm.KustomizeTag, image, Managed);
+            }
+            (Name, NewName, Tag, TagLine, Managed) = (null, null, null, 0, null);
+        }
+    }
 
     // In a Terraform file the image is a string given to name (docker_image) or image (a container); a reference through an expression has no version to read
     private static IEnumerable<CodeLocation> TerraformImages(string repository, string path, string content)

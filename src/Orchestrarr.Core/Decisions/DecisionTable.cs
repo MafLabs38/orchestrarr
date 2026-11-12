@@ -415,6 +415,7 @@ public static class DecisionTable
     private static void AddOtherProblems(List<ProblemRow> rows, WorkItem item, RelevancePolicy policy, InfrastructureIndex? infrastructure, bool dormant = false)
     {
         var application = item.RepositoryFullName ?? item.Title;
+        var imageFindings = item.Findings.Where(finding => finding.Image is not null).GroupBy(finding => finding.Kind).ToDictionary(group => group.Key, group => group.Count());
         foreach (var finding in item.Findings)
         {
             ProblemKind? kind = finding.Kind switch
@@ -441,8 +442,8 @@ public static class DecisionTable
             };
             var verdict = ImageCode.Of(item, finding, WhyNoAction(item, finding, policy), infrastructure);
             // A repository that builds several images has a finding for each: the row of each has its own places and its own change
-            var several = finding.Image is not null && item.Findings.Count(other => other.Kind == finding.Kind && other.Image is not null) > 1;
-            rows.Add(Of(item, several ? $"finding:{item.Id}:{finding.Kind}:{finding.Image!.Reference}" : $"finding:{item.Id}:{finding.Kind}", kind.Value, description, finding.Severity, finding.Count, Ceiling.NoAction, verdict.Why, application) with { Locations = verdict.Locations, ProposedTag = verdict.ProposedTag });
+            var id = finding.Image is { } update && imageFindings[finding.Kind] > 1 ? $"finding:{item.Id}:{finding.Kind}:{update.Reference}" : $"finding:{item.Id}:{finding.Kind}";
+            rows.Add(Of(item, id, kind.Value, description, finding.Severity, finding.Count, Ceiling.NoAction, verdict.Why, application) with { Locations = verdict.Locations, ProposedTag = verdict.ProposedTag });
         }
     }
 

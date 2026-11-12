@@ -80,7 +80,7 @@ public sealed class K3sReleaseSource : IK3sReleases, IDisposable
             {
                 return _last?.Releases;
             }
-            _reading ??= Task.Run(ReadAsync, CancellationToken.None);
+            _reading ??= Task.Run(() => ReadAsync(_http, _url), CancellationToken.None);
             reading = _reading;
         }
         // The reading goes on in the background; a request waits for it a little and no longer
@@ -88,11 +88,11 @@ public sealed class K3sReleaseSource : IK3sReleases, IDisposable
         return Peek();
     }
 
-    private async Task ReadAsync()
+    private async Task ReadAsync(HttpClient http, Uri url)
     {
         try
         {
-            using var response = await _http!.GetAsync(_url!);
+            using var response = await http.GetAsync(url);
             response.EnsureSuccessStatusCode();
             var releases = Parse(await response.Content.ReadAsStringAsync());
             lock (_gate)

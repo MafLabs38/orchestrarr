@@ -1,8 +1,8 @@
-using Orchestrarr.Core.Decisions;
+using Orchestrarr.Core.Infrastructure;
 using Orchestrarr.Core.Forge;
 using Orchestrarr.Core.WorkItems;
 
-namespace Orchestrarr.Core.Infrastructure;
+namespace Orchestrarr.Core.Decisions;
 
 /// <summary>
 /// The rows about the platforms of the description (ADR 0028): the K3s whose version is a variable of the code. A platform upgrade touches everything that runs on it, so it is
@@ -18,20 +18,23 @@ public static class PlatformRows
         ArgumentNullException.ThrowIfNull(platforms);
         ArgumentNullException.ThrowIfNull(index);
         var rows = new List<ProblemRow>();
-        foreach (var platform in platforms.Where(platform => platform.Kind == "k3s" && platform.Version is { Key: not null }))
+        foreach (var platform in platforms)
         {
-            var pointer = platform.Version!;
+            if (platform is not { Kind: "k3s", Version: { Key: { } key } pointer })
+            {
+                continue;
+            }
             // A repository that could not be read is told on the table already: its variable is not "missing"
             if (index.Problems.Any(problem => problem.Repository == pointer.Repository))
             {
                 continue;
             }
-            if (index.Content(pointer.Repository, pointer.Path) is not { } content || VersionParsers.Variable(content, pointer.Key!) is not var (line, written))
+            if (index.Content(pointer.Repository, pointer.Path) is not { } content || VersionParsers.Variable(content, key) is not var (line, written))
             {
                 // The variable is not where the description says: told only when the code of the scope was read at all
                 if (index.InScope)
                 {
-                    rows.Add(Row(platform, "unreadable", $"{pointer.Key} not found in {pointer.Path}", null, CeilingReason.PlatformVersionNotRead, null));
+                    rows.Add(Row(platform, "unreadable", $"{key} not found in {pointer.Path}", null, CeilingReason.PlatformVersionNotRead, null));
                 }
                 continue;
             }
@@ -39,7 +42,7 @@ public static class PlatformRows
             {
                 continue;
             }
-            var location = new CodeLocation(pointer.Repository, pointer.Path, line, VersionForm.Variable, new ImageReference("k3s", written, null));
+            var location = CodeLocation.OfVariable(pointer.Repository, pointer.Path, line, key, written);
             if (releases.LatestByMinor.GetValueOrDefault(current.Minor) is { } patch && patch > current)
             {
                 rows.Add(Row(platform, "patch", $"{current} → {patch}", UpdateKind.Patch, CeilingReason.PlatformUpgradeIsPlanned, location));
