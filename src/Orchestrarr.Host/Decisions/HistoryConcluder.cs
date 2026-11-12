@@ -73,7 +73,7 @@ public sealed class HistoryConcluder(IProblemHistory history, IApprovalStore app
         var releases = k3s.Peek();
         // One reading of the code for the table and for the guard: a reading that ends in between would give the two different inputs
         var code = infrastructure.Peek();
-        var table = ProblemsEndpoints.FullTable(report, applications, runners, queue, time, policy, code.Index, infrastructure.Scope, releases);
+        var table = ProblemsEndpoints.FullTable(new TableInputs(report, code.Index, infrastructure.Scope, releases), applications, runners, queue, time, policy);
         if (table.Any(row => row.Kind == ProblemKind.PullRequestsNotRead))
         {
             return 0;

@@ -32,9 +32,14 @@ public sealed class InfrastructureCatalog(IInfrastructureSource source, Descript
     private volatile InfrastructureReport _last = new(InfrastructureIndex.Empty, null, false, null);
     private Task? _reading;
     private DateTimeOffset? _notBefore;
+    private Action? _changed;
 
     /// <summary>Raised when a reading ends with a new index or a new failure.</summary>
-    public event Action? Changed;
+    public event Action? Changed
+    {
+        add => _changed += value;
+        remove => _changed -= value;
+    }
 
     public DescriptionScope Scope => scope;
 
@@ -66,6 +71,22 @@ public sealed class InfrastructureCatalog(IInfrastructureSource source, Descript
         return _last;
     }
 
+    // A subscriber that throws must not fault a reading nobody awaits, nor keep the others from being told
+    private void Notify()
+    {
+        foreach (var handler in (_changed?.GetInvocationList() ?? []).Cast<Action>())
+        {
+            try
+            {
+                handler();
+            }
+            catch (Exception failure) when (failure is not OutOfMemoryException)
+            {
+                // The screens are told on the next reading
+            }
+        }
+    }
+
     private async Task ReadAsync(CancellationToken cancellationToken)
     {
         try
@@ -74,7 +95,7 @@ public sealed class InfrastructureCatalog(IInfrastructureSource source, Descript
             budget.CancelAfter(options.TimeBudget);
             var snapshot = await source.ReadAsync(scope.Repositories, budget.Token);
             var now = time.GetUtcNow();
-            _last = new InfrastructureReport(InfrastructureIndex.Build(snapshot), now, false, null);
+            _last = new InfrastructureReport(InfrastructureIndex.Build(snapshot, inScope: scope.Repositories.Count > 0), now, false, null);
             lock (_gate)
             {
                 _notBefore = null;
@@ -96,7 +117,7 @@ public sealed class InfrastructureCatalog(IInfrastructureSource source, Descript
             {
                 _reading = null;
             }
-            Changed?.Invoke();
+            Notify();
         }
     }
 }

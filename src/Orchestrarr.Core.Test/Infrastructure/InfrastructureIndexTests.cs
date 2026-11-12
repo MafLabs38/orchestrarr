@@ -20,6 +20,13 @@ public sealed class InfrastructureIndexTests
     }
 
     [Fact]
+    public void A_description_that_names_repositories_is_in_scope_even_when_nothing_was_read()
+    {
+        InfrastructureIndex.Build(new InfrastructureSnapshot(DateTimeOffset.UnixEpoch, [], []), inScope: true).InScope.Should().BeTrue();
+        InfrastructureIndex.Build(new InfrastructureSnapshot(DateTimeOffset.UnixEpoch, [], [])).InScope.Should().BeFalse();
+    }
+
+    [Fact]
     public void The_text_that_was_read_stays_with_the_index_and_nothing_is_in_scope_without_a_file_or_a_problem()
     {
         var index = InfrastructureIndex.Build(Snapshot(new InfrastructureFile("example/infra", "k8s/db.yaml", "kubernetes", "image: postgres:15\n")));

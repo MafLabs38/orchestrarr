@@ -57,7 +57,9 @@ public sealed class InfrastructureIndex
     /// <summary>True when the description names at least one repository: without one, "found nowhere" would mean nothing.</summary>
     public bool InScope { get; }
 
-    public static InfrastructureIndex Build(InfrastructureSnapshot snapshot)
+    /// <param name="snapshot">What was read.</param>
+    /// <param name="inScope">Whether the description names repositories; unset, whether anything was read or told.</param>
+    public static InfrastructureIndex Build(InfrastructureSnapshot snapshot, bool? inScope = null)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         var locations = new List<CodeLocation>();
@@ -67,7 +69,7 @@ public sealed class InfrastructureIndex
             files[(file.Repository, file.Path)] = file.Content;
             locations.AddRange(VersionParsers.Find(file.Kind, file.Repository, file.Path, file.Content).Select(location => location with { Environment = file.Environment }));
         }
-        return new InfrastructureIndex(locations, files, snapshot.Problems, inScope: snapshot.Files.Count > 0 || snapshot.Problems.Count > 0);
+        return new InfrastructureIndex(locations, files, snapshot.Problems, inScope: inScope ?? (snapshot.Files.Count > 0 || snapshot.Problems.Count > 0));
     }
 
     /// <summary>The places that write this image, in the order of the files.</summary>

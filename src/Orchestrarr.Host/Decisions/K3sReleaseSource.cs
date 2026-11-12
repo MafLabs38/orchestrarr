@@ -123,7 +123,17 @@ public sealed class K3sReleaseSource : IK3sReleases, IDisposable
             {
                 _reading = null;
             }
-            Changed?.Invoke();
+            foreach (var handler in (Changed?.GetInvocationList() ?? []).Cast<Action>())
+            {
+                try
+                {
+                    handler();
+                }
+                catch (Exception failure) when (failure is not OutOfMemoryException)
+                {
+                    // A subscriber that throws must not fault a reading nobody awaits
+                }
+            }
         }
     }
 

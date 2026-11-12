@@ -69,6 +69,7 @@ public sealed partial class GitHubInfrastructureSource : IInfrastructureSource
         ArgumentNullException.ThrowIfNull(scope);
         var files = new List<InfrastructureFile>();
         var problems = new List<RepositoryProblem>();
+        var seen = new HashSet<(string Repository, string Path)>();
         // A repository may be named more than once (an overlay for each environment): its tree is read once
         foreach (var group in scope.GroupBy(repository => repository.Repository, StringComparer.Ordinal))
         {
@@ -86,9 +87,15 @@ public sealed partial class GitHubInfrastructureSource : IInfrastructureSource
                     {
                         var (read, unreadable) = await ReadFilesAsync(repository, tree, cancellationToken);
                         files.AddRange(read);
+                        seen.UnionWith(read.Select(file => (file.Repository, file.Path)));
                         if (unreadable is not null)
                         {
                             messages.Add(unreadable);
+                        }
+                        else if (read.Count == 0)
+                        {
+                            // A path of the description that matches no file is a typo, or a repository that moved: it is told, not left as "nothing to find"
+                            messages.Add("no file matches its paths");
                         }
                     }
                 }
@@ -103,6 +110,11 @@ public sealed partial class GitHubInfrastructureSource : IInfrastructureSource
                 messages.Add("unreadable answer");
             }
             problems.AddRange(messages.Distinct(StringComparer.Ordinal).Select(message => new RepositoryProblem(group.Key, message)));
+        }
+        // What is no longer there (a deleted or renamed file, a repository taken out of the description) is not kept
+        foreach (var key in _files.Keys.Where(key => !seen.Contains(key)).ToList())
+        {
+            _files.Remove(key);
         }
         return new InfrastructureSnapshot(_time.GetUtcNow(), files, problems);
     }

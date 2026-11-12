@@ -14,7 +14,7 @@ public sealed class ScopeChecksTests
     {
         var problems = ScopeChecks.UnknownEnvironments(Scope, ["k3s", "production"]);
 
-        problems.Select(problem => problem.Repository).Should().Equal("environment prod", "environment staging");
+        problems.Select(problem => problem.Subject).Should().Equal("prod", "staging");
     }
 
     [Fact]

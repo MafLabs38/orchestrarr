@@ -101,10 +101,13 @@ public sealed record DescriptionScope(IReadOnlyList<EnvironmentScope> Environmen
         {
             throw new InvalidOperationException($"The kind of '{repository}' is one of {string.Join(", ", VersionParsers.Kinds)}.");
         }
-        var paths = element.TryGetProperty("paths", out var list) && list.ValueKind == JsonValueKind.Array
-            ? list.EnumerateArray().Where(path => path.ValueKind == JsonValueKind.String).Select(path => path.GetString()!).ToList()
-            : [];
-        if (paths.Count == 0 || paths.Any(path => string.IsNullOrWhiteSpace(path) || path.StartsWith('/') || path.Contains("..", StringComparison.Ordinal)))
+        var entries = element.TryGetProperty("paths", out var list) && list.ValueKind == JsonValueKind.Array ? list.EnumerateArray().ToList() : [];
+        if (entries.Any(entry => entry.ValueKind != JsonValueKind.String))
+        {
+            throw new InvalidOperationException($"The paths of '{repository}' are text.");
+        }
+        var paths = entries.Select(entry => entry.GetString() ?? string.Empty).ToList();
+        if (paths.Count == 0 || paths.Any(path => string.IsNullOrWhiteSpace(path) || path.StartsWith('/') || path.Contains("..", StringComparison.Ordinal) || path.Contains('\\', StringComparison.Ordinal)))
         {
             throw new InvalidOperationException($"'{repository}' names the paths it is read from, relative to the repository.");
         }

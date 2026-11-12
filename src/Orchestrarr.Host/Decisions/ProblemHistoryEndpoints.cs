@@ -71,7 +71,7 @@ internal static class ProblemHistoryEndpoints
             }
 
             var report = await catalog.GetAsync(refresh: false, ct);
-            var table = ProblemsEndpoints.VisibleTable(report, applications, runners, queue, history, approvals, time, policy, infrastructure, k3s).ToDictionary(row => row.Id, StringComparer.Ordinal);
+            var table = ProblemsEndpoints.VisibleTable(TableInputs.Last(report, infrastructure, k3s), applications, runners, queue, history, approvals, time, policy).ToDictionary(row => row.Id, StringComparer.Ordinal);
             var rows = new List<ProblemRow>();
             // The same row twice is one row
             foreach (var one in chosen.DistinctBy(candidate => candidate.Id, StringComparer.Ordinal))

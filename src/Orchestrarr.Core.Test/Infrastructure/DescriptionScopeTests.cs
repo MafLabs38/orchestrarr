@@ -74,6 +74,9 @@ public sealed class DescriptionScopeTests
     [InlineData("""{ "environments": [ { "id": "e" } ], "repositories": [ { "repository": "a/b", "kind": "compose", "paths": ["x"], "environment": "other" } ] }""", "not in the environments")]
     [InlineData("""{ "platforms": [ { "id": "p", "kind": "k3s", "version": { "repository": "a/b", "path": "x", "key": "k" } } ] }""", "repository of the description")]
     [InlineData("""{ "repositories": [ { "repository": "a/b", "kind": "compose", "paths": ["x"] } ], "platforms": [ { "id": "p", "kind": "k3s", "version": { "repository": "a/b", "path": "x" } } ] }""", "with the key")]
+    [InlineData("""{ "repositories": [ { "repository": "a/b", "kind": "compose", "paths": [1, "a/**"] } ] }""", "are text")]
+    [InlineData("""{ "repositories": [ { "repository": "a/b", "kind": "compose", "paths": [null] } ] }""", "are text")]
+    [InlineData("""{ "repositories": [ { "repository": "a/b", "kind": "compose", "paths": ["a\\b"] } ] }""", "relative")]
     [InlineData("""{ "environments": "k3s" }""", "is a list")]
     [InlineData("[]", "an object")]
     public void A_mistake_stops_the_start_and_says_where(string json, string expected)

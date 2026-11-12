@@ -369,6 +369,7 @@ describe('Decisions', () => {
           readAt: '2026-11-01T08:00:00Z',
           stale: false,
           error: null,
+          warnings: [],
           problems: [{ repository: 'example/infra', reason: 'not found or no access' }],
         },
       }),
@@ -388,6 +389,7 @@ describe('Decisions', () => {
           readAt: '2026-11-01T08:00:00Z',
           stale: false,
           error: null,
+          warnings: [],
           problems: [
             { repository: 'example/infra', reason: 'more than 300 files match' },
             { repository: 'example/infra', reason: '2 files could not be read' },

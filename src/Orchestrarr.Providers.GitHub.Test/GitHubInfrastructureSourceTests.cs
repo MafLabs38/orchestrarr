@@ -152,6 +152,34 @@ public sealed class GitHubInfrastructureSourceTests
         _handler.Calls("/repos/example/infra/git/trees/HEAD").Should().Be(1);
     }
 
+    [Fact]
+    public async Task A_path_of_the_description_that_matches_no_file_is_told()
+    {
+        Tree("example/infra", Entry("docs/readme.md", ShaA));
+
+        var snapshot = await Source().ReadAsync([Scope()], TestContext.Current.CancellationToken);
+
+        snapshot.Files.Should().BeEmpty();
+        snapshot.Problems.Should().ContainSingle().Which.Should().Be(new RepositoryProblem("example/infra", "no file matches its paths"));
+    }
+
+    [Fact]
+    public async Task A_file_that_is_no_longer_in_the_tree_is_not_kept()
+    {
+        Tree("example/infra", Entry("apps/a.yaml", ShaA));
+        Blob("example/infra", ShaA, "image: a:1\n");
+        var source = Source();
+        await source.ReadAsync([Scope()], TestContext.Current.CancellationToken);
+        Tree("example/infra", Entry("apps/b.yaml", ShaB));
+        Blob("example/infra", ShaB, "image: b:1\n");
+        await source.ReadAsync([Scope()], TestContext.Current.CancellationToken);
+
+        Tree("example/infra", Entry("apps/a.yaml", ShaA));
+        await source.ReadAsync([Scope()], TestContext.Current.CancellationToken);
+
+        _handler.Calls($"/repos/example/infra/git/blobs/{ShaA}").Should().Be(2, "the first file was dropped from the memory when it left the tree, so it is read again when it comes back");
+    }
+
     private sealed class Routes : HttpMessageHandler
     {
         private readonly Dictionary<string, (string Body, HttpStatusCode Status)> _routes = [];

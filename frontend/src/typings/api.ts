@@ -312,6 +312,8 @@ export interface CodeScopeStatus {
   stale: boolean;
   error: string | null;
   problems: { repository: string; reason: string }[];
+  // Something wrong in the description that is not a failure to read: an environment that the fleet does not know
+  warnings: { subject: string; reason: string }[];
 }
 
 // A change to a file of the scope, computed and not applied
