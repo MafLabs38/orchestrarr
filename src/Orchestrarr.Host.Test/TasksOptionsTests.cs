@@ -13,28 +13,28 @@ public sealed class TasksOptionsTests
         options.Validate(new ApprovalsOptions(), new StorageOptions { Provider = StorageProvider.Memory }.Validate(Path.GetTempPath(), development: true, approving: true), Path.GetTempPath());
 
     [Fact]
-    public void One_executor_with_a_long_enough_token_is_accepted()
+    public void One_runner_with_a_long_enough_token_is_accepted()
     {
-        var settings = Validate(new TasksOptions { Executors = [new ExecutorTokenOptions { Name = "executor-1", Token = Token }] });
+        var settings = Validate(new TasksOptions { Runners = [new RunnerTokenOptions { Name = "runner-1", Token = Token }] });
 
-        settings.Executors.Should().ContainSingle().Which.Name.Should().Be("executor-1");
+        settings.Runners.Should().ContainSingle().Which.Name.Should().Be("runner-1");
     }
 
     [Fact]
-    public void Several_executors_are_refused_until_batches_are_routed()
+    public void Several_runners_are_refused_until_batches_are_routed()
     {
         var options = new TasksOptions
         {
-            Executors = [new ExecutorTokenOptions { Name = "executor-1", Token = Token }, new ExecutorTokenOptions { Name = "executor-2", Token = Token }],
+            Runners = [new RunnerTokenOptions { Name = "runner-1", Token = Token }, new RunnerTokenOptions { Name = "runner-2", Token = Token }],
         };
 
-        options.Invoking(Validate).Should().Throw<InvalidOperationException>().WithMessage("*one executor*");
+        options.Invoking(Validate).Should().Throw<InvalidOperationException>().WithMessage("*one runner*");
     }
 
     [Fact]
     public void A_short_token_stops_the_host()
     {
-        var options = new TasksOptions { Executors = [new ExecutorTokenOptions { Name = "executor-1", Token = "short" }] };
+        var options = new TasksOptions { Runners = [new RunnerTokenOptions { Name = "runner-1", Token = "short" }] };
 
         options.Invoking(Validate).Should().Throw<InvalidOperationException>().WithMessage("*32 characters*");
     }

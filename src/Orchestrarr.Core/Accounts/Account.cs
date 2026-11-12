@@ -2,7 +2,7 @@ namespace Orchestrarr.Core.Accounts;
 
 /// <summary>
 /// A person who signs in (ADR 0018): a name, a password (kept as a hash, apart), one role and a state. The id never changes and is what the
-/// trail, the approvals and the second factor of the executor call the person: a name can be reused, an id cannot.
+/// trail, the approvals and the second factor of the runner call the person: a name can be reused, an id cannot.
 /// </summary>
 public sealed record Account(Guid Id, string Name, string Role, bool Enabled, DateTimeOffset CreatedAt)
 {
@@ -15,7 +15,7 @@ public sealed record Account(Guid Id, string Name, string Role, bool Enabled, Da
     public IReadOnlySet<string> Permissions => Roles.Find(Role)?.Permissions ?? NoPermissions;
 
     /// <summary>
-    /// The identifier the approvals, the trail and the executor's second factor use for this person: the id in its canonical form, which the
+    /// The identifier the approvals, the trail and the runner's second factor use for this person: the id in its canonical form, which the
     /// order's rule for a subject accepts (letters, digits and <c>. _ - @ : +</c>).
     /// </summary>
     public string Subject => Id.ToString("D");

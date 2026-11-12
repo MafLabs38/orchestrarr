@@ -44,7 +44,7 @@ var grants = (builder.Configuration.GetSection(PowersOptions.SectionName).Get<Po
 var auth = (builder.Configuration.GetSection(AuthOptions.SectionName).Get<AuthOptions>() ?? new AuthOptions()).Validate();
 // Where the approvals, the trail and the global stop are kept: checked now, so that a file that cannot be used stops the host
 var storage = (builder.Configuration.GetSection(StorageOptions.SectionName).Get<StorageOptions>() ?? new StorageOptions()).Validate(builder.Environment.ContentRootPath, builder.Environment.IsDevelopment(), approving: true);
-// The tasks and the executors (ADR 0017): the code of the second factor, how long an approval waits, the tokens of the executors. Checked now.
+// The tasks and the runners (ADR 0017): the code of the second factor, how long an approval waits, the tokens of the runners. Checked now.
 var tasks = (builder.Configuration.GetSection(TasksOptions.SectionName).Get<TasksOptions>() ?? new TasksOptions()).Validate(approvals, storage, builder.Environment.ContentRootPath);
 if (builder.Environment.IsProduction() && !tasks.Options.RequireSecondFactor)
 {
@@ -85,7 +85,7 @@ app.UseOrchestrarrSecurity();
 var live = app.Services.GetRequiredService<ILiveNotifier>();
 app.UseMiddleware<LiveChangeMiddleware>();
 app.Services.GetRequiredService<WorkItemCatalog>().Changed += () => live.Publish(LiveTopics.Problems);
-app.Services.GetRequiredService<ExecutorRegistry>().Changed += () => live.Publish(LiveTopics.Status);
+app.Services.GetRequiredService<RunnerRegistry>().Changed += () => live.Publish(LiveTopics.Status);
 
 var api = app.MapGroup("/api/v1");
 api.MapAuthEndpoints();
@@ -98,7 +98,7 @@ app.UseRateLimiter();
 // For a probe of the deployment: it says the host is up and nothing else
 app.MapGet("/health", () => Results.Ok(new HealthStatus("ok"))).AllowAnonymous();
 
-// The decision cards waiting for the operator, and the approvals recorded for the launcher. Approving records a decision; the executor takes it from the queue.
+// The decision cards waiting for the operator, and the approvals recorded for the launcher. Approving records a decision; the runner takes it from the queue.
 api.MapGet("/work-items", async (WorkItemCatalog catalog, bool? refresh, CancellationToken ct) =>
     Results.Ok(await catalog.GetAsync(refresh ?? false, ct))).RequireAuthorization(Permissions.FleetRead);
 
@@ -110,15 +110,15 @@ api.MapApprovalEndpoints();
 app.MapHub<LiveHub>(LiveHub.Path, options => options.CloseOnAuthenticationExpiration = true).RequireAuthorization(Permissions.FleetRead);
 api.MapProblemsEndpoints();
 api.MapRunEndpoints();
-// The routes of the executors carry their own token and no session: they are mapped outside the group that needs a person
-app.MapExecutorEndpoints(tasks);
+// The routes of the runners carry their own token and no session: they are mapped outside the group that needs a person
+app.MapRunnerEndpoints(tasks);
 
-api.MapGet("/system/status", (WorkItemCatalog catalog, IApproverAccessor accessor, IKillSwitchControl killSwitch, ISecondFactorPolicy secondFactor, ExecutorRegistry executors, HttpContext context) =>
+api.MapGet("/system/status", (WorkItemCatalog catalog, IApproverAccessor accessor, IKillSwitchControl killSwitch, ISecondFactorPolicy secondFactor, RunnerRegistry runners, HttpContext context) =>
 {
     // The status never reads the fleet: it says what the last read found, and nothing before the first one
     var report = catalog.Peek();
     var version = typeof(Program).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0.0.0-dev";
-    return Results.Ok(new SystemStatus("Orchestrarr", version, new SourceStatus(catalog.SourceKind, catalog.SourceConfigured, report?.ReadAt, report?.Error, report?.Stale ?? false), new ForgeStatus(catalog.ForgeKind, catalog.ForgeConfigured), ApprovalEndpoints.StatusOf(accessor, context, killSwitch, secondFactor.Required), new StorageStatus(storage.Kind), executors.Snapshot()));
+    return Results.Ok(new SystemStatus("Orchestrarr", version, new SourceStatus(catalog.SourceKind, catalog.SourceConfigured, report?.ReadAt, report?.Error, report?.Stale ?? false), new ForgeStatus(catalog.ForgeKind, catalog.ForgeConfigured), ApprovalEndpoints.StatusOf(accessor, context, killSwitch, secondFactor.Required), new StorageStatus(storage.Kind), runners.Snapshot()));
 }).RequireAuthorization(Permissions.FleetRead);
 
 // An unknown route of the API is a 404 for a person who signed in (a 401 for anybody else: the fallback policy), never the page of the interface
@@ -140,7 +140,7 @@ public partial class Program;
 namespace Orchestrarr.Host
 {
     /// <summary>What <c>GET /api/v1/system/status</c> answers.</summary>
-    public sealed record SystemStatus(string Name, string Version, SourceStatus Source, ForgeStatus Forge, ApprovalStatus Approvals, StorageStatus Storage, IReadOnlyList<ExecutorStatus> Executors);
+    public sealed record SystemStatus(string Name, string Version, SourceStatus Source, ForgeStatus Forge, ApprovalStatus Approvals, StorageStatus Storage, IReadOnlyList<RunnerStatus> Runners);
 
     /// <summary>Where the approvals, the trail and the global stop are kept: <c>sqlite</c> survives a restart, <c>memory</c> does not.</summary>
     public sealed record StorageStatus(string Kind);

@@ -107,6 +107,6 @@ export function status(
     forge: { kind: 'github', configured: true },
     approvals: approvalStatus(approvals),
     storage: { kind: 'memory' },
-    executors: [],
+    runners: [],
   };
 }

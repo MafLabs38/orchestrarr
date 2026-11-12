@@ -62,10 +62,10 @@ public sealed class LivePublishTests
     [InlineData("POST", "/api/v1/approvals", 403)]
     [InlineData("POST", "/api/v1/auth/login", 200)]
     [InlineData("POST", "/api/v1/auth/logout", 204)]
-    [InlineData("POST", "/api/v1/executor/claim", 200)]
+    [InlineData("POST", "/api/v1/runner/claim", 200)]
     [InlineData("POST", "/api/v1/live/negotiate", 200)]
     [InlineData("POST", "/health", 200)]
-    public async Task A_read_a_refused_write_the_sign_in_the_executors_and_the_channel_itself_announce_nothing(string method, string path, int status)
+    public async Task A_read_a_refused_write_the_sign_in_the_runners_and_the_channel_itself_announce_nothing(string method, string path, int status)
     {
         (await Pass(method, path, status)).Should().Be(0);
     }
@@ -104,29 +104,29 @@ public sealed class LivePublishTests
         rows.Should().NotBeEmpty().And.OnlyContain(row => row.GetProperty("workshop").GetString() == "unknown", "with no result, the workshop has said nothing of any commit");
     }
 
-    private static ExecutorHello Hello(string version = "1", params string[] repositories) =>
-        new("executor-1", version, [TaskKind.ValidatePullRequest], repositories.Length == 0 ? ["example/*"] : repositories, [], true);
+    private static RunnerHello Hello(string version = "1", params string[] repositories) =>
+        new("runner-1", version, [TaskKind.ValidatePullRequest], repositories.Length == 0 ? ["example/*"] : repositories, [], true);
 
     [Fact]
-    public void The_registry_announces_an_executor_that_appears_comes_back_or_changes_and_not_every_call_it_makes()
+    public void The_registry_announces_an_runner_that_appears_comes_back_or_changes_and_not_every_call_it_makes()
     {
         var time = new FakeTimeProvider(new DateTimeOffset(2026, 11, 11, 12, 0, 0, TimeSpan.Zero));
-        var registry = new ExecutorRegistry(time);
+        var registry = new RunnerRegistry(time);
         var announced = 0;
         registry.Changed += () => announced++;
 
-        registry.Seen("executor-1", Hello());
+        registry.Seen("runner-1", Hello());
         announced.Should().Be(1, "it appeared");
         time.Advance(TimeSpan.FromSeconds(3));
-        registry.Seen("executor-1", Hello());
+        registry.Seen("runner-1", Hello());
         time.Advance(TimeSpan.FromSeconds(3));
-        registry.Seen("executor-1", Hello());
-        announced.Should().Be(1, "an executor asks every few seconds: the same description is not news");
+        registry.Seen("runner-1", Hello());
+        announced.Should().Be(1, "a runner asks every few seconds: the same description is not news");
 
-        registry.Seen("executor-1", Hello(repositories: "example/other"));
+        registry.Seen("runner-1", Hello(repositories: "example/other"));
         announced.Should().Be(2, "what it accepts changed");
-        time.Advance(ExecutorRegistry.ConnectedFor + TimeSpan.FromSeconds(1));
-        registry.Seen("executor-1", Hello(repositories: "example/other"));
+        time.Advance(RunnerRegistry.ConnectedFor + TimeSpan.FromSeconds(1));
+        registry.Seen("runner-1", Hello(repositories: "example/other"));
         announced.Should().Be(3, "it came back after a silence");
     }
 }

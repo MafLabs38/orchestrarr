@@ -10,8 +10,8 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const executor = {
-  name: 'executor-1',
+const runner = {
+  name: 'runner-1',
   version: '1',
   lastSeen: '2026-11-11T12:00:00Z',
   connected: true,
@@ -21,10 +21,10 @@ const executor = {
   secondFactorRequired: true,
 };
 
-// The status of a host with one executor connected, unless the test says otherwise
-const statusWith = (approvals: Parameters<typeof status>[1] = {}, executors = [executor]) => ({
+// The status of a host with one runner connected, unless the test says otherwise
+const statusWith = (approvals: Parameters<typeof status>[1] = {}, runners = [runner]) => ({
   ...status({}, { requiresSecondFactor: true, ...approvals }),
-  executors,
+  runners,
 });
 
 describe('NotificationBell', () => {
@@ -58,11 +58,11 @@ describe('NotificationBell', () => {
     const bell = await screen.findByRole('button', { name: 'Notifications (1)' });
     expect(bell).toHaveTextContent('1');
     await userEvent.click(bell);
-    expect(screen.getByText('No executor is connected')).toBeInTheDocument();
+    expect(screen.getByText('No runner is connected')).toBeInTheDocument();
 
     await userEvent.keyboard('{Escape}');
 
-    expect(screen.queryByText('No executor is connected')).not.toBeInTheDocument();
+    expect(screen.queryByText('No runner is connected')).not.toBeInTheDocument();
   });
 
   it('says that the global stop is engaged as an important notification', async () => {

@@ -41,12 +41,12 @@ export default function useNotifications(): Notification[] {
       text: translate('NotificationSourceText'),
     });
   }
-  if (!status.executors.some((executor) => executor.connected)) {
+  if (!status.runners.some((runner) => runner.connected)) {
     notifications.push({
-      id: 'no-executor',
+      id: 'no-runner',
       important: false,
-      title: translate('NotificationNoExecutorTitle'),
-      text: translate('NotificationNoExecutorText'),
+      title: translate('NotificationNoRunnerTitle'),
+      text: translate('NotificationNoRunnerText'),
     });
   }
   return notifications;

@@ -7,7 +7,7 @@ namespace Orchestrarr.Host.Accounts;
 
 /// <summary>
 /// The person who signed in, as the approvals know them: their subject is the id of their account, they are an operator when their role gives
-/// the permission to approve. The proof of the second factor is not here: the executor checks the code.
+/// the permission to approve. The proof of the second factor is not here: the runner checks the code.
 /// </summary>
 public sealed class SessionApprover : IApproverAccessor
 {

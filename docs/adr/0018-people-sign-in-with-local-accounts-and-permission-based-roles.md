@@ -4,6 +4,7 @@
 - **Date**: 2026-11-10
 - **Spec**: D-66 (supersedes D-54, amends D-40)
 - **Supersedes**: [ADR 0011](0011-people-sign-in-through-the-identity-provider.md)
+- **Naming**: since [ADR 0026](0026-the-process-that-takes-approved-tasks-is-the-orchestrarr-runner.md) the "executor" of this decision is the Orchestrarr Runner.
 
 ## Context
 

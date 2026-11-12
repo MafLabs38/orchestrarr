@@ -3,6 +3,7 @@
 - **Status**: proposed (safe defaults; the maintainer has not decided them, except the identity of the launcher and who serves an order with no environment, [ADR 0016](0016-the-launcher-acts-under-a-mandate-of-its-own.md), and Q-27 is open)
 - **Date**: 2026-11-04
 - **Superseded in part** by [ADR 0017](0017-orders-are-typed-tasks-approved-with-a-second-factor-that-the-executor-checks.md) (2026-11-09): the launcher is replaced by an executor in .NET, and the order signed by the server by a task approved with a second factor that the executor checks.
+- **Naming**: since [ADR 0026](0026-the-process-that-takes-approved-tasks-is-the-orchestrarr-runner.md) the "executor" of this decision is the Orchestrarr Runner.
 
 ## Context
 

@@ -150,7 +150,7 @@ describe('Decisions', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /Why: example\/shop lodash/ }));
 
-    expect(screen.getByRole('note')).toHaveTextContent(/The checks fail on the forge for this pull request/);
+    expect(screen.getByRole('note')).toHaveTextContent(/The CI of this pull request fails/);
   });
 
   it('cannot select a problem that has no action', async () => {
@@ -246,7 +246,7 @@ describe('Decisions', () => {
     const line = within(screen.getByRole('table')).getAllByRole('row')[1];
     expect(line).toHaveTextContent(/1Validate2Repair.*Fails here/);
     expect(
-      screen.getByText(/example\/shop: an agent tries to repair 1 in the workshop.*nothing is pushed/),
+      screen.getByText(/example\/shop: an agent tries to repair 1 in the Orchestrarr Runner.*nothing is pushed/),
     ).toBeInTheDocument();
     expect(screen.queryByLabelText(/Try to repair/)).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Validate the selection' }));
@@ -292,7 +292,7 @@ describe('Decisions', () => {
     expect(apps.at(-1)).toMatch(/web-portal/);
   });
 
-  it('shows what the workshop said of the commit and filters on it', async () => {
+  it('shows what the Runner said of the commit and filters on it', async () => {
     const failed = problem({
       id: 'pr:example/shop#9',
       description: 'express 4.16.0 → 5.3.0',
@@ -320,7 +320,7 @@ describe('Decisions', () => {
     expect(table.getByText('fails')).toBeInTheDocument();
     expect(table.getByText('passes')).toBeInTheDocument();
 
-    await userEvent.selectOptions(screen.getByLabelText('Workshop'), 'fails');
+    await userEvent.selectOptions(screen.getByLabelText('Runner'), 'fails');
 
     expect(screen.queryByText('mocha 8 → 12')).not.toBeInTheDocument();
     expect(screen.getByText('express 4.16.0 → 5.3.0')).toBeInTheDocument();

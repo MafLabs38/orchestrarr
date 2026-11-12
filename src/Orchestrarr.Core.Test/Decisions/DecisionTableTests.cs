@@ -7,7 +7,7 @@ using Orchestrarr.Core.WorkItems;
 
 namespace Orchestrarr.Core.Test.Decisions;
 
-/// <summary>The table: one row per problem, and how far each goes is the lowest of what the description allows, what the executors accept and the state of the problem (ADR 0019).</summary>
+/// <summary>The table: one row per problem, and how far each goes is the lowest of what the description allows, what the runners accept and the state of the problem (ADR 0019).</summary>
 public sealed class DecisionTableTests
 {
     private const string Id = "repository:example/shop";
@@ -33,12 +33,12 @@ public sealed class DecisionTableTests
               "update": { "promote": [{{promote}}] } } ] }
             """);
 
-    private static IReadOnlyList<ProblemRow> Table(WorkItem item, IApplicationCatalog? applications = null, IReadOnlyList<ExecutorAcceptance>? executors = null, IReadOnlyList<TaskResultRow>? results = null) =>
-        DecisionTable.Build([item], applications ?? Described(), executors ?? [Everything], results);
+    private static IReadOnlyList<ProblemRow> Table(WorkItem item, IApplicationCatalog? applications = null, IReadOnlyList<RunnerAcceptance>? runners = null, IReadOnlyList<TaskResultRow>? results = null) =>
+        DecisionTable.Build([item], applications ?? Described(), runners ?? [Everything], results);
 
-    private static readonly ExecutorAcceptance Everything = new([TaskKind.ValidatePullRequest, TaskKind.MergePullRequest], ["example/*"]);
+    private static readonly RunnerAcceptance Everything = new([TaskKind.ValidatePullRequest, TaskKind.MergePullRequest], ["example/*"]);
 
-    private static readonly ExecutorAcceptance Repairing = new([TaskKind.ValidatePullRequest, TaskKind.MergePullRequest, TaskKind.RepairPullRequest], ["example/*"]);
+    private static readonly RunnerAcceptance Repairing = new([TaskKind.ValidatePullRequest, TaskKind.MergePullRequest, TaskKind.RepairPullRequest], ["example/*"]);
 
     private static ProblemRow Only(IReadOnlyList<ProblemRow> rows) => rows.Single(row => row.Kind == ProblemKind.DependencyUpdate);
 
@@ -109,7 +109,7 @@ public sealed class DecisionTableTests
     [Fact]
     public void Where_no_repair_can_be_tried_a_failing_pull_request_stays_at_the_qualification()
     {
-        Only(Table(Item([Pull(checks: ChecksState.Failing)]), executors: [Everything])).GoesUpTo.Should().Be(Ceiling.Qualification, "no executor accepts the repair");
+        Only(Table(Item([Pull(checks: ChecksState.Failing)]), runners: [Everything])).GoesUpTo.Should().Be(Ceiling.Qualification, "no runner accepts the repair");
         Only(TableWith(Item([Pull(checks: ChecksState.Failing)], grantRepair: false))).GoesUpTo.Should().Be(Ceiling.Qualification, "the repair is not granted");
     }
 
@@ -164,7 +164,7 @@ public sealed class DecisionTableTests
     [Fact]
     public void When_the_workshop_failed_and_no_repair_can_be_tried_the_pull_request_stays_at_the_qualification()
     {
-        var row = Only(Table(Item(grantRepair: false), executors: [Repairing], results: [Said(TaskKind.ValidatePullRequest, TaskResult.Failed)]));
+        var row = Only(Table(Item(grantRepair: false), runners: [Repairing], results: [Said(TaskKind.ValidatePullRequest, TaskResult.Failed)]));
 
         row.GoesUpTo.Should().Be(Ceiling.Qualification);
         row.Why.Should().Be(CeilingReason.QualificationFailed);
@@ -242,23 +242,23 @@ public sealed class DecisionTableTests
     }
 
     [Fact]
-    public void The_executors_that_are_connected_bound_the_row_to_what_they_accept()
+    public void The_runners_that_are_connected_bound_the_row_to_what_they_accept()
     {
-        var all = new ExecutorAcceptance([TaskKind.ValidatePullRequest, TaskKind.MergePullRequest], ["example/*"]);
-        var validateOnly = new ExecutorAcceptance([TaskKind.ValidatePullRequest], ["example/shop"]);
-        var elsewhere = new ExecutorAcceptance([TaskKind.ValidatePullRequest, TaskKind.MergePullRequest], ["other/*"]);
+        var all = new RunnerAcceptance([TaskKind.ValidatePullRequest, TaskKind.MergePullRequest], ["example/*"]);
+        var validateOnly = new RunnerAcceptance([TaskKind.ValidatePullRequest], ["example/shop"]);
+        var elsewhere = new RunnerAcceptance([TaskKind.ValidatePullRequest, TaskKind.MergePullRequest], ["other/*"]);
 
-        Only(Table(Item(), executors: [all])).GoesUpTo.Should().Be(Ceiling.Production);
-        var nobody = Only(Table(Item(), executors: []));
-        nobody.GoesUpTo.Should().Be(Ceiling.NoAction, "with no executor connected nothing can be run, and the row says so");
-        nobody.Why.Should().Be(CeilingReason.NoExecutor);
-        var capped = Only(Table(Item(), executors: [validateOnly]));
+        Only(Table(Item(), runners: [all])).GoesUpTo.Should().Be(Ceiling.Production);
+        var nobody = Only(Table(Item(), runners: []));
+        nobody.GoesUpTo.Should().Be(Ceiling.NoAction, "with no runner connected nothing can be run, and the row says so");
+        nobody.Why.Should().Be(CeilingReason.NoRunner);
+        var capped = Only(Table(Item(), runners: [validateOnly]));
         capped.GoesUpTo.Should().Be(Ceiling.Qualification);
-        capped.Why.Should().Be(CeilingReason.NoExecutor);
-        var none = Only(Table(Item(), executors: [elsewhere]));
+        capped.Why.Should().Be(CeilingReason.NoRunner);
+        var none = Only(Table(Item(), runners: [elsewhere]));
         none.GoesUpTo.Should().Be(Ceiling.NoAction);
-        none.Why.Should().Be(CeilingReason.NoExecutor);
-        Only(Table(Item(), executors: [validateOnly, all])).GoesUpTo.Should().Be(Ceiling.Production, "it is enough that one executor accepts");
+        none.Why.Should().Be(CeilingReason.NoRunner);
+        Only(Table(Item(), runners: [validateOnly, all])).GoesUpTo.Should().Be(Ceiling.Production, "it is enough that one runner accepts");
     }
 
     [Fact]

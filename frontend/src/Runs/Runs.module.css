@@ -62,7 +62,7 @@
 }
 
 .agentEvent {
-  /* What an agent does is the work of a task: set apart from the checks of the executor */
+  /* What an agent does is the work of a task: set apart from the checks of the runner */
   padding-left: 10px;
   border-left: 3px solid var(--secondary);
 }

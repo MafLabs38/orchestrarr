@@ -21,9 +21,9 @@ public sealed class InMemoryBatchQueue(InMemoryApprovalStore approvals, IAuditSi
         }
     }
 
-    public async ValueTask<ClaimResult> ClaimAsync(string executor, CancellationToken cancellationToken)
+    public async ValueTask<ClaimResult> ClaimAsync(string runner, CancellationToken cancellationToken)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(executor);
+        ArgumentException.ThrowIfNullOrWhiteSpace(runner);
         if (await killSwitch.IsEngagedAsync(cancellationToken))
         {
             return new ClaimResult(ClaimStatus.Stopped);
@@ -46,7 +46,7 @@ public sealed class InMemoryBatchQueue(InMemoryApprovalStore approvals, IAuditSi
             {
                 claimed.Code = null;
                 claimed.State = BatchState.Delivered;
-                claimed.Executor = executor;
+                claimed.Runner = runner;
                 claimed.DeliveredAt = now;
             }
         }
@@ -54,14 +54,14 @@ public sealed class InMemoryBatchQueue(InMemoryApprovalStore approvals, IAuditSi
         {
             return new ClaimResult(ClaimStatus.Nothing);
         }
-        if (!await audit.TryRecordAsync(new AuditEntry(now, AuditEvents.BatchDelivered, executor, claimed.Batch.Id.ToString("D"), $"{claimed.Batch.Tasks.Count} tasks, digest {claimed.Batch.Digest()[..16]}"), cancellationToken))
+        if (!await audit.TryRecordAsync(new AuditEntry(now, AuditEvents.BatchDelivered, runner, claimed.Batch.Id.ToString("D"), $"{claimed.Batch.Tasks.Count} tasks, digest {claimed.Batch.Digest()[..16]}"), cancellationToken))
         {
             // Not delivered after all: it waits again, with its code
             lock (_gate)
             {
                 claimed.Code = code;
                 claimed.State = BatchState.Waiting;
-                claimed.Executor = null;
+                claimed.Runner = null;
                 claimed.DeliveredAt = null;
             }
             return new ClaimResult(ClaimStatus.Unavailable);
@@ -96,7 +96,7 @@ public sealed class InMemoryBatchQueue(InMemoryApprovalStore approvals, IAuditSi
         return true;
     }
 
-    public ValueTask<QueueResult> AppendEventsAsync(Guid batchId, string executor, IReadOnlyList<RunEvent> events, CancellationToken cancellationToken)
+    public ValueTask<QueueResult> AppendEventsAsync(Guid batchId, string runner, IReadOnlyList<RunEvent> events, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(events);
         lock (_gate)
@@ -106,7 +106,7 @@ public sealed class InMemoryBatchQueue(InMemoryApprovalStore approvals, IAuditSi
             {
                 return ValueTask.FromResult(QueueResult.NotFound);
             }
-            if (entry.State != BatchState.Delivered || entry.Executor != executor)
+            if (entry.State != BatchState.Delivered || entry.Runner != runner)
             {
                 return ValueTask.FromResult(QueueResult.NotYours);
             }
@@ -125,13 +125,13 @@ public sealed class InMemoryBatchQueue(InMemoryApprovalStore approvals, IAuditSi
                 return ValueTask.FromResult(QueueResult.Invalid);
             }
             entry.Events.AddRange(events);
-            // A run that keeps sending lines is alive: the delivery timeout means "the executor went silent", not "the run is long"
+            // A run that keeps sending lines is alive: the delivery timeout means "the runner went silent", not "the run is long"
             entry.DeliveredAt = time.GetUtcNow();
             return ValueTask.FromResult(QueueResult.Ok);
         }
     }
 
-    public async ValueTask<QueueResult> CompleteAsync(Guid batchId, string executor, BatchOutcome outcome, CancellationToken cancellationToken)
+    public async ValueTask<QueueResult> CompleteAsync(Guid batchId, string runner, BatchOutcome outcome, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(outcome);
         Entry? entry;
@@ -144,7 +144,7 @@ public sealed class InMemoryBatchQueue(InMemoryApprovalStore approvals, IAuditSi
             return QueueResult.NotFound;
         }
         var known = entry.Batch.Tasks.ToDictionary(task => task.Id, task => task.Kind);
-        if (entry.State != BatchState.Delivered || entry.Executor != executor)
+        if (entry.State != BatchState.Delivered || entry.Runner != runner)
         {
             return QueueResult.NotYours;
         }
@@ -156,14 +156,14 @@ public sealed class InMemoryBatchQueue(InMemoryApprovalStore approvals, IAuditSi
         var now = time.GetUtcNow();
         var name = outcome.Final == BatchState.Done ? AuditEvents.BatchDone : AuditEvents.BatchRefused;
         var detail = outcome.Refusal is { } refusal ? refusal.ToString() : $"{outcome.Tasks.Count} tasks";
-        if (!await audit.TryRecordAsync(new AuditEntry(now, name, executor, batchId.ToString("D"), detail), cancellationToken))
+        if (!await audit.TryRecordAsync(new AuditEntry(now, name, runner, batchId.ToString("D"), detail), cancellationToken))
         {
             return QueueResult.Unavailable;
         }
         lock (_gate)
         {
             // Another report of the same batch may have ended it while the trace was written: the first one stands
-            if (entry.State != BatchState.Delivered || entry.Executor != executor)
+            if (entry.State != BatchState.Delivered || entry.Runner != runner)
             {
                 return QueueResult.NotYours;
             }
@@ -216,7 +216,7 @@ public sealed class InMemoryBatchQueue(InMemoryApprovalStore approvals, IAuditSi
         || (entry.State == BatchState.Delivered && entry.DeliveredAt + options.DeliveryTimeout <= now);
 
     private static RunSummary Summary(Entry entry) =>
-        new(entry.Batch.Id, entry.Batch.WorkItemId, entry.Batch.ApproverSubject, entry.Batch.CreatedAt, entry.State, entry.Refusal, entry.Batch.Tasks.Count, entry.EndedAt, entry.Executor);
+        new(entry.Batch.Id, entry.Batch.WorkItemId, entry.Batch.ApproverSubject, entry.Batch.CreatedAt, entry.State, entry.Refusal, entry.Batch.Tasks.Count, entry.EndedAt, entry.Runner);
 
     private sealed class Entry(TaskBatch batch, string? code)
     {
@@ -226,7 +226,7 @@ public sealed class InMemoryBatchQueue(InMemoryApprovalStore approvals, IAuditSi
 
         public BatchState State { get; set; } = BatchState.Waiting;
 
-        public string? Executor { get; set; }
+        public string? Runner { get; set; }
 
         public DateTimeOffset? DeliveredAt { get; set; }
 

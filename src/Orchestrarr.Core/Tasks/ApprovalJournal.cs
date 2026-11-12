@@ -3,7 +3,7 @@ using System.Text.Json;
 
 namespace Orchestrarr.Core.Tasks;
 
-/// <summary>What the journal says about a batch when the executor asks (the double control of ADR 0017).</summary>
+/// <summary>What the journal says about a batch when the runner asks (the double control of ADR 0017).</summary>
 public enum JournalCheck
 {
     /// <summary>The journal holds this batch with this digest, and its chain is intact.</summary>
@@ -45,8 +45,8 @@ public sealed record JournalEntry(long Sequence, DateTimeOffset At, Guid BatchId
 
 /// <summary>
 /// Where the control plane writes down, apart from its queue, each approval that made a batch. It is written before the batch is queued.
-/// What it protects is that the executor can compare what it is handed with a record that a line written into the queue alone does not
-/// reach: for that, production puts the journal where the control plane can append but not rewrite, and the executor can read.
+/// What it protects is that the runner can compare what it is handed with a record that a line written into the queue alone does not
+/// reach: for that, production puts the journal where the control plane can append but not rewrite, and the runner can read.
 /// </summary>
 public interface IApprovalJournal
 {
@@ -54,7 +54,7 @@ public interface IApprovalJournal
     ValueTask<bool> TryAppendAsync(Guid batchId, string digest, string approverSubject, DateTimeOffset at, CancellationToken cancellationToken);
 }
 
-/// <summary>The executor's side of the journal: it reads, it never writes.</summary>
+/// <summary>The runner's side of the journal: it reads, it never writes.</summary>
 public interface IApprovalJournalReader
 {
     ValueTask<JournalCheck> CheckAsync(Guid batchId, string digest, CancellationToken cancellationToken);
@@ -62,7 +62,7 @@ public interface IApprovalJournalReader
 
 /// <summary>
 /// A journal in a file, one JSON line per approval, each chained to the one before. It is both sides at once, for a sandbox where the control
-/// plane and the executor share a disk; production gives the writer and the reader different rights, or a different place.
+/// plane and the runner share a disk; production gives the writer and the reader different rights, or a different place.
 /// </summary>
 public sealed class FileApprovalJournal(string path) : IApprovalJournal, IApprovalJournalReader
 {
@@ -169,7 +169,7 @@ public sealed class FileApprovalJournal(string path) : IApprovalJournal, IApprov
     }
 }
 
-/// <summary>A journal that keeps nothing, for a host that has no executor yet: the double control then has nothing to compare with, and says so.</summary>
+/// <summary>A journal that keeps nothing, for a host that has no runner yet: the double control then has nothing to compare with, and says so.</summary>
 public sealed class NullApprovalJournal : IApprovalJournal
 {
     public ValueTask<bool> TryAppendAsync(Guid batchId, string digest, string approverSubject, DateTimeOffset at, CancellationToken cancellationToken) =>

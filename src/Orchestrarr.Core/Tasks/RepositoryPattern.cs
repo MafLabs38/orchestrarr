@@ -1,6 +1,6 @@
 namespace Orchestrarr.Core.Tasks;
 
-/// <summary>A repository pattern as the executors and the table read it: <c>*</c> stands for any characters, names are compared without regard to case.</summary>
+/// <summary>A repository pattern as the runners and the table read it: <c>*</c> stands for any characters, names are compared without regard to case.</summary>
 public static class RepositoryPattern
 {
     public static bool Matches(string pattern, string repository)

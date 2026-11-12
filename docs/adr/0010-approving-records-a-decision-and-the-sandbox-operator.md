@@ -2,6 +2,7 @@
 
 - **Status**: proposed. Points 1 to 4 and 6 stand. **Point 5 (the sandbox operator and `Approvals:Mode`) is superseded by [ADR 0018](0018-people-sign-in-with-local-accounts-and-permission-based-roles.md) point 6**; the section on the order issued from an approval is superseded by [ADR 0017](0017-orders-are-typed-tasks-approved-with-a-second-factor-that-the-executor-checks.md) (typed tasks, no server-signed order); in the conditions, the sign-in and the session are settled by ADR 0018.
 - **Date**: 2026-11-03
+- **Naming**: since [ADR 0026](0026-the-process-that-takes-approved-tasks-is-the-orchestrarr-runner.md) the "executor" of this decision is the Orchestrarr Runner.
 
 ## Context
 

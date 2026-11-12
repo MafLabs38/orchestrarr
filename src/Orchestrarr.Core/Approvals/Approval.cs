@@ -27,7 +27,7 @@ public sealed record Approval(
 }
 
 /// <summary>
-/// Where an approval is in its life (ADR 0013, 0017). <c>DryRunDone</c> is a real end: the executor checked everything and wrote what it
+/// Where an approval is in its life (ADR 0013, 0017). <c>DryRunDone</c> is a real end: the runner checked everything and wrote what it
 /// would have started, which spends the approval, so a real run needs a new approval.
 /// </summary>
 public enum ApprovalState

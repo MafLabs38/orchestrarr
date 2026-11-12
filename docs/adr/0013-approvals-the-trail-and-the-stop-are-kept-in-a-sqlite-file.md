@@ -2,6 +2,7 @@
 
 - **Status**: proposed. The lifecycle of an approval announced in the consequences is built by [ADR 0017](0017-orders-are-typed-tasks-approved-with-a-second-factor-that-the-executor-checks.md) (schema v2); the identity named in the consequence on subjects is the id of the local account ([ADR 0018](0018-people-sign-in-with-local-accounts-and-permission-based-roles.md)); the launcher it mentions is the executor of ADR 0017.
 - **Date**: 2026-11-03
+- **Naming**: since [ADR 0026](0026-the-process-that-takes-approved-tasks-is-the-orchestrarr-runner.md) the "executor" of this decision is the Orchestrarr Runner.
 
 ## Context
 

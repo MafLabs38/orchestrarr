@@ -15,7 +15,7 @@ public enum TaskKind
     RepairPullRequest,
 }
 
-/// <summary>Where a batch is: waiting for the executor, with it, or ended. A batch that ends never starts again; a new approval makes a new batch.</summary>
+/// <summary>Where a batch is: waiting for the runner, with it, or ended. A batch that ends never starts again; a new approval makes a new batch.</summary>
 public enum BatchState
 {
     Waiting,
@@ -24,7 +24,7 @@ public enum BatchState
     /// <summary>Every task ran to the end of what this slice does: with the dry run, "would have started".</summary>
     Done,
 
-    /// <summary>The executor refused the batch, with a code.</summary>
+    /// <summary>The runner refused the batch, with a code.</summary>
     Refused,
 
     /// <summary>Nobody took it before it expired.</summary>
@@ -41,14 +41,14 @@ public enum TaskResult
     /// <summary>The task ran and every check passed (a validation: the build and the tests are green).</summary>
     Passed,
 
-    /// <summary>A repair worked: an agent changed the code, the executor ran the steps again on a clean checkout with exactly that patch, and they pass. The patch is in the trace; nothing was pushed.</summary>
+    /// <summary>A repair worked: an agent changed the code, the runner ran the steps again on a clean checkout with exactly that patch, and they pass. The patch is in the trace; nothing was pushed.</summary>
     Repaired,
 
     /// <summary>The task ran and a check did not pass. It is a result, not an error: what follows for the same approval does not run.</summary>
     Failed,
 }
 
-/// <summary>Why the executor refused a batch or a task. A code, never a sentence (an attacker learns nothing from the difference).</summary>
+/// <summary>Why the runner refused a batch or a task. A code, never a sentence (an attacker learns nothing from the difference).</summary>
 public enum RunRefusal
 {
     Stopped,
@@ -62,7 +62,7 @@ public enum RunRefusal
     Malformed,
 }
 
-/// <summary>Which results a kind of task can have: what an executor reports is checked against what it was asked to do, because the table reads these results.</summary>
+/// <summary>Which results a kind of task can have: what a runner reports is checked against what it was asked to do, because the table reads these results.</summary>
 public static class TaskResultRules
 {
     public static bool Fits(TaskKind kind, TaskResult result) => result switch
@@ -76,7 +76,7 @@ public static class TaskResultRules
 /// <summary>One thing to do, in the order of its batch. <c>ApprovalId</c> ties it to the decision of the operator that it carries out.</summary>
 public sealed record TaskSpec(Guid Id, int Sequence, TaskKind Kind, string Repository, int PullRequest, string HeadSha, Guid ApprovalId);
 
-/// <summary>Bounds that the control plane and the executor both apply, so that an approval is never recorded for a batch the executor would always refuse.</summary>
+/// <summary>Bounds that the control plane and the runner both apply, so that an approval is never recorded for a batch the runner would always refuse.</summary>
 public static class TaskLimits
 {
     /// <summary>The most tasks one batch may hold (two per pull request when validating and merging).</summary>
@@ -90,13 +90,13 @@ public static class TaskLimits
 
     /// <summary>
     /// The most characters of the detail of one trace line. A line that carries the end of a command's output needs room; a longer one is cut by the
-    /// executor before it is sent (a trace the control plane refuses as a whole is worse than a cut line).
+    /// runner before it is sent (a trace the control plane refuses as a whole is worse than a cut line).
     /// </summary>
     public const int MaxEventDetail = 4000;
 
     /// <summary>
     /// The most lines a run may hold. A repair writes about 170 (the agent's work is capped at 150, then the steps, the patch and the verdict) and a batch holds
-    /// several tasks: the executor keeps room for what must arrive (the end of each task, the patch, the end of the run) by cutting the other lines first,
+    /// several tasks: the runner keeps room for what must arrive (the end of each task, the patch, the end of the run) by cutting the other lines first,
     /// see <c>RunTrace</c>.
     /// </summary>
     public const int MaxEventsPerRun = 5000;
@@ -107,7 +107,7 @@ public static class TaskLimits
 
 /// <summary>
 /// What one click of approval produces: the tasks it covers, who approved, until when it is good. <c>DelegationId</c> is set when a standing
-/// delegation stands in for the code (ADR 0017); the executor checks the delegation in its own store.
+/// delegation stands in for the code (ADR 0017); the runner checks the delegation in its own store.
 /// </summary>
 public sealed record TaskBatch(
     Guid Id,
@@ -123,7 +123,7 @@ public sealed record TaskBatch(
 
     /// <summary>
     /// The exact bytes the digest covers: every field with a presence byte and a length, the tasks in their order, the times in whole
-    /// seconds. Two batches that differ in anything an executor acts on differ here.
+    /// seconds. Two batches that differ in anything a runner acts on differ here.
     /// </summary>
     public byte[] Canonical()
     {
@@ -154,17 +154,17 @@ public sealed record TaskBatch(
     public string Digest() => Convert.ToHexString(SHA256.HashData(Canonical())).ToLowerInvariant();
 }
 
-/// <summary>A batch as it is handed to the executor, with the code of the second factor if there is one. The code is handed over once and not kept.</summary>
+/// <summary>A batch as it is handed to the runner, with the code of the second factor if there is one. The code is handed over once and not kept.</summary>
 public sealed record BatchDelivery(TaskBatch Batch, string? SecondFactorCode);
 
 public sealed record TaskOutcome(Guid TaskId, TaskResult Result, string? Reason);
 
-/// <summary>How the executor ends a batch: <c>Final</c> is <see cref="BatchState.Done"/> or <see cref="BatchState.Refused"/>.</summary>
+/// <summary>How the runner ends a batch: <c>Final</c> is <see cref="BatchState.Done"/> or <see cref="BatchState.Refused"/>.</summary>
 public sealed record BatchOutcome(BatchState Final, RunRefusal? Refusal, IReadOnlyList<TaskOutcome> Tasks);
 
 /// <summary>
 /// One line of the trace of a run. The lines are chained: each carries the hash of the one before, the first the digest of the batch, so
-/// that a line removed or changed afterwards shows. The executor writes them; the control plane checks the chain and keeps them.
+/// that a line removed or changed afterwards shows. The runner writes them; the control plane checks the chain and keeps them.
 /// </summary>
 public sealed record RunEvent(long Sequence, DateTimeOffset At, string Type, Guid? TaskId, string? Detail, string PreviousHash, string Hash)
 {
@@ -187,7 +187,7 @@ public sealed record RunEvent(long Sequence, DateTimeOffset At, string Type, Gui
     }
 
     /// <summary>
-    /// The lines of a send that the queue does not hold yet. A send whose answer was lost is sent again by the executor: the lines the queue already holds
+    /// The lines of a send that the queue does not hold yet. A send whose answer was lost is sent again by the runner: the lines the queue already holds
     /// (same sequence, same hash) are skipped and the rest is taken; null when a line it holds differs from the one sent.
     /// </summary>
     public static List<RunEvent>? NotYetHeld(IReadOnlyList<RunEvent> events, long lastSequence, Func<long, string?> heldHash)

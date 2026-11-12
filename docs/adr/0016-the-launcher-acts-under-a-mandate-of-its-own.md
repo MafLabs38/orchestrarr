@@ -3,6 +3,7 @@
 - **Status**: accepted by the maintainer on 2026-11-04 (it amends the "approve" half of D-19, a consequence of [ADR 0001](0001-merge-and-deploy-on-operator-approval.md), which stays accepted otherwise), points 1 to 3 except the clauses marked proposed, listed in SPEC D-64 (on condition that the launcher pulls through the control plane's API, D-60, proposed: if the maintainer changes that, points 1 and 3 are revisited; nothing is built: the launcher is row 3a of the [SPEC](../SPEC.md) roadmap; the signed stop statement and the machine routes stay proposals, [ADR 0015](0015-where-the-launcher-gets-what-its-checks-read.md) and SPEC Q-27)
 - **Date**: 2026-11-04
 - **Superseded in part** by [ADR 0017](0017-orders-are-typed-tasks-approved-with-a-second-factor-that-the-executor-checks.md) (2026-11-09): the launcher is replaced by an executor in .NET, and the order signed by the server by a task approved with a second factor that the executor checks.
+- **Naming**: since [ADR 0026](0026-the-process-that-takes-approved-tasks-is-the-orchestrarr-runner.md) the "executor" of this decision is the Orchestrarr Runner.
 
 ## Context
 

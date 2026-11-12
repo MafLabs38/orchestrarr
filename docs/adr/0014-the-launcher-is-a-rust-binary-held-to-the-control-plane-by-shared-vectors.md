@@ -1,6 +1,7 @@
 # 0014 — The launcher is a Rust binary, held to the control plane by shared conformance vectors
 
 - **Status**:
+- **Naming**: since [ADR 0026](0026-the-process-that-takes-approved-tasks-is-the-orchestrarr-runner.md) the "executor" of this decision is the Orchestrarr Runner.
   - **Accepted** by the maintainer on 2026-11-04: points 1 to 4 (the language and the vectors), except the clause of point 1 on state on disk and the clauses of points 2 and 3 marked proposed.
   - **Decided later**: the bullet of point 6 on orders with no environment, by [ADR 0016](0016-the-launcher-acts-under-a-mandate-of-its-own.md) and SPEC D-63; only its production classification stays proposed.
   - **Proposed** safe defaults: the marked clauses, points 5 and 6, and point 7 ([ADR 0015](0015-where-the-launcher-gets-what-its-checks-read.md)).

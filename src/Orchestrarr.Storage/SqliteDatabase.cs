@@ -196,7 +196,7 @@ public sealed class SqliteDatabase : IDisposable
     // A new step is appended here, and SchemaVersion goes up with it.
     private delegate void Step(SqliteConnection connection, bool created, bool startEngagedWhenNew, TimeProvider time);
 
-    private static readonly Step[] Steps = [CreateVersion1, CreateVersion2, CreateVersion3, CreateVersion4];
+    private static readonly Step[] Steps = [CreateVersion1, CreateVersion2, CreateVersion3, CreateVersion4, CreateVersion5];
 
     private static int SchemaVersion => Steps.Length;
 
@@ -384,6 +384,16 @@ public sealed class SqliteDatabase : IDisposable
               changed_by TEXT NOT NULL
             );
             """);
+    }
+
+    // Version 4 to 5: the process that takes the batches is the Orchestrarr Runner (ADR 0026); the column that names it follows
+    private static void CreateVersion5(SqliteConnection connection, bool created, bool startEngagedWhenNew, TimeProvider time)
+    {
+        // Only when the old name is still there: a file that went back to an older version and forward again has the new one already
+        if (Convert.ToInt32(Scalar(connection, "SELECT COUNT(*) FROM pragma_table_info('batches') WHERE name = 'executor';"), CultureInfo.InvariantCulture) > 0)
+        {
+            Run(connection, "ALTER TABLE batches RENAME COLUMN executor TO runner;");
+        }
     }
 
     private static object? Scalar(SqliteConnection connection, string sql)

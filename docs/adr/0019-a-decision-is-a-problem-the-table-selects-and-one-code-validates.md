@@ -4,6 +4,7 @@
 - **Date**: 2026-11-10
 - **Spec**: D-67 (refines D-15, D-16, D-21; supersedes the plan of ticked steps of ADR 0001 and ADR 0017 for the card)
 - **Supersedes in part**: [ADR 0003](0003-work-items-are-per-repository.md) (the unit of decision)
+- **Naming**: since [ADR 0026](0026-the-process-that-takes-approved-tasks-is-the-orchestrarr-runner.md) the "executor" of this decision is the Orchestrarr Runner.
 
 ## Context
 

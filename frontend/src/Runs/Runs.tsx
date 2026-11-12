@@ -14,7 +14,7 @@ import styles from './Runs.module.css';
 import StateLabel from './StateLabel';
 import { useRuns } from './useRuns';
 
-// What the executor did with each approval, newest first. Each run opens on its timeline.
+// What the runner did with each approval, newest first. Each run opens on its timeline.
 export default function Runs() {
   const { data: runs, error, isPending } = useRuns();
 

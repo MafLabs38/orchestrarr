@@ -12,7 +12,7 @@ public static class Permissions
     /// <summary>Reading the audit trail: who approved what, and every refusal.</summary>
     public const string AuditRead = "audit.read";
 
-    /// <summary>Approving a decision card. The executor still asks for the second factor: this is the right to ask, not the proof.</summary>
+    /// <summary>Approving a decision card. The runner still asks for the second factor: this is the right to ask, not the proof.</summary>
     public const string ApprovalsCreate = "approvals.create";
 
     /// <summary>Engaging and releasing the global stop.</summary>

@@ -18,7 +18,7 @@ public enum QualifyMode
 
 /// <summary>
 /// What may be done to an application, as its description says (ADR 0020): only <c>Id</c>, <c>Kind</c> and <c>Source</c> are required, a missing
-/// field is unknown. The description grants no power: the executor's rights list does (ADR 0017).
+/// field is unknown. The description grants no power: the runner's rights list does (ADR 0017).
 /// </summary>
 /// <param name="Id">The work item it describes, for example <c>repository:example/shop</c>.</param>
 /// <param name="Kind"><c>own</c> or <c>thirdParty</c>.</param>

@@ -118,7 +118,7 @@ public sealed class SecondFactorGuard(ISecondFactorSecrets secrets, ISecondFacto
     private sealed record Failures(int Count, DateTimeOffset Last, DateTimeOffset? LockedUntil);
 }
 
-/// <summary>A ledger in memory, for the tests and for a sandbox that does not keep anything. A real executor keeps it in its own file.</summary>
+/// <summary>A ledger in memory, for the tests and for a sandbox that does not keep anything. A real runner keeps it in its own file.</summary>
 public sealed class InMemorySecondFactorUseLedger : ISecondFactorUseLedger
 {
     private readonly Lock _gate = new();

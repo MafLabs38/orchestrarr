@@ -245,18 +245,18 @@ describe('Status', () => {
     await screen.findByRole('button', { name: 'Release the global stop' });
     expect(screen.queryByText(/do not count on it across a restart/)).not.toBeInTheDocument();
   });
-  it('says when no executor has asked for work, and what it accepts and holds when one has', async () => {
+  it('says when no runner has asked for work, and what it accepts and holds when one has', async () => {
     stubApi({ '/api/v1/system/status': status() });
     const { unmount } = renderWithProviders(<Status />);
-    expect(await screen.findByText(/No executor has asked for work yet/)).toBeInTheDocument();
+    expect(await screen.findByText(/No runner has asked for work yet/)).toBeInTheDocument();
     unmount();
 
     stubApi({
       '/api/v1/system/status': {
         ...status({}, { requiresSecondFactor: true }),
-        executors: [
+        runners: [
           {
-            name: 'executor-1',
+            name: 'runner-1',
             version: '1.2.3',
             lastSeen: '2026-11-09T12:00:00Z',
             connected: true,
@@ -279,21 +279,21 @@ describe('Status', () => {
     });
     renderWithProviders(<Status />);
 
-    expect(await screen.findByText('executor-1')).toBeInTheDocument();
+    expect(await screen.findByText('runner-1')).toBeInTheDocument();
     expect(screen.getByText('Connected')).toBeInTheDocument();
     expect(screen.getByText('Accepts: Validate, Merge')).toBeInTheDocument();
     expect(screen.getByText('Repositories: example/*')).toBeInTheDocument();
     expect(screen.getByText(/Merge on example\/\* until 2026-12-09, 5 a day/)).toBeInTheDocument();
-    expect(screen.getByText('A code from your authenticator app, checked by the executor')).toBeInTheDocument();
+    expect(screen.getByText('A code from your authenticator app, checked by the runner')).toBeInTheDocument();
   });
 
-  it('says that an executor does not check the code of the authenticator (development)', async () => {
+  it('says that a runner does not check the code of the authenticator (development)', async () => {
     stubApi({
       '/api/v1/system/status': {
         ...status(),
-        executors: [
+        runners: [
           {
-            name: 'executor-1',
+            name: 'runner-1',
             version: '1',
             lastSeen: '2026-11-09T12:00:00Z',
             connected: true,
@@ -311,13 +311,13 @@ describe('Status', () => {
     expect(await screen.findByText('does not check the code (development)')).toBeInTheDocument();
   });
 
-  it('says that an executor not seen for a while is not connected', async () => {
+  it('says that a runner not seen for a while is not connected', async () => {
     stubApi({
       '/api/v1/system/status': {
         ...status(),
-        executors: [
+        runners: [
           {
-            name: 'executor-1',
+            name: 'runner-1',
             version: '1',
             lastSeen: '2026-11-09T12:00:00Z',
             connected: false,

@@ -3,6 +3,7 @@
 - **Status**: accepted by the maintainer on 2026-11-10, as principles. The format is settled by describing two real applications first.
 - **Date**: 2026-11-10
 - **Spec**: D-68 (complements D-17, D-18, D-20)
+- **Naming**: since [ADR 0026](0026-the-process-that-takes-approved-tasks-is-the-orchestrarr-runner.md) the "executor" of this decision is the Orchestrarr Runner.
 
 ## Context
 

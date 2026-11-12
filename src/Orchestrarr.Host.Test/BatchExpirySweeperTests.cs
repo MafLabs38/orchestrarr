@@ -4,7 +4,7 @@ using Orchestrarr.Host.Tasks;
 
 namespace Orchestrarr.Host.Test;
 
-/// <summary>Batches past their time end on a timer, whether or not an executor asks for work (ADR 0017).</summary>
+/// <summary>Batches past their time end on a timer, whether or not a runner asks for work (ADR 0017).</summary>
 public sealed class BatchExpirySweeperTests
 {
     private static readonly TimeSpan Patience = TimeSpan.FromSeconds(10);
@@ -56,11 +56,11 @@ public sealed class BatchExpirySweeperTests
 
         public IReadOnlyList<TaskResultRow> TaskResults(int limit) => throw new NotSupportedException();
 
-        public ValueTask<ClaimResult> ClaimAsync(string executor, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask<ClaimResult> ClaimAsync(string runner, CancellationToken cancellationToken) => throw new NotSupportedException();
 
-        public ValueTask<QueueResult> AppendEventsAsync(Guid batchId, string executor, IReadOnlyList<RunEvent> events, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask<QueueResult> AppendEventsAsync(Guid batchId, string runner, IReadOnlyList<RunEvent> events, CancellationToken cancellationToken) => throw new NotSupportedException();
 
-        public ValueTask<QueueResult> CompleteAsync(Guid batchId, string executor, BatchOutcome outcome, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask<QueueResult> CompleteAsync(Guid batchId, string runner, BatchOutcome outcome, CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public IReadOnlyList<RunSummary> Runs(int limit) => throw new NotSupportedException();
 

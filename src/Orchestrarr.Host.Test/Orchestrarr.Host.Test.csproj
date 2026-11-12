@@ -18,7 +18,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Orchestrarr.Host\Orchestrarr.Host.csproj" />
-    <ProjectReference Include="..\Orchestrarr.Executor\Orchestrarr.Executor.csproj" />
+    <ProjectReference Include="..\Orchestrarr.Runner\Orchestrarr.Runner.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="..\..\samples\portarr-maintenance.sample.json" Link="portarr-maintenance.sample.json" CopyToOutputDirectory="PreserveNewest" />

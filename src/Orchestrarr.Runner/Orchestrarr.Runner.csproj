@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>orchestrarr-runner</AssemblyName>
+    <RootNamespace>Orchestrarr.Runner</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Orchestrarr.Core\Orchestrarr.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="Net.Codecrete.QrCodeGenerator" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Orchestrarr.Runner.Test" />
+    <InternalsVisibleTo Include="Orchestrarr.Host.Test" />
+  </ItemGroup>
+</Project>

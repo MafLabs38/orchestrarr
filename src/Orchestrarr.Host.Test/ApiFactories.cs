@@ -162,7 +162,7 @@ public sealed class ForgeApiFactory : WebApplicationFactory<Program>
         // Nobody keeps what a test approves: the sandbox's memory, unless a test asks for a file
         builder.UseSetting("Storage:Provider", "Memory");
         builder.UseSetting("Storage:MemoryStartsEngaged", "false");
-        // The control plane alone: there is no executor behind it to check a code (a test that wants the code says so in its settings)
+        // The control plane alone: there is no runner behind it to check a code (a test that wants the code says so in its settings)
         builder.UseSetting("Tasks:RequireSecondFactor", "false");
         foreach (var (key, value) in Settings)
         {
