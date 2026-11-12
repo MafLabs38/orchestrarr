@@ -33,8 +33,8 @@ public sealed record HistoryEntry(
 public sealed record ActiveSkip(string RowId, string Target);
 
 /// <summary>
-/// The memory of what was decided (ADR 0027). Append-only apart from undoing a skip. It holds the photographs and nothing else: the outcome of an approval is read from
-/// the approvals and the runs, where it already lives.
+/// The memory of what was decided (ADR 0027). Append-only apart from undoing a skip. It holds the photographs of the rows decided and, once it is known, the outcome of an
+/// approval (the approvals and the runs are trimmed after a while; the history is not).
 /// </summary>
 public interface IProblemHistory
 {
@@ -49,6 +49,9 @@ public interface IProblemHistory
     /// Does nothing for a line that already has its outcome.
     /// </summary>
     void Conclude(long id, HistoryOutcome outcome);
+
+    /// <summary>The approved lines that have no outcome yet, oldest first: what the concluding pass looks at.</summary>
+    IReadOnlyList<HistoryEntry> Unconcluded(int limit);
 
     /// <summary>The skips that are in force.</summary>
     IReadOnlyList<ActiveSkip> ActiveSkips();
@@ -85,6 +88,14 @@ public sealed class InMemoryProblemHistory : IProblemHistory
             {
                 _outcomes.TryAdd(id, outcome);
             }
+        }
+    }
+
+    public IReadOnlyList<HistoryEntry> Unconcluded(int limit)
+    {
+        lock (_gate)
+        {
+            return [.. _entries.Where(entry => entry.State == HistoryState.Approved && !_outcomes.ContainsKey(entry.Id)).OrderBy(entry => entry.Id).Take(limit)];
         }
     }
 

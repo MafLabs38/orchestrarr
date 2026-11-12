@@ -84,11 +84,35 @@ public sealed class SqliteProblemHistory(SqliteDatabase database) : IProblemHist
         command.Parameters.AddWithValue("$before", before is { } b ? b : DBNull.Value);
         command.Parameters.AddWithValue("$limit", limit);
         using var reader = command.ExecuteReader();
+        return Read(reader);
+    });
+
+    public IReadOnlyList<HistoryEntry> Unconcluded(int limit) => SqliteDatabase.Guard<IReadOnlyList<HistoryEntry>>(() =>
+    {
+        using var connection = database.Connect();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT id, row_id, target, state, application, kind, description, repository, pull_request, head_sha, approval_id, batch_id, at, by, reason, outcome
+            FROM problem_history
+            WHERE undone_at IS NULL AND state = 'Approved' AND outcome IS NULL
+            ORDER BY id LIMIT $limit;
+            """;
+        command.Parameters.AddWithValue("$limit", limit);
+        using var reader = command.ExecuteReader();
+        return Read(reader);
+    });
+
+    // A name of the enumeration, never a number
+    private static bool TryParse<T>(string text, out T value)
+        where T : struct, Enum => Enum.TryParse(text, out value) && Enum.IsDefined(value);
+
+    private static List<HistoryEntry> Read(Microsoft.Data.Sqlite.SqliteDataReader reader)
+    {
         var entries = new List<HistoryEntry>();
         while (reader.Read())
         {
             // A value that this version does not know (written by a newer one) is not a reason to lose the page: the line is left out
-            if (!Enum.TryParse<HistoryState>(reader.GetString(3), out var rowState) || !Enum.TryParse<ProblemKind>(reader.GetString(5), out var kind))
+            if (!TryParse<HistoryState>(reader.GetString(3), out var rowState) || !TryParse<ProblemKind>(reader.GetString(5), out var kind))
             {
                 continue;
             }
@@ -97,8 +121,8 @@ public sealed class SqliteProblemHistory(SqliteDatabase database) : IProblemHist
                 reader.IsDBNull(8) ? null : reader.GetInt32(8), reader.IsDBNull(9) ? null : reader.GetString(9),
                 reader.IsDBNull(10) ? null : Guid.Parse(reader.GetString(10)), reader.IsDBNull(11) ? null : Guid.Parse(reader.GetString(11)),
                 SqliteDatabase.Parse(reader.GetString(12)), reader.GetString(13), reader.IsDBNull(14) ? null : reader.GetString(14),
-                !reader.IsDBNull(15) && Enum.TryParse<HistoryOutcome>(reader.GetString(15), out var outcome) ? outcome : null));
+                !reader.IsDBNull(15) && TryParse<HistoryOutcome>(reader.GetString(15), out var outcome) ? outcome : null));
         }
         return entries;
-    });
+    }
 }

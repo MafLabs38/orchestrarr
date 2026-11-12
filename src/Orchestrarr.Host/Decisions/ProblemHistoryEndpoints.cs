@@ -45,7 +45,7 @@ internal static class ProblemHistoryEndpoints
             {
                 var page = history.Page(state is null ? null : Enum.Parse<HistoryState>(state, ignoreCase: true), Math.Clamp(limit ?? DefaultPage, 1, MaxPage), before);
                 var byApproval = approvals.List(ProblemsEndpoints.ApprovalsLookedAt).ToDictionary(approval => approval.Id);
-                var lines = page.Select(entry => Line(entry, byApproval, queue, history)).ToList();
+                var lines = page.Select(entry => Line(entry, byApproval, queue)).ToList();
                 return Results.Ok(new HistoryReport(lines, page.Count == Math.Clamp(limit ?? DefaultPage, 1, MaxPage) ? page[^1].Id : null));
             }
             catch (StorageUnavailableException)
@@ -138,49 +138,10 @@ internal static class ProblemHistoryEndpoints
     // The identifier of a row can be long: the trail keeps the start, which names the problem
     private static string Short(string id) => id.Length > 120 ? id[..120] : id;
 
-    // What became of an approved line. Written down the first time it is known to be over: the approval and the run are trimmed after a while, the history is not.
-    private static HistoryLine Line(HistoryEntry entry, IReadOnlyDictionary<Guid, Approval> approvals, IBatchQueue queue, IProblemHistory history)
+    // What became of an approved line: the outcome kept once it is known (HistoryConcluder writes it down when the run ends), otherwise read from the approval and the run now
+    private static HistoryLine Line(HistoryEntry entry, IReadOnlyDictionary<Guid, Approval> approvals, IBatchQueue queue)
     {
-        var outcome = HistoryOutcome.Skipped;
-        if (entry.State == HistoryState.Approved)
-        {
-            outcome = entry.Outcome ?? Resolve(entry, approvals, queue);
-            if (entry.Outcome is null && outcome != HistoryOutcome.InProgress)
-            {
-                try
-                {
-                    history.Conclude(entry.Id, outcome);
-                }
-                catch (StorageUnavailableException)
-                {
-                    // Told again on the next read
-                }
-            }
-        }
+        var outcome = entry.State == HistoryState.Approved ? entry.Outcome ?? HistoryOutcomeReader.Resolve(entry, approvals, queue) : HistoryOutcome.Skipped;
         return new HistoryLine(entry.Id, entry.State, outcome, entry.Application, entry.Kind, entry.Description, entry.Repository, entry.PullRequest, entry.HeadSha, entry.BatchId, entry.At, entry.By, entry.Reason);
-    }
-
-    // From the approval when it is still there, otherwise from the run; when neither is left it is over (it cannot be known how), never "in progress" for good
-    private static HistoryOutcome Resolve(HistoryEntry entry, IReadOnlyDictionary<Guid, Approval> approvals, IBatchQueue queue)
-    {
-        var approval = entry.ApprovalId is { } id && approvals.TryGetValue(id, out var found) ? found : null;
-        var run = entry.BatchId is { } batch ? queue.Find(batch) : null;
-        ApprovalState? state = approval?.State ?? run?.Summary.State switch
-        {
-            BatchState.Waiting => ApprovalState.Waiting,
-            BatchState.Delivered => ApprovalState.Taken,
-            BatchState.Refused => ApprovalState.Refused,
-            BatchState.Expired => ApprovalState.Expired,
-            BatchState.Done => ApprovalState.DryRunDone,
-            _ => null,
-        };
-        if (state is null)
-        {
-            return HistoryOutcome.Ended;
-        }
-        IReadOnlyCollection<TaskResult?> results = state == ApprovalState.DryRunDone && run is not null
-            ? [.. run.Tasks.Where(task => task.Spec.ApprovalId == entry.ApprovalId).Select(task => task.Result)]
-            : [];
-        return HistoryOutcomes.Of(state, results);
     }
 }

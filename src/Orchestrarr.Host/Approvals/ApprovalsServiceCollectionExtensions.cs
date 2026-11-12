@@ -38,7 +38,8 @@ internal static class ApprovalsServiceCollectionExtensions
             .AddSingleton<RunnerRegistry>()
             .AddSingleton<IApprovalJournal>(_ => tasks.JournalPath is { } journal ? new FileApprovalJournal(journal) : new NullApprovalJournal())
             .AddSingleton<IPowerPolicy>(new ConfiguredPowerPolicy(grants))
-            .AddHostedService<BatchExpirySweeper>();
+            .AddHostedService<BatchExpirySweeper>()
+            .AddHostedService<Orchestrarr.Host.Decisions.HistoryConcluder>();
 
         // What must survive a restart is in one file, or, in the sandbox, in memory. The capacities default to what suits where it is kept.
         var capacities = storage.Persistent

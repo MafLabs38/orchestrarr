@@ -73,4 +73,16 @@ public sealed class SqliteProblemHistoryTests : IDisposable
         lines.Single(line => line.Id == approved).Outcome.Should().Be(HistoryOutcome.Passed);
         lines.Single(line => line.Id == skipped).Outcome.Should().BeNull("a skip has no run to conclude; the screen says it was skipped");
     }
+
+    [Fact]
+    public void Only_the_approved_lines_without_an_outcome_are_waiting_to_be_concluded_oldest_first()
+    {
+        var history = new SqliteProblemHistory(_file.Open());
+        var first = history.Record(Entry("pr:example/shop#1", HistoryState.Approved));
+        var second = history.Record(Entry("pr:example/shop#2", HistoryState.Approved));
+        history.Record(Entry("pr:example/shop#3", HistoryState.Skipped));
+        history.Conclude(first, HistoryOutcome.Failed);
+
+        history.Unconcluded(10).Select(line => line.Id).Should().Equal(second);
+    }
 }

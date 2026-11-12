@@ -134,12 +134,15 @@ public sealed record ProblemRow(
     string? Icon = null,
     string? Source = null)
 {
-    /// <summary>The tab the row belongs to: what a person sees by default is what they can decide now.</summary>
+    /// <summary>
+    /// The tab the row belongs to: what a person sees by default is what they can decide now, and what is serious (an exposed secret, a critical alert), even when nothing
+    /// can be done about it from here: a danger is never in a tab that is not looked at.
+    /// </summary>
     public ProblemTab Tab
     {
         get
         {
-            if (InProgress || GoesUpTo != Ceiling.NoAction)
+            if (InProgress || GoesUpTo != Ceiling.NoAction || Severity == WorkItems.Severity.Danger)
             {
                 return ProblemTab.Act;
             }

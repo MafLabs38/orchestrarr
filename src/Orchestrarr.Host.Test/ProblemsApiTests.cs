@@ -174,6 +174,20 @@ public sealed class ProblemsApiTests
     }
 
     [Fact]
+    public async Task A_row_set_aside_cannot_be_approved_by_a_selection_made_before()
+    {
+        using var factory = new TableApiFactory();
+        await factory.ConnectRunnerAsync();
+        using var operatorClient = await SignedIn(factory, "Operator");
+        var table = await Table(operatorClient);
+        (await operatorClient.PostAsJsonAsync("/api/v1/problems/skip", new { rows = new[] { Skipped(table, "pr:example/shop#2") } }, Ct)).EnsureSuccessStatusCode();
+
+        var approve = await operatorClient.PostAsJsonAsync("/api/v1/problems/approve", new { rows = new[] { Chosen(table, "pr:example/shop#2") }, secondFactorCode = "123456", descriptionsVersion = Version(table) }, Ct);
+
+        approve.IsSuccessStatusCode.Should().BeFalse("what is set aside is no longer in the table that the selection is checked against");
+    }
+
+    [Fact]
     public async Task A_skip_that_cannot_be_traced_is_not_made()
     {
         using var factory = new UnwritableTrailTableFactory();

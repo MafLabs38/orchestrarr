@@ -174,7 +174,7 @@ function Problems({ report, inTab }: Readonly<{ report: ProblemsReport; inTab: P
     sort,
     (row) => ({
       type: describeProblemKindShort(row.kind),
-      problem: `${describeProblem(row)}`,
+      problem: describeProblem(row),
       why: describeWhyShort(row.why),
     }),
   );

@@ -114,7 +114,6 @@ internal static class ProblemsEndpoints
     // read of the table); a per-commit store comes with a fleet large enough to need it.
     private const int WorkshopWindow = 500;
 
-    // The newest approvals looked at to mark the rows an approval is working on: one that is still waiting or taken is recent
     // How far back an approval is still looked at, to mark a row in progress and to read the outcome of a line of the history
     internal const int ApprovalsLookedAt = 2000;
 

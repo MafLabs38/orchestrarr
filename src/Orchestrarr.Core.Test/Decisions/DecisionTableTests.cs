@@ -124,6 +124,17 @@ public sealed class DecisionTableTests
     }
 
     [Fact]
+    public void A_danger_nobody_can_act_on_is_still_in_the_first_tab_and_the_rest_that_cannot_be_acted_on_is_not()
+    {
+        var item = Item([], [new Finding(FindingKind.SecretScanningAlerts, Severity.Danger, 1), new Finding(FindingKind.DependencyAlerts, Severity.Warning, 2)]);
+
+        var rows = DecisionTable.Build([item], Described(), [Everything], null, null, null);
+
+        rows.Single(row => row.Kind == ProblemKind.ExposedSecret).Tab.Should().Be(ProblemTab.Act);
+        rows.Single(row => row.Kind == ProblemKind.DependencyAlert).Tab.Should().Be(ProblemTab.Know);
+    }
+
+    [Fact]
     public void A_dormant_repository_keeps_its_exposed_secrets_and_alerts_as_rows_of_their_own()
     {
         var item = Dormant(At) with { Findings = [.. Dormant(At).Findings, new Finding(FindingKind.SecretScanningAlerts, Severity.Danger, 1), new Finding(FindingKind.DependencyAlerts, Severity.Warning, 3)] };

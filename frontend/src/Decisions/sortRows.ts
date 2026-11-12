@@ -51,7 +51,7 @@ export function sortRows(
       case 'problem':
         return compareText(textOf(a).problem, textOf(b).problem);
       case 'checks':
-        return (checksRank[a.checks ?? 'unknown'] ?? 2) - (checksRank[b.checks ?? 'unknown'] ?? 2);
+        return checksRank[a.checks ?? 'unknown'] - checksRank[b.checks ?? 'unknown'];
       case 'workshop':
         return workshopRank[a.workshop] - workshopRank[b.workshop];
       case 'plan':
