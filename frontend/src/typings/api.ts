@@ -296,6 +296,8 @@ export interface ProblemRow {
   // Where the version is written in the code of the scope, and the version a change would write (ADR 0028)
   locations: CodeLocation[] | null;
   proposedTag: string | null;
+  // The repositories of the description that cannot be read and that concern this row: the same warnings as the bell, on the row
+  warnings: { repository: string; reason: string }[] | null;
 }
 
 // A place in the code of the scope that writes a version: the repository, the file, the line; `managed` names the automation that rewrites it (Flux)

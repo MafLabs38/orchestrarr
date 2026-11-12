@@ -461,6 +461,8 @@
   "KindShortPlatformUpdate": "Platform",
   "ProblemPlatformUpdate": "{platform}: {change}",
   "CodeWhere": "Where this version is written",
+  "CodeWarning": "A repository of the description cannot be read",
+  "CodeWarningOf": "Warning about {problem}",
   "CodeWhereOf": "Where the version of {problem} is written",
   "CodeFlux": "rewritten by {automation}",
   "CodeChangeFor": "The change to write {tag}",

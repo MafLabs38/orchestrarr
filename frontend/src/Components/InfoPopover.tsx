@@ -7,7 +7,11 @@ import styles from './InfoPopover.module.css';
 
 // A small (i) that opens a bubble with the long text, so that a row of a table stays one line. The bubble is fixed to the window, not to the
 // table: a table that scrolls would cut it. It closes on Escape, on a click elsewhere, and when the page moves under it.
-export default function InfoPopover({ label, children }: Readonly<{ label: string; children: ReactNode }>) {
+export default function InfoPopover({
+  label,
+  children,
+  warning = false,
+}: Readonly<{ label: string; children: ReactNode; warning?: boolean }>) {
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
   const container = useRef<HTMLSpanElement>(null);
   const open = position !== null;
@@ -50,7 +54,11 @@ export default function InfoPopover({ label, children }: Readonly<{ label: strin
   return (
     <span className={styles.container} ref={container}>
       <button type="button" className={styles.button} aria-label={label} aria-expanded={open} onClick={toggle}>
-        <icons.INFO size={iconSizes.SMALL} aria-hidden="true" />
+        {warning ? (
+          <icons.WARNING size={iconSizes.SMALL} aria-hidden="true" />
+        ) : (
+          <icons.INFO size={iconSizes.SMALL} aria-hidden="true" />
+        )}
       </button>
       {position ? (
         <span className={styles.bubble} role="note" style={{ top: position.top, left: position.left }}>

@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { problem, renderWithProviders, stubApi } from 'testUtils';
 import type { CodeLocation } from 'typings/api';
 
-import CodeInfo from './CodeInfo';
+import CodeInfo, { RowWarnings } from './CodeInfo';
 
 const location: CodeLocation = {
   repository: 'example/infra',
@@ -68,5 +68,23 @@ describe('CodeInfo', () => {
     await waitFor(() => expect(screen.getByText(/\+image: redis:7.2.6/)).toBeInTheDocument());
     expect(screen.getByText('The change to write 7.2.6')).toBeInTheDocument();
     expect(screen.getByText('Nothing is written to the repository.')).toBeInTheDocument();
+  });
+
+  it('says on the row which repository cannot be read and why, and says nothing for a row that no unreadable repository concerns', async () => {
+    const { rerender } = renderWithProviders(
+      <RowWarnings
+        row={problem({ warnings: [{ repository: 'example/infra', reason: 'no file matches its paths' }] })}
+        sentence="sonarqube"
+      />,
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'Warning about example/shop sonarqube' }));
+
+    expect(screen.getByText('A repository of the description cannot be read')).toBeInTheDocument();
+    expect(screen.getByText('example/infra')).toBeInTheDocument();
+    expect(screen.getByText(/no file matches its paths/)).toBeInTheDocument();
+
+    rerender(<RowWarnings row={problem({ warnings: null })} sentence="sonarqube" />);
+    expect(screen.queryByRole('button', { name: /Warning about/ })).not.toBeInTheDocument();
   });
 });

@@ -154,7 +154,8 @@ public sealed record ProblemRow(
     string? Icon = null,
     string? Source = null,
     IReadOnlyList<CodeLocation>? Locations = null,
-    string? ProposedTag = null);
+    string? ProposedTag = null,
+    IReadOnlyList<RepositoryProblem>? Warnings = null);
 
 /// <summary>What a connected runner accepts, as it reported it. The table never promises more than they would run: with none connected, nothing can be run, and every row says so.</summary>
 public sealed record RunnerAcceptance(IReadOnlyList<TaskKind> Kinds, IReadOnlyList<string> Repositories)
@@ -185,11 +186,13 @@ public static class DecisionTable
                 rows.Add(Of(item, $"dormant:{item.Id}", ProblemKind.DormantRepository, $"last push {lastPush.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)}", Severity.Info, days, Ceiling.NoAction, CeilingReason.NoActionDefined, item.RepositoryFullName));
                 AddOtherProblems(rows, item, policy, infrastructure, dormant: true);
                 NameApplication(rows, before, item, applicationNames ?? []);
+                Warn(rows, before, infrastructure);
                 continue;
             }
             AddDependencyUpdates(rows, item, applications, runners, results ?? [], policy);
             AddOtherProblems(rows, item, policy, infrastructure);
             NameApplication(rows, before, item, applicationNames ?? []);
+            Warn(rows, before, infrastructure);
         }
         return rows;
     }
@@ -206,6 +209,27 @@ public static class DecisionTable
         }
         var days = (int)(at - lastPush).TotalDays;
         return days > policy.DormantAfterDays ? days : null;
+    }
+
+    // What the bell says about a repository that cannot be read is also said on the rows it concerns: the rows about that very repository, and the rows that stopped
+    // because the code was not fully read (the version may be written in any of them, so all are named)
+    private static void Warn(List<ProblemRow> rows, int from, InfrastructureIndex? infrastructure)
+    {
+        if (infrastructure is not { Problems.Count: > 0 })
+        {
+            return;
+        }
+        for (var i = from; i < rows.Count; i++)
+        {
+            var row = rows[i];
+            var concerned = row.Why == CeilingReason.CodeNotFullyRead
+                ? infrastructure.Problems
+                : [.. infrastructure.Problems.Where(problem => string.Equals(problem.Repository, row.Source, StringComparison.Ordinal))];
+            if (concerned.Count > 0)
+            {
+                rows[i] = row with { Warnings = concerned };
+            }
+        }
     }
 
     // The application a person knows: when the source says that the repository or the image is one application, its name and its icon; otherwise the repository

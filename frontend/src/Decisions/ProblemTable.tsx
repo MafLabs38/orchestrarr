@@ -16,7 +16,7 @@ import {
 import translate from 'Utilities/translate';
 
 import AppCell from './AppCell';
-import CodeInfo from './CodeInfo';
+import CodeInfo, { RowWarnings } from './CodeInfo';
 import styles from './ProblemTable.module.css';
 import { nextSort, type Sort, type SortColumn } from './sortRows';
 import Steps from './Steps';
@@ -268,6 +268,7 @@ function ProblemTableRow({
           </InfoPopover>
         )}
         <CodeInfo row={row} sentence={sentence} />
+        <RowWarnings row={row} sentence={sentence} />
       </td>
       <td className={styles.narrow}>
         {row.canStopBeforeProduction ? (

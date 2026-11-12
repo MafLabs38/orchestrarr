@@ -41,6 +41,20 @@ public sealed class ImageCodeRowsTests
     }
 
     [Fact]
+    public void A_row_that_stopped_because_a_repository_could_not_be_read_carries_the_repository_and_the_reason_a_row_found_in_the_code_carries_none()
+    {
+        var unreadable = new RepositoryProblem("example/gone", "not found or no access");
+        var snapshot = new InfrastructureSnapshot(DateTimeOffset.UnixEpoch, [new InfrastructureFile("example/infra", "k8s/n8n.yaml", "kubernetes", "image: other:1\n")], [unreadable]);
+
+        var stopped = Row(ImageItem(Behind()), InfrastructureIndex.Build(snapshot));
+        var found = Row(ImageItem(Behind()), InfrastructureIndex.Build(new InfrastructureSnapshot(snapshot.ReadAt, [new InfrastructureFile("example/infra", "k8s/n8n.yaml", "kubernetes", "image: n8nio/n8n:1.108.2\n")], [unreadable])));
+
+        stopped.Why.Should().Be(CeilingReason.CodeNotFullyRead);
+        stopped.Warnings.Should().ContainSingle().Which.Should().Be(unreadable);
+        found.Warnings.Should().BeNull();
+    }
+
+    [Fact]
     public void Without_a_scope_nothing_is_said_about_the_code_and_the_row_is_as_before()
     {
         var withoutIndex = Row(ImageItem(Behind()), null);

@@ -86,3 +86,22 @@ export default function CodeInfo({ row, sentence }: Readonly<{ row: ProblemRow; 
     </InfoPopover>
   );
 }
+
+// What the bell says about a repository that cannot be read, said again on the rows it concerns: the repository and why, never "nothing found"
+export function RowWarnings({ row, sentence }: Readonly<{ row: ProblemRow; sentence: string }>) {
+  if (!row.warnings || row.warnings.length === 0) {
+    return null;
+  }
+  return (
+    <InfoPopover warning label={translate('CodeWarningOf', { problem: `${row.application} ${sentence}` })}>
+      <strong>{translate('CodeWarning')}</strong>
+      <ul className={styles.places}>
+        {row.warnings.map((warning) => (
+          <li key={warning.repository}>
+            <code>{warning.repository}</code> {warning.reason}
+          </li>
+        ))}
+      </ul>
+    </InfoPopover>
+  );
+}

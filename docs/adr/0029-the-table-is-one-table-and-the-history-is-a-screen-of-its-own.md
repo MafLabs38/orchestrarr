@@ -12,7 +12,7 @@
 
 1. **There is one table**, with all the rows and the columns that were settled (No., Application, Type, Problem, CI, Runner, Plan, Why, Prod, and Skip for an operator). The filters are the ones of the table. The server gives no `tab`, and the sidebar counts the rows of the table.
 2. **The history is a screen of its own** (*History*, in the sidebar like the queue and the activity), not a tab and not the default view: the rows approved, with what became of them, and the rows set aside, which can be taken back.
-3. **What goes wrong with the description or its code goes in the notification bell** and nowhere on the screens: a repository that cannot be read, a path that matches nothing, an environment the fleet does not know, a failed reading (the status of the host carries them). The bell is the one place for notices.
+3. **What goes wrong with the description or its code goes in the notification bell** and nowhere on the screens: a repository that cannot be read, a path that matches nothing, an environment the fleet does not know, a failed reading (the status of the host carries them). The bell is the one place for notices, and never a banner. A repository that cannot be read is also said **on the rows it concerns** (the rows about that repository, and the rows that stopped because the code was not fully read): a warning mark in the Why column that opens the repository and the reason, so that a notice of the bell can be traced to its lines (maintainer's request, 2026-11-12).
 4. **The rule of the project** (CLAUDE.md, rule 16): no product or interface design that was not asked for; a choice that changes what the maintainer sees is asked first and written as a choice in the description of the pull request.
 
 ## Consequences
