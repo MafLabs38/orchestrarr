@@ -1,9 +1,11 @@
 using Orchestrarr.Core.Applications;
 using Orchestrarr.Core.Approvals;
 using Orchestrarr.Core.Decisions;
+using Orchestrarr.Core.Fleet;
 using Orchestrarr.Core.Launch;
 using Orchestrarr.Core.Tasks;
 using Orchestrarr.Core.WorkItems;
+using Orchestrarr.Host.Live;
 using Orchestrarr.Host.Tasks;
 using Orchestrarr.Storage;
 
@@ -14,11 +16,14 @@ namespace Orchestrarr.Host.Decisions;
 /// It also ends the skips of the problems that are gone, so that one that comes back is seen again. A read of the history writes nothing (ADR 0027).
 /// </summary>
 public sealed class HistoryConcluder(IProblemHistory history, IApprovalStore approvals, IBatchQueue queue, WorkItemCatalog catalog, IApplicationCatalog applications, RunnerRegistry runners,
-    RelevancePolicy policy, IAuditSink audit, TimeProvider time, ILogger<HistoryConcluder> logger) : BackgroundService
+    RelevancePolicy policy, IAuditSink audit, ILiveNotifier live, TimeProvider time, ILogger<HistoryConcluder> logger) : BackgroundService
 {
     private const int LinesPerPass = 200;
     private const int MaxPagesPerPass = 25;
     private static readonly TimeSpan Interval = TimeSpan.FromSeconds(15);
+
+    // The skips whose problem was not in the table the first time it was missed, with the reading that missed it: a problem is gone only if two readings agree
+    private readonly Dictionary<string, DateTimeOffset> _missing = new(StringComparer.Ordinal);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -29,8 +34,11 @@ public sealed class HistoryConcluder(IProblemHistory history, IApprovalStore app
             {
                 try
                 {
-                    ConcludeOnce();
-                    await LapseSkipsOfGoneProblemsAsync(stoppingToken);
+                    var changed = ConcludeOnce() + await LapseSkipsOfGoneProblemsAsync(stoppingToken);
+                    if (changed > 0)
+                    {
+                        live.Publish(LiveTopics.Problems);
+                    }
                 }
                 catch (Exception failure) when (failure is not OperationCanceledException)
                 {
@@ -46,8 +54,9 @@ public sealed class HistoryConcluder(IProblemHistory history, IApprovalStore app
     }
 
     /// <summary>
-    /// Ends the skips whose problem is gone from the table. Only when the table is whole: a source that cannot be read, or pull requests not read, would make every
-    /// problem look gone. Each is written to the trail first; one that cannot be traced is left for the next pass.
+    /// Ends the skips whose problem is gone from the table. It looks at what was read last and reads nothing itself (a timer must not poll the sources), and only when the
+    /// table is whole: a source that cannot be read, or pull requests not read, would make every problem look gone. A problem is gone when two different readings agree
+    /// that it is missing. Each skip is written to the trail first; one that cannot be traced is left for the next pass.
     /// </summary>
     public async Task<int> LapseSkipsOfGoneProblemsAsync(CancellationToken cancellationToken)
     {
@@ -56,8 +65,7 @@ public sealed class HistoryConcluder(IProblemHistory history, IApprovalStore app
         {
             return 0;
         }
-        var report = await catalog.GetAsync(refresh: false, cancellationToken);
-        if (report.Stale || report.Error is not null || report.SourceKind == "none")
+        if (catalog.Peek() is not { } report || report.Stale || report.Error is not null || report.SourceKind == FleetSourceKinds.None || report.ReadAt is not { } readAt)
         {
             return 0;
         }
@@ -67,9 +75,23 @@ public sealed class HistoryConcluder(IProblemHistory history, IApprovalStore app
             return 0;
         }
         var present = table.Select(row => row.Id).ToHashSet(StringComparer.Ordinal);
-        var gone = new List<string>();
-        foreach (var rowId in skips.Select(skip => skip.RowId).Distinct(StringComparer.Ordinal).Where(id => !present.Contains(id)))
+        var missing = skips.Select(skip => skip.RowId).Distinct(StringComparer.Ordinal).Where(id => !present.Contains(id)).ToList();
+        foreach (var rowId in _missing.Keys.Where(id => !missing.Contains(id)).ToList())
         {
+            _missing.Remove(rowId);
+        }
+        var gone = new List<string>();
+        foreach (var rowId in missing)
+        {
+            if (!_missing.TryGetValue(rowId, out var first))
+            {
+                _missing[rowId] = readAt;
+                continue;
+            }
+            if (first >= readAt)
+            {
+                continue;
+            }
             if (await audit.TryRecordAsync(new AuditEntry(time.GetUtcNow(), DecisionAuditEvents.ProblemSkipLapsed, "system", null, rowId.Length > 120 ? rowId[..120] : rowId), cancellationToken))
             {
                 gone.Add(rowId);

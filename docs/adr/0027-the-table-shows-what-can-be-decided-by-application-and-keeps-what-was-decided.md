@@ -25,7 +25,7 @@ The first real run of the table on the real fleet showed 135 rows, and a person 
 ## Consequences
 
 - The table is a few dozen rows to decide, not a hundred and thirty-five to read. What is left out of *To decide* is not lost: it is in the two other tabs, and the history.
-- The history grows without bound; its retention (the maintainer's default is 12 months, then archived) is not built yet and goes with the archive of the trail (SPEC Q-24, to be extended to the history).
+- The history grows without bound; its retention (12 months, then archived, is the default asked for by the maintainer; not built) is not built yet and goes with the archive of the trail (SPEC Q-24, to be extended to the history).
 - The model of the fleet gains the applications (names, icons) and the day of the last push; the Portarr provider reads `GET /api/v1/apps` besides the maintenance report, and an unreadable list of applications costs only the names.
 - The names of the applications come from Portarr: a repository or an image that Portarr does not link to an application keeps its own name. Linking them (the repository of each application in the catalogue) is Portarr's, and the table improves as it is done.
 - What the audit found and this decision does not do: grouping the same change across repositories into one decision, the fix of the version in the infrastructure files (the next pull request), and a Runner that merges.

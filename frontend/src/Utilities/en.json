@@ -436,7 +436,6 @@
   "HistoryOutcomeEnded": "Ended",
   "SkippedCount": "{count} set aside",
   "ChecksNotRun": "CI not run for a bot",
-  "ChecksNotRunShort": "CI not run",
   "WhyChecksNotRun": "The CI could not run for this bot's pull request (it needs secrets that the forge does not give to a bot). The Orchestrarr Runner's validation is what counts.",
   "WhyShortChecksNotRun": "CI not run",
   "WhyNotLongTermSupport": "This version of Node is not a long-term release (odd versions never are): it is not proposed.",
