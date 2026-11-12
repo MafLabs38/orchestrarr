@@ -94,6 +94,28 @@ public sealed class SqliteNewDatabaseTests : IDisposable
         new SqliteAuditLog(database).List().Count(entry => entry.Event == AuditEvents.InstanceCreated).Should().Be(1);
     }
 
+    [Fact]
+    public void A_database_of_version_four_gets_the_column_that_names_the_runner_and_loses_nothing()
+    {
+        SqliteDatabase.Open(_file.Path);
+        using (var connection = _file.Open().Connect())
+        {
+            SqliteDatabase.Run(connection, "ALTER TABLE batches RENAME COLUMN runner TO executor;");
+            SqliteDatabase.Run(connection, "INSERT INTO batches (id, work_item_id, approver, created_at, expires_at, digest, state, executor) VALUES ('b1', 'w', 'alice', '2026-11-01T00:00:00Z', '2026-11-01T00:02:00Z', 'd', 'Done', 'old-name');");
+            SqliteDatabase.Run(connection, "PRAGMA user_version = 4;");
+        }
+
+        var database = SqliteDatabase.Open(_file.Path);
+
+        using var reopened = database.Connect();
+        using var command = reopened.CreateCommand();
+        command.CommandText = "SELECT runner FROM batches WHERE id = 'b1';";
+        command.ExecuteScalar().Should().Be("old-name");
+        using var version = reopened.CreateCommand();
+        version.CommandText = "PRAGMA user_version;";
+        Convert.ToInt32(version.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture).Should().Be(5);
+    }
+
     private sealed class FixedClock(DateTimeOffset now) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => now;

@@ -153,7 +153,7 @@ const refusals = {
   malformed: 'RefusalMalformed',
 } as const satisfies Record<RunRefusal, string>;
 
-// Why the executor refused a batch, from its code; a code the interface does not know is shown as the server names it.
+// Why the runner refused a batch, from its code; a code the interface does not know is shown as the server names it.
 export function describeRunRefusal(refusal: string): string {
   return translate('RunRefusedBecause', {
     reason: Object.hasOwn(refusals, refusal) ? translate(refusals[refusal as RunRefusal]) : refusal,
@@ -204,7 +204,7 @@ const runEvents = {
   'run.refused': 'RunEventRefused',
 } as const;
 
-// The words of a line of the trace of a run; one the interface does not know is shown as the executor names it.
+// The words of a line of the trace of a run; one the interface does not know is shown as the runner names it.
 export function describeRunEvent(type: string): string {
   return Object.hasOwn(runEvents, type) ? translate(runEvents[type as keyof typeof runEvents]) : type;
 }
@@ -227,7 +227,7 @@ const whys = {
   noActionDefined: 'WhyNoActionDefined',
   pullRequestsNotCurrent: 'WhyPullRequestsNotCurrent',
   notGranted: 'WhyNotGranted',
-  noExecutor: 'WhyNoExecutor',
+  noRunner: 'WhyNoRunner',
   qualificationNotDescribed: 'WhyQualificationNotDescribed',
   checksFailing: 'WhyChecksFailing',
   checksNotPassing: 'WhyChecksNotPassing',
@@ -288,7 +288,7 @@ const whyShorts = {
   noActionDefined: 'WhyShortNoActionDefined',
   pullRequestsNotCurrent: 'WhyShortPullRequestsNotCurrent',
   notGranted: 'WhyShortNotGranted',
-  noExecutor: 'WhyShortNoExecutor',
+  noRunner: 'WhyShortNoRunner',
   qualificationNotDescribed: 'WhyShortQualificationNotDescribed',
   checksFailing: 'WhyShortChecksFailing',
   checksNotPassing: 'WhyShortChecksNotPassing',

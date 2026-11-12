@@ -48,10 +48,10 @@ describe('Queue', () => {
 
     renderWithProviders(<Queue />);
 
-    expect(await screen.findByText('Waiting for the executor')).toBeInTheDocument();
-    expect(screen.getByText('With the executor')).toBeInTheDocument();
+    expect(await screen.findByText('Waiting for the Runner')).toBeInTheDocument();
+    expect(screen.getByText('With the Runner')).toBeInTheDocument();
     expect(screen.getByText('Run ended: see the run')).toBeInTheDocument();
-    expect(screen.getByText('Refused by the executor')).toBeInTheDocument();
+    expect(screen.getByText('Refused by the Runner')).toBeInTheDocument();
     expect(screen.getByText('Expired: approve again')).toBeInTheDocument();
   });
 
@@ -63,17 +63,17 @@ describe('Queue', () => {
     expect(await screen.findByRole('link', { name: 'Open' })).toHaveAttribute('href', '/runs/batch-1');
   });
 
-  it('says when no executor is connected, and says nothing when one is', async () => {
+  it('says when no runner is connected, and says nothing when one is', async () => {
     stubApi({ [approvalsPath]: [approval], [statusPath]: status() });
     const { unmount } = renderWithProviders(<Queue />);
-    expect(await screen.findByText(/No executor is connected/)).toBeInTheDocument();
+    expect(await screen.findByText(/No Runner is connected/)).toBeInTheDocument();
     unmount();
 
     const connected = {
       ...status(),
-      executors: [
+      runners: [
         {
-          name: 'executor-1',
+          name: 'runner-1',
           version: '1',
           lastSeen: '2026-11-03T10:00:00Z',
           connected: true,
@@ -86,8 +86,8 @@ describe('Queue', () => {
     };
     stubApi({ [approvalsPath]: [approval], [statusPath]: connected });
     renderWithProviders(<Queue />);
-    await screen.findByText('Waiting for the executor');
-    expect(screen.queryByText(/No executor is connected/)).not.toBeInTheDocument();
+    await screen.findByText('Waiting for the Runner');
+    expect(screen.queryByText(/No Runner is connected/)).not.toBeInTheDocument();
   });
 
   it('says the queue is empty, and what to do', async () => {

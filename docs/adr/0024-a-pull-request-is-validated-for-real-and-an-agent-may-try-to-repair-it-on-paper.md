@@ -3,6 +3,7 @@
 - **Status**: proposed (built in the sandbox on 2026-11-11 at the maintainer's request; accepted when the pull request that carries it is merged)
 - **Date**: 2026-11-11
 - **Spec**: D-72 (refines D-65 and [ADR 0017](0017-orders-are-typed-tasks-approved-with-a-second-factor-that-the-executor-checks.md); amends [ADR 0023](0023-options-lower-security-only-where-the-host-allows-it-and-the-executor-keeps-its-own-say.md))
+- **Naming**: since [ADR 0026](0026-the-process-that-takes-approved-tasks-is-the-orchestrarr-runner.md) the "executor" of this decision is the Orchestrarr Runner.
 
 ## Context
 

@@ -154,7 +154,7 @@ public sealed class ApprovalServiceTests
 
         var result = await Approve(await Service(pullRequests), seen: seen);
 
-        result.Refusal.Should().Be(ApprovalRefusal.TooManyPullRequests, "two tasks each makes more than the executor accepts in one batch");
+        result.Refusal.Should().Be(ApprovalRefusal.TooManyPullRequests, "two tasks each makes more than the runner accepts in one batch");
         _store.List().Should().BeEmpty();
     }
 
@@ -498,7 +498,7 @@ public sealed class ApprovalServiceTests
         (await log.TryRecordRangeAsync([Entry("d"), Entry("e")], token)).Should().BeFalse();
         log.List().Should().HaveCount(3);
         AuditEvents.IsRefusal(AuditEvents.ApprovalRefused).Should().BeTrue();
-        AuditEvents.IsRefusal(AuditEvents.BatchRefused).Should().BeFalse("the executor's refusals are decisions of an authenticated component");
+        AuditEvents.IsRefusal(AuditEvents.BatchRefused).Should().BeFalse("the runner's refusals are decisions of an authenticated component");
         AuditEvents.IsRefusal(AuditEvents.ApprovalRecorded).Should().BeFalse();
     }
 
@@ -904,7 +904,7 @@ public sealed class ApprovalServiceTests
         var batch = _queue.Runs(1)[0];
 
         _queue.Find(batch.BatchId)!.Summary.CreatedAt.Should().Be(Now);
-        (await _queue.ClaimAsync("executor-1", TestContext.Current.CancellationToken)).Delivery!.Batch.ExpiresAt.Should().Be(Now + Tasks.BatchLifetime);
+        (await _queue.ClaimAsync("runner-1", TestContext.Current.CancellationToken)).Delivery!.Batch.ExpiresAt.Should().Be(Now + Tasks.BatchLifetime);
     }
 
     [Theory]
@@ -925,14 +925,14 @@ public sealed class ApprovalServiceTests
     }
 
     [Fact]
-    public async Task Spaces_in_the_code_are_welcome_and_the_code_reaches_the_executor_once()
+    public async Task Spaces_in_the_code_are_welcome_and_the_code_reaches_the_runner_once()
     {
         var service = await Service();
 
         var result = await service.ApproveAsync(Operator, ItemId, Both, Displayed(), "123 456", TestContext.Current.CancellationToken);
 
         result.Recorded.Should().BeTrue();
-        (await _queue.ClaimAsync("executor-1", TestContext.Current.CancellationToken)).Delivery!.SecondFactorCode.Should().Be("123 456");
+        (await _queue.ClaimAsync("runner-1", TestContext.Current.CancellationToken)).Delivery!.SecondFactorCode.Should().Be("123 456");
     }
 
     [Fact]
@@ -959,7 +959,7 @@ public sealed class ApprovalServiceTests
     }
 
     [Fact]
-    public async Task A_sandbox_with_no_executor_may_do_without_the_code()
+    public async Task A_sandbox_with_no_runner_may_do_without_the_code()
     {
         var forge = new FakeForge { Items = [PullRequest(1, HeadA)] };
         var service = new ApprovalService(await CatalogOf(forge), _store, _killSwitch, _audit, _time, new InMemoryApprovalLedger(_store, _audit, _killSwitch), _journal, Tasks with { RequireSecondFactor = false });
@@ -994,7 +994,7 @@ public sealed class ApprovalServiceTests
 
         await Approve(service, seen: [new SeenPullRequest(1, HeadA)]);
 
-        var delivered = (await _queue.ClaimAsync("executor-1", TestContext.Current.CancellationToken)).Delivery!.Batch;
+        var delivered = (await _queue.ClaimAsync("runner-1", TestContext.Current.CancellationToken)).Delivery!.Batch;
         await journal.Received(1).TryAppendAsync(delivered.Id, delivered.Digest(), "alice", Now, Arg.Any<CancellationToken>());
     }
 
@@ -1008,9 +1008,9 @@ public sealed class ApprovalServiceTests
 
         (await Approve(service, seen: seen)).Refusal.Should().Be(ApprovalRefusal.AlreadyApproved);
 
-        var delivery = (await _queue.ClaimAsync("executor-1", token)).Delivery!;
+        var delivery = (await _queue.ClaimAsync("runner-1", token)).Delivery!;
         (await Approve(service, seen: seen)).Refusal.Should().Be(ApprovalRefusal.AlreadyApproved, "an approval that was taken is still open");
-        await _queue.CompleteAsync(delivery.Batch.Id, "executor-1", new BatchOutcome(BatchState.Done, null, [.. delivery.Batch.Tasks.Select(task => new TaskOutcome(task.Id, TaskResult.DryRun, null))]), token);
+        await _queue.CompleteAsync(delivery.Batch.Id, "runner-1", new BatchOutcome(BatchState.Done, null, [.. delivery.Batch.Tasks.Select(task => new TaskOutcome(task.Id, TaskResult.DryRun, null))]), token);
 
         (await Approve(service, seen: seen)).Recorded.Should().BeTrue("a dry run spends the approval: the operator approves again for a real run");
         _store.List().Should().HaveCount(2).And.Contain(approval => approval.State == ApprovalState.DryRunDone);

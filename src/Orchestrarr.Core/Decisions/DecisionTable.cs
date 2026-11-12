@@ -5,7 +5,7 @@ using Orchestrarr.Core.WorkItems;
 
 namespace Orchestrarr.Core.Decisions;
 
-/// <summary>How far a problem can go by itself (ADR 0019): the lowest of what the description allows, what the executors accept and the state of the problem.</summary>
+/// <summary>How far a problem can go by itself (ADR 0019): the lowest of what the description allows, what the runners accept and the state of the problem.</summary>
 public enum Ceiling
 {
     /// <summary>Nothing is defined for this problem: it is shown, and cannot be selected.</summary>
@@ -29,7 +29,7 @@ public enum CeilingReason
     NoActionDefined,
     PullRequestsNotCurrent,
     NotGranted,
-    NoExecutor,
+    NoRunner,
     QualificationNotDescribed,
     ChecksFailing,
     ChecksNotPassing,
@@ -100,30 +100,30 @@ public sealed record ProblemRow(
     bool CanStopBeforeProduction,
     WorkshopVerdict Workshop = WorkshopVerdict.Unknown);
 
-/// <summary>What a connected executor accepts, as it reported it. The table never promises more than they would run: with none connected, nothing can be run, and every row says so.</summary>
-public sealed record ExecutorAcceptance(IReadOnlyList<TaskKind> Kinds, IReadOnlyList<string> Repositories)
+/// <summary>What a connected runner accepts, as it reported it. The table never promises more than they would run: with none connected, nothing can be run, and every row says so.</summary>
+public sealed record RunnerAcceptance(IReadOnlyList<TaskKind> Kinds, IReadOnlyList<string> Repositories)
 {
     public bool Accepts(TaskKind kind, string repository) => Kinds.Contains(kind) && Repositories.Any(pattern => RepositoryPattern.Matches(pattern, repository));
 }
 
-/// <summary>Builds the rows of the table from the work items, the descriptions and the executors. A pure function: the same input gives the same table.</summary>
+/// <summary>Builds the rows of the table from the work items, the descriptions and the runners. A pure function: the same input gives the same table.</summary>
 public static class DecisionTable
 {
-    public static IReadOnlyList<ProblemRow> Build(IReadOnlyList<WorkItem> items, IApplicationCatalog applications, IReadOnlyList<ExecutorAcceptance> executors, IReadOnlyList<TaskResultRow>? results = null)
+    public static IReadOnlyList<ProblemRow> Build(IReadOnlyList<WorkItem> items, IApplicationCatalog applications, IReadOnlyList<RunnerAcceptance> runners, IReadOnlyList<TaskResultRow>? results = null)
     {
         ArgumentNullException.ThrowIfNull(items);
         ArgumentNullException.ThrowIfNull(applications);
-        ArgumentNullException.ThrowIfNull(executors);
+        ArgumentNullException.ThrowIfNull(runners);
         var rows = new List<ProblemRow>();
         foreach (var item in items)
         {
-            AddDependencyUpdates(rows, item, applications, executors, results ?? []);
+            AddDependencyUpdates(rows, item, applications, runners, results ?? []);
             AddOtherProblems(rows, item);
         }
         return rows;
     }
 
-    // The steps a ceiling stands for: the executor validates, and merges from the merge ceiling up. Production is a decision recorded with the approval.
+    // The steps a ceiling stands for: the runner validates, and merges from the merge ceiling up. Production is a decision recorded with the approval.
     public static IReadOnlyList<StepKind> StepsOf(Ceiling ceiling) => ceiling switch
     {
         Ceiling.Qualification => [StepKind.Validate],
@@ -132,7 +132,7 @@ public static class DecisionTable
         _ => [],
     };
 
-    private static void AddDependencyUpdates(List<ProblemRow> rows, WorkItem item, IApplicationCatalog applications, IReadOnlyList<ExecutorAcceptance> executors, IReadOnlyList<TaskResultRow> results)
+    private static void AddDependencyUpdates(List<ProblemRow> rows, WorkItem item, IApplicationCatalog applications, IReadOnlyList<RunnerAcceptance> runners, IReadOnlyList<TaskResultRow> results)
     {
         if (item.RepositoryFullName is null)
         {
@@ -147,10 +147,10 @@ public static class DecisionTable
         }
         foreach (var pullRequest in reads.Items.Where(pullRequest => !pullRequest.Draft))
         {
-            var (ceiling, why, canStop) = CeilingOf(item, pullRequest, applications, executors);
+            var (ceiling, why, canStop) = CeilingOf(item, pullRequest, applications, runners);
             var mine = results.Where(row => string.Equals(row.Repository, item.RepositoryFullName, StringComparison.OrdinalIgnoreCase) && row.PullRequest == pullRequest.Number && string.Equals(row.HeadSha, pullRequest.HeadSha, StringComparison.OrdinalIgnoreCase))
                 .OrderByDescending(row => row.At).ToList();
-            (ceiling, why, canStop) = WorkshopWord(item, pullRequest, ceiling, why, canStop, executors, mine);
+            (ceiling, why, canStop) = WorkshopWord(item, pullRequest, ceiling, why, canStop, runners, mine);
             var change = pullRequest.Changes.Count == 1 ? pullRequest.Changes[0] : null;
             var description = change is { From: not null, To: not null } ? $"{change.Package} {change.From} → {change.To}" : pullRequest.Title;
             rows.Add(new ProblemRow(
@@ -162,7 +162,7 @@ public static class DecisionTable
     // The next thing for a pull request is not always the next level: when it fails, on the forge or in the workshop, it is to repair it. The workshop's
     // latest word on this very commit counts (a new commit starts again): a failure makes the row a repair, a repair that worked leaves a patch to apply.
     private static (Ceiling Ceiling, CeilingReason Why, bool CanStop) WorkshopWord(
-        WorkItem item, PullRequestInfo pullRequest, Ceiling ceiling, CeilingReason why, bool canStop, IReadOnlyList<ExecutorAcceptance> executors, IReadOnlyList<TaskResultRow> mine)
+        WorkItem item, PullRequestInfo pullRequest, Ceiling ceiling, CeilingReason why, bool canStop, IReadOnlyList<RunnerAcceptance> runners, IReadOnlyList<TaskResultRow> mine)
     {
         if (ceiling == Ceiling.NoAction)
         {
@@ -170,7 +170,7 @@ public static class DecisionTable
         }
         var repository = item.RepositoryFullName!;
         var canRepair = item.Plan.FirstOrDefault(step => step.Kind == StepKind.Repair && step.EnvironmentId is null) is { Available: true, Granted: true }
-            && executors.Any(executor => executor.Accepts(TaskKind.RepairPullRequest, repository));
+            && runners.Any(runner => runner.Accepts(TaskKind.RepairPullRequest, repository));
         var latest = LatestWord(mine);
         if (latest is { Result: TaskResult.Repaired })
         {
@@ -208,7 +208,7 @@ public static class DecisionTable
         _ => WorkshopVerdict.Unknown,
     };
 
-    private static (Ceiling Ceiling, CeilingReason Why, bool CanStop) CeilingOf(WorkItem item, PullRequestInfo pullRequest, IApplicationCatalog applications, IReadOnlyList<ExecutorAcceptance> executors)
+    private static (Ceiling Ceiling, CeilingReason Why, bool CanStop) CeilingOf(WorkItem item, PullRequestInfo pullRequest, IApplicationCatalog applications, IReadOnlyList<RunnerAcceptance> runners)
     {
         var repository = item.RepositoryFullName!;
         if (item.PullRequests.Stale || item.PullRequests.Status != PullRequestsStatus.Read || string.IsNullOrEmpty(pullRequest.HeadSha))
@@ -224,9 +224,9 @@ public static class DecisionTable
         {
             return (Ceiling.NoAction, CeilingReason.NoDescription, false);
         }
-        if (!executors.Any(executor => executor.Accepts(TaskKind.ValidatePullRequest, repository)))
+        if (!runners.Any(runner => runner.Accepts(TaskKind.ValidatePullRequest, repository)))
         {
-            return (Ceiling.NoAction, CeilingReason.NoExecutor, false);
+            return (Ceiling.NoAction, CeilingReason.NoRunner, false);
         }
 
         // From here the problem can be qualified; each next level has a reason when it is not reached
@@ -239,9 +239,9 @@ public static class DecisionTable
         {
             return (Ceiling.Qualification, CeilingReason.NotGranted, false);
         }
-        if (!executors.Any(executor => executor.Accepts(TaskKind.MergePullRequest, repository)))
+        if (!runners.Any(runner => runner.Accepts(TaskKind.MergePullRequest, repository)))
         {
-            return (Ceiling.Qualification, CeilingReason.NoExecutor, false);
+            return (Ceiling.Qualification, CeilingReason.NoRunner, false);
         }
         if (pullRequest.Checks == ChecksState.Failing)
         {

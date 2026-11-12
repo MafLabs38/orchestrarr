@@ -45,9 +45,9 @@ public sealed class SqliteBatchQueue(SqliteDatabase database, IKillSwitch killSw
         }
     }
 
-    public async ValueTask<ClaimResult> ClaimAsync(string executor, CancellationToken cancellationToken)
+    public async ValueTask<ClaimResult> ClaimAsync(string runner, CancellationToken cancellationToken)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(executor);
+        ArgumentException.ThrowIfNullOrWhiteSpace(runner);
         // The stop is read first and again by whoever hands out: nothing leaves the queue while it is engaged
         if (await killSwitch.IsEngagedAsync(cancellationToken))
         {
@@ -55,7 +55,7 @@ public sealed class SqliteBatchQueue(SqliteDatabase database, IKillSwitch killSw
         }
         try
         {
-            return database.InWriteTransaction(connection => Claim(connection, executor));
+            return database.InWriteTransaction(connection => Claim(connection, runner));
         }
         catch (Exception failure) when (SqliteDatabase.IsUnavailable(failure))
         {
@@ -63,7 +63,7 @@ public sealed class SqliteBatchQueue(SqliteDatabase database, IKillSwitch killSw
         }
     }
 
-    private (bool Commit, ClaimResult Result) Claim(SqliteConnection connection, string executor)
+    private (bool Commit, ClaimResult Result) Claim(SqliteConnection connection, string runner)
     {
         var now = time.GetUtcNow();
         var entries = new List<AuditEntry>();
@@ -77,14 +77,14 @@ public sealed class SqliteBatchQueue(SqliteDatabase database, IKillSwitch killSw
             delivery = new BatchDelivery(next.Batch, next.Code);
             using (var command = connection.CreateCommand())
             {
-                command.CommandText = "UPDATE batches SET state = 'Delivered', code = NULL, executor = $executor, delivered_at = $now WHERE id = $id;";
-                command.Parameters.AddWithValue("$executor", executor);
+                command.CommandText = "UPDATE batches SET state = 'Delivered', code = NULL, runner = $runner, delivered_at = $now WHERE id = $id;";
+                command.Parameters.AddWithValue("$runner", runner);
                 command.Parameters.AddWithValue("$now", SqliteDatabase.Format(now));
                 command.Parameters.AddWithValue("$id", next.Batch.Id.ToString("D"));
                 command.ExecuteNonQuery();
             }
             SqliteApprovalStore.SetStateOfBatch(connection, next.Batch.Id, ApprovalState.Taken, now);
-            entries.Add(new AuditEntry(now, AuditEvents.BatchDelivered, executor, next.Batch.Id.ToString("D"), $"{next.Batch.Tasks.Count} tasks, digest {next.Batch.Digest()[..16]}"));
+            entries.Add(new AuditEntry(now, AuditEvents.BatchDelivered, runner, next.Batch.Id.ToString("D"), $"{next.Batch.Tasks.Count} tasks, digest {next.Batch.Digest()[..16]}"));
         }
 
         if (entries.Count > 0 && !AuditCapacityPolicy.Fits(auditCapacity, SqliteAuditLog.Count(connection), SqliteAuditLog.RefusalCount(connection), entries))
@@ -207,12 +207,12 @@ public sealed class SqliteBatchQueue(SqliteDatabase database, IKillSwitch killSw
         return tasks;
     }
 
-    public ValueTask<QueueResult> AppendEventsAsync(Guid batchId, string executor, IReadOnlyList<RunEvent> events, CancellationToken cancellationToken)
+    public ValueTask<QueueResult> AppendEventsAsync(Guid batchId, string runner, IReadOnlyList<RunEvent> events, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(events);
         try
         {
-            return ValueTask.FromResult(database.InWriteTransaction(connection => AppendEvents(connection, batchId, executor, events)));
+            return ValueTask.FromResult(database.InWriteTransaction(connection => AppendEvents(connection, batchId, runner, events)));
         }
         catch (Exception failure) when (SqliteDatabase.IsUnavailable(failure))
         {
@@ -220,14 +220,14 @@ public sealed class SqliteBatchQueue(SqliteDatabase database, IKillSwitch killSw
         }
     }
 
-    private (bool Commit, QueueResult Result) AppendEvents(SqliteConnection connection, Guid batchId, string executor, IReadOnlyList<RunEvent> events)
+    private (bool Commit, QueueResult Result) AppendEvents(SqliteConnection connection, Guid batchId, string runner, IReadOnlyList<RunEvent> events)
     {
         var state = StateOf(connection, batchId);
         if (state is null)
         {
             return (false, QueueResult.NotFound);
         }
-        if (state.Value.State != BatchState.Delivered || state.Value.Executor != executor)
+        if (state.Value.State != BatchState.Delivered || state.Value.Runner != runner)
         {
             return (false, QueueResult.NotYours);
         }
@@ -258,7 +258,7 @@ public sealed class SqliteBatchQueue(SqliteDatabase database, IKillSwitch killSw
             command.Parameters.AddWithValue("$hash", line.Hash);
             command.ExecuteNonQuery();
         }
-        // A run that keeps sending lines is alive: the delivery timeout means "the executor went silent", not "the run is long"
+        // A run that keeps sending lines is alive: the delivery timeout means "the runner went silent", not "the run is long"
         using var renew = connection.CreateCommand();
         renew.CommandText = "UPDATE batches SET delivered_at = $now WHERE id = $id AND state = 'Delivered';";
         renew.Parameters.AddWithValue("$now", SqliteDatabase.Format(time.GetUtcNow()));
@@ -267,12 +267,12 @@ public sealed class SqliteBatchQueue(SqliteDatabase database, IKillSwitch killSw
         return (true, QueueResult.Ok);
     }
 
-    public ValueTask<QueueResult> CompleteAsync(Guid batchId, string executor, BatchOutcome outcome, CancellationToken cancellationToken)
+    public ValueTask<QueueResult> CompleteAsync(Guid batchId, string runner, BatchOutcome outcome, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(outcome);
         try
         {
-            return ValueTask.FromResult(database.InWriteTransaction(connection => Complete(connection, batchId, executor, outcome)));
+            return ValueTask.FromResult(database.InWriteTransaction(connection => Complete(connection, batchId, runner, outcome)));
         }
         catch (Exception failure) when (SqliteDatabase.IsUnavailable(failure))
         {
@@ -280,14 +280,14 @@ public sealed class SqliteBatchQueue(SqliteDatabase database, IKillSwitch killSw
         }
     }
 
-    private (bool Commit, QueueResult Result) Complete(SqliteConnection connection, Guid batchId, string executor, BatchOutcome outcome)
+    private (bool Commit, QueueResult Result) Complete(SqliteConnection connection, Guid batchId, string runner, BatchOutcome outcome)
     {
         var state = StateOf(connection, batchId);
         if (state is null)
         {
             return (false, QueueResult.NotFound);
         }
-        if (state.Value.State != BatchState.Delivered || state.Value.Executor != executor)
+        if (state.Value.State != BatchState.Delivered || state.Value.Runner != runner)
         {
             return (false, QueueResult.NotYours);
         }
@@ -301,7 +301,7 @@ public sealed class SqliteBatchQueue(SqliteDatabase database, IKillSwitch killSw
         var entry = new AuditEntry(
             now,
             outcome.Final == BatchState.Done ? AuditEvents.BatchDone : AuditEvents.BatchRefused,
-            executor,
+            runner,
             batchId.ToString("D"),
             outcome.Refusal is { } refusal ? refusal.ToString() : $"{outcome.Tasks.Count} tasks");
         if (!AuditCapacityPolicy.Fits(auditCapacity, SqliteAuditLog.Count(connection), SqliteAuditLog.RefusalCount(connection), [entry]))
@@ -336,7 +336,7 @@ public sealed class SqliteBatchQueue(SqliteDatabase database, IKillSwitch killSw
     {
         using var connection = database.Connect();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT b.id, b.work_item_id, b.approver, b.created_at, b.state, b.refusal, (SELECT COUNT(*) FROM tasks t WHERE t.batch_id = b.id), b.ended_at, b.executor FROM batches b ORDER BY b.created_at DESC, b.rowid DESC LIMIT $limit;";
+        command.CommandText = "SELECT b.id, b.work_item_id, b.approver, b.created_at, b.state, b.refusal, (SELECT COUNT(*) FROM tasks t WHERE t.batch_id = b.id), b.ended_at, b.runner FROM batches b ORDER BY b.created_at DESC, b.rowid DESC LIMIT $limit;";
         command.Parameters.AddWithValue("$limit", limit);
         using var reader = command.ExecuteReader();
         var runs = new List<RunSummary>();
@@ -370,7 +370,7 @@ public sealed class SqliteBatchQueue(SqliteDatabase database, IKillSwitch killSw
         RunSummary? summary;
         using (var command = connection.CreateCommand())
         {
-            command.CommandText = "SELECT b.id, b.work_item_id, b.approver, b.created_at, b.state, b.refusal, (SELECT COUNT(*) FROM tasks t WHERE t.batch_id = b.id), b.ended_at, b.executor FROM batches b WHERE b.id = $id;";
+            command.CommandText = "SELECT b.id, b.work_item_id, b.approver, b.created_at, b.state, b.refusal, (SELECT COUNT(*) FROM tasks t WHERE t.batch_id = b.id), b.ended_at, b.runner FROM batches b WHERE b.id = $id;";
             command.Parameters.AddWithValue("$id", batchId.ToString("D"));
             using var reader = command.ExecuteReader();
             summary = reader.Read() ? Summary(reader) : null;
@@ -402,18 +402,18 @@ public sealed class SqliteBatchQueue(SqliteDatabase database, IKillSwitch killSw
         reader.IsDBNull(7) ? null : SqliteDatabase.Parse(reader.GetString(7)),
         reader.IsDBNull(8) ? null : reader.GetString(8));
 
-    private static (BatchState State, string? Executor, string Digest)? StateOf(SqliteConnection connection, Guid batchId)
+    private static (BatchState State, string? Runner, string Digest)? StateOf(SqliteConnection connection, Guid batchId)
     {
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT state, executor, digest FROM batches WHERE id = $id;";
+        command.CommandText = "SELECT state, runner, digest FROM batches WHERE id = $id;";
         command.Parameters.AddWithValue("$id", batchId.ToString("D"));
         using var reader = command.ExecuteReader();
         if (!reader.Read())
         {
             return null;
         }
-        string? executor = reader.IsDBNull(1) ? null : reader.GetString(1);
-        return (Enum.Parse<BatchState>(reader.GetString(0)), executor, reader.GetString(2));
+        string? runner = reader.IsDBNull(1) ? null : reader.GetString(1);
+        return (Enum.Parse<BatchState>(reader.GetString(0)), runner, reader.GetString(2));
     }
 
     private static string? HeldHash(SqliteConnection connection, Guid batchId, long sequence)

@@ -18,8 +18,8 @@ export interface SystemStatus {
   forge: { kind: string; configured: boolean };
   approvals: ApprovalStatus;
   storage: StorageStatus;
-  // The executors that asked for work: what they say of themselves, and whether they did so lately
-  executors: ExecutorStatus[];
+  // The runners that asked for work: what they say of themselves, and whether they did so lately
+  runners: RunnerStatus[];
 }
 
 export type TaskKind = 'validatePullRequest' | 'mergePullRequest' | 'repairPullRequest';
@@ -33,7 +33,7 @@ export interface DelegationInfo {
   dailyQuota: number;
 }
 
-export interface ExecutorStatus {
+export interface RunnerStatus {
   name: string;
   version: string;
   lastSeen: string;
@@ -41,7 +41,7 @@ export interface ExecutorStatus {
   kinds: TaskKind[];
   repositories: string[];
   delegations: DelegationInfo[];
-  // Whether this executor checks the code of the authenticator (false only in development, while every runner changes nothing outside its sandbox)
+  // Whether this runner checks the code of the authenticator (false only in development, while every runner changes nothing outside its sandbox)
   secondFactorRequired: boolean;
 }
 
@@ -62,7 +62,7 @@ export interface ApprovalStatus {
   killSwitchEngaged: boolean;
   // False when the stop is engaged but the file could not take it: it holds until a restart, which would release it
   killSwitchSaved: boolean;
-  // Approving asks for the code of the authenticator app, which the executor checks (not this server)
+  // Approving asks for the code of the authenticator app, which the runner checks (not this server)
   requiresSecondFactor: boolean;
 }
 
@@ -93,7 +93,7 @@ export interface Role {
 // Where an approval is in its life: a dry run spends it, so a real run needs a new approval.
 export type ApprovalState = 'waiting' | 'taken' | 'ended' | 'refused' | 'expired';
 
-// A decision of the operator, recorded: these steps on this pull request at this commit. It makes a batch of tasks that the executor takes.
+// A decision of the operator, recorded: these steps on this pull request at this commit. It makes a batch of tasks that the runner takes.
 export interface Approval {
   id: string;
   workItemId: string;
@@ -112,7 +112,7 @@ export type BatchState = 'waiting' | 'delivered' | 'done' | 'refused' | 'expired
 
 export type TaskResult = 'dryRun' | 'refused' | 'skipped' | 'passed' | 'failed' | 'repaired';
 
-// Why the executor refused a batch: a code, which the interface words.
+// Why the runner refused a batch: a code, which the interface words.
 export type RunRefusal =
   | 'stopped'
   | 'expired'
@@ -133,7 +133,7 @@ export interface RunSummary {
   refusal: RunRefusal | null;
   taskCount: number;
   endedAt: string | null;
-  executor: string | null;
+  runner: string | null;
 }
 
 export interface TaskSpec {
@@ -212,7 +212,7 @@ export interface OptionState {
 }
 
 // How far a problem can go by itself, and why it stops there (ADR 0019): computed by the server from the description of the application,
-// what the connected executors accept and the state of the problem.
+// what the connected runners accept and the state of the problem.
 export type Ceiling = 'noAction' | 'qualification' | 'mergeIntoDevelop' | 'production' | 'repair';
 
 export type CeilingReason =
@@ -221,7 +221,7 @@ export type CeilingReason =
   | 'noActionDefined'
   | 'pullRequestsNotCurrent'
   | 'notGranted'
-  | 'noExecutor'
+  | 'noRunner'
   | 'qualificationNotDescribed'
   | 'checksFailing'
   | 'checksNotPassing'

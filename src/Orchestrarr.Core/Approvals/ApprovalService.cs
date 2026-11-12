@@ -8,7 +8,7 @@ namespace Orchestrarr.Core.Approvals;
 /// Records the operator's approval of a decision card (SPEC F-CRD-01, D-37, D-52). The server rebuilds everything from the current work
 /// item; what the client sends is the work item, the steps it ticked and the pull requests (number and commit) it displayed, which must be
 /// exactly the ones there now: an approval covers what the operator saw, never a commit that arrived after. Nothing here runs anything; an
-/// approval makes a batch of typed tasks that waits for the executor, which checks the second factor itself (ADR 0017). This service is the
+/// approval makes a batch of typed tasks that waits for the runner, which checks the second factor itself (ADR 0017). This service is the
 /// one entry of the queue. It fails closed: the kill switch, an unreadable or changed pull request list, an unrecordable trace each
 /// refuse. A draft pull request is never approved.
 /// </summary>
@@ -55,7 +55,7 @@ public sealed class ApprovalService(
 
     /// <summary>
     /// Approves a selection of problems with one code (ADR 0019): the dependency updates of several applications, each with the steps its row stands for,
-    /// become <b>one batch</b> that the executor checks once. Each pull request is bound to the commit the operator saw, as with a card.
+    /// become <b>one batch</b> that the runner checks once. Each pull request is bound to the commit the operator saw, as with a card.
     /// </summary>
     public async Task<ApprovalResult> ApproveSelectionAsync(Approver approver, IReadOnlyList<SelectedProblem> selection, string? secondFactorCode, CancellationToken cancellationToken)
     {
@@ -177,7 +177,7 @@ public sealed class ApprovalService(
         {
             return ([], null, ApprovalRefusal.NoPullRequests);
         }
-        // A batch the executor would always refuse for its size is not recorded: the operator is told now, not in the Runs screen later
+        // A batch the runner would always refuse for its size is not recorded: the operator is told now, not in the Runs screen later
         if (approvals.Count * steps.Count(step => step is StepKind.Validate or StepKind.MergePullRequests or StepKind.Repair) > TaskLimits.MaxTasksPerBatch)
         {
             return ([], null, ApprovalRefusal.TooManyPullRequests);
@@ -211,7 +211,7 @@ public sealed class ApprovalService(
         {
             return ApprovalRefusal.NotAnOperator;
         }
-        // Whether the code is right is for the executor to say: here only that there is one, so that nobody is queued who cannot be checked
+        // Whether the code is right is for the runner to say: here only that there is one, so that nobody is queued who cannot be checked
         return (secondFactor?.Required ?? taskOptions.RequireSecondFactor) && !IsCodeShaped(secondFactorCode) ? ApprovalRefusal.SecondFactorRequired : null;
     }
 
@@ -300,7 +300,7 @@ public sealed class ApprovalService(
                 return ApprovalResult.Refused(ApprovalRefusal.KillSwitchEngaged);
             }
 
-            // The journal comes first: a line without a batch is harmless, a batch without its line would be refused by the executor
+            // The journal comes first: a line without a batch is harmless, a batch without its line would be refused by the runner
             if (!await journal.TryAppendAsync(batch.Id, batch.Digest(), batch.ApproverSubject, batch.CreatedAt, cancellationToken))
             {
                 return ApprovalResult.Refused(ApprovalRefusal.AuditUnavailable);

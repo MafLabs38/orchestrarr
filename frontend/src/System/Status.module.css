@@ -19,13 +19,13 @@
   word-break: break-all;
 }
 
-.executors {
+.runners {
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.executors li {
+.runners li {
   padding: 4px 0;
 }
 

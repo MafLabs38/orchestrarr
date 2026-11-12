@@ -38,7 +38,7 @@ describe('the words of the table', () => {
     'noActionDefined',
     'pullRequestsNotCurrent',
     'notGranted',
-    'noExecutor',
+    'noRunner',
     'qualificationNotDescribed',
     'checksFailing',
     'checksNotPassing',

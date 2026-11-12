@@ -25,7 +25,7 @@ public sealed class TaskModelTests
     }
 
     [Fact]
-    public void Anything_an_executor_acts_on_changes_the_digest()
+    public void Anything_a_runner_acts_on_changes_the_digest()
     {
         var reference = Batch().Digest();
 
@@ -58,7 +58,7 @@ public sealed class TaskModelTests
     public void A_chain_of_lines_continues_the_digest_of_the_batch()
     {
         var start = Batch().Digest();
-        var first = RunEvent.Create(start, 1, Now, RunEvents.Claimed, null, "executor-1");
+        var first = RunEvent.Create(start, 1, Now, RunEvents.Claimed, null, "runner-1");
         var second = RunEvent.Create(first.Hash, 2, Now.AddSeconds(1), RunEvents.TaskDryRun, Spec(1).Id, "would validate");
 
         RunEvent.Continues(start, 0, [first, second]).Should().BeTrue();
@@ -69,7 +69,7 @@ public sealed class TaskModelTests
     public void A_line_changed_removed_or_moved_breaks_the_chain()
     {
         var start = Batch().Digest();
-        var first = RunEvent.Create(start, 1, Now, RunEvents.Claimed, null, "executor-1");
+        var first = RunEvent.Create(start, 1, Now, RunEvents.Claimed, null, "runner-1");
         var second = RunEvent.Create(first.Hash, 2, Now, RunEvents.TaskDryRun, null, "would validate");
         var third = RunEvent.Create(second.Hash, 3, Now, RunEvents.RunCompleted, null, null);
 

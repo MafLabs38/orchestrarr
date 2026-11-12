@@ -2,10 +2,10 @@ namespace Orchestrarr.Core.Tasks;
 
 public enum ClaimStatus
 {
-    /// <summary>Nothing waits for this executor.</summary>
+    /// <summary>Nothing waits for this runner.</summary>
     Nothing,
 
-    /// <summary>The global stop is engaged: nothing is handed out, and the executor must not start anything.</summary>
+    /// <summary>The global stop is engaged: nothing is handed out, and the runner must not start anything.</summary>
     Stopped,
 
     Claimed,
@@ -21,7 +21,7 @@ public enum QueueResult
     Ok,
     NotFound,
 
-    /// <summary>The batch is not in the state this needs, or it is with another executor.</summary>
+    /// <summary>The batch is not in the state this needs, or it is with another runner.</summary>
     NotYours,
 
     /// <summary>The lines do not continue the chain of the run, one is altered, or there are too many or too long.</summary>
@@ -39,7 +39,7 @@ public sealed record RunSummary(
     RunRefusal? Refusal,
     int TaskCount,
     DateTimeOffset? EndedAt,
-    string? Executor);
+    string? Runner);
 
 public sealed record RunTask(TaskSpec Spec, TaskResult? Result, string? Reason);
 
@@ -50,28 +50,28 @@ public sealed record TaskResultRow(string Repository, int PullRequest, string He
 public sealed record RunDetail(RunSummary Summary, IReadOnlyList<RunTask> Tasks, IReadOnlyList<RunEvent> Events);
 
 /// <summary>
-/// The side of the queue that the executor uses, and the side that shows the runs. The executor only connects out: it asks for a batch,
-/// sends the lines of its trace and says how it ended. A batch is handed to one executor once (ADR 0017). Writing a batch in is not here: it
+/// The side of the queue that the runner uses, and the side that shows the runs. The runner only connects out: it asks for a batch,
+/// sends the lines of its trace and says how it ended. A batch is handed to one runner once (ADR 0017). Writing a batch in is not here: it
 /// goes through <see cref="Approvals.IApprovalLedger"/> only.
 /// </summary>
 public interface IBatchQueue
 {
     /// <summary>
-    /// Hands the oldest waiting batch to this executor, once, and takes the code out of the queue. A batch that waited past its time ends as
+    /// Hands the oldest waiting batch to this runner, once, and takes the code out of the queue. A batch that waited past its time ends as
     /// expired first, and so does one that was handed out and never answered. While the global stop is engaged nothing is handed out.
     /// </summary>
-    ValueTask<ClaimResult> ClaimAsync(string executor, CancellationToken cancellationToken);
+    ValueTask<ClaimResult> ClaimAsync(string runner, CancellationToken cancellationToken);
 
     /// <summary>
     /// Ends as expired the batches that waited past their time and the ones that were handed out and never answered, and frees their
-    /// approvals. It does not depend on an executor asking for work, and it hands nothing out, so the global stop does not hold it back.
+    /// approvals. It does not depend on a runner asking for work, and it hands nothing out, so the global stop does not hold it back.
     /// False when the store or the trail could not take it (nothing was changed).
     /// </summary>
     ValueTask<bool> ExpireDueAsync(CancellationToken cancellationToken);
 
-    ValueTask<QueueResult> AppendEventsAsync(Guid batchId, string executor, IReadOnlyList<RunEvent> events, CancellationToken cancellationToken);
+    ValueTask<QueueResult> AppendEventsAsync(Guid batchId, string runner, IReadOnlyList<RunEvent> events, CancellationToken cancellationToken);
 
-    ValueTask<QueueResult> CompleteAsync(Guid batchId, string executor, BatchOutcome outcome, CancellationToken cancellationToken);
+    ValueTask<QueueResult> CompleteAsync(Guid batchId, string runner, BatchOutcome outcome, CancellationToken cancellationToken);
 
     /// <summary>The newest runs first: a list in a file can be long.</summary>
     IReadOnlyList<RunSummary> Runs(int limit);
@@ -84,20 +84,20 @@ public interface IBatchQueue
 
 public sealed record TaskOptions
 {
-    /// <summary>How long an approval waits for the executor before it expires and has to be given again.</summary>
+    /// <summary>How long an approval waits for the runner before it expires and has to be given again.</summary>
     public TimeSpan BatchLifetime { get; init; } = TimeSpan.FromHours(1);
 
-    /// <summary>How long a batch may stay with an executor that does not answer, before it ends as expired.</summary>
+    /// <summary>How long a batch may stay with a runner that does not answer, before it ends as expired.</summary>
     public TimeSpan DeliveryTimeout { get; init; } = TimeSpan.FromMinutes(30);
 
-    /// <summary>Whether an approval needs the code of the second factor (the executor checks it). Off only for a sandbox with no executor.</summary>
+    /// <summary>Whether an approval needs the code of the second factor (the runner checks it). Off only for a sandbox with no runner.</summary>
     public bool RequireSecondFactor { get; init; } = true;
 
-    /// <summary>The most lines a run may hold, and the longest line: an executor that was taken over cannot fill the store.</summary>
+    /// <summary>The most lines a run may hold, and the longest line: a runner that was taken over cannot fill the store.</summary>
     public int MaxEventsPerRun { get; init; } = TaskLimits.MaxEventsPerRun;
 
     public int MaxEventDetail { get; init; } = TaskLimits.MaxEventDetail;
 
-    /// <summary>How often the host ends the batches that are past their time, whether or not an executor asks for work.</summary>
+    /// <summary>How often the host ends the batches that are past their time, whether or not a runner asks for work.</summary>
     public TimeSpan ExpirySweepInterval { get; init; } = TimeSpan.FromSeconds(15);
 }

@@ -59,11 +59,11 @@ public sealed class InMemoryBatchQueueTests
         new(BatchState.Done, null, [.. batch.Tasks.Select(task => new TaskOutcome(task.Id, TaskResult.DryRun, null))]);
 
     [Fact]
-    public async Task Claims_made_at_once_hand_the_batch_to_one_executor_only()
+    public async Task Claims_made_at_once_hand_the_batch_to_one_runner_only()
     {
         await Queue();
 
-        var claims = await Task.WhenAll(Enumerable.Range(0, 8).Select(index => _queue.ClaimAsync($"executor-{index}", Ct).AsTask()));
+        var claims = await Task.WhenAll(Enumerable.Range(0, 8).Select(index => _queue.ClaimAsync($"runner-{index}", Ct).AsTask()));
 
         claims.Count(claim => claim.Status == ClaimStatus.Claimed).Should().Be(1);
         claims.Where(claim => claim.Status != ClaimStatus.Claimed).Should().OnlyContain(claim => claim.Status == ClaimStatus.Nothing);
@@ -81,26 +81,26 @@ public sealed class InMemoryBatchQueueTests
         var batch = new TaskBatch(batchId, approval.WorkItemId, "alice", _time.GetUtcNow(), _time.GetUtcNow() + Options.BatchLifetime, [new TaskSpec(Guid.NewGuid(), 1, TaskKind.ValidatePullRequest, "example/app", 1, Head, approval.Id)]);
         (await ledger.TryRecordAsync([approval with { BatchId = batchId }], batch, "654321", [], Ct)).Should().Be(LedgerResult.Recorded);
 
-        (await queue.ClaimAsync("executor-1", Ct)).Status.Should().Be(ClaimStatus.Unavailable);
-        var second = await queue.ClaimAsync("executor-1", Ct);
+        (await queue.ClaimAsync("runner-1", Ct)).Status.Should().Be(ClaimStatus.Unavailable);
+        var second = await queue.ClaimAsync("runner-1", Ct);
 
         second.Status.Should().Be(ClaimStatus.Claimed);
         second.Delivery!.SecondFactorCode.Should().Be("654321");
     }
 
     [Fact]
-    public async Task A_batch_is_handed_to_one_executor_once_with_its_code()
+    public async Task A_batch_is_handed_to_one_runner_once_with_its_code()
     {
         var batch = await Queue();
 
-        var claim = await _queue.ClaimAsync("executor-1", Ct);
+        var claim = await _queue.ClaimAsync("runner-1", Ct);
 
         claim.Status.Should().Be(ClaimStatus.Claimed);
         claim.Delivery!.Batch.Should().BeEquivalentTo(batch);
         claim.Delivery.SecondFactorCode.Should().Be("123456");
-        (await _queue.ClaimAsync("executor-2", Ct)).Status.Should().Be(ClaimStatus.Nothing, "a batch is handed out once");
+        (await _queue.ClaimAsync("runner-2", Ct)).Status.Should().Be(ClaimStatus.Nothing, "a batch is handed out once");
         _store.List().Should().OnlyContain(approval => approval.State == ApprovalState.Taken);
-        _audit.List().Should().Contain(entry => entry.Event == AuditEvents.BatchDelivered && entry.Subject == "executor-1" && entry.OrderId == batch.Id.ToString("D"));
+        _audit.List().Should().Contain(entry => entry.Event == AuditEvents.BatchDelivered && entry.Subject == "runner-1" && entry.OrderId == batch.Id.ToString("D"));
     }
 
     [Fact]
@@ -110,7 +110,7 @@ public sealed class InMemoryBatchQueueTests
         _time.Advance(TimeSpan.FromSeconds(5));
         await Queue(2);
 
-        (await _queue.ClaimAsync("executor-1", Ct)).Delivery!.Batch.Id.Should().Be(first.Id);
+        (await _queue.ClaimAsync("runner-1", Ct)).Delivery!.Batch.Id.Should().Be(first.Id);
     }
 
     [Fact]
@@ -119,10 +119,10 @@ public sealed class InMemoryBatchQueueTests
         await Queue();
         await _stop.ChangeAsync(true, new AuditEntry(Start, AuditEvents.KillSwitchEngaged, "alice", null, null), Ct);
 
-        (await _queue.ClaimAsync("executor-1", Ct)).Status.Should().Be(ClaimStatus.Stopped);
+        (await _queue.ClaimAsync("runner-1", Ct)).Status.Should().Be(ClaimStatus.Stopped);
 
         await _stop.ChangeAsync(false, new AuditEntry(Start, AuditEvents.KillSwitchReleased, "alice", null, null), Ct);
-        (await _queue.ClaimAsync("executor-1", Ct)).Status.Should().Be(ClaimStatus.Claimed);
+        (await _queue.ClaimAsync("runner-1", Ct)).Status.Should().Be(ClaimStatus.Claimed);
     }
 
     [Fact]
@@ -131,7 +131,7 @@ public sealed class InMemoryBatchQueueTests
         var batch = await Queue();
         _time.Advance(Options.BatchLifetime + TimeSpan.FromSeconds(1));
 
-        (await _queue.ClaimAsync("executor-1", Ct)).Status.Should().Be(ClaimStatus.Nothing);
+        (await _queue.ClaimAsync("runner-1", Ct)).Status.Should().Be(ClaimStatus.Nothing);
 
         _queue.Find(batch.Id)!.Summary.State.Should().Be(BatchState.Expired);
         _store.List().Should().OnlyContain(approval => approval.State == ApprovalState.Expired && approval.EndedAt != null);
@@ -140,7 +140,7 @@ public sealed class InMemoryBatchQueueTests
     }
 
     [Fact]
-    public async Task An_expiry_pass_ends_the_batches_past_their_time_with_no_executor_and_while_the_stop_is_engaged()
+    public async Task An_expiry_pass_ends_the_batches_past_their_time_with_no_runner_and_while_the_stop_is_engaged()
     {
         var batch = await Queue();
         await _stop.ChangeAsync(true, new AuditEntry(Start, AuditEvents.KillSwitchEngaged, "alice", null, null), Ct);
@@ -158,43 +158,43 @@ public sealed class InMemoryBatchQueueTests
     public async Task Lines_that_are_sent_again_after_a_lost_answer_are_skipped_and_the_rest_is_taken()
     {
         var batch = await Queue();
-        await _queue.ClaimAsync("executor-1", Ct);
+        await _queue.ClaimAsync("runner-1", Ct);
         var lines = Chain(batch, RunEvents.Claimed, RunEvents.SecondFactorChecked, RunEvents.RunCompleted);
-        (await _queue.AppendEventsAsync(batch.Id, "executor-1", lines[..2], Ct)).Should().Be(QueueResult.Ok);
+        (await _queue.AppendEventsAsync(batch.Id, "runner-1", lines[..2], Ct)).Should().Be(QueueResult.Ok);
 
-        (await _queue.AppendEventsAsync(batch.Id, "executor-1", lines, Ct)).Should().Be(QueueResult.Ok, "the first two are held, the third is new");
+        (await _queue.AppendEventsAsync(batch.Id, "runner-1", lines, Ct)).Should().Be(QueueResult.Ok, "the first two are held, the third is new");
 
         _queue.Find(batch.Id)!.Events.Select(line => line.Sequence).Should().Equal(1, 2, 3);
-        (await _queue.AppendEventsAsync(batch.Id, "executor-1", [lines[0] with { Detail = "changed" }], Ct)).Should().Be(QueueResult.Invalid, "a held line that differs is refused");
+        (await _queue.AppendEventsAsync(batch.Id, "runner-1", [lines[0] with { Detail = "changed" }], Ct)).Should().Be(QueueResult.Invalid, "a held line that differs is refused");
     }
 
     [Fact]
     public async Task A_send_that_is_all_held_is_taken_and_a_gap_or_an_empty_send_behaves()
     {
         var batch = await Queue();
-        await _queue.ClaimAsync("executor-1", Ct);
+        await _queue.ClaimAsync("runner-1", Ct);
         var lines = Chain(batch, RunEvents.Claimed, RunEvents.SecondFactorChecked, RunEvents.RunCompleted);
-        await _queue.AppendEventsAsync(batch.Id, "executor-1", lines[..2], Ct);
+        await _queue.AppendEventsAsync(batch.Id, "runner-1", lines[..2], Ct);
 
-        (await _queue.AppendEventsAsync(batch.Id, "executor-1", lines[..2], Ct)).Should().Be(QueueResult.Ok, "all held: nothing added");
-        (await _queue.AppendEventsAsync(batch.Id, "executor-1", [], Ct)).Should().Be(QueueResult.Ok, "an empty send says the executor is alive");
-        (await _queue.AppendEventsAsync(batch.Id, "executor-2", [], Ct)).Should().Be(QueueResult.NotYours);
+        (await _queue.AppendEventsAsync(batch.Id, "runner-1", lines[..2], Ct)).Should().Be(QueueResult.Ok, "all held: nothing added");
+        (await _queue.AppendEventsAsync(batch.Id, "runner-1", [], Ct)).Should().Be(QueueResult.Ok, "an empty send says the runner is alive");
+        (await _queue.AppendEventsAsync(batch.Id, "runner-2", [], Ct)).Should().Be(QueueResult.NotYours);
         _queue.Find(batch.Id)!.Events.Should().HaveCount(2);
         var gap = Chain(batch, RunEvents.Claimed, RunEvents.SecondFactorChecked, RunEvents.BatchChecked, RunEvents.RunCompleted);
-        (await _queue.AppendEventsAsync(batch.Id, "executor-1", [gap[3]], Ct)).Should().Be(QueueResult.Invalid, "sequence 4 when two are held");
+        (await _queue.AppendEventsAsync(batch.Id, "runner-1", [gap[3]], Ct)).Should().Be(QueueResult.Invalid, "sequence 4 when two are held");
     }
 
     [Fact]
     public async Task A_refused_send_does_not_renew_the_delivery_and_an_empty_send_does()
     {
         var batch = await Queue();
-        await _queue.ClaimAsync("executor-1", Ct);
+        await _queue.ClaimAsync("runner-1", Ct);
         var lines = Chain(batch, RunEvents.Claimed, RunEvents.SecondFactorChecked);
         _time.Advance(Options.DeliveryTimeout - TimeSpan.FromMinutes(1));
-        (await _queue.AppendEventsAsync(batch.Id, "executor-1", [lines[1]], Ct)).Should().Be(QueueResult.Invalid);
+        (await _queue.AppendEventsAsync(batch.Id, "runner-1", [lines[1]], Ct)).Should().Be(QueueResult.Invalid);
         _time.Advance(TimeSpan.FromMinutes(2));
 
-        await _queue.ClaimAsync("executor-1", Ct);
+        await _queue.ClaimAsync("runner-1", Ct);
 
         _queue.Find(batch.Id)!.Summary.State.Should().Be(BatchState.Expired, "junk does not keep a batch alive");
     }
@@ -203,40 +203,40 @@ public sealed class InMemoryBatchQueueTests
     public async Task A_run_that_keeps_sending_lines_is_not_expired_however_long_it_lasts()
     {
         var batch = await Queue();
-        await _queue.ClaimAsync("executor-1", Ct);
+        await _queue.ClaimAsync("runner-1", Ct);
         var lines = Chain(batch, RunEvents.Claimed, RunEvents.SecondFactorChecked, RunEvents.RunCompleted);
         _time.Advance(Options.DeliveryTimeout - TimeSpan.FromMinutes(1));
-        (await _queue.AppendEventsAsync(batch.Id, "executor-1", lines[..1], Ct)).Should().Be(QueueResult.Ok);
+        (await _queue.AppendEventsAsync(batch.Id, "runner-1", lines[..1], Ct)).Should().Be(QueueResult.Ok);
         _time.Advance(Options.DeliveryTimeout - TimeSpan.FromMinutes(1));
-        (await _queue.AppendEventsAsync(batch.Id, "executor-1", lines[1..2], Ct)).Should().Be(QueueResult.Ok, "the line before renewed the delivery");
+        (await _queue.AppendEventsAsync(batch.Id, "runner-1", lines[1..2], Ct)).Should().Be(QueueResult.Ok, "the line before renewed the delivery");
 
-        await _queue.ClaimAsync("executor-1", Ct);
+        await _queue.ClaimAsync("runner-1", Ct);
 
         _queue.Find(batch.Id)!.Summary.State.Should().Be(BatchState.Delivered);
     }
 
     [Fact]
-    public async Task A_batch_that_an_executor_never_answered_ends_as_expired()
+    public async Task A_batch_that_a_runner_never_answered_ends_as_expired()
     {
         var batch = await Queue();
-        await _queue.ClaimAsync("executor-1", Ct);
+        await _queue.ClaimAsync("runner-1", Ct);
         _time.Advance(Options.DeliveryTimeout + TimeSpan.FromSeconds(1));
 
-        await _queue.ClaimAsync("executor-1", Ct);
+        await _queue.ClaimAsync("runner-1", Ct);
 
         _queue.Find(batch.Id)!.Summary.State.Should().Be(BatchState.Expired);
-        (await _queue.CompleteAsync(batch.Id, "executor-1", Done(batch), Ct)).Should().Be(QueueResult.NotYours, "a late answer to an expired batch is refused");
+        (await _queue.CompleteAsync(batch.Id, "runner-1", Done(batch), Ct)).Should().Be(QueueResult.NotYours, "a late answer to an expired batch is refused");
     }
 
     [Fact]
     public async Task The_lines_of_a_run_are_kept_when_they_continue_the_chain_from_the_digest()
     {
         var batch = await Queue();
-        await _queue.ClaimAsync("executor-1", Ct);
+        await _queue.ClaimAsync("runner-1", Ct);
         var lines = Chain(batch, RunEvents.Claimed, RunEvents.SecondFactorChecked, RunEvents.RunCompleted);
 
-        (await _queue.AppendEventsAsync(batch.Id, "executor-1", lines[..2], Ct)).Should().Be(QueueResult.Ok);
-        (await _queue.AppendEventsAsync(batch.Id, "executor-1", lines[2..], Ct)).Should().Be(QueueResult.Ok);
+        (await _queue.AppendEventsAsync(batch.Id, "runner-1", lines[..2], Ct)).Should().Be(QueueResult.Ok);
+        (await _queue.AppendEventsAsync(batch.Id, "runner-1", lines[2..], Ct)).Should().Be(QueueResult.Ok);
 
         _queue.Find(batch.Id)!.Events.Select(line => line.Type).Should().Equal(RunEvents.Claimed, RunEvents.SecondFactorChecked, RunEvents.RunCompleted);
     }
@@ -245,11 +245,11 @@ public sealed class InMemoryBatchQueueTests
     public async Task Lines_that_do_not_continue_the_chain_are_refused_and_not_kept()
     {
         var batch = await Queue();
-        await _queue.ClaimAsync("executor-1", Ct);
+        await _queue.ClaimAsync("runner-1", Ct);
         var lines = Chain(batch, RunEvents.Claimed, RunEvents.RunCompleted);
 
-        (await _queue.AppendEventsAsync(batch.Id, "executor-1", [lines[1]], Ct)).Should().Be(QueueResult.Invalid);
-        (await _queue.AppendEventsAsync(batch.Id, "executor-1", [lines[0] with { Detail = "changed" }], Ct)).Should().Be(QueueResult.Invalid);
+        (await _queue.AppendEventsAsync(batch.Id, "runner-1", [lines[1]], Ct)).Should().Be(QueueResult.Invalid);
+        (await _queue.AppendEventsAsync(batch.Id, "runner-1", [lines[0] with { Detail = "changed" }], Ct)).Should().Be(QueueResult.Invalid);
         _queue.Find(batch.Id)!.Events.Should().BeEmpty();
     }
 
@@ -257,36 +257,36 @@ public sealed class InMemoryBatchQueueTests
     public async Task A_run_cannot_hold_more_lines_or_longer_lines_than_the_limit()
     {
         var batch = await Queue();
-        await _queue.ClaimAsync("executor-1", Ct);
+        await _queue.ClaimAsync("runner-1", Ct);
         var tooLong = RunEvent.Create(batch.Digest(), 1, Start, RunEvents.Claimed, null, new string('x', Options.MaxEventDetail + 1));
 
-        (await _queue.AppendEventsAsync(batch.Id, "executor-1", [tooLong], Ct)).Should().Be(QueueResult.Invalid);
-        (await _queue.AppendEventsAsync(batch.Id, "executor-1", Chain(batch, [.. Enumerable.Repeat(RunEvents.Claimed, Options.MaxEventsPerRun + 1)]), Ct)).Should().Be(QueueResult.Invalid);
+        (await _queue.AppendEventsAsync(batch.Id, "runner-1", [tooLong], Ct)).Should().Be(QueueResult.Invalid);
+        (await _queue.AppendEventsAsync(batch.Id, "runner-1", Chain(batch, [.. Enumerable.Repeat(RunEvents.Claimed, Options.MaxEventsPerRun + 1)]), Ct)).Should().Be(QueueResult.Invalid);
     }
 
     [Fact]
-    public async Task Only_the_executor_that_took_a_batch_may_write_to_it_or_end_it()
+    public async Task Only_the_runner_that_took_a_batch_may_write_to_it_or_end_it()
     {
         var batch = await Queue();
-        (await _queue.AppendEventsAsync(batch.Id, "executor-1", [], Ct)).Should().Be(QueueResult.NotYours, "a batch that was not handed out has no run yet");
-        await _queue.ClaimAsync("executor-1", Ct);
+        (await _queue.AppendEventsAsync(batch.Id, "runner-1", [], Ct)).Should().Be(QueueResult.NotYours, "a batch that was not handed out has no run yet");
+        await _queue.ClaimAsync("runner-1", Ct);
 
-        (await _queue.AppendEventsAsync(batch.Id, "executor-2", Chain(batch, RunEvents.Claimed), Ct)).Should().Be(QueueResult.NotYours);
-        (await _queue.CompleteAsync(batch.Id, "executor-2", Done(batch), Ct)).Should().Be(QueueResult.NotYours);
-        (await _queue.CompleteAsync(Guid.NewGuid(), "executor-1", Done(batch), Ct)).Should().Be(QueueResult.NotFound);
+        (await _queue.AppendEventsAsync(batch.Id, "runner-2", Chain(batch, RunEvents.Claimed), Ct)).Should().Be(QueueResult.NotYours);
+        (await _queue.CompleteAsync(batch.Id, "runner-2", Done(batch), Ct)).Should().Be(QueueResult.NotYours);
+        (await _queue.CompleteAsync(Guid.NewGuid(), "runner-1", Done(batch), Ct)).Should().Be(QueueResult.NotFound);
     }
 
     [Fact]
     public async Task What_became_of_the_tasks_that_ended_is_listed_newest_first_with_the_whole_row_and_a_running_batch_has_none()
     {
         var first = await Queue();
-        await _queue.ClaimAsync("executor-1", Ct);
+        await _queue.ClaimAsync("runner-1", Ct);
         _queue.TaskResults(10).Should().BeEmpty("nothing has ended");
-        await _queue.CompleteAsync(first.Id, "executor-1", Outcome(first, TaskResult.Failed, "npm test failed (exit 1)"), Ct);
+        await _queue.CompleteAsync(first.Id, "runner-1", Outcome(first, TaskResult.Failed, "npm test failed (exit 1)"), Ct);
         _time.Advance(TimeSpan.FromMinutes(5));
         var second = await Queue();
-        await _queue.ClaimAsync("executor-1", Ct);
-        await _queue.CompleteAsync(second.Id, "executor-1", Outcome(second, TaskResult.Passed, "the validation passes"), Ct);
+        await _queue.ClaimAsync("runner-1", Ct);
+        await _queue.CompleteAsync(second.Id, "runner-1", Outcome(second, TaskResult.Passed, "the validation passes"), Ct);
 
         var rows = _queue.TaskResults(10);
         var lastTask = second.Tasks[^1];
@@ -305,9 +305,9 @@ public sealed class InMemoryBatchQueueTests
     public async Task A_batch_that_ended_done_spends_its_approvals_and_the_operator_may_approve_again()
     {
         var batch = await Queue();
-        await _queue.ClaimAsync("executor-1", Ct);
+        await _queue.ClaimAsync("runner-1", Ct);
 
-        (await _queue.CompleteAsync(batch.Id, "executor-1", Done(batch), Ct)).Should().Be(QueueResult.Ok);
+        (await _queue.CompleteAsync(batch.Id, "runner-1", Done(batch), Ct)).Should().Be(QueueResult.Ok);
 
         var run = _queue.Find(batch.Id)!;
         run.Summary.State.Should().Be(BatchState.Done);
@@ -316,16 +316,16 @@ public sealed class InMemoryBatchQueueTests
         _store.List().Should().OnlyContain(approval => approval.State == ApprovalState.DryRunDone);
         _audit.List().Should().Contain(entry => entry.Event == AuditEvents.BatchDone);
         await Queue();
-        (await _queue.CompleteAsync(batch.Id, "executor-1", Done(batch), Ct)).Should().Be(QueueResult.NotYours, "a batch ends once");
+        (await _queue.CompleteAsync(batch.Id, "runner-1", Done(batch), Ct)).Should().Be(QueueResult.NotYours, "a batch ends once");
     }
 
     [Fact]
     public async Task A_refused_batch_ends_with_its_code_and_its_approvals_are_refused()
     {
         var batch = await Queue();
-        await _queue.ClaimAsync("executor-1", Ct);
+        await _queue.ClaimAsync("runner-1", Ct);
 
-        (await _queue.CompleteAsync(batch.Id, "executor-1", new BatchOutcome(BatchState.Refused, RunRefusal.SecondFactor, []), Ct)).Should().Be(QueueResult.Ok);
+        (await _queue.CompleteAsync(batch.Id, "runner-1", new BatchOutcome(BatchState.Refused, RunRefusal.SecondFactor, []), Ct)).Should().Be(QueueResult.Ok);
 
         _queue.Find(batch.Id)!.Summary.Should().Match<RunSummary>(summary => summary.State == BatchState.Refused && summary.Refusal == RunRefusal.SecondFactor);
         _store.List().Should().OnlyContain(approval => approval.State == ApprovalState.Refused);
@@ -336,10 +336,10 @@ public sealed class InMemoryBatchQueueTests
     public async Task An_outcome_for_a_task_that_is_not_in_the_batch_or_with_a_state_that_is_not_an_end_is_refused()
     {
         var batch = await Queue();
-        await _queue.ClaimAsync("executor-1", Ct);
+        await _queue.ClaimAsync("runner-1", Ct);
 
-        (await _queue.CompleteAsync(batch.Id, "executor-1", new BatchOutcome(BatchState.Done, null, [new TaskOutcome(Guid.NewGuid(), TaskResult.DryRun, null)]), Ct)).Should().Be(QueueResult.Invalid);
-        (await _queue.CompleteAsync(batch.Id, "executor-1", new BatchOutcome(BatchState.Waiting, null, []), Ct)).Should().Be(QueueResult.Invalid);
+        (await _queue.CompleteAsync(batch.Id, "runner-1", new BatchOutcome(BatchState.Done, null, [new TaskOutcome(Guid.NewGuid(), TaskResult.DryRun, null)]), Ct)).Should().Be(QueueResult.Invalid);
+        (await _queue.CompleteAsync(batch.Id, "runner-1", new BatchOutcome(BatchState.Waiting, null, []), Ct)).Should().Be(QueueResult.Invalid);
     }
 
     [Theory]

@@ -10,7 +10,7 @@ using static Orchestrarr.Core.Test.FleetBuilders;
 
 namespace Orchestrarr.Core.Test;
 
-/// <summary>A selection of the table is approved with one code, as one batch for the executor, whatever the number of applications (ADR 0019).</summary>
+/// <summary>A selection of the table is approved with one code, as one batch for the runner, whatever the number of applications (ADR 0019).</summary>
 public sealed class ApprovalSelectionTests
 {
     private const string Shop = "repository:example/shop";
@@ -71,7 +71,7 @@ public sealed class ApprovalSelectionTests
         var result = await Approve(service, [Problem(Shop, 1, HeadA, [StepKind.Repair], "goesUpTo=Qualification repair=True")]);
 
         result.Recorded.Should().BeTrue();
-        var batch = (await _queue.ClaimAsync("executor-1", Ct)).Delivery!.Batch;
+        var batch = (await _queue.ClaimAsync("runner-1", Ct)).Delivery!.Batch;
         batch.Tasks.Select(task => task.Kind).Should().Equal(TaskKind.RepairPullRequest);
     }
 
@@ -84,7 +84,7 @@ public sealed class ApprovalSelectionTests
 
         result.Recorded.Should().BeTrue();
         result.Approvals.Should().HaveCount(3);
-        var claim = await _queue.ClaimAsync("executor-1", Ct);
+        var claim = await _queue.ClaimAsync("runner-1", Ct);
         var batch = claim.Delivery!.Batch;
         batch.WorkItemId.Should().StartWith("selection:", "a selection of several applications is not one work item");
         batch.Tasks.Select(task => (task.Repository, task.PullRequest, task.Kind)).Should().Equal(
@@ -93,7 +93,7 @@ public sealed class ApprovalSelectionTests
             ("example/web", 7, TaskKind.ValidatePullRequest), ("example/web", 7, TaskKind.MergePullRequest));
         batch.Tasks.Select(task => task.Sequence).Should().Equal(1, 2, 3, 4, 5);
         claim.Delivery.SecondFactorCode.Should().Be(Code, "one code for the whole selection");
-        (await _queue.ClaimAsync("executor-1", Ct)).Status.Should().Be(ClaimStatus.Nothing, "there is one batch, not one per application");
+        (await _queue.ClaimAsync("runner-1", Ct)).Status.Should().Be(ClaimStatus.Nothing, "there is one batch, not one per application");
     }
 
     [Fact]
@@ -103,7 +103,7 @@ public sealed class ApprovalSelectionTests
 
         await Approve(service, [Problem(Shop, 1, HeadA, Both, "goesUpTo=Production stopBeforeProduction=True descriptions=abc123")]);
 
-        (await _queue.ClaimAsync("executor-1", Ct)).Delivery!.Batch.WorkItemId.Should().Be(Shop);
+        (await _queue.ClaimAsync("runner-1", Ct)).Delivery!.Batch.WorkItemId.Should().Be(Shop);
         _audit.List().Should().Contain(entry => entry.Event == AuditEvents.ApprovalRecorded && entry.Detail!.Contains("stopBeforeProduction=True descriptions=abc123", StringComparison.Ordinal));
     }
 

@@ -29,13 +29,13 @@ public enum ApprovalRefusal
     NoPullRequests,
     AlreadyApproved,
 
-    /// <summary>The card holds more pull requests than one batch can carry: the executor would refuse it for its size.</summary>
+    /// <summary>The card holds more pull requests than one batch can carry: the runner would refuse it for its size.</summary>
     TooManyPullRequests,
 
     /// <summary>The selection asks for more repairs than one approval may start (each is an agent run that spends the subscription).</summary>
     TooManyRepairs,
 
-    /// <summary>The code of the second factor is missing or is not six digits. Whether it is right is for the executor to say.</summary>
+    /// <summary>The code of the second factor is missing or is not six digits. Whether it is right is for the runner to say.</summary>
     SecondFactorRequired,
     StoreFull,
     /// <summary>The approval and its trace cannot be written (a full or unusable store or trail): nothing is approved.</summary>

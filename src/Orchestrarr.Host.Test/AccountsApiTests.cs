@@ -418,7 +418,7 @@ public sealed class AccountsApiTests : IClassFixture<AccountsApiFactory>
     [Fact]
     public void Every_route_that_changes_something_asks_for_a_permission_or_is_on_the_list_of_the_few_that_do_not()
     {
-        // The few writes open to any signed-in person, or to nobody signed in (the executors carry a token of their own): a new write route
+        // The few writes open to any signed-in person, or to nobody signed in (the runners carry a token of their own): a new write route
         // that nobody thought about must not be one of them by omission, so it has to be added here, on purpose.
         string[] open = ["/api/v1/auth/login", "/api/v1/auth/logout", "/api/v1/auth/password"];
         var routes = _factory.Services.GetRequiredService<EndpointDataSource>().Endpoints.OfType<RouteEndpoint>()

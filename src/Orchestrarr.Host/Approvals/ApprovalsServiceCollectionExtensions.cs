@@ -34,7 +34,7 @@ internal static class ApprovalsServiceCollectionExtensions
             .AddSingleton(optionsSettings ?? OptionsSettings.Locked)
             .AddSingleton<OptionsService>()
             .AddSingleton<ISecondFactorPolicy>(provider => provider.GetRequiredService<OptionsService>())
-            .AddSingleton<ExecutorRegistry>()
+            .AddSingleton<RunnerRegistry>()
             .AddSingleton<IApprovalJournal>(_ => tasks.JournalPath is { } journal ? new FileApprovalJournal(journal) : new NullApprovalJournal())
             .AddSingleton<IPowerPolicy>(new ConfiguredPowerPolicy(grants))
             .AddHostedService<BatchExpirySweeper>();

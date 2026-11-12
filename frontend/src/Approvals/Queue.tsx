@@ -45,7 +45,7 @@ function ApprovalRow({ approval }: Readonly<{ approval: Approval }>) {
   );
 }
 
-// The decisions the operator approved, and where each is: waiting for the executor, with it, or ended. A dry run starts nothing.
+// The decisions the operator approved, and where each is: waiting for the runner, with it, or ended. A dry run starts nothing.
 export default function Queue() {
   const { data: approvals, error, isPending } = useApprovals();
   const { data: status } = useSystemStatus();
@@ -62,8 +62,8 @@ export default function Queue() {
         {approvals?.length === 0 ? <CapabilityHint>{translate('QueueEmpty')}</CapabilityHint> : null}
         {approvals && approvals.length > 0 ? (
           <>
-            {status && !status.executors.some((executor) => executor.connected) ? (
-              <CapabilityHint>{translate('QueueNoExecutor')}</CapabilityHint>
+            {status && !status.runners.some((runner) => runner.connected) ? (
+              <CapabilityHint>{translate('QueueNoRunner')}</CapabilityHint>
             ) : null}
             <ul className={styles.list}>
               {approvals.map((approval) => (

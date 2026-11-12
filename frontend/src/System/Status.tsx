@@ -9,8 +9,8 @@ import { describeError } from 'Utilities/describe';
 import formatTime from 'Utilities/formatTime';
 import translate from 'Utilities/translate';
 
-import ExecutorList from './ExecutorList';
 import KillSwitch from './KillSwitch';
+import RunnerList from './RunnerList';
 import styles from './Status.module.css';
 import useSystemStatus from './useSystemStatus';
 
@@ -68,9 +68,9 @@ export default function Status() {
                 ? translate('SecondFactorRequired')
                 : translate('SecondFactorNotRequired')}
             </dd>
-            <dt>{translate('Executors')}</dt>
+            <dt>{translate('Runners')}</dt>
             <dd>
-              <ExecutorList executors={data.executors} />
+              <RunnerList runners={data.runners} />
             </dd>
             <dt>{translate('Storage')}</dt>
             <dd>{storageName(data.storage.kind)}</dd>

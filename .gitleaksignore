@@ -1,4 +1,4 @@
-# A made-up token of a test (0123456789abcdef...), not a secret: it stands for the token of an executor in the API tests.
+# A made-up token of a test (0123456789abcdef...), not a secret: it stands for the token of a runner in the API tests (the file is RunnerApiTests.cs since the rename of the executor, ADR 0026; the fingerprints below name the path it had at that commit).
 1d3c543c76c33b825067f52bdc1466a606748fcc:src/Orchestrarr.Host.Test/ExecutorApiTests.cs:generic-api-key:15
 # The same made-up token, in the squashed commit of the pull request that introduced the executor (the line has since been replaced by a repeated letter).
 8d71661dcccd8edc17e7076749f392c8c3673e17:src/Orchestrarr.Host.Test/ExecutorApiTests.cs:generic-api-key:15

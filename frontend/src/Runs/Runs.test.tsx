@@ -16,7 +16,7 @@ const summary: RunSummary = {
   refusal: null,
   taskCount: 2,
   endedAt: '2026-11-09T12:00:05Z',
-  executor: 'executor-1',
+  runner: 'runner-1',
 };
 
 const detail: RunDetailResource = {
@@ -55,7 +55,7 @@ const detail: RunDetailResource = {
       at: '2026-11-09T12:00:01Z',
       type: 'run.claimed',
       taskId: null,
-      detail: 'executor executor-1, 2 tasks',
+      detail: 'runner runner-1, 2 tasks',
       previousHash: '0',
       hash: 'aaaaaaaa11111111',
     },
@@ -90,7 +90,7 @@ describe('Runs', () => {
       '/api/v1/runs': [
         summary,
         { ...summary, batchId: 'b2', state: 'refused', refusal: 'secondFactor' },
-        { ...summary, batchId: 'b3', state: 'waiting', executor: null },
+        { ...summary, batchId: 'b3', state: 'waiting', runner: null },
       ],
     });
 
@@ -98,7 +98,7 @@ describe('Runs', () => {
 
     expect(await screen.findByText('Done')).toBeInTheDocument();
     expect(screen.getByText('Refused')).toBeInTheDocument();
-    expect(screen.getByText('Waiting for the executor')).toBeInTheDocument();
+    expect(screen.getByText('Waiting for the Runner')).toBeInTheDocument();
     expect(screen.getByText('Refused: the code of the second factor was not accepted')).toBeInTheDocument();
     expect(screen.getAllByText('example/shop')).toHaveLength(3);
     expect(screen.getAllByRole('link', { name: 'Open' })[0]).toHaveAttribute('href', '/runs/b1');
@@ -148,7 +148,7 @@ describe('RunDetail', () => {
 
     renderAt();
 
-    expect(await screen.findByText('Taken by the executor')).toBeInTheDocument();
+    expect(await screen.findByText('Taken by the Runner')).toBeInTheDocument();
     expect(screen.getByText('Second factor')).toBeInTheDocument();
     expect(screen.getByText('code of alice verified')).toBeInTheDocument();
     expect(screen.getByText('aaaaaaaa')).toHaveAttribute('title', 'aaaaaaaa11111111');
@@ -218,27 +218,27 @@ describe('RunDetail', () => {
     expect(screen.getByText('Patch (nothing was pushed)')).toBeInTheDocument();
   });
 
-  it('says who approved it and which executor took it', async () => {
+  it('says who approved it and which runner took it', async () => {
     stubApi({ '/api/v1/runs/': detail });
 
     renderAt();
 
     expect(await screen.findByText(/Approved by alice/)).toBeInTheDocument();
-    expect(screen.getByText(/Executor: executor-1/)).toBeInTheDocument();
+    expect(screen.getByText(/Runner: runner-1/)).toBeInTheDocument();
   });
 
-  it('says when no executor took it, and why a refused run was refused', async () => {
+  it('says when no runner took it, and why a refused run was refused', async () => {
     stubApi({
       '/api/v1/runs/': {
         ...detail,
-        summary: { ...summary, state: 'refused', refusal: 'journalMismatch', executor: null },
+        summary: { ...summary, state: 'refused', refusal: 'journalMismatch', runner: null },
         events: [],
       },
     });
 
     renderAt();
 
-    expect(await screen.findByText(/No executor has taken it yet/)).toBeInTheDocument();
+    expect(await screen.findByText(/No Runner has taken it yet/)).toBeInTheDocument();
     expect(screen.getByText(/the batch is not the one that was approved/)).toBeInTheDocument();
     expect(screen.getByText('Nothing in the trace yet.')).toBeInTheDocument();
   });

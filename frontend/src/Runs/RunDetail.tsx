@@ -64,7 +64,7 @@ function diffClass(line: string): string | undefined {
   return line.startsWith('@@') ? styles.hunk : undefined;
 }
 
-// A line of the trace: when, what the executor was doing, and what it found. The short hash is the link of the chain.
+// A line of the trace: when, what the runner was doing, and what it found. The short hash is the link of the chain.
 function EventItem({ event }: Readonly<{ event: RunEvent }>) {
   return (
     <li className={classNames(styles.event, event.type === 'task.agent' && styles.agentEvent)}>
@@ -91,7 +91,7 @@ function Body({ run }: Readonly<{ run: RunDetailResource }>) {
       <p className={styles.meta}>
         {translate('RunWho', { approver: summary.approverSubject, time: formatTime(summary.createdAt) ?? '' })}
         {' · '}
-        {summary.executor ? translate('RunExecutor', { executor: summary.executor }) : translate('RunNoExecutor')}
+        {summary.runner ? translate('RunRunner', { runner: summary.runner }) : translate('RunNoRunner')}
       </p>
 
       <h4 className={styles.section}>{translate('RunTasks')}</h4>
@@ -116,7 +116,7 @@ function Body({ run }: Readonly<{ run: RunDetailResource }>) {
   );
 }
 
-// One run: its tasks, what became of each, and the chained trace of the executor, as a timeline.
+// One run: its tasks, what became of each, and the chained trace of the runner, as a timeline.
 export default function RunDetail() {
   const { id = '' } = useParams();
   const { data: run, error, isPending } = useRun(id);
