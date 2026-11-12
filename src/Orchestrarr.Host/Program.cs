@@ -85,7 +85,12 @@ builder.Services.AddSingleton(provider =>
         provider.GetRequiredService<InfrastructureCatalogOptions>());
     // A reading that ends in the background is told to the screens (ADR 0025)
     var live = provider.GetRequiredService<ILiveNotifier>();
-    catalog.Changed += () => live.Publish(LiveTopics.Problems);
+    // The table changes, and so does what the bell says of the code (it is carried by the status)
+    catalog.Changed += () =>
+    {
+        live.Publish(LiveTopics.Problems);
+        live.Publish(LiveTopics.Status);
+    };
     return catalog;
 });
 builder.Services.AddSingleton(builder.Configuration.GetSection(PlatformOptions.SectionName).Get<PlatformOptions>() ?? new PlatformOptions());
