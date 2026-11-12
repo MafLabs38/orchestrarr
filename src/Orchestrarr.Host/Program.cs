@@ -86,8 +86,15 @@ builder.Services.AddSingleton(provider =>
     // A reading that ends in the background is told to the screens (ADR 0025)
     var live = provider.GetRequiredService<ILiveNotifier>();
     // The table changes, and so does what the bell says of the code (it is carried by the status)
+    var log = provider.GetRequiredService<ILoggerFactory>().CreateLogger("Orchestrarr.Infrastructure");
     catalog.Changed += () =>
     {
+        // The reason of a failed reading is in the log as well as on the bell (the kind of failure, never an address or a body)
+        var report = catalog.Peek();
+        if (report.Error is { } failure)
+        {
+            log.LogWarning("The code of the description could not be read ({Failure}); the last reading is kept", failure);
+        }
         live.Publish(LiveTopics.Problems);
         live.Publish(LiveTopics.Status);
     };
@@ -96,7 +103,7 @@ builder.Services.AddSingleton(provider =>
 builder.Services.AddSingleton(builder.Configuration.GetSection(PlatformOptions.SectionName).Get<PlatformOptions>() ?? new PlatformOptions());
 builder.Services.AddSingleton<IK3sReleases>(provider =>
 {
-    var releases = new K3sReleaseSource(provider.GetRequiredService<PlatformOptions>(), provider.GetRequiredService<TimeProvider>());
+    var releases = new K3sReleaseSource(provider.GetRequiredService<PlatformOptions>(), provider.GetRequiredService<TimeProvider>(), logger: provider.GetRequiredService<ILoggerFactory>().CreateLogger("Orchestrarr.Platforms"));
     var live = provider.GetRequiredService<ILiveNotifier>();
     releases.Changed += () => live.Publish(LiveTopics.Problems);
     return releases;

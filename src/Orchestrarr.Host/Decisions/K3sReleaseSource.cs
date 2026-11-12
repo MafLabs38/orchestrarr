@@ -32,6 +32,7 @@ public sealed class K3sReleaseSource : IK3sReleases, IDisposable
     private readonly HttpClient? _http;
     private readonly Uri? _url;
     private readonly TimeProvider _time;
+    private readonly ILogger? _logger;
     private readonly TimeSpan _keep;
     private readonly TimeSpan _firstWait;
     private readonly object _gate = new();
@@ -39,10 +40,11 @@ public sealed class K3sReleaseSource : IK3sReleases, IDisposable
     private Task? _reading;
     private DateTimeOffset? _notBefore;
 
-    public K3sReleaseSource(PlatformOptions options, TimeProvider time, HttpMessageHandler? handler = null)
+    public K3sReleaseSource(PlatformOptions options, TimeProvider time, HttpMessageHandler? handler = null, ILogger? logger = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         _time = time;
+        _logger = logger;
         _keep = TimeSpan.FromMinutes(Math.Max(1, options.CacheMinutes));
         _firstWait = TimeSpan.FromSeconds(Math.Max(1, options.FirstWaitSeconds));
         if (string.IsNullOrWhiteSpace(options.K3sChannelsUrl))
@@ -111,7 +113,8 @@ public sealed class K3sReleaseSource : IK3sReleases, IDisposable
         }
         catch (Exception failure) when (failure is not OutOfMemoryException)
         {
-            // The last good answer stays; the next try is a minute away, not at every read of the table
+            // The last good answer stays; the next try is a minute away, not at every read of the table. The channels are public: nothing secret is in the failure.
+            _logger?.LogWarning(failure, "The K3s release channels could not be read; the last answer is kept");
             lock (_gate)
             {
                 _notBefore = _time.GetUtcNow() + TimeSpan.FromMinutes(1);
