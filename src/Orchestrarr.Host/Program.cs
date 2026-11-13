@@ -156,6 +156,7 @@ if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Testing"))
 {
     // Fake agents and fake facts, no power: for the sandbox and the tests, never for a deployment
     api.MapDevMissionEndpoints();
+    api.MapDevControllerEndpoint();
 }
 // The routes of the runners carry their own token and no session: they are mapped outside the group that needs a person
 app.MapRunnerEndpoints(tasks);

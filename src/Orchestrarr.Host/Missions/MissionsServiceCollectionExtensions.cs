@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using Orchestrarr.Core.Approvals;
+using Orchestrarr.Host.Agents;
 using Orchestrarr.Core.Missions;
 using Orchestrarr.Host.Storage;
 using Orchestrarr.Storage;
@@ -13,6 +14,9 @@ internal static class MissionsServiceCollectionExtensions
     {
         var options = configuration.GetSection(MissionsOptions.SectionName).Get<MissionsOptions>() ?? new MissionsOptions();
         services.AddSingleton(options);
+        var agents = configuration.GetSection(AgentsOptions.SectionName).Get<AgentsOptions>() ?? new AgentsOptions();
+        services.AddSingleton(agents).AddSingleton<IAgentGateway>(new ClaudeCliGateway(agents))
+            .AddSingleton(provider => new ControllerAgent(provider.GetRequiredService<IAgentGateway>(), agents.ControllerModel, TimeSpan.FromSeconds(Math.Max(10, agents.ControllerTimeoutSeconds))));
         if (storage is SqliteStorage)
         {
             services

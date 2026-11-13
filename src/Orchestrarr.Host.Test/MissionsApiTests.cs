@@ -1,6 +1,10 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Orchestrarr.Core.Missions;
 
 namespace Orchestrarr.Host.Test;
 
@@ -9,7 +13,7 @@ public sealed class MissionsApiTests
     private const string Header = "X-Orchestrarr-Request";
     private static readonly CancellationToken Ct = TestContext.Current.CancellationToken;
 
-    private static async Task<HttpClient> SignedIn(AccountsApiFactory factory)
+    private static async Task<HttpClient> SignedIn(WebApplicationFactory<Program> factory)
     {
         var client = factory.CreateClient();
         client.DefaultRequestHeaders.Add(Header, "test");
@@ -117,5 +121,35 @@ public sealed class MissionsApiTests
         list.GetArrayLength().Should().Be(2);
         list[0].GetProperty("world").GetString().Should().Be("Release");
         raw.Should().NotContainEquivalentOf("signature", "the signature stays in the control plane");
+    }
+
+    [Fact]
+    public async Task The_controller_is_run_through_the_gateway_with_the_prompt_and_its_answer_is_read_as_a_decision()
+    {
+        var gateway = new FakeGateway("```json\n{\"decision\":\"end\",\"reasons\":[\"frame broken\"],\"remarks\":\"\"}\n```");
+        using var factory = new AccountsApiFactory().WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+        {
+            services.RemoveAll<IAgentGateway>();
+            services.AddSingleton<IAgentGateway>(gateway);
+        }));
+        using var client = await SignedIn(factory);
+
+        var response = await client.PostAsync("/api/v1/dev/controller/decide?hostile=true", null, Ct);
+        var answer = await response.Content.ReadFromJsonAsync<JsonElement>(Ct);
+
+        answer.GetProperty("decision").GetString().Should().Be("End");
+        gateway.Last!.UserPrompt.Should().Contain("DiffTouchesForbiddenPath").And.Contain("<<<DATA");
+        gateway.Last.SystemPrompt.Should().Contain("UNTRUSTED DATA");
+    }
+
+    private sealed class FakeGateway(string text) : IAgentGateway
+    {
+        public AgentRequest? Last { get; private set; }
+
+        public Task<AgentReply> RunAsync(AgentRequest request, CancellationToken cancellationToken)
+        {
+            Last = request;
+            return Task.FromResult(new AgentReply(true, text, null));
+        }
     }
 }
