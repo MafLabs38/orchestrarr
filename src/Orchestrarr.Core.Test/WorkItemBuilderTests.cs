@@ -214,7 +214,8 @@ public sealed class WorkItemBuilderTests
         var finding = Build(Snapshot(images: [image])).Should().ContainSingle().Which.Findings.Should().ContainSingle().Which;
 
         finding.Kind.Should().Be(FindingKind.OutdatedImage);
-        finding.Image.Should().Be(new ImageUpdate("grafana/grafana:11.2.0", "1.0.0", "1.1.0", ImageChange.Minor));
+        finding.Image.Should().BeEquivalentTo(new ImageUpdate("grafana/grafana:11.2.0", "1.0.0", "1.1.0", ImageChange.Minor), options => options.Excluding(update => update.Placements));
+        finding.Image.Placements.Should().NotBeNull("the places where the image runs go with its finding: a change is made for those");
     }
 
     [Fact]
@@ -224,7 +225,7 @@ public sealed class WorkItemBuilderTests
 
         var finding = Build(Snapshot(images: [image])).Should().ContainSingle().Which.Findings.Should().ContainSingle().Which;
 
-        finding.Image.Should().Be(new ImageUpdate("app:1", null, null, ImageChange.None));
+        finding.Image.Should().BeEquivalentTo(new ImageUpdate("app:1", null, null, ImageChange.None), options => options.Excluding(update => update.Placements));
     }
 
     [Theory]

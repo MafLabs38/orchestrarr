@@ -1,0 +1,48 @@
+.places {
+  margin: 4px 0;
+  padding-left: 16px;
+  font-size: var(--fontSizeMeta);
+}
+
+.places code {
+  font-family: var(--monoSpaceFontFamily);
+  word-break: break-all;
+}
+
+.tag {
+  color: var(--inkMuted);
+}
+
+.managed {
+  font-style: italic;
+}
+
+.note {
+  margin: 6px 0 2px;
+  font-size: var(--fontSizeMeta);
+}
+
+.change {
+  margin-top: 6px;
+}
+
+.diff {
+  margin: 4px 0;
+  padding: 6px;
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-family: var(--monoSpaceFontFamily);
+  font-size: var(--fontSizeMeta);
+  background: var(--paperSunken);
+  border: var(--borderWidth) solid var(--hairlineStrong);
+}
+
+.removed {
+  color: var(--dangerColor);
+}
+
+.added {
+  color: var(--successColor);
+}

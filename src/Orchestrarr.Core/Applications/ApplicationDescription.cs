@@ -95,27 +95,39 @@ public sealed class ApplicationCatalog : IApplicationCatalog
 
     private static ApplicationDescription Describe(RawApplication raw)
     {
-        if (string.IsNullOrWhiteSpace(raw.Id) || string.IsNullOrWhiteSpace(raw.Kind) || string.IsNullOrWhiteSpace(raw.Source))
+        var source = SourceOf(raw.Source);
+        if (string.IsNullOrWhiteSpace(raw.Id) || string.IsNullOrWhiteSpace(raw.Kind) || string.IsNullOrWhiteSpace(source))
         {
-            throw new InvalidOperationException("An application is described with at least an id, a kind and a source.");
+            throw new InvalidOperationException($"The application '{raw.Id}' is described with at least an id, a kind and a source.");
         }
-        if (raw.Kind is not ("own" or "thirdParty"))
+        // thirdParty, third-party: both are written
+        var kind = raw.Kind == "third-party" ? "thirdParty" : raw.Kind;
+        if (kind is not ("own" or "thirdParty"))
         {
             throw new InvalidOperationException($"The kind of '{raw.Id}' is own or thirdParty.");
         }
         return new ApplicationDescription(
             raw.Id,
-            raw.Kind,
-            raw.Source,
+            kind,
+            source,
             raw.Qualify?.Mode ?? QualifyMode.Unknown,
             !string.IsNullOrWhiteSpace(raw.Promote?.Rollback),
             !string.IsNullOrWhiteSpace(raw.Promote?.Check),
-            [.. (raw.Update?.Promote ?? []).Where(kind => kind is UpdateKind.Patch or UpdateKind.Minor or UpdateKind.Major).Distinct()]);
+            [.. (raw.Update?.Promote ?? []).Where(promoted => promoted is UpdateKind.Patch or UpdateKind.Minor or UpdateKind.Major).Distinct()]);
     }
+
+    // The source is written as a name (a repository, an image) or as an object that says which: { repository: ... } or { image: ... }
+    private static string? SourceOf(JsonElement? source) => source switch
+    {
+        { ValueKind: JsonValueKind.String } text => text.GetString(),
+        { ValueKind: JsonValueKind.Object } fields when fields.TryGetProperty("repository", out var repository) && repository.ValueKind == JsonValueKind.String => repository.GetString(),
+        { ValueKind: JsonValueKind.Object } fields when fields.TryGetProperty("image", out var image) && image.ValueKind == JsonValueKind.String => image.GetString(),
+        _ => null,
+    };
 
     private sealed record FileShape(List<RawApplication>? Applications);
 
-    private sealed record RawApplication(string? Id, string? Kind, string? Source, RawQualify? Qualify, RawPromote? Promote, RawUpdate? Update);
+    private sealed record RawApplication(string? Id, string? Kind, JsonElement? Source, RawQualify? Qualify, RawPromote? Promote, RawUpdate? Update);
 
     private sealed record RawQualify(QualifyMode? Mode);
 

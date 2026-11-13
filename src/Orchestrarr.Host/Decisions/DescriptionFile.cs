@@ -1,0 +1,77 @@
+using System.Text.Json;
+using Orchestrarr.Core.Applications;
+using Orchestrarr.Core.Infrastructure;
+using YamlDotNet.Serialization;
+
+namespace Orchestrarr.Host.Decisions;
+
+/// <summary>What the description file says: the descriptions of the applications (ADR 0020) and the perimeter of the work (ADR 0028).</summary>
+internal sealed record DescriptionContent(IApplicationCatalog Applications, DescriptionScope Scope);
+
+/// <summary>
+/// The description, from <c>Description:File</c> (relative to the content root; <c>Applications:File</c> is still read). YAML or JSON, which is a form of YAML: one file
+/// is the single entry that says what Orchestrarr maintains. Unset: nothing is described and nothing is in the scope. A file that is missing or wrong stops the start.
+/// </summary>
+internal static class DescriptionFile
+{
+    public const string FileKey = "Description:File";
+    public const string LegacyFileKey = "Applications:File";
+    private const int MaxBytes = 512 * 1024;
+
+    public static DescriptionContent Load(IConfiguration configuration, string contentRoot)
+    {
+        var file = configuration[FileKey] is { Length: > 0 } named ? named : configuration[LegacyFileKey];
+        if (string.IsNullOrWhiteSpace(file))
+        {
+            return new DescriptionContent(new EmptyApplicationCatalog(), DescriptionScope.None);
+        }
+        var path = Path.GetFullPath(file, contentRoot);
+        if (!File.Exists(path))
+        {
+            throw new InvalidOperationException($"{FileKey} names a file that does not exist: {path}");
+        }
+        if (new FileInfo(path).Length > MaxBytes)
+        {
+            throw new InvalidOperationException($"{FileKey} names a file of more than {MaxBytes / 1024} KB: a description is not that big.");
+        }
+        var json = ToJson(File.ReadAllText(path));
+        return new DescriptionContent(ApplicationCatalog.Parse(json), DescriptionScope.Parse(json));
+    }
+
+    /// <summary>The same document as JSON, whatever it was written in: YAML maps become objects, lists arrays, scalars text, numbers and booleans.</summary>
+    public static string ToJson(string text)
+    {
+        object? tree;
+        try
+        {
+            RefuseAliases(text);
+            tree = new DeserializerBuilder().Build().Deserialize<object?>(text);
+        }
+        catch (YamlDotNet.Core.YamlException failure)
+        {
+            throw new InvalidOperationException($"The description cannot be read (line {failure.Start.Line}): {failure.Message}", failure);
+        }
+        return JsonSerializer.Serialize(Plain(tree));
+    }
+
+    // An alias (*name) points to an anchor (&name): a few of them nested make a document that is a gigabyte once read, so none is accepted in a description
+    private static void RefuseAliases(string text)
+    {
+        var parser = new YamlDotNet.Core.Parser(new StringReader(text));
+        while (parser.MoveNext())
+        {
+            if (parser.Current is YamlDotNet.Core.Events.AnchorAlias)
+            {
+                throw new InvalidOperationException("The description cannot use YAML aliases.");
+            }
+        }
+    }
+
+    // Every field of the description is text, a list or an object: a scalar stays text whatever it looks like (a quoted "123" is an identifier, not a number)
+    private static object? Plain(object? value) => value switch
+    {
+        IDictionary<object, object> map => map.ToDictionary(pair => Convert.ToString(pair.Key, System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty, pair => Plain(pair.Value), StringComparer.Ordinal),
+        IEnumerable<object> list => list.Select(Plain).ToList(),
+        _ => value,
+    };
+}

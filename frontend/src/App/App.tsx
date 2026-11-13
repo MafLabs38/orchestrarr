@@ -7,6 +7,7 @@ import Activity from 'Activity/Activity';
 import Queue from 'Approvals/Queue';
 import Page from 'Components/Page/Page';
 import Decisions from 'Decisions/Decisions';
+import HistoryPage from 'Decisions/HistoryPage';
 import LiveUpdates from 'Live/LiveUpdates';
 import Options from 'Options/Options';
 import RunDetail from 'Runs/RunDetail';
@@ -23,6 +24,7 @@ export default function App() {
         <Page>
           <Routes>
             <Route path="/" element={<Decisions />} />
+            <Route path="/history" element={<HistoryPage />} />
             <Route path="/queue" element={<Queue />} />
             <Route path="/runs" element={<Runs />} />
             <Route path="/runs/:id" element={<RunDetail />} />

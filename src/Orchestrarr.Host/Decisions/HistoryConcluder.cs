@@ -2,6 +2,7 @@ using Orchestrarr.Core.Applications;
 using Orchestrarr.Core.Approvals;
 using Orchestrarr.Core.Decisions;
 using Orchestrarr.Core.Fleet;
+using Orchestrarr.Core.Infrastructure;
 using Orchestrarr.Core.Launch;
 using Orchestrarr.Core.Tasks;
 using Orchestrarr.Core.WorkItems;
@@ -16,7 +17,7 @@ namespace Orchestrarr.Host.Decisions;
 /// It also ends the skips of the problems that are gone, so that one that comes back is seen again. A read of the history writes nothing (ADR 0027).
 /// </summary>
 public sealed class HistoryConcluder(IProblemHistory history, IApprovalStore approvals, IBatchQueue queue, WorkItemCatalog catalog, IApplicationCatalog applications, RunnerRegistry runners,
-    RelevancePolicy policy, IAuditSink audit, ILiveNotifier live, TimeProvider time, ILogger<HistoryConcluder> logger) : BackgroundService
+    RelevancePolicy policy, InfrastructureCatalog infrastructure, IAuditSink audit, ILiveNotifier live, TimeProvider time, ILogger<HistoryConcluder> logger) : BackgroundService
 {
     private const int LinesPerPass = 200;
     private const int MaxPagesPerPass = 25;
@@ -69,7 +70,9 @@ public sealed class HistoryConcluder(IProblemHistory history, IApprovalStore app
         {
             return 0;
         }
-        var table = ProblemsEndpoints.FullTable(report, applications, runners, queue, time, policy);
+        // One reading of the code for the table and for the guard: a reading that ends in between would give the two different inputs
+        var code = infrastructure.Peek();
+        var table = ProblemsEndpoints.FullTable(new TableInputs(report, code.Index, infrastructure.Scope), applications, runners, queue, time, policy);
         if (table.Any(row => row.Kind == ProblemKind.PullRequestsNotRead))
         {
             return 0;
@@ -107,7 +110,8 @@ public sealed class HistoryConcluder(IProblemHistory history, IApprovalStore app
     {
         var present = table.Select(row => (row.Id, row.Description)).ToHashSet();
         var pullRequestsWhole = items.All(item => item.PullRequests is { Status: PullRequestsStatus.Read or PullRequestsStatus.NotNeeded, Truncated: false });
-        return [.. skips.Where(skip => !present.Contains((skip.RowId, skip.Target)) && (pullRequestsWhole || !skip.RowId.StartsWith(DecisionTable.PullRequestRowPrefix, StringComparison.Ordinal))).Distinct()];
+        return [.. skips.Where(skip => !present.Contains((skip.RowId, skip.Target))
+            && (pullRequestsWhole || !skip.RowId.StartsWith(DecisionTable.PullRequestRowPrefix, StringComparison.Ordinal))).Distinct()];
     }
 
     /// <summary>One pass over the approved lines without an outcome; returns how many were concluded.</summary>

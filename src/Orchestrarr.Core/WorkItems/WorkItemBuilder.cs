@@ -118,7 +118,7 @@ public static class WorkItemBuilder
     {
         if (image.Status == ImageStatus.Floating)
         {
-            return new Finding(FindingKind.FloatingImage, Severity.Info, 1, Image: new ImageUpdate(image.Reference, image.Current, null, ImageChange.None));
+            return new Finding(FindingKind.FloatingImage, Severity.Info, 1, Image: new ImageUpdate(image.Reference, image.Current, null, ImageChange.None, image.Placements));
         }
         if (image.Status is not (ImageStatus.Behind or ImageStatus.NewerBuild))
         {
@@ -126,7 +126,7 @@ public static class WorkItemBuilder
         }
 
         var severity = image.Change == ImageChange.Major ? Severity.Warning : Severity.Info;
-        return new Finding(FindingKind.OutdatedImage, severity, 1, Image: new ImageUpdate(image.Reference, image.Current, image.Latest, image.Change));
+        return new Finding(FindingKind.OutdatedImage, severity, 1, Image: new ImageUpdate(image.Reference, image.Current, image.Latest, image.Change, image.Placements));
     }
 
     private static List<PlanStep> RepositoryPlan(RepositoryState repository, List<Finding> findings, IReadOnlyList<Placement> placements, IPowerPolicy powers)

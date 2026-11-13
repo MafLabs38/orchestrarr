@@ -19,6 +19,6 @@ public sealed class VisibleRowsTests
         history.Record(new HistoryEntry(0, "finding:repository:example/api:DependencyAlerts", "3", HistoryState.Skipped, "example/api", ProblemKind.DependencyAlert, "3", null, null, null, null, null, DateTimeOffset.UnixEpoch, "alice", null));
 
         ProblemsEndpoints.Visible([Alert(Severity.Warning)], history, new InMemoryApprovalStore()).Should().BeEmpty("the skip holds while the row is as serious as it was");
-        ProblemsEndpoints.Visible([Alert(Severity.Danger)], history, new InMemoryApprovalStore()).Should().ContainSingle("a danger is never hidden").Which.Tab.Should().Be(ProblemTab.Act);
+        ProblemsEndpoints.Visible([Alert(Severity.Danger)], history, new InMemoryApprovalStore()).Should().ContainSingle("a danger is never hidden");
     }
 }

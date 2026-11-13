@@ -85,7 +85,6 @@ public sealed class DecisionTableTests
 
         row.GoesUpTo.Should().Be(Ceiling.Qualification);
         row.Why.Should().Be(CeilingReason.ChecksNotRun);
-        row.Tab.Should().Be(ProblemTab.Act);
     }
 
     [Theory]
@@ -103,7 +102,6 @@ public sealed class DecisionTableTests
         if (!proposed)
         {
             row.Why.Should().Be(CeilingReason.NotLongTermSupport);
-            row.Tab.Should().Be(ProblemTab.Know);
         }
     }
 
@@ -120,18 +118,6 @@ public sealed class DecisionTableTests
         var row = rows.Should().ContainSingle().Which;
         row.Kind.Should().Be(ProblemKind.DormantRepository);
         row.Count.Should().Be(200);
-        row.Tab.Should().Be(ProblemTab.Know);
-    }
-
-    [Fact]
-    public void A_danger_nobody_can_act_on_is_still_in_the_first_tab_and_the_rest_that_cannot_be_acted_on_is_not()
-    {
-        var item = Item([], [new Finding(FindingKind.SecretScanningAlerts, Severity.Danger, 1), new Finding(FindingKind.DependencyAlerts, Severity.Warning, 2)]);
-
-        var rows = DecisionTable.Build([item], Described(), [Everything], null, null, null);
-
-        rows.Single(row => row.Kind == ProblemKind.ExposedSecret).Tab.Should().Be(ProblemTab.Act);
-        rows.Single(row => row.Kind == ProblemKind.DependencyAlert).Tab.Should().Be(ProblemTab.Know);
     }
 
     [Fact]
@@ -201,7 +187,6 @@ public sealed class DecisionTableTests
 
         row.Kind.Should().Be(ProblemKind.FloatingImage);
         row.Description.Should().Be("adminer:latest");
-        row.Tab.Should().Be(ProblemTab.Know);
     }
 
     private static ProblemRow Only(IReadOnlyList<ProblemRow> rows) => rows.Single(row => row.Kind == ProblemKind.DependencyUpdate);

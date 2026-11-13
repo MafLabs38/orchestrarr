@@ -1,6 +1,7 @@
 using Orchestrarr.Core.Applications;
 using Orchestrarr.Core.Fleet;
 using Orchestrarr.Core.Forge;
+using Orchestrarr.Core.Infrastructure;
 using Orchestrarr.Core.Tasks;
 using Orchestrarr.Core.WorkItems;
 
@@ -62,6 +63,27 @@ public enum CeilingReason
 
     /// <summary>A new major version of an image: not a tag to bump, a change to read about and to plan.</summary>
     MajorNeedsPlan,
+
+    /// <summary>The image is written in no repository of the description: add the repository that deploys it to the description, or leave it out of the scope.</summary>
+    NotInScope,
+
+    /// <summary>The line that writes the version is rewritten by an automation (Flux): it is not ours to change.</summary>
+    ManagedByAutomation,
+
+    /// <summary>The code says one version and another one runs: the next deployment would change something nobody decided.</summary>
+    CodeDiffersFromRunning,
+
+    /// <summary>The reference is pinned by a digest: the pin is a decision, and a tag would put a moving reference in its place. The place is shown, no change is proposed.</summary>
+    PinnedByDigest,
+
+    /// <summary>A repository of the description could not be read: the image may be written there, so it is not said to be written nowhere.</summary>
+    CodeNotFullyRead,
+
+    /// <summary>The image runs in several environments: a change is made for one at a time, qualified and then promoted, so none is proposed for all at once.</summary>
+    SeveralEnvironments,
+
+    /// <summary>The code that writes the version is known and the change is shown, computed and not applied: Orchestrarr holds no write power.</summary>
+    CodeChangeShown,
 }
 
 /// <summary>What the workshop last said about this very commit of a pull request, for the column that sits beside the forge's checks.</summary>
@@ -76,17 +98,6 @@ public enum WorkshopVerdict
 
     /// <summary>An agent repaired it: the patch is in the trace of its run.</summary>
     Repaired,
-}
-
-/// <summary>
-/// Where a row is shown (ADR 0027). <c>Act</c>: something can be done now, the decisions. <c>Configure</c>: it could be done, and something of the setting is missing
-/// (a power not granted, no Runner, no description of the application). <c>Know</c>: it is information, nothing is defined to do about it.
-/// </summary>
-public enum ProblemTab
-{
-    Act,
-    Configure,
-    Know,
 }
 
 /// <summary>The kinds of problem the table shows (one row each).</summary>
@@ -132,24 +143,10 @@ public sealed record ProblemRow(
     bool InProgress = false,
     string? ApplicationId = null,
     string? Icon = null,
-    string? Source = null)
-{
-    /// <summary>
-    /// The tab the row belongs to: what a person sees by default is what they can decide now, and what is serious (an exposed secret, a critical alert), even when nothing
-    /// can be done about it from here: a danger is never in a tab that is not looked at.
-    /// </summary>
-    public ProblemTab Tab
-    {
-        get
-        {
-            if (InProgress || GoesUpTo != Ceiling.NoAction || Severity == WorkItems.Severity.Danger)
-            {
-                return ProblemTab.Act;
-            }
-            return Why is CeilingReason.NotGranted or CeilingReason.NoRunner or CeilingReason.NoDescription ? ProblemTab.Configure : ProblemTab.Know;
-        }
-    }
-}
+    string? Source = null,
+    IReadOnlyList<CodeLocation>? Locations = null,
+    string? ProposedTag = null,
+    IReadOnlyList<RepositoryProblem>? Warnings = null);
 
 /// <summary>What a connected runner accepts, as it reported it. The table never promises more than they would run: with none connected, nothing can be run, and every row says so.</summary>
 public sealed record RunnerAcceptance(IReadOnlyList<TaskKind> Kinds, IReadOnlyList<string> Repositories)
@@ -162,7 +159,7 @@ public static class DecisionTable
 {
     public static IReadOnlyList<ProblemRow> Build(
         IReadOnlyList<WorkItem> items, IApplicationCatalog applications, IReadOnlyList<RunnerAcceptance> runners, IReadOnlyList<TaskResultRow>? results = null,
-        IReadOnlyList<ApplicationInfo>? applicationNames = null, DateTimeOffset? now = null, RelevancePolicy? policy = null)
+        IReadOnlyList<ApplicationInfo>? applicationNames = null, DateTimeOffset? now = null, RelevancePolicy? policy = null, InfrastructureIndex? infrastructure = null)
     {
         policy ??= RelevancePolicy.Default;
         ArgumentNullException.ThrowIfNull(items);
@@ -178,13 +175,15 @@ public static class DecisionTable
                 // of the last push, not the number of days (that one changes every day, and a skip lasts as long as the text stays the same). What is a risk stays as its own
                 // row (an exposed secret, an alert, a scan that cannot be read): a dead repository can still leak.
                 rows.Add(Of(item, $"dormant:{item.Id}", ProblemKind.DormantRepository, $"last push {lastPush.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)}", Severity.Info, days, Ceiling.NoAction, CeilingReason.NoActionDefined, item.RepositoryFullName));
-                AddOtherProblems(rows, item, policy, dormant: true);
+                AddOtherProblems(rows, item, policy, infrastructure, dormant: true);
                 NameApplication(rows, before, item, applicationNames ?? []);
+                Warn(rows, before, infrastructure);
                 continue;
             }
             AddDependencyUpdates(rows, item, applications, runners, results ?? [], policy);
-            AddOtherProblems(rows, item, policy);
+            AddOtherProblems(rows, item, policy, infrastructure);
             NameApplication(rows, before, item, applicationNames ?? []);
+            Warn(rows, before, infrastructure);
         }
         return rows;
     }
@@ -201,6 +200,27 @@ public static class DecisionTable
         }
         var days = (int)(at - lastPush).TotalDays;
         return days > policy.DormantAfterDays ? days : null;
+    }
+
+    // What the bell says about a repository that cannot be read is also said on the rows it concerns: the rows about that very repository, and the rows that stopped
+    // because the code was not fully read (the version may be written in any of them, so all are named)
+    private static void Warn(List<ProblemRow> rows, int from, InfrastructureIndex? infrastructure)
+    {
+        if (infrastructure is not { Problems.Count: > 0 })
+        {
+            return;
+        }
+        for (var i = from; i < rows.Count; i++)
+        {
+            var row = rows[i];
+            var concerned = row.Why == CeilingReason.CodeNotFullyRead
+                ? infrastructure.Problems
+                : [.. infrastructure.Problems.Where(problem => string.Equals(problem.Repository, row.Source, StringComparison.Ordinal))];
+            if (concerned.Count > 0)
+            {
+                rows[i] = row with { Warnings = concerned };
+            }
+        }
     }
 
     // The application a person knows: when the source says that the repository or the image is one application, its name and its icon; otherwise the repository
@@ -379,9 +399,10 @@ public static class DecisionTable
     }
 
     // What has no action yet (an alert, a secret, a failing build, an image): shown, with "no action defined" (SPEC Q-30)
-    private static void AddOtherProblems(List<ProblemRow> rows, WorkItem item, RelevancePolicy policy, bool dormant = false)
+    private static void AddOtherProblems(List<ProblemRow> rows, WorkItem item, RelevancePolicy policy, InfrastructureIndex? infrastructure, bool dormant = false)
     {
         var application = item.RepositoryFullName ?? item.Title;
+        var imageFindings = item.Findings.Where(finding => finding.Image is not null).GroupBy(finding => finding.Kind).ToDictionary(group => group.Key, group => group.Count());
         foreach (var finding in item.Findings)
         {
             ProblemKind? kind = finding.Kind switch
@@ -406,7 +427,10 @@ public static class DecisionTable
                 { } image => $"{image.Reference} → {image.Latest}",
                 _ => finding.Count.ToString(System.Globalization.CultureInfo.InvariantCulture),
             };
-            rows.Add(Of(item, $"finding:{item.Id}:{finding.Kind}", kind.Value, description, finding.Severity, finding.Count, Ceiling.NoAction, WhyNoAction(item, finding, policy), application));
+            var verdict = ImageCode.Of(item, finding, WhyNoAction(item, finding, policy), infrastructure);
+            // A repository that builds several images has a finding for each: the row of each has its own places and its own change
+            var id = finding.Image is { } update && imageFindings[finding.Kind] > 1 ? $"finding:{item.Id}:{finding.Kind}:{update.Reference}" : $"finding:{item.Id}:{finding.Kind}";
+            rows.Add(Of(item, id, kind.Value, description, finding.Severity, finding.Count, Ceiling.NoAction, verdict.Why, application) with { Locations = verdict.Locations, ProposedTag = verdict.ProposedTag });
         }
     }
 

@@ -8,6 +8,7 @@ using Microsoft.Extensions.Time.Testing;
 using Orchestrarr.Core.Applications;
 using Orchestrarr.Core.Approvals;
 using Orchestrarr.Core.Decisions;
+using Orchestrarr.Core.Infrastructure;
 using Orchestrarr.Core.Launch;
 using Orchestrarr.Core.Tasks;
 using Orchestrarr.Core.WorkItems;
@@ -73,7 +74,7 @@ public sealed class HistoryConcluderTests
     private static HistoryConcluder Concluder(TableApiFactory factory) => new(
         factory.Services.GetRequiredService<IProblemHistory>(), factory.Services.GetRequiredService<IApprovalStore>(), factory.Services.GetRequiredService<IBatchQueue>(),
         factory.Services.GetRequiredService<WorkItemCatalog>(), factory.Services.GetRequiredService<IApplicationCatalog>(), factory.Services.GetRequiredService<RunnerRegistry>(),
-        factory.Services.GetRequiredService<RelevancePolicy>(), factory.Services.GetRequiredService<IAuditSink>(), factory.Services.GetRequiredService<ILiveNotifier>(), factory.Services.GetRequiredService<TimeProvider>(), NullLogger<HistoryConcluder>.Instance);
+        factory.Services.GetRequiredService<RelevancePolicy>(), factory.Services.GetRequiredService<InfrastructureCatalog>(), factory.Services.GetRequiredService<IAuditSink>(), factory.Services.GetRequiredService<ILiveNotifier>(), factory.Services.GetRequiredService<TimeProvider>(), NullLogger<HistoryConcluder>.Instance);
 
     [Fact]
     public async Task A_line_whose_approval_and_run_are_gone_is_ended_once_the_pass_has_run_and_a_read_writes_nothing()

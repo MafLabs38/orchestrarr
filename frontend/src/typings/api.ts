@@ -21,6 +21,12 @@ export interface SystemStatus {
   storage: StorageStatus;
   // The runners that asked for work: what they say of themselves, and whether they did so lately
   runners: RunnerStatus[];
+  // What is wrong with the code of the description as it was read last: told in the bell
+  code: {
+    problems: { repository: string; reason: string }[];
+    warnings: { subject: string; reason: string }[];
+    error: string | null;
+  };
 }
 
 export type TaskKind = 'validatePullRequest' | 'mergePullRequest' | 'repairPullRequest';
@@ -237,7 +243,14 @@ export type CeilingReason =
   | 'checksNotRun'
   | 'notLongTermSupport'
   | 'managedByPlatform'
-  | 'majorNeedsPlan';
+  | 'majorNeedsPlan'
+  | 'notInScope'
+  | 'managedByAutomation'
+  | 'codeDiffersFromRunning'
+  | 'codeChangeShown'
+  | 'severalEnvironments'
+  | 'pinnedByDigest'
+  | 'codeNotFullyRead';
 
 // What the workshop last said about this very commit: the column beside the forge's checks
 export type WorkshopVerdict = 'unknown' | 'passes' | 'fails' | 'repaired';
@@ -273,15 +286,54 @@ export interface ProblemRow {
   canStopBeforeProduction: boolean;
   workshop: WorkshopVerdict;
   inProgress: boolean;
-  tab: ProblemTab;
   // The application a person knows, as the source of the fleet names it, and the name of its icon; the repository or the image stays in `source`
   applicationId: string | null;
   icon: string | null;
   source: string | null;
+  // Where the version is written in the code of the scope, and the version a change would write (ADR 0028)
+  locations: CodeLocation[] | null;
+  proposedTag: string | null;
+  // The repositories of the description that cannot be read and that concern this row: the same warnings as the bell, on the row
+  warnings: { repository: string; reason: string }[] | null;
 }
 
-// Where a row is shown: what can be decided now, what needs a setting, what is only to know
-export type ProblemTab = 'act' | 'configure' | 'know';
+// A place in the code of the scope that writes a version: the repository, the file, the line; `managed` names the automation that rewrites it (Flux)
+export interface CodeLocation {
+  repository: string;
+  path: string;
+  line: number;
+  form: 'imageLine' | 'kustomizeTag' | 'terraformImage';
+  image: { name: string; tag: string | null };
+  managed: string | null;
+}
+
+// The code of the scope as the table found it, and what could not be read of it
+export interface CodeScopeStatus {
+  inScope: boolean;
+  repositories: number;
+  files: number;
+  readAt: string | null;
+  stale: boolean;
+  error: string | null;
+  problems: { repository: string; reason: string }[];
+}
+
+// A change to a file of the scope, computed and not applied
+export interface CodeChange {
+  repository: string;
+  path: string;
+  line: number;
+  before: string;
+  after: string;
+  diff: string;
+}
+
+export interface CodeChangeReport {
+  rowId: string;
+  tag: string | null;
+  changes: CodeChange[];
+  left: CodeLocation[];
+}
 
 export type HistoryState = 'approved' | 'skipped';
 
@@ -318,4 +370,5 @@ export interface ProblemsReport {
   descriptionsVersion: string;
   rows: ProblemRow[];
   skipped: number;
+  code: CodeScopeStatus | null;
 }

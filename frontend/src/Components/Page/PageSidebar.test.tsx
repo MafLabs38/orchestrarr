@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 
 import { problem, problemsReport, renderWithProviders, stubApi } from 'testUtils';
 
@@ -17,17 +17,6 @@ describe('PageSidebar', () => {
     expect(await screen.findByText('2')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Decisions/ })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Status/ })).toBeInTheDocument();
-  });
-
-  it('counts only what can be decided, not the rows to configure or to know', async () => {
-    const toKnow = problem({ id: 'finding:x', goesUpTo: 'noAction', why: 'noActionDefined' });
-    stubApi({ '/api/v1/problems': problemsReport([problem(), toKnow, { ...toKnow, id: 'finding:y' }]) });
-
-    renderWithProviders(<PageSidebar />);
-
-    const link = await screen.findByRole('link', { name: /Decisions/ });
-    expect(await within(link).findByText('1')).toBeInTheDocument();
-    expect(within(link).queryByText('3')).not.toBeInTheDocument();
   });
 
   it('shows no counter when nothing is waiting, once the answer has arrived', async () => {

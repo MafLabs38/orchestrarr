@@ -1,6 +1,6 @@
 # The environment file (`orchestrarr.environment.yaml`)
 
-> **Status**: proposed (SPEC D-18, Q-15). Subject to change until the first vertical reads it.
+> **Status**: proposed (SPEC D-18, Q-15). Not to be mixed up with the description file of Orchestrarr (`Description:File`, [ADR 0028](adr/0028-the-description-is-the-perimeter-and-the-version-lives-in-the-code.md)): that one says what is maintained; this one would say what runs where, which Portarr says today. Subject to change until the first vertical reads it.
 > All names and addresses are examples.
 
 Orchestrarr needs to know **what runs where** to redeploy an application (SPEC D-17, D-18). It reads that from an *environment description provider*:

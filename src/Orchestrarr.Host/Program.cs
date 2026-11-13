@@ -7,6 +7,7 @@ using Orchestrarr.Core.Applications;
 using Orchestrarr.Core.Approvals;
 using Orchestrarr.Core.Fleet;
 using Orchestrarr.Core.Forge;
+using Orchestrarr.Core.Infrastructure;
 using Orchestrarr.Core.Launch;
 using Orchestrarr.Core.Tasks;
 using Orchestrarr.Core.WorkItems;
@@ -18,6 +19,7 @@ using Orchestrarr.Host.Live;
 using Orchestrarr.Host.Settings;
 using Orchestrarr.Host.Storage;
 using Orchestrarr.Host.Tasks;
+using Orchestrarr.Providers.GitHub;
 using Orchestrarr.Storage;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -67,7 +69,34 @@ builder.Services.AddOrchestrarrSecurity(auth, storage is SqliteStorage file ? Pa
 builder.Services.AddSingleton(builder.Configuration.GetSection(WorkItemCatalogOptions.SectionName).Get<WorkItemCatalogOptions>() ?? new WorkItemCatalogOptions());
 builder.Services.AddSingleton<WorkItemCatalog>();
 // What may be done to each application, from the private configuration (ADR 0020): checked now, a wrong file stops the host
-builder.Services.AddSingleton(_ => ApplicationCatalogFactory.Create(builder.Configuration, builder.Environment.ContentRootPath));
+builder.Services.AddSingleton(_ => DescriptionFile.Load(builder.Configuration, builder.Environment.ContentRootPath));
+builder.Services.AddSingleton(provider => provider.GetRequiredService<DescriptionContent>().Applications);
+builder.Services.AddSingleton(provider => provider.GetRequiredService<DescriptionContent>().Scope);
+// The code of the scope, read from the forge with a read-only token of its own (GitHub:ContentsToken, Contents: read on the repositories of the description only); without one, with GitHub:Token (ADR 0028)
+builder.Services.AddSingleton<IInfrastructureSource>(provider =>
+{
+    var github = builder.Configuration.GetSection(GitHubOptions.SectionName).Get<GitHubOptions>() ?? new GitHubOptions();
+    var reader = github.ForContents();
+    return string.IsNullOrWhiteSpace(reader.Token) ? new NoInfrastructureSource() : GitHubInfrastructureSource.Create(reader, time: provider.GetRequiredService<TimeProvider>());
+});
+builder.Services.AddSingleton(builder.Configuration.GetSection(InfrastructureCatalogOptions.SectionName).Get<InfrastructureCatalogOptions>() ?? new InfrastructureCatalogOptions());
+builder.Services.AddSingleton(provider =>
+{
+    var catalog = new InfrastructureCatalog(provider.GetRequiredService<IInfrastructureSource>(), provider.GetRequiredService<DescriptionScope>(), provider.GetRequiredService<TimeProvider>(),
+        provider.GetRequiredService<InfrastructureCatalogOptions>());
+    // A reading that ends in the background is told to the screens (ADR 0025)
+    var live = provider.GetRequiredService<ILiveNotifier>();
+    var log = provider.GetRequiredService<ILoggerFactory>().CreateLogger("Orchestrarr.Infrastructure");
+    // The reason of a failed reading is in the log as well as on the bell (the provider owns that no credential is in the message)
+    catalog.Failed += failure => log.LogWarning(failure, "The code of the description could not be read; the last reading is kept");
+    // The table changes, and so does what the bell says of the code (it is carried by the status)
+    catalog.Changed += () =>
+    {
+        live.Publish(LiveTopics.Problems);
+        live.Publish(LiveTopics.Status);
+    };
+    return catalog;
+});
 
 var app = builder.Build();
 if (!storage.Persistent && !app.Environment.IsDevelopment())
@@ -122,12 +151,12 @@ api.MapRunEndpoints();
 // The routes of the runners carry their own token and no session: they are mapped outside the group that needs a person
 app.MapRunnerEndpoints(tasks);
 
-api.MapGet("/system/status", (WorkItemCatalog catalog, IApproverAccessor accessor, IKillSwitchControl killSwitch, ISecondFactorPolicy secondFactor, RunnerRegistry runners, HttpContext context) =>
+api.MapGet("/system/status", (WorkItemCatalog catalog, InfrastructureCatalog infrastructure, IApproverAccessor accessor, IKillSwitchControl killSwitch, ISecondFactorPolicy secondFactor, RunnerRegistry runners, HttpContext context) =>
 {
     // The status never reads the fleet: it says what the last read found, and nothing before the first one
     var report = catalog.Peek();
     var version = typeof(Program).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0.0.0-dev";
-    return Results.Ok(new SystemStatus("Orchestrarr", version, new SourceStatus(catalog.SourceKind, catalog.SourceConfigured, report?.ReadAt, report?.Error, report?.Stale ?? false), new ForgeStatus(catalog.ForgeKind, catalog.ForgeConfigured), ApprovalEndpoints.StatusOf(accessor, context, killSwitch, secondFactor.Required), new StorageStatus(storage.Kind), runners.Snapshot()));
+    return Results.Ok(new SystemStatus("Orchestrarr", version, new SourceStatus(catalog.SourceKind, catalog.SourceConfigured, report?.ReadAt, report?.Error, report?.Stale ?? false), new ForgeStatus(catalog.ForgeKind, catalog.ForgeConfigured), ApprovalEndpoints.StatusOf(accessor, context, killSwitch, secondFactor.Required), new StorageStatus(storage.Kind), runners.Snapshot(), CodeStatusReader.Of(infrastructure, report)));
 }).RequireAuthorization(Permissions.FleetRead);
 
 // An unknown route of the API is a 404 for a person who signed in (a 401 for anybody else: the fallback policy), never the page of the interface
@@ -149,7 +178,10 @@ public partial class Program;
 namespace Orchestrarr.Host
 {
     /// <summary>What <c>GET /api/v1/system/status</c> answers.</summary>
-    public sealed record SystemStatus(string Name, string Version, SourceStatus Source, ForgeStatus Forge, ApprovalStatus Approvals, StorageStatus Storage, IReadOnlyList<RunnerStatus> Runners);
+    public sealed record SystemStatus(string Name, string Version, SourceStatus Source, ForgeStatus Forge, ApprovalStatus Approvals, StorageStatus Storage, IReadOnlyList<RunnerStatus> Runners, CodeStatus Code);
+
+    /// <summary>What is wrong with the code of the scope as it was read last (the bell tells it): a repository that could not be read, a reading that failed, an environment the fleet does not know.</summary>
+    public sealed record CodeStatus(IReadOnlyList<RepositoryProblem> Problems, IReadOnlyList<ScopeWarning> Warnings, string? Error);
 
     /// <summary>Where the approvals, the trail and the global stop are kept: <c>sqlite</c> survives a restart, <c>memory</c> does not.</summary>
     public sealed record StorageStatus(string Kind);

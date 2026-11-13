@@ -9,6 +9,7 @@
     <ProjectReference Include="..\Orchestrarr.Storage\Orchestrarr.Storage.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="YamlDotNet" />
   </ItemGroup>
   <ItemGroup>
     <!-- The sandbox's settings (a fixed operator, a grant on every repository) never travel in the image. -->

@@ -1,6 +1,6 @@
 # 0027 — The table shows what can be decided, by application, and keeps what was decided
 
-- **Status**: proposed (asked for by the maintainer on 2026-11-12; accepted when the pull request that carries it is merged)
+- **Status**: proposed, accepted when the pull request is merged; decision 1 (the tabs) is superseded by [ADR 0029](0029-the-table-is-one-table-and-the-history-is-a-screen-of-its-own.md)
 - **Date**: 2026-11-12
 - **Spec**: D-75, D-76, D-77 (refines D-67 and ADR 0019; supersedes ADR 0003 for what the table shows)
 
@@ -10,7 +10,7 @@ The first real run of the table on the real fleet showed 135 rows, and a person 
 
 ## Decision
 
-1. **A row is shown where a person can do something with it.** Each row belongs to a **tab**: *To decide* (something can be done now, or something serious is in the way, an exposed secret or a critical alert, even when nothing can be done about it from here: a danger is never in a tab that is not looked at; this is the default), *To configure* (it could be done and a setting is missing: a power not granted, no Runner, no description of the application) and *To know* (information: nothing is defined to do about it). The server gives the tab (`tab`), and a row an approval is working on stays in *To decide* (`inProgress`).
+1. **(Superseded by ADR 0029: the tabs are removed.) A row is shown where a person can do something with it.** Each row belongs to a **tab**: *To decide* (something can be done now, or something serious is in the way, an exposed secret or a critical alert, even when nothing can be done about it from here: a danger is never in a tab that is not looked at; this is the default), *To configure* (it could be done and a setting is missing: a power not granted, no Runner, no description of the application) and *To know* (information: nothing is defined to do about it). The server gives the tab (`tab`), and a row an approval is working on stays in *To decide* (`inProgress`).
 2. **The row is the application.** When the source of the fleet says that a repository, or an image, is one application, the row carries its name and its icon (`application`, `applicationId`, `icon`); the repository or the image stays in `source`. A repository of several applications, or of none known, keeps its own name. The icons are the source's: the host relays `GET /api/v1/icons/{name}` (Portarr serves them), with a policy that lets a picture be shown and nothing else, and the page falls back to two letters.
 3. **Rules that keep a row honest**, each one a test:
    - a check that cannot run for a bot's pull request (SonarQube, the review agents; `GitHub:ChecksThatNeedSecrets`) is "CI not run", never "failing", and the row stops at the validation of the Runner instead of becoming a repair;
@@ -24,14 +24,14 @@ The first real run of the table on the real fleet showed 135 rows, and a person 
 
 ## Consequences
 
-- The table is a few dozen rows to decide, not a hundred and thirty-five to read. What is left out of *To decide* is not lost: it is in the two other tabs, and the history.
+- The table is a few dozen rows to decide, not a hundred and thirty-five to read. The rows that nothing can be done about are still rows of the table (ADR 0029 removed the tabs), and what was decided is in the history.
 - The history grows without bound; its retention (12 months, then archived, is the default asked for by the maintainer; not built) is not built yet and goes with the archive of the trail (SPEC Q-24, to be extended to the history).
 - The model of the fleet gains the applications (names, icons) and the day of the last push; the Portarr provider reads `GET /api/v1/apps` besides the maintenance report, and an unreadable list of applications costs only the names.
 - The names of the applications come from Portarr: a repository or an image that Portarr does not link to an application keeps its own name. Linking them (the repository of each application in the catalogue) is Portarr's, and the table improves as it is done.
 - What the audit found and this decision does not do: grouping the same change across repositories into one decision, the fix of the version in the infrastructure files (the next pull request), and a Runner that merges.
 - A read of the history writes nothing: the outcome of an approved line is written down by a pass on a timer (`HistoryConcluder`), once the run is over. The history and the table are read again when a run ends (the `runs` and `problems` topics of the live channel).
 - The history is the operational record of the operator's decisions, a sibling of the audit trail with the same retention question (Q-24): it is not the knowledge store. Sending outcomes to Mnemarr stays the constellation's path and is not built here.
-- A row of severity danger cannot be set aside (`409` `danger`): it is dealt with at its source, so a skip never hides it from every tab.
+- A row of severity danger cannot be set aside (`409` `danger`): it is dealt with at its source, so a skip never hides it from the table.
 - A skip made when a row was less serious lapses as soon as the row is a danger (a critical alert opens while the count stays the same): a danger is never hidden.
 - A repository is dormant by the day of its last push as the source reports it (Portarr's `pushedAt`, which GitHub moves with a push to any branch); where a bot pushes branches all the time, such a repository is never dormant.
 - A skip ends when its problem is gone: the pass of `HistoryConcluder` ends the skips whose row is no longer in the whole table (only when the table is whole: a source that is stale or unreadable, or pull requests not read, end nothing; a skip of a pull request ends only if every list of pull requests was read whole, neither cut at the bound of the reader nor failed nor still being read; a problem is gone only when two different readings miss it), writing `problem.skip-lapsed` to the trail first. The line stays in the history with the outcome *ended*, and a problem that comes back with the same text (a red build, a scan that cannot be read) is seen again.

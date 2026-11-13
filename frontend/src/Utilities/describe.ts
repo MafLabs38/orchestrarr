@@ -245,6 +245,13 @@ const whys = {
   notLongTermSupport: 'WhyNotLongTermSupport',
   managedByPlatform: 'WhyManagedByPlatform',
   majorNeedsPlan: 'WhyMajorNeedsPlan',
+  notInScope: 'WhyNotInScope',
+  managedByAutomation: 'WhyManagedByAutomation',
+  codeDiffersFromRunning: 'WhyCodeDiffersFromRunning',
+  codeChangeShown: 'WhyCodeChangeShown',
+  severalEnvironments: 'WhySeveralEnvironments',
+  pinnedByDigest: 'WhyPinnedByDigest',
+  codeNotFullyRead: 'WhyCodeNotFullyRead',
 } as const satisfies Record<CeilingReason, string>;
 
 // Why a problem stops where it does, from the code of the server
@@ -316,6 +323,13 @@ const whyShorts = {
   notLongTermSupport: 'WhyShortNotLongTermSupport',
   managedByPlatform: 'WhyShortManagedByPlatform',
   majorNeedsPlan: 'WhyShortMajorNeedsPlan',
+  notInScope: 'WhyShortNotInScope',
+  managedByAutomation: 'WhyShortManagedByAutomation',
+  codeDiffersFromRunning: 'WhyShortCodeDiffersFromRunning',
+  codeChangeShown: 'WhyShortCodeChangeShown',
+  severalEnvironments: 'WhyShortSeveralEnvironments',
+  pinnedByDigest: 'WhyShortPinnedByDigest',
+  codeNotFullyRead: 'WhyShortCodeNotFullyRead',
 } as const satisfies Record<CeilingReason, string>;
 
 export function describeWhyShort(reason: CeilingReason): string {
