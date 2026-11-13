@@ -46,6 +46,7 @@ Weight: **S** simple (an agent reads, changes a line or two, the pipelines decid
 | CASE-16 | A dependency is abandoned | A library is unmaintained, with no fix coming | A replacement is chosen and the code migrated; flagged complex | C | A project on an abandoned library with an active alternative |
 | CASE-17 | An application without tests or staging | A bump on an application that nothing verifies | Goes on to production like the others, with no net: nothing verifies the result (decided 2026-11-13) | S | A small application with no tests and no staging |
 | CASE-18 | A backup does not work | A backup finding (last success too old, never ran) | The cause is found and repaired on the machine, and a backup is shown to succeed (a later vertical) | M | A backup with a broken credential or a full disk |
+| CASE-19 | A failure in an application made of several services | A front end or one service of a multi-service application breaks after an update | The change is tested where the whole application runs (the staging stack, in a space reserved to the mission), not only in an isolated container; nothing in staging has a real side effect (no real secret, no real order) | C | A small multi-service application (front end, API, database, one external call) with a break that only shows end to end |
 
 ## 4. The laboratory
 
@@ -103,7 +104,7 @@ Each sheet says what is known. **Open** marks what is not.
 - **Verification** is done by the agent as a tester would: real requests, a browser run, the behaviour that matters for that application. A bare health check is avoided whenever something better can be done (decided 2026-11-13).
 - **Open**: how a deployment on a machine without GitOps is done (a connection to the machine, a declared action).
 
-### CASE-05 to CASE-18
+### CASE-05 to CASE-19
 
 The sheets for these are written when the maintainer has read the table and said which ones matter first. Until then the table is the specification: trigger, expected outcome, weight and the fault to plant.
 
@@ -112,7 +113,7 @@ The sheets for these are written when the maintainer has read the table and said
 These come out of the cases and apply to all of them. They are needs, not designs.
 
 - **A mission, not a workflow**: a case is given to the agent as an objective with a frame and a budget.
-- **The agent can run what a developer runs**: build, test, read the output, iterate. It works in an isolated workspace.
+- **The agent can run what a developer runs**: build, test, read the output, iterate. It works in an isolated workspace. **Testing an application that depends on other services** needs the whole stack, so the end-to-end test runs where the stack runs (the staging machine), not in the isolated workspace alone; what must never happen in staging (a real order, a real secret) is settled per application (CASE-19).
 - **The agent can drive the delivery chain**: open a branch and a pull request, read the CI, merge into develop, read staging, promote. The dangerous acts have conditions that the agent cannot argue with (the pipeline is green, staging is verified).
 - **Verification by the agent**: after a change, the agent checks the result as a tester would (requests, a browser run, the real behaviour), and keeps the evidence in its report. A bare health check is the fallback, not the method.
 - **Complexity is marked, and the maintainer is warned by email.**
