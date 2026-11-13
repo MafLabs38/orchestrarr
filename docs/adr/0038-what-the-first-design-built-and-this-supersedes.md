@@ -6,7 +6,7 @@
 
 ## Context
 
-The first verticals built typed tasks, ceilings per row, an agent without a shell and a repair on paper. The maintainer judged the direction wrong for the product he wants (an agentic tool, not a deterministic one) and asked to start over from the needs (USE-CASES.md, FUNCTIONAL.md, ARCHITECTURE.md).
+The first verticals built typed tasks, ceilings per row, an agent without a shell and a repair on paper. The maintainer judged the direction wrong for the product the maintainer wants (an agentic tool, not a deterministic one) and asked to start over from the needs (USE-CASES.md, FUNCTIONAL.md, ARCHITECTURE.md).
 
 ## Decision
 

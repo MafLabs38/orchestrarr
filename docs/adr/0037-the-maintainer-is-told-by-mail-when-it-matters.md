@@ -6,7 +6,7 @@
 
 ## Context
 
-The maintainer wants to touch nothing in routine, to be told when something needs him, and to try the application after a complex change.
+The maintainer wants to touch nothing in routine, to be told when something needs the maintainer, and to try the application after a complex change.
 
 ## Decision
 

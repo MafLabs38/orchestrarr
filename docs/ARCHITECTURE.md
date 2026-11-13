@@ -151,7 +151,7 @@ erDiagram
 
 | Entity | What it is | Key facts |
 |---|---|---|
-| **Application** | An application of the perimeter | Id, kind, sources, environments, **staging requirement** (none, dependencies, full stack) |
+| **Application** | An application of the perimeter | Id, kind, sources, environments, **staging requirement** (blank machine, dependencies, full stack) |
 | **Finding** | A fact from a source | Kind, severity, subject, source, seen at |
 | **Problem** | One outcome to reach | Linked findings, priority, state, limits |
 | **Plan entry** | A problem in the plan | How far it may go, budget, whether to warn, validated by (a person or a standing rule) |
@@ -318,7 +318,7 @@ sequenceDiagram
 
 ### The staging catalogue
 
-For each application: its **requirement** (none, dependencies, full stack), its **dependency set**, **how to bring it up** (the infrastructure code used for production applied to another inventory), its **safe configuration** (no real secret, no real side effect), and its **state** with the last **baseline**. [FR-STG]
+For each application: its **requirement** (blank machine, dependencies, full stack), its **dependency set**, **how to bring it up** (the infrastructure code used for production applied to another inventory), its **safe configuration** (no real secret, no real side effect), and its **state** with the last **baseline**. [FR-STG]
 
 The catalogue lives in the control plane and **stores only the verdict** (state, baseline revision, date, evidence digest). The facts (the staging environment exists, what runs there, the dependencies between applications, how an application is brought up) are **read from Portarr or from the description**, not copied. The knowledge that later missions read about an application comes from **Mnemarr** and is untrusted data for the agent. **Open**: whether Portarr shows the verdict, and where the requirement is declared (the description of the perimeter, Portarr, or the repository).
 
