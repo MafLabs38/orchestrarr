@@ -34,14 +34,16 @@ public sealed class SqliteMissionStoresTests : IDisposable
     }
 
     [Fact]
-    public void The_missions_of_a_problem_are_listed_in_order_and_only_that_problems()
+    public void The_missions_of_a_problem_are_listed_in_the_order_they_were_made_and_only_that_problems()
     {
         var store = new SqliteMissionStore(_file.Open());
         store.Save(Mission("m2"));
         store.Save(Mission("m1"));
         store.Save(Mission("m3", "other"));
+        store.Save(Mission("m2") with { State = MissionState.Running });
 
-        store.ForProblem("p1").Select(mission => mission.Id).Should().Equal("m1", "m2");
+        store.ForProblem("p1").Select(mission => mission.Id).Should().Equal("m2", "m1");
+        store.Recent(2).Select(mission => mission.Id).Should().Equal("m3", "m1");
     }
 
     [Fact]

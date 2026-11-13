@@ -42,7 +42,7 @@ public sealed class SqliteMissionStore(SqliteDatabase database) : IMissionStore
     {
         using var connection = database.Connect();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT body FROM missions WHERE problem_id = $problem ORDER BY id;";
+        command.CommandText = "SELECT body FROM missions WHERE problem_id = $problem ORDER BY rowid;";
         command.Parameters.AddWithValue("$problem", problemId);
         return Bodies<Mission>(command);
     });

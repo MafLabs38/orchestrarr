@@ -47,7 +47,7 @@ public sealed class MissionsApiTests
 
         missions.GetArrayLength().Should().Be(3);
         var worlds = missions.EnumerateArray().Select(mission => mission.GetProperty("world").GetString()).ToList();
-        worlds.Should().BeEquivalentTo("Staging", "Git", "Release");
+        worlds.Should().Equal("Staging", "Git", "Release");
         foreach (var mission in missions.EnumerateArray())
         {
             mission.GetProperty("state").GetString().Should().Be("Accepted");
@@ -70,7 +70,7 @@ public sealed class MissionsApiTests
 
         var missions = await Demo(client, "?staging=false");
 
-        missions.EnumerateArray().Select(mission => mission.GetProperty("world").GetString()).Should().BeEquivalentTo("Git", "Release");
+        missions.EnumerateArray().Select(mission => mission.GetProperty("world").GetString()).Should().Equal("Git", "Release");
     }
 
     [Fact]

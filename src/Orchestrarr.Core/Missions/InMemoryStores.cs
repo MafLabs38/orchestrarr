@@ -22,7 +22,7 @@ public sealed class InMemoryMissionStore : IMissionStore
 
     public IReadOnlyList<Mission> Recent(int limit) => [.. _order.Reverse().Take(Math.Max(limit, 0)).Select(id => _missions[id])];
 
-    public IReadOnlyList<Mission> ForProblem(string problemId) => [.. _missions.Values.Where(mission => mission.ProblemId == problemId).OrderBy(mission => mission.Id, StringComparer.Ordinal)];
+    public IReadOnlyList<Mission> ForProblem(string problemId) => [.. _order.Select(id => _missions[id]).Where(mission => mission.ProblemId == problemId)];
 }
 
 public sealed class InMemoryMandateLedger : IMandateLedger
