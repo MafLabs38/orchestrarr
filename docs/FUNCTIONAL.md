@@ -180,6 +180,7 @@ Each world has its own **place, rights and acts**. The rights are given by the e
 ### 5.5 Mandates
 
 **FR-MAN-1.** A **mandate** is issued by the control plane for **one world and one mission**. It states: the world and the place, the application and repositories, the **acts allowed**, the frame, the **budget**, the **expiry**, and the dossier expected. **(M for the idea, P for the contents)**
+**FR-MAN-1b.** The maintainer's approval is **proved to the runner** (the second factor, checked with a secret the control plane does not hold): a runner accepts a mandate only if it falls within a plan entry that the maintainer validated; the controller's grants widen nothing past that entry. **(P, keeps the double control of the accepted design)**
 **FR-MAN-2.** The first mandate of a problem is issued from the plan (validated, or covered by a standing rule). The following ones are issued **only after the controller has crossed** the previous mission. **(M)**
 **FR-MAN-3.** A mandate **cannot be widened** by the agent that holds it. A change of scope is a new mandate. **(P)**
 **FR-MAN-4.** A mandate **expires** and can be **revoked**: by the kill switch, by the maintainer, by the budget. A revoked mandate stops its mission at once. **(M for the stop, P for the rest)**

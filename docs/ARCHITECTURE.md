@@ -265,6 +265,7 @@ A mandate is a **signed statement of the control plane** that the runner checks 
 | Budget | Time, attempts, turns |
 | Expiry | After which the runner stops the mission |
 | Issued by | Plan validation, standing rule, or the controller's decision |
+| Proof of the approval | The plan validation (or the creation of a standing rule) carries the **second factor, checked by the runner with a secret the control plane does not hold** (ADR 0017 kept). The runner accepts a mandate only if it falls within a plan entry the maintainer validated; a compromised control plane cannot give itself more |
 | Signature | **Asymmetric**: signed with a private key held **only by the control plane**; each runner holds the public key. A mandate is **bound to one runner identity and one world** and a runner refuses a mandate for another; it is **single-use** (a nonce is recorded), and the runner checks the kill switch and revocation **before every gated act**. A key shared between runners would let whoever takes a staging runner forge a release mandate |
 
 It reuses what exists: the approvals, the second factor on the maintainer's validation, the journal and the signature checks. A **plan validation** is an approval by the maintainer; a **standing rule** is a delegation; a **mandate** is what either of them produces for a given mission. [FR-MAN, FR-PLAN-5]

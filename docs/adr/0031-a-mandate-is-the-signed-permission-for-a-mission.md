@@ -17,6 +17,7 @@ Moving between worlds needs a way to say what an agent may do, where, for how lo
 4. A mandate **cannot be widened** by its holder; a change of scope is a new mandate. It **expires** and can be **revoked** by the kill switch, the maintainer or the budget.
 5. It **reuses what exists**: a plan validation is an approval with the second factor, a standing rule is a delegation, the journal and the signature checks stay.
 6. Every mandate, refusal and crossing is written to the audit trail.
+7. **The maintainer's approval is proved to the runner, not only asserted by the control plane** (ADR 0017 point 5 is kept, the double control stays): the plan validation, and the creation or widening of a standing rule, carry a proof of the second factor that **the runner checks with a secret the control plane does not hold**. A mandate is accepted only if it falls **within a plan entry the maintainer validated** (the problem, the repositories, the maximum world, the budget, the expiry). A compromised control plane can therefore sign mandates, but not beyond what the maintainer validated; the controller's grants widen nothing past that entry.
 
 ## Consequences
 
