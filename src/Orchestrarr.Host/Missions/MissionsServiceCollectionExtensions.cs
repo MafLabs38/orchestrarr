@@ -32,6 +32,7 @@ internal static class MissionsServiceCollectionExtensions
                 .AddSingleton<IProblemStore, InMemoryProblemStore>().AddSingleton<IDossierStore, InMemoryDossierStore>();
         }
         return services
+            .AddSingleton<ProblemLocks>()
             .AddSingleton(_ => SigningKey.Open(options.SigningKeyFile ?? (storage is SqliteStorage file ? Path.Combine(Path.GetDirectoryName(file.Path) ?? contentRoot, "keys", "mandate-signing.key") : null)))
             .AddSingleton<IRunnerDirectory>(new ConfiguredRunners(options))
             .AddSingleton<IFactsSource, ConservativeFacts>()
@@ -43,7 +44,7 @@ internal static class MissionsServiceCollectionExtensions
                 provider.GetRequiredService<MandateSigner>(), provider.GetRequiredService<IMissionStore>(), provider.GetRequiredService<IMandateLedger>(), provider.GetRequiredService<IProblemStore>(),
                 provider.GetRequiredService<IDossierStore>(), provider.GetRequiredService<IFactsSource>(), provider.GetRequiredService<IRunnerDirectory>(), provider.GetRequiredService<IApprovalCheck>(),
                 provider.GetRequiredService<IStopSignal>(), provider.GetRequiredService<IMissionAudit>(), provider.GetRequiredService<TimeProvider>(),
-                options.Conductor(), () => Guid.NewGuid().ToString("N")));
+                options.Conductor(), () => Guid.NewGuid().ToString("N"), provider.GetRequiredService<ProblemLocks>()));
     }
 }
 
@@ -61,11 +62,16 @@ internal static class SigningKey
             return MandateSigner.FromPrivateKey(File.ReadAllBytes(file));
         }
         var signer = MandateSigner.Create();
-        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(file))!);
-        File.WriteAllBytes(file, signer.PrivateKey());
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(file)) ?? ".");
+        // Created for its owner only from the first byte: a file written first and restricted after would be readable for a moment
+        var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.None };
         if (!OperatingSystem.IsWindows())
         {
-            File.SetUnixFileMode(file, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+        }
+        using (var stream = new FileStream(file, options))
+        {
+            stream.Write(signer.PrivateKey());
         }
         return signer;
     }
@@ -88,9 +94,8 @@ internal sealed class ConfiguredRunners(MissionsOptions options) : IRunnerDirect
 /// </summary>
 internal sealed class ConservativeFacts : IFactsSource
 {
-    public PreconditionFacts Facts(string problemId, World world, Dossier? dossier) => new(
-        world, PlanCovers: true, BudgetAvailable: false, KillSwitchEngaged: false, Staging: StagingVerdict.Usable, PreviousDossierExists: dossier is not null,
-        DiffIsClean: null, CiGreenOnExactCommit: null, ArtifactIsTheOneProvedInStaging: null, WorkerClaimMatchesFacts: false, Loop: LoopVerdict.Allowed);
+    public ObservedFacts Facts(string problemId, World world, Dossier? dossier) => new(
+        BudgetAvailable: false, DiffIsClean: null, CiGreenOnExactCommit: null, ArtifactIsTheOneProvedInStaging: null, WayBackKnown: null, WorkerClaimMatchesFacts: false);
 }
 
 /// <summary>The maintainer's approval is proved by the second factor, recorded through the queue of approvals (ADR 0031 point 7). The plan service that links a plan entry to an approval is not built: until then none is proved, so no real mandate is issued.</summary>
@@ -107,7 +112,8 @@ internal sealed class KillSwitchSignal(IKillSwitchControl killSwitch) : IStopSig
 /// <summary>Writes the events of the missions to the audit trail, in order, with the others (ADR 0013).</summary>
 internal sealed class AuditTrailMissions(IAuditSink sink, TimeProvider time) : IMissionAudit
 {
-    public void Record(string eventName, string subject, string? detail) =>
+    // The sinks of the trail are synchronous behind this signature (ADR 0013): the wait is the file's, no longer than its busy timeout
+    public bool Record(string eventName, string subject, string? detail) =>
         sink.TryRecordAsync(new AuditEntry(time.GetUtcNow(), eventName, subject.Length > 120 ? subject[..120] : subject, null, detail is { Length: > 400 } ? detail[..400] : detail), CancellationToken.None).AsTask().GetAwaiter().GetResult();
 }
 

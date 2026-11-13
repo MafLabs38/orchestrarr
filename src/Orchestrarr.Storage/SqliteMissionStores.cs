@@ -123,8 +123,9 @@ public sealed class SqliteProblemStore(SqliteDatabase database) : IProblemStore
     {
         using var connection = database.Connect();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT body FROM problems;";
-        return (IReadOnlyList<ProblemRun>)[.. SqliteMissionStore.Bodies<ProblemRun>(command).Where(run => run.State == ProblemState.InProgress)];
+        command.CommandText = "SELECT body FROM problems WHERE state = $state;";
+        command.Parameters.AddWithValue("$state", nameof(ProblemState.InProgress));
+        return SqliteMissionStore.Bodies<ProblemRun>(command);
     });
 
     public void Save(ProblemRun run)
@@ -134,8 +135,9 @@ public sealed class SqliteProblemStore(SqliteDatabase database) : IProblemStore
         {
             using var connection = database.Connect();
             using var command = connection.CreateCommand();
-            command.CommandText = "INSERT INTO problems (problem_id, body) VALUES ($id, $body) ON CONFLICT(problem_id) DO UPDATE SET body = excluded.body;";
+            command.CommandText = "INSERT INTO problems (problem_id, state, body) VALUES ($id, $state, $body) ON CONFLICT(problem_id) DO UPDATE SET state = excluded.state, body = excluded.body;";
             command.Parameters.AddWithValue("$id", run.ProblemId);
+            command.Parameters.AddWithValue("$state", run.State.ToString());
             command.Parameters.AddWithValue("$body", MissionJson.Write(run));
             command.ExecuteNonQuery();
             return true;

@@ -29,9 +29,9 @@ public sealed class ProblemConductorTests : IDisposable
 
         public bool DiffTouchesForbidden { get; set; }
 
-        public PreconditionFacts Facts(string problemId, World world, Dossier? dossier) => new(
-            world, PlanCovers: true, BudgetAvailable: true, KillSwitchEngaged: false, Staging: StagingVerdict.Usable, PreviousDossierExists: dossier is not null,
-            DiffIsClean: !DiffTouchesForbidden, CiGreenOnExactCommit: CiGreen, ArtifactIsTheOneProvedInStaging: ArtifactProved, WorkerClaimMatchesFacts: ClaimMatches, Loop: LoopVerdict.Allowed);
+        public bool? WayBack { get; set; } = true;
+
+        public ObservedFacts Facts(string problemId, World world, Dossier? dossier) => new(true, !DiffTouchesForbidden, CiGreen, ArtifactProved, WayBack, ClaimMatches);
     }
 
     private sealed class FakeStop : IStopSignal
@@ -50,12 +50,15 @@ public sealed class ProblemConductorTests : IDisposable
     {
         public List<string> Events { get; } = [];
 
-        public void Record(string eventName, string subject, string? detail)
+        public bool Writable { get; set; } = true;
+
+        public bool Record(string eventName, string subject, string? detail)
         {
             lock (Events)
             {
                 Events.Add($"{eventName} {subject} {detail}");
             }
+            return Writable;
         }
     }
 
@@ -201,7 +204,7 @@ public sealed class ProblemConductorTests : IDisposable
     }
 
     [Fact]
-    public void The_controller_cannot_take_a_problem_past_the_highest_world_that_its_powers_reach()
+    public void A_problem_validated_up_to_the_git_world_is_closed_there_and_never_given_a_release_mandate()
     {
         var conductor = Conductor();
         var staging = StartStaged(conductor, Entry(max: World.Git));
@@ -210,11 +213,12 @@ public sealed class ProblemConductorTests : IDisposable
         conductor.Started(id);
         conductor.HandOver(id, DossierFor(id));
 
-        var refused = conductor.Decide(id, Grant());
+        var closed = conductor.Decide(id, Grant());
 
-        refused.Ok.Should().BeFalse();
-        refused.Refusal.Should().Contain("plan does not allow");
-        _missions.Get(id)!.State.Should().Be(MissionState.HandingOver);
+        closed.Ok.Should().BeTrue();
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.Closed);
+        _problems.Get("problem-1")!.Note.Should().Contain("highest that its powers allow");
+        _missions.ForProblem("problem-1").Should().HaveCount(2, "no mission was made for the release world");
     }
 
     [Fact]
@@ -510,5 +514,58 @@ public sealed class ProblemConductorTests : IDisposable
 
         conductor.Sweep().Should().Be(0);
         _missions.Get(id)!.State.Should().Be(MissionState.HandingOver);
+    }
+
+    [Fact]
+    public void A_release_without_a_way_back_known_is_sent_back_a_deployment_needs_one_before_it_starts()
+    {
+        var conductor = Conductor();
+        var git = Through(conductor, StartStaged(conductor));
+        var release = Through(conductor, git);
+        var id = release.Mission!.Id;
+        conductor.Started(id);
+        conductor.HandOver(id, DossierFor(id));
+        _facts.WayBack = null;
+
+        var result = conductor.Decide(id, Grant());
+
+        result.Failures.Should().Contain(PreconditionFailure.NoWayBackKnown);
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.InProgress);
+    }
+
+    [Fact]
+    public void A_power_is_never_granted_on_an_entry_that_the_audit_trail_cannot_write_and_a_power_is_always_withdrawn()
+    {
+        var conductor = Conductor();
+        _audit.Writable = false;
+        StartStaged(conductor).Refusal.Should().Contain("audit trail cannot be written");
+        _missions.ForProblem("problem-1").Should().BeEmpty();
+
+        _audit.Writable = true;
+        var staging = StartStaged(conductor);
+        var id = staging.Mission!.Id;
+        conductor.Started(id);
+        conductor.HandOver(id, DossierFor(id));
+        _audit.Writable = false;
+
+        conductor.Decide(id, Grant()).Refusal.Should().Contain("audit trail cannot be written");
+        _missions.ForProblem("problem-1").Should().ContainSingle("no next mandate was issued");
+
+        conductor.Stop("problem-1", "the global stop").Ok.Should().BeTrue("withdrawing a power never waits for the trail");
+        _mandates.IsRevoked(staging.Mandate!.Mandate.Id).Should().BeTrue();
+    }
+
+    [Fact]
+    public void Two_conductors_on_the_same_stores_that_share_the_locks_do_not_overlap_on_a_problem()
+    {
+        var locks = new ProblemLocks();
+        var one = new ProblemConductor(_signer, _missions, _mandates, _problems, _dossiers, _facts, new Runners(), _approvals, _stop, _audit, _time, ConductorOptions.Default, () => $"a-{Interlocked.Increment(ref _ids)}", locks);
+        var two = new ProblemConductor(_signer, _missions, _mandates, _problems, _dossiers, _facts, new Runners(), _approvals, _stop, _audit, _time, ConductorOptions.Default, () => $"b-{Interlocked.Increment(ref _ids)}", locks);
+        var results = new ConductResult[8];
+
+        Parallel.For(0, results.Length, index => results[index] = StartStaged(index % 2 == 0 ? one : two));
+
+        results.Count(result => result.Ok).Should().Be(1);
+        _mandates.CountForProblem("problem-1").Should().Be(1);
     }
 }

@@ -25,8 +25,11 @@ public sealed class MissionsOptions
     /// <summary>Where the private key that signs the mandates is kept. Unset: next to the database when there is one, else a key that lives as long as the host.</summary>
     public string? SigningKeyFile { get; set; }
 
+    /// <summary>The paths no mission may touch, whatever its repository (pipelines, secrets). Unset: the pipelines of the forge, the encrypted files and the environment files.</summary>
+    public string[]? ForbiddenPaths { get; set; }
+
     public ConductorOptions Conductor() => new(
         TimeSpan.FromMinutes(Math.Max(1, MandateMinutes)),
-        ConductorOptions.Default.ForbiddenPaths,
+        ForbiddenPaths ?? [.. ConductorOptions.Default.ForbiddenPaths],
         new LoopPolicy(Math.Max(1, MaxSendBacksPerMission), Math.Max(1, MaxMandatesPerProblem), TimeSpan.FromHours(Math.Max(1, MaxHoursPerProblem))));
 }

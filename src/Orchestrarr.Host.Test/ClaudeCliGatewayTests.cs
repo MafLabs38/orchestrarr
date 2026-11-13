@@ -111,4 +111,15 @@ public sealed class ClaudeCliGatewayTests : IDisposable
         reply.Ok.Should().BeFalse();
         reply.Failure.Should().Contain("not enabled");
     }
+
+    [Fact]
+    public async Task A_token_file_that_is_named_and_missing_is_no_answer_not_a_silent_fall_back_to_another_login()
+    {
+        var command = Script("echo ran\n");
+
+        var reply = await new ClaudeCliGateway(new AgentsOptions { Command = command, TokenFile = Path.Combine(_folder, "nothing") }).RunAsync(Request(), TestContext.Current.CancellationToken);
+
+        reply.Ok.Should().BeFalse();
+        reply.Failure.Should().Contain("token file");
+    }
 }

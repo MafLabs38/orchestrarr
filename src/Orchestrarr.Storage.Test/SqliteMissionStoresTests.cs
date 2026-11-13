@@ -128,7 +128,7 @@ public sealed class SqliteMissionStoresTests : IDisposable
 
     private sealed class GoodFacts : IFactsSource
     {
-        public PreconditionFacts Facts(string problemId, World world, Dossier? dossier) => new(world, true, true, false, StagingVerdict.Usable, dossier is not null, true, true, true, true, LoopVerdict.Allowed);
+        public ObservedFacts Facts(string problemId, World world, Dossier? dossier) => new(true, true, true, true, true, true);
     }
 
     private sealed class Yes : IApprovalCheck
@@ -143,9 +143,7 @@ public sealed class SqliteMissionStoresTests : IDisposable
 
     private sealed class Silent : IMissionAudit
     {
-        public void Record(string eventName, string subject, string? detail)
-        {
-        }
+        public bool Record(string eventName, string subject, string? detail) => true;
     }
 
     private sealed class Runners : IRunnerDirectory

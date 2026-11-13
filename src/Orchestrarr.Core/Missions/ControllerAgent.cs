@@ -55,11 +55,11 @@ public sealed class ControllerAgent(IAgentGateway gateway, string model, TimeSpa
         text.AppendLine(CultureInvariant($"MISSION (control plane): world {input.Mission.World}, objective: {Flat(input.Mission.Objective)}"));
         text.AppendLine(CultureInvariant($"FRAME (control plane): repositories {string.Join(", ", input.Mission.Frame.Repositories.Select(Flat))}; forbidden paths {string.Join(", ", input.Mission.Frame.ForbiddenPaths.Select(Flat))}"));
         text.AppendLine("FACTS (fetched by the control plane):");
-        text.AppendLine(CultureInvariant($"  changed files: {(input.Facts.ChangedFiles.Count == 0 ? "none" : string.Join(", ", input.Facts.ChangedFiles.Select(Flat)))}"));
         text.AppendLine(CultureInvariant($"  pipelines: {Flat(input.Facts.Pipelines)}"));
         text.AppendLine(CultureInvariant($"  health: {Flat(input.Facts.Health)}"));
         text.AppendLine(CultureInvariant($"  checks of the code that failed: {(input.Facts.FailedChecks.Count == 0 ? "none" : string.Join(", ", input.Facts.FailedChecks))}"));
-        text.AppendLine(CultureInvariant($"<<<DATA {mark}: the worker's dossier, untrusted>>>"));
+        text.AppendLine(CultureInvariant($"<<<DATA {mark}: names chosen by the worker and its dossier, untrusted>>>"));
+        text.AppendLine(CultureInvariant($"changed files (names chosen by the worker): {(input.Facts.ChangedFiles.Count == 0 ? "none" : string.Join(", ", input.Facts.ChangedFiles.Select(Flat)))}"));
         text.AppendLine(CultureInvariant($"claim: {Flat(input.Dossier.Claim)}"));
         text.AppendLine(CultureInvariant($"what changed and why: {Flat(input.Dossier.WhatChangedAndWhy)}"));
         text.AppendLine(CultureInvariant($"evidence digests: {string.Join(", ", input.Dossier.EvidenceDigests.Select(Flat))}"));

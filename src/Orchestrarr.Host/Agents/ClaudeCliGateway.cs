@@ -69,8 +69,13 @@ public sealed class ClaudeCliGateway(AgentsOptions options) : IAgentGateway
         {
             start.ArgumentList.Add(argument);
         }
-        if (options.TokenFile is { Length: > 0 } file && File.Exists(file))
+        if (options.TokenFile is { Length: > 0 } file)
         {
+            // A token file that is named and not there is no answer: running under the login of whoever started the host would be running as someone else, in silence
+            if (!File.Exists(file))
+            {
+                return new AgentReply(false, string.Empty, "the token file named in Agents:TokenFile does not exist");
+            }
             start.Environment["CLAUDE_CODE_OAUTH_TOKEN"] = (await File.ReadAllTextAsync(file, cancellationToken)).Trim();
         }
         using var process = new Process { StartInfo = start };

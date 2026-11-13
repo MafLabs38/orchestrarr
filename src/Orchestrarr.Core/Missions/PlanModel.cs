@@ -69,6 +69,14 @@ public interface IProblemStore
     IReadOnlyList<ProblemRun> InProgress();
 }
 
+/// <summary>Where the locks of the problems live: one object per problem, shared by every conductor that works on the same stores (the sweep and the demo included).</summary>
+public sealed class ProblemLocks
+{
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, object> _locks = new(StringComparer.Ordinal);
+
+    public object Of(string problemId) => _locks.GetOrAdd(problemId, _ => new object());
+}
+
 public interface IDossierStore
 {
     void Save(Dossier dossier);
@@ -76,10 +84,13 @@ public interface IDossierStore
     Dossier? Get(string missionId);
 }
 
-/// <summary>The control plane fetches the facts itself (FR-MAN-7): the diff and the CI status from the forge on the exact commit, the health from Portarr.</summary>
+/// <summary>What the control plane fetched itself (FR-MAN-7): the diff and the CI status from the forge on the exact commit, the health from Portarr. A fact that is not known is null, and counts as failing.</summary>
+public sealed record ObservedFacts(bool BudgetAvailable, bool? DiffIsClean, bool? CiGreenOnExactCommit, bool? ArtifactIsTheOneProvedInStaging, bool? WayBackKnown, bool WorkerClaimMatchesFacts);
+
+/// <summary>The source of the facts. It says only what it observed: the plan, the stop, the loop and the staging are the conductor's own.</summary>
 public interface IFactsSource
 {
-    PreconditionFacts Facts(string problemId, World world, Dossier? dossier);
+    ObservedFacts Facts(string problemId, World world, Dossier? dossier);
 }
 
 /// <summary>Which runner serves a world for an application (a runner profile on a host).</summary>

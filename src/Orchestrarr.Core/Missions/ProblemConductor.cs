@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Globalization;
 
 namespace Orchestrarr.Core.Missions;
@@ -25,9 +24,9 @@ public sealed record ConductResult(bool Ok, string? Refusal, IReadOnlyList<Preco
 /// </summary>
 public sealed class ProblemConductor(
     MandateSigner signer, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, IDossierStore dossiers, IFactsSource facts, IRunnerDirectory runners,
-    IApprovalCheck approvals, IStopSignal stop, IMissionAudit audit, TimeProvider time, ConductorOptions options, Func<string> newId)
+    IApprovalCheck approvals, IStopSignal stop, IMissionAudit audit, TimeProvider time, ConductorOptions options, Func<string> newId, ProblemLocks? problemLocks = null)
 {
-    private readonly ConcurrentDictionary<string, object> _locks = new(StringComparer.Ordinal);
+    private readonly ProblemLocks _locks = problemLocks ?? new ProblemLocks();
 
     /// <summary>The acts a world lists in its mandates: the ones that have consequences outside the workspace.</summary>
     public static IReadOnlyList<GatedAct> ActsOf(World world) => world switch
@@ -67,9 +66,12 @@ public sealed class ProblemConductor(
             {
                 return ConductResult.Fail("the powers given do not reach the first world: the grant is off until the maintainer enables it");
             }
+            if (!Required(MissionAuditEvents.ProblemStarted, entry.ProblemId, Text($"application {entry.ApplicationId}, validated by {entry.Validation.By}, up to {highest}, staging {(usesStaging ? "used" : "declared none")}")))
+            {
+                return ConductResult.Fail("the audit trail cannot be written: no power is granted");
+            }
             var run = new ProblemRun(entry.ProblemId, entry.ApplicationId, ProblemState.InProgress, time.GetUtcNow(), entry, highest, usesStaging, first);
             problems.Save(run);
-            audit.Record(MissionAuditEvents.ProblemStarted, entry.ProblemId, Text($"application {entry.ApplicationId}, validated by {entry.Validation.By}, up to {highest}, staging {(usesStaging ? "used" : "declared none")}"));
             return Open(run, first, byRule ? MandateSource.StandingRule : MandateSource.PlanValidation);
         });
     }
@@ -91,7 +93,7 @@ public sealed class ProblemConductor(
             if (result.Ok)
             {
                 dossiers.Save(dossier);
-                audit.Record(MissionAuditEvents.MissionHandedOver, missionId, Text($"complex: {dossier.Complex}"));
+                BestEffort(MissionAuditEvents.MissionHandedOver, missionId, Text($"complex: {dossier.Complex}"));
             }
             return result;
         });
@@ -111,8 +113,15 @@ public sealed class ProblemConductor(
             {
                 return ConductResult.Fail("a decision needs its reasons, and a send-back its remarks");
             }
-            var run = problems.Get(mission.ProblemId)!;
-            audit.Record(MissionAuditEvents.ControllerDecided, missionId, Text($"{decision.Kind}: {string.Join(" | ", decision.Reasons)}"));
+            if (problems.Get(mission.ProblemId) is not { } run)
+            {
+                return ConductResult.Fail("the problem of this mission is unknown");
+            }
+            var decided = Required(MissionAuditEvents.ControllerDecided, missionId, Text($"{decision.Kind}: {string.Join(" | ", decision.Reasons)}"));
+            if (!decided && decision.Kind == ControllerDecisionKind.Grant)
+            {
+                return ConductResult.Fail("the audit trail cannot be written: no power is granted");
+            }
             return decision.Kind switch
             {
                 ControllerDecisionKind.Grant => Grant(run, mission, decision),
@@ -127,7 +136,8 @@ public sealed class ProblemConductor(
     public ConductResult Stop(string problemId, string reason) => Locked(problemId, () => StopLocked(problemId, reason));
 
     /// <summary>The mission used up its budget: it ends as failed and the problem fails with it; a loop never goes on past a budget.</summary>
-    public ConductResult BudgetExhausted(string missionId) => OnMission(missionId, mission => End(problems.Get(mission.ProblemId)!, mission, MissionEvent.BudgetExhausted, ProblemState.Failed, "the budget is used up"));
+    public ConductResult BudgetExhausted(string missionId) =>
+        OnMission(missionId, mission => problems.Get(mission.ProblemId) is { } run ? End(run, mission, MissionEvent.BudgetExhausted, ProblemState.Failed, "the budget is used up") : ConductResult.Fail("the problem of this mission is unknown"));
 
     /// <summary>
     /// What no runner will ever say for itself: with the global stop engaged every problem in progress is stopped; a mandate that expired while its mission had not handed over ends it (a runner
@@ -176,12 +186,12 @@ public sealed class ProblemConductor(
             if (!mission.IsOver && MissionMachine.Apply(mission, MissionEvent.Stopped, options.Loop, reason: reason) is { Mission: { } ended })
             {
                 missions.Save(ended);
-                audit.Record(MissionAuditEvents.MissionEnded, mission.Id, Text($"stopped: {reason}"));
+                BestEffort(MissionAuditEvents.MissionEnded, mission.Id, Text($"stopped: {reason}"));
                 last = ended;
             }
         }
         problems.Save(run with { State = ProblemState.Failed, Note = reason });
-        audit.Record(MissionAuditEvents.ProblemFailed, problemId, reason);
+        BestEffort(MissionAuditEvents.ProblemFailed, problemId, reason);
         return last is null ? ConductResult.Fail("no mission was running") : ConductResult.Success(last);
     }
 
@@ -197,38 +207,50 @@ public sealed class ProblemConductor(
             {
                 return SendBackWithFailures(mission, run, closing);
             }
-            var closed = MissionMachine.Apply(mission, MissionEvent.Granted, options.Loop, complex: complex).Mission!;
+            var closed = MissionMachine.Apply(mission, MissionEvent.Granted, options.Loop, complex: complex).Mission ?? mission;
             missions.Save(closed);
             problems.Save(run with { State = ProblemState.Closed, CurrentWorld = null });
-            audit.Record(MissionAuditEvents.MissionAccepted, mission.Id, "release verified");
-            audit.Record(MissionAuditEvents.ProblemClosed, run.ProblemId, null);
+            BestEffort(MissionAuditEvents.MissionAccepted, mission.Id, "release verified");
+            BestEffort(MissionAuditEvents.ProblemClosed, run.ProblemId, null);
             return ConductResult.Success(closed);
         }
         var next = mission.World + 1;
+        if (next > run.HighestAllowed)
+        {
+            // The powers given stop here: the problem is done up to the world its powers allow, and says so (a plan validated up to the Git world ends there)
+            var checks = CheckFacts(run, mission.World, dossier);
+            if (checks.Count > 0)
+            {
+                return SendBackWithFailures(mission, run, checks);
+            }
+            var reached = MissionMachine.Apply(mission, MissionEvent.Granted, options.Loop, complex: complex).Mission ?? mission;
+            missions.Save(reached);
+            problems.Save(run with { State = ProblemState.Closed, CurrentWorld = null, Note = $"done up to the {run.HighestAllowed} world, the highest that its powers allow" });
+            BestEffort(MissionAuditEvents.MissionAccepted, mission.Id, Text($"highest world reached: {run.HighestAllowed}"));
+            BestEffort(MissionAuditEvents.ProblemClosed, run.ProblemId, "done up to the highest world its powers allow");
+            return ConductResult.Success(reached);
+        }
         var failures = CheckFacts(run, next, dossier);
         if (!ControllerLimits.MayGrant(decision, next, run.HighestAllowed, failures))
         {
             return failures.Count > 0 ? SendBackWithFailures(mission, run, failures) : ConductResult.Fail("the controller may not grant a world that the plan does not allow");
         }
-        var accepted = MissionMachine.Apply(mission, MissionEvent.Granted, options.Loop, complex: complex).Mission!;
+        var accepted = MissionMachine.Apply(mission, MissionEvent.Granted, options.Loop, complex: complex).Mission ?? mission;
         missions.Save(accepted);
-        audit.Record(MissionAuditEvents.MissionAccepted, mission.Id, Text($"next world {next}"));
+        BestEffort(MissionAuditEvents.MissionAccepted, mission.Id, Text($"next world {next}"));
         return Open(run with { CurrentWorld = next }, next, MandateSource.Controller);
     }
 
-    // The facts come from the control plane's own source, and the loop and the stop are checked here: none is taken from the worker
+    // The facts come from the control plane's own source; the plan, the stop, the loop and the staging are the conductor's own: none is taken from the worker
     private List<PreconditionFailure> CheckFacts(ProblemRun run, World world, Dossier? dossier)
     {
-        var elapsed = time.GetUtcNow() - run.StartedAt;
-        var observed = facts.Facts(run.ProblemId, world, dossier) with
-        {
-            World = world,
-            KillSwitchEngaged = stop.Engaged,
-            Loop = options.Loop.Check(mandates.CountForProblem(run.ProblemId), elapsed),
-            Staging = run.UsesStaging ? StagingVerdict.Usable : StagingVerdict.UsableWithNoNet,
-        };
+        var observed = facts.Facts(run.ProblemId, world, dossier);
+        var checks = new PreconditionFacts(
+            world, PlanCovers: true, observed.BudgetAvailable, stop.Engaged, run.UsesStaging ? StagingVerdict.Usable : StagingVerdict.UsableWithNoNet, PreviousDossierExists: dossier is not null,
+            observed.DiffIsClean, observed.CiGreenOnExactCommit, observed.ArtifactIsTheOneProvedInStaging, observed.WorkerClaimMatchesFacts,
+            options.Loop.Check(mandates.CountForProblem(run.ProblemId), time.GetUtcNow() - run.StartedAt), observed.WayBackKnown);
         // The release of an application with a staging needs the artifact that was proved there (FR-WLD-14)
-        return [.. MandatePreconditions.Check(observed, requiresStagingProof: run.UsesStaging && world == World.Release)];
+        return [.. MandatePreconditions.Check(checks, requiresStagingProof: run.UsesStaging && world == World.Release)];
     }
 
     private ConductResult SendBackWithFailures(Mission mission, ProblemRun run, IReadOnlyList<PreconditionFailure> failures)
@@ -252,11 +274,11 @@ public sealed class ProblemConductor(
             return ConductResult.Fail(transition.Refusal ?? "refused");
         }
         missions.Save(sent);
-        audit.Record(MissionAuditEvents.MissionSentBack, mission.Id, Text($"send-back {sent.SendBacks}"));
+        BestEffort(MissionAuditEvents.MissionSentBack, mission.Id, Text($"send-back {sent.SendBacks}"));
         if (sent.State == MissionState.Ended)
         {
             problems.Save(run with { State = ProblemState.Failed, Note = sent.EndReason });
-            audit.Record(MissionAuditEvents.ProblemFailed, run.ProblemId, sent.EndReason);
+            BestEffort(MissionAuditEvents.ProblemFailed, run.ProblemId, sent.EndReason);
         }
         return ConductResult.Success(sent);
     }
@@ -272,8 +294,8 @@ public sealed class ProblemConductor(
         missions.Save(ended);
         Revoke(mission);
         problems.Save(run with { State = ProblemState.Escalated, Note = reason });
-        audit.Record(MissionAuditEvents.MissionEnded, mission.Id, Text($"escalated: {reason}"));
-        audit.Record(MissionAuditEvents.ProblemEscalated, run.ProblemId, reason);
+        BestEffort(MissionAuditEvents.MissionEnded, mission.Id, Text($"escalated: {reason}"));
+        BestEffort(MissionAuditEvents.ProblemEscalated, run.ProblemId, reason);
         return ConductResult.Success(ended);
     }
 
@@ -287,8 +309,8 @@ public sealed class ProblemConductor(
         missions.Save(ended);
         Revoke(mission);
         problems.Save(run with { State = problemState, Note = reason });
-        audit.Record(MissionAuditEvents.MissionEnded, mission.Id, Text($"{ended.End}: {reason}"));
-        audit.Record(MissionAuditEvents.ProblemFailed, run.ProblemId, reason);
+        BestEffort(MissionAuditEvents.MissionEnded, mission.Id, Text($"{ended.End}: {reason}"));
+        BestEffort(MissionAuditEvents.ProblemFailed, run.ProblemId, reason);
         return ConductResult.Success(ended);
     }
 
@@ -308,7 +330,7 @@ public sealed class ProblemConductor(
         if (mission.MandateId is { } id && !mandates.IsRevoked(id))
         {
             mandates.Revoke(id);
-            audit.Record(MissionAuditEvents.MandateRevoked, id, Text($"mission {mission.Id}"));
+            BestEffort(MissionAuditEvents.MandateRevoked, id, Text($"mission {mission.Id}"));
         }
     }
 
@@ -318,7 +340,7 @@ public sealed class ProblemConductor(
         if (stop.Engaged)
         {
             problems.Save(run with { State = ProblemState.Failed, Note = "the global stop is engaged" });
-            audit.Record(MissionAuditEvents.ProblemFailed, run.ProblemId, "the global stop is engaged");
+            BestEffort(MissionAuditEvents.ProblemFailed, run.ProblemId, "the global stop is engaged");
             return ConductResult.Fail("the global stop is engaged", [PreconditionFailure.KillSwitchEngaged]);
         }
         var entry = run.Entry;
@@ -326,19 +348,23 @@ public sealed class ProblemConductor(
         if (loop != LoopVerdict.Allowed)
         {
             problems.Save(run with { State = ProblemState.Failed, Note = $"the loop reached its limit: {loop}" });
-            audit.Record(MissionAuditEvents.ProblemFailed, run.ProblemId, $"the loop reached its limit: {loop}");
+            BestEffort(MissionAuditEvents.ProblemFailed, run.ProblemId, $"the loop reached its limit: {loop}");
             return ConductResult.Fail($"the loop reached its limit: {loop}", [PreconditionFailure.LoopLimitReached]);
         }
         var frame = new MissionFrame(entry.Repositories, options.ForbiddenPaths, $"{world}:{entry.ApplicationId}");
         var mission = new Mission(newId(), run.ProblemId, run.ApplicationId, world, ObjectiveOf(world, entry), frame, entry.Budget, MissionState.Proposed);
         var now = time.GetUtcNow();
         var mandate = new Mandate(newId(), mission.Id, run.ProblemId, world, runners.RunnerFor(world, run.ApplicationId), ActsOf(world), frame, entry.Budget, now, now + options.MandateLifetime, source, newId());
+        // The mandate is written to the audit trail before it exists: a power is never granted on an entry that cannot be written
+        if (!Required(MissionAuditEvents.MandateIssued, mandate.Id, Text($"{world} for {mandate.RunnerId}, {source}, until {mandate.ExpiresAt:u}, acts {string.Join(",", mandate.Acts)}")))
+        {
+            return ConductResult.Fail("the audit trail cannot be written: no power is granted");
+        }
         var signed = signer.Sign(mandate);
         mandates.Record(signed);
-        var mandated = MissionMachine.Apply(mission, MissionEvent.MandateIssued, options.Loop, mandateId: mandate.Id).Mission!;
+        var mandated = MissionMachine.Apply(mission, MissionEvent.MandateIssued, options.Loop, mandateId: mandate.Id).Mission ?? mission;
         missions.Save(mandated);
         problems.Save(run with { CurrentWorld = world });
-        audit.Record(MissionAuditEvents.MandateIssued, mandate.Id, Text($"{world} for {mandate.RunnerId}, {source}, until {mandate.ExpiresAt:u}, acts {string.Join(",", mandate.Acts)}"));
         return ConductResult.Success(mandated, signed);
     }
 
@@ -354,11 +380,16 @@ public sealed class ProblemConductor(
 
     private T Locked<T>(string problemId, Func<T> work)
     {
-        lock (_locks.GetOrAdd(problemId, _ => new object()))
+        lock (_locks.Of(problemId))
         {
             return work();
         }
     }
+
+    // Granting a power is written first and refused when it cannot be written; withdrawing a power never waits for the trail
+    private bool Required(string eventName, string subject, string? detail) => audit.Record(eventName, subject, detail);
+
+    private void BestEffort(string eventName, string subject, string? detail) => _ = audit.Record(eventName, subject, detail);
 
     private static string Text(FormattableString text) => text.ToString(CultureInfo.InvariantCulture);
 

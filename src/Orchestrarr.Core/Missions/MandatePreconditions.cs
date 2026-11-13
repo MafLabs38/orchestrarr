@@ -15,7 +15,8 @@ public sealed record PreconditionFacts(
     bool? CiGreenOnExactCommit,
     bool? ArtifactIsTheOneProvedInStaging,
     bool WorkerClaimMatchesFacts,
-    LoopVerdict Loop);
+    LoopVerdict Loop,
+    bool? WayBackKnown = null);
 
 public enum PreconditionFailure
 {
@@ -29,6 +30,7 @@ public enum PreconditionFailure
     ArtifactNotProvedInStaging,
     ClaimDoesNotMatchFacts,
     LoopLimitReached,
+    NoWayBackKnown,
 }
 
 /// <summary>What the code checks and never leaves to a judgement (FR-MAN-7). The controller judges the rest. <c>DiffTouchesForbiddenPath</c> also covers a diff that is not known: unknown counts as failing.</summary>
@@ -52,6 +54,8 @@ public static class MandatePreconditions
         Add(failures, facts.World != World.Staging && facts.CiGreenOnExactCommit != true, PreconditionFailure.CiNotGreenOnExactCommit);
         Add(failures, facts.World == World.Release && requiresStagingProof && facts.ArtifactIsTheOneProvedInStaging != true, PreconditionFailure.ArtifactNotProvedInStaging);
         Add(failures, !facts.WorkerClaimMatchesFacts, PreconditionFailure.ClaimDoesNotMatchFacts);
+        // A deployment needs a way back known before it starts (FR-WLD-13, rule 5 of CLAUDE.md): unknown counts as failing
+        Add(failures, facts.World == World.Release && facts.WayBackKnown != true, PreconditionFailure.NoWayBackKnown);
         return failures;
     }
 

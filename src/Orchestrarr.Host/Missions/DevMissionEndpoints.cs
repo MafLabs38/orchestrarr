@@ -12,11 +12,13 @@ internal static class DevMissionEndpoints
 {
     public static void MapDevMissionEndpoints(this RouteGroupBuilder api)
     {
-        api.MapPost("/dev/missions/demo", (string? scenario, string? application, bool? staging, MandateSigner signer, IMissionStore missions, IMandateLedger mandates, IProblemStore problems,
+        api.MapPost("/dev/missions/demo", (string? scenario, string? application, bool? staging, ProblemLocks locks, IMissionStore missions, IMandateLedger mandates, IProblemStore problems,
             IDossierStore dossiers, IRunnerDirectory runners, IMissionAudit audit, TimeProvider time, MissionsOptions options) =>
         {
             var facts = new DemoFacts();
-            var conductor = new ProblemConductor(signer, missions, mandates, problems, dossiers, facts, runners, new DemoApprovals(), new DemoStop(), audit, time, options.Conductor(), () => Guid.NewGuid().ToString("N"));
+            // A key of its own, made for this call: a demo mandate is never signed with the key of the control plane, so no real runner accepts it
+            using var demoKey = MandateSigner.Create();
+            var conductor = new ProblemConductor(demoKey, missions, mandates, problems, dossiers, facts, runners, new DemoApprovals(), new DemoStop(), audit, time, options.Conductor(), () => Guid.NewGuid().ToString("N"), locks);
             var name = string.IsNullOrWhiteSpace(application) ? "demo-shop" : application.Trim();
             var problemId = $"demo-{Guid.NewGuid():N}"[..13];
             var entry = new PlanEntry(problemId, name, "deprecated-dependency", "Replace the call to the removed method", [$"example/{name}"], World.Release, new MissionBudget(20, 3, 50), new Validation("demo", null), time.GetUtcNow());
@@ -83,7 +85,6 @@ internal static class DevMissionEndpoints
     {
         public bool Ci { get; set; } = true;
 
-        public PreconditionFacts Facts(string problemId, World world, Dossier? dossier) => new(
-            world, true, true, false, StagingVerdict.Usable, dossier is not null, true, Ci, true, true, LoopVerdict.Allowed);
+        public ObservedFacts Facts(string problemId, World world, Dossier? dossier) => new(true, true, Ci, true, true, true);
     }
 }

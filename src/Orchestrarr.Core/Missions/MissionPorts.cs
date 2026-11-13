@@ -18,7 +18,8 @@ public interface IStopSignal
 /// <summary>The audit trail of the missions: every mandate issued or revoked, every decision of the controller with its reasons, every send-back and end (FR-SAF, rule 5 of CLAUDE.md).</summary>
 public interface IMissionAudit
 {
-    void Record(string eventName, string subject, string? detail);
+    /// <summary>False when the entry could not be written. A power is never granted on an entry that cannot be written; a power is always withdrawn, whatever the trail says.</summary>
+    bool Record(string eventName, string subject, string? detail);
 }
 
 public static class MissionAuditEvents

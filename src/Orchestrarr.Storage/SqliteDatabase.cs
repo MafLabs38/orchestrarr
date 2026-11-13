@@ -440,7 +440,8 @@ public sealed class SqliteDatabase : IDisposable
             CREATE INDEX IF NOT EXISTS missions_by_problem ON missions (problem_id);
             CREATE TABLE IF NOT EXISTS mandates (id TEXT PRIMARY KEY, problem_id TEXT NOT NULL, body TEXT NOT NULL, revoked INTEGER NOT NULL DEFAULT 0);
             CREATE INDEX IF NOT EXISTS mandates_by_problem ON mandates (problem_id);
-            CREATE TABLE IF NOT EXISTS problems (problem_id TEXT PRIMARY KEY, body TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS problems (problem_id TEXT PRIMARY KEY, state TEXT NOT NULL, body TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS problems_by_state ON problems (state);
             CREATE TABLE IF NOT EXISTS dossiers (mission_id TEXT PRIMARY KEY, body TEXT NOT NULL);
             """);
     }
