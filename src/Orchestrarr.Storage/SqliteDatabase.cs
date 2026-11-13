@@ -196,7 +196,7 @@ public sealed class SqliteDatabase : IDisposable
     // A new step is appended here, and SchemaVersion goes up with it.
     private delegate void Step(SqliteConnection connection, bool created, bool startEngagedWhenNew, TimeProvider time);
 
-    private static readonly Step[] Steps = [CreateVersion1, CreateVersion2, CreateVersion3, CreateVersion4, CreateVersion5, CreateVersion6, CreateVersion7];
+    private static readonly Step[] Steps = [CreateVersion1, CreateVersion2, CreateVersion3, CreateVersion4, CreateVersion5, CreateVersion6, CreateVersion7, CreateVersion8];
 
     private static int SchemaVersion => Steps.Length;
 
@@ -430,6 +430,20 @@ public sealed class SqliteDatabase : IDisposable
         {
             Run(connection, "ALTER TABLE problem_history ADD COLUMN outcome TEXT NULL;");
         }
+    }
+
+    // Version 7 to 8: the missions, the mandates, the problems and the dossiers of the restructuring (ADR 0030 to 0032); each is a document with the key it is looked up by
+    private static void CreateVersion8(SqliteConnection connection, bool created, bool startEngagedWhenNew, TimeProvider time)
+    {
+        Run(connection, """
+            CREATE TABLE IF NOT EXISTS missions (id TEXT PRIMARY KEY, problem_id TEXT NOT NULL, body TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS missions_by_problem ON missions (problem_id);
+            CREATE TABLE IF NOT EXISTS mandates (id TEXT PRIMARY KEY, problem_id TEXT NOT NULL, body TEXT NOT NULL, revoked INTEGER NOT NULL DEFAULT 0);
+            CREATE INDEX IF NOT EXISTS mandates_by_problem ON mandates (problem_id);
+            CREATE TABLE IF NOT EXISTS problems (problem_id TEXT PRIMARY KEY, state TEXT NOT NULL, body TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS problems_by_state ON problems (state);
+            CREATE TABLE IF NOT EXISTS dossiers (mission_id TEXT PRIMARY KEY, body TEXT NOT NULL);
+            """);
     }
 
     private static object? Scalar(SqliteConnection connection, string sql)

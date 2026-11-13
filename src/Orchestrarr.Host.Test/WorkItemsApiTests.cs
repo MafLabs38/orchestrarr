@@ -84,6 +84,8 @@ public sealed class WorkItemsApiTests : IClassFixture<SampleApiFactory>
     {
         var routes = _factory.Services.GetServices<EndpointDataSource>().SelectMany(source => source.Endpoints).OfType<RouteEndpoint>()
             .Where(e => e.RoutePattern.RawText?.StartsWith("/api", StringComparison.Ordinal) == true)
+            // The demo of the missions (fake agents, no power) exists only in Development and in the tests, never in a deployment
+            .Where(e => e.RoutePattern.RawText?.StartsWith("/api/v1/dev/", StringComparison.Ordinal) != true)
             .ToList();
 
         routes.Should().NotBeEmpty();
