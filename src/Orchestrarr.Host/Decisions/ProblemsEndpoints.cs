@@ -51,22 +51,6 @@ internal static class ProblemsEndpoints
                 new CodeScopeStatus(code.Index.InScope, infrastructure.Scope.Repositories.Count, code.Index.FileCount, code.ReadAt, code.Stale, code.Index.Problems, code.Error)));
         }).RequireAuthorization(Permissions.FleetRead);
 
-        // The change that would write the proposed version where the code of the scope writes it: shown, never applied (Orchestrarr holds no write power, ADR 0028)
-        api.MapGet("/problems/change", async (string? id, WorkItemCatalog catalog, IApplicationCatalog applications, RunnerRegistry runners, IBatchQueue queue, TimeProvider time, RelevancePolicy policy,
-            InfrastructureCatalog infrastructure, CancellationToken ct) =>
-        {
-            var report = await catalog.GetAsync(refresh: false, ct);
-            var code = await infrastructure.GetAsync(refresh: false, ct);
-            var row = FullTable(new TableInputs(report, code.Index, infrastructure.Scope), applications, runners, queue, time, policy).FirstOrDefault(candidate => string.Equals(candidate.Id, id, StringComparison.Ordinal));
-            if (row is null)
-            {
-                return Results.Json(new ErrorResponse("notFound"), statusCode: StatusCodes.Status404NotFound);
-            }
-            return CodeChanges.For(row, code.Index) is { } changes
-                ? Results.Ok(changes)
-                : Results.Json(new ErrorResponse("noChange"), statusCode: StatusCodes.Status409Conflict);
-        }).RequireAuthorization(Permissions.FleetRead);
-
         api.MapPost("/problems/approve", async (ApproveProblemsRequest request, HttpContext context, IApproverAccessor accessor, IProblemHistory history, IApprovalStore approvalStore, ILoggerFactory loggers, TimeProvider time, RelevancePolicy policy, WorkItemCatalog catalog, IApplicationCatalog applications, RunnerRegistry runners, IBatchQueue queue, InfrastructureCatalog infrastructure, ApprovalService service, CancellationToken ct) =>
         {
             var (approver, refusal) = ApprovalEndpoints.Authorize(accessor, context);
