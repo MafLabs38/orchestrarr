@@ -1,6 +1,6 @@
 # 0024 — A pull request is validated for real in a throwaway container, and an agent may try to repair it on paper
 
-- **Status**: proposed (built in the sandbox on 2026-11-11 at the maintainer's request; accepted when the pull request that carries it is merged)
+- **Status**: superseded by [ADR 0038](0038-what-the-first-design-built-and-this-supersedes.md) once it is accepted (never accepted itself); the code stays until its replacement works
 - **Date**: 2026-11-11
 - **Spec**: D-72 (refines D-65 and [ADR 0017](0017-orders-are-typed-tasks-approved-with-a-second-factor-that-the-executor-checks.md); amends [ADR 0023](0023-options-lower-security-only-where-the-host-allows-it-and-the-executor-keeps-its-own-say.md))
 - **Naming**: since [ADR 0026](0026-the-process-that-takes-approved-tasks-is-the-orchestrarr-runner.md) the "executor" of this decision is the Orchestrarr Runner.

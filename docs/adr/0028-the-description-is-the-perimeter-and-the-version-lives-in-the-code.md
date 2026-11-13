@@ -1,6 +1,6 @@
 # 0028 — The description is the perimeter, and the version lives in the code
 
-- **Status**: proposed (asked for by the maintainer on 2026-11-12; accepted when the pull request that carries it is merged)
+- **Status**: partly superseded by [ADR 0038](0038-what-the-first-design-built-and-this-supersedes.md): the diff is dropped, the rest stays as context
 - **Date**: 2026-11-12
 - **Spec**: D-78, D-79, D-80, D-81 (extends ADR 0020 and ADR 0027)
 

@@ -15,6 +15,9 @@ Orchestrarr reads the findings of [Portarr](https://github.com/MafLabs38/portarr
 | Document | Content |
 |---|---|
 | [docs/VISION.md](docs/VISION.md) | Why, what it must do, relation to Portarr, safety model, open questions |
+| [docs/FUNCTIONAL.md](docs/FUNCTIONAL.md) | The functional specification, **the reference** (draft): what the product does, by requirement |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | The target architecture, with diagrams (draft) |
+| [docs/USE-CASES.md](docs/USE-CASES.md) | The cases and the laboratory that drive both: every case is an end-to-end test |
 | [docs/SPEC.md](docs/SPEC.md) | Decisions `D-xx`, features `F-xx`, open questions `Q-xx`, roadmap |
 | [docs/security-model.md](docs/security-model.md) | How an order is secured, from the person to the machine, with diagrams |
 | [docs/TESTING.md](docs/TESTING.md) | Test strategy, lanes, thresholds, the review agents |
