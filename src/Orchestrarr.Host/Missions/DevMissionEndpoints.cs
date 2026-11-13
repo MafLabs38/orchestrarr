@@ -13,14 +13,14 @@ internal static class DevMissionEndpoints
     public static void MapDevMissionEndpoints(this RouteGroupBuilder api)
     {
         api.MapPost("/dev/missions/demo", (string? scenario, string? application, bool? staging, MandateSigner signer, IMissionStore missions, IMandateLedger mandates, IProblemStore problems,
-            IDossierStore dossiers, IRunnerDirectory runners, TimeProvider time, MissionsOptions options) =>
+            IDossierStore dossiers, IRunnerDirectory runners, IMissionAudit audit, TimeProvider time, MissionsOptions options) =>
         {
             var facts = new DemoFacts();
-            var conductor = new ProblemConductor(signer, missions, mandates, problems, dossiers, facts, runners, time, options.Conductor(), () => Guid.NewGuid().ToString("N"));
+            var conductor = new ProblemConductor(signer, missions, mandates, problems, dossiers, facts, runners, new DemoApprovals(), new DemoStop(), audit, time, options.Conductor(), () => Guid.NewGuid().ToString("N"));
             var name = string.IsNullOrWhiteSpace(application) ? "demo-shop" : application.Trim();
             var problemId = $"demo-{Guid.NewGuid():N}"[..13];
             var entry = new PlanEntry(problemId, name, "deprecated-dependency", "Replace the call to the removed method", [$"example/{name}"], World.Release, new MissionBudget(20, 3, 50), new Validation("demo", null), time.GetUtcNow());
-            var started = conductor.Start(entry, staging == false ? StagingDeclaration.DeclaredNoStaging : StagingDeclaration.DeclaredStaging, StagingRequirement.BlankMachine, StagingState.NotDefined, grant: null, rule: null);
+            var started = conductor.Start(entry, staging == false ? StagingDeclaration.DeclaredNoStaging : StagingDeclaration.DeclaredStaging, StagingRequirement.BlankMachine, StagingState.NotDefined, grant: World.Release, rule: null);
             if (!started.Ok)
             {
                 return Results.Json(new ErrorResponse(started.Refusal ?? "refused"), statusCode: StatusCodes.Status409Conflict);
@@ -68,11 +68,22 @@ internal static class DevMissionEndpoints
         }).RequireAuthorization(Permissions.ApprovalsCreate);
     }
 
+    // The demo has no approval to prove and no stop: it is for the sandbox and the tests, never for a deployment
+    private sealed class DemoApprovals : IApprovalCheck
+    {
+        public bool IsProved(PlanEntry entry) => true;
+    }
+
+    private sealed class DemoStop : IStopSignal
+    {
+        public bool Engaged => false;
+    }
+
     private sealed class DemoFacts : IFactsSource
     {
         public bool Ci { get; set; } = true;
 
         public PreconditionFacts Facts(string problemId, World world, Dossier? dossier) => new(
-            world, true, true, false, StagingVerdict.Usable, dossier is not null, false, Ci, true, true, LoopVerdict.Allowed);
+            world, true, true, false, StagingVerdict.Usable, dossier is not null, true, Ci, true, true, LoopVerdict.Allowed);
     }
 }

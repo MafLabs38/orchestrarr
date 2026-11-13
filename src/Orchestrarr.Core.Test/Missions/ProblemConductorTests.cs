@@ -12,6 +12,9 @@ public sealed class ProblemConductorTests : IDisposable
     private readonly InMemoryProblemStore _problems = new();
     private readonly InMemoryDossierStore _dossiers = new();
     private readonly FakeFacts _facts = new();
+    private readonly FakeStop _stop = new();
+    private readonly FakeApprovals _approvals = new();
+    private readonly FakeAudit _audit = new();
     private int _ids;
 
     public void Dispose() => _signer.Dispose();
@@ -28,7 +31,32 @@ public sealed class ProblemConductorTests : IDisposable
 
         public PreconditionFacts Facts(string problemId, World world, Dossier? dossier) => new(
             world, PlanCovers: true, BudgetAvailable: true, KillSwitchEngaged: false, Staging: StagingVerdict.Usable, PreviousDossierExists: dossier is not null,
-            DiffTouchesForbiddenPath: DiffTouchesForbidden, CiGreenOnExactCommit: CiGreen, ArtifactIsTheOneProvedInStaging: ArtifactProved, WorkerClaimMatchesFacts: ClaimMatches, Loop: LoopVerdict.Allowed);
+            DiffIsClean: !DiffTouchesForbidden, CiGreenOnExactCommit: CiGreen, ArtifactIsTheOneProvedInStaging: ArtifactProved, WorkerClaimMatchesFacts: ClaimMatches, Loop: LoopVerdict.Allowed);
+    }
+
+    private sealed class FakeStop : IStopSignal
+    {
+        public bool Engaged { get; set; }
+    }
+
+    private sealed class FakeApprovals : IApprovalCheck
+    {
+        public bool Proved { get; set; } = true;
+
+        public bool IsProved(PlanEntry entry) => Proved;
+    }
+
+    private sealed class FakeAudit : IMissionAudit
+    {
+        public List<string> Events { get; } = [];
+
+        public void Record(string eventName, string subject, string? detail)
+        {
+            lock (Events)
+            {
+                Events.Add($"{eventName} {subject} {detail}");
+            }
+        }
     }
 
     private sealed class Runners : IRunnerDirectory
@@ -37,7 +65,7 @@ public sealed class ProblemConductorTests : IDisposable
     }
 
     private ProblemConductor Conductor(ConductorOptions? options = null) =>
-        new(_signer, _missions, _mandates, _problems, _dossiers, _facts, new Runners(), _time, options ?? ConductorOptions.Default, () => $"id-{++_ids}");
+        new(_signer, _missions, _mandates, _problems, _dossiers, _facts, new Runners(), _approvals, _stop, _audit, _time, options ?? ConductorOptions.Default, () => $"id-{Interlocked.Increment(ref _ids)}");
 
     private static PlanEntry Entry(World max = World.Release, string rule = "") => new("problem-1", "shop", "deprecated-dependency", "Replace the removed method", ["example/shop"], max, new MissionBudget(20, 3, 50),
         new Validation("alice", rule.Length == 0 ? null : rule), new DateTimeOffset(2026, 11, 13, 11, 0, 0, TimeSpan.Zero));
@@ -47,7 +75,7 @@ public sealed class ProblemConductorTests : IDisposable
     private static ControllerDecision Grant() => new(ControllerDecisionKind.Grant, ["the evidence supports the claim"], null);
 
     private static ConductResult StartStaged(ProblemConductor conductor, PlanEntry? entry = null) =>
-        conductor.Start(entry ?? Entry(), StagingDeclaration.DeclaredStaging, StagingRequirement.FullStack, StagingState.BaselineProven, grant: null, rule: null);
+        conductor.Start(entry ?? Entry(), StagingDeclaration.DeclaredStaging, StagingRequirement.FullStack, StagingState.BaselineProven, grant: World.Release, rule: null);
 
     private static ConductResult Through(ProblemConductor conductor, ConductResult step, bool complex = false)
     {
@@ -103,7 +131,7 @@ public sealed class ProblemConductorTests : IDisposable
     {
         var conductor = Conductor();
 
-        var result = conductor.Start(Entry(), StagingDeclaration.DeclaredNoStaging, StagingRequirement.BlankMachine, StagingState.NotDefined, null, null);
+        var result = conductor.Start(Entry(), StagingDeclaration.DeclaredNoStaging, StagingRequirement.BlankMachine, StagingState.NotDefined, World.Release, null);
 
         result.Mandate!.Mandate.World.Should().Be(World.Git);
     }
@@ -117,7 +145,7 @@ public sealed class ProblemConductorTests : IDisposable
     {
         var conductor = Conductor();
 
-        var result = conductor.Start(Entry(), declaration, StagingRequirement.FullStack, state, null, null);
+        var result = conductor.Start(Entry(), declaration, StagingRequirement.FullStack, state, World.Release, null);
 
         result.Ok.Should().BeFalse();
         result.Failures.Should().Contain(PreconditionFailure.StagingNotUsable);
@@ -126,16 +154,50 @@ public sealed class ProblemConductorTests : IDisposable
     }
 
     [Fact]
-    public void A_problem_is_not_started_twice_and_the_powers_given_must_reach_the_first_world()
+    public void A_problem_is_not_started_twice_and_a_grant_that_is_not_given_is_no_power()
     {
         var conductor = Conductor();
         StartStaged(conductor).Ok.Should().BeTrue();
 
         StartStaged(conductor).Refusal.Should().Contain("already");
+        var noGrant = conductor.Start(Entry() with { ProblemId = "problem-2" }, StagingDeclaration.DeclaredStaging, StagingRequirement.BlankMachine, StagingState.NotDefined, grant: null, rule: null);
 
-        var low = Conductor();
-        var none = low.Start(Entry() with { ProblemId = "problem-2" }, StagingDeclaration.DeclaredStaging, StagingRequirement.BlankMachine, StagingState.NotDefined, grant: null, rule: null);
-        none.Ok.Should().BeTrue();
+        noGrant.Ok.Should().BeFalse();
+        noGrant.Refusal.Should().Contain("grant is off");
+        _problems.Get("problem-2").Should().BeNull();
+    }
+
+    [Fact]
+    public void An_approval_that_is_not_proved_issues_no_mandate_and_a_validation_by_name_alone_is_not_one()
+    {
+        _approvals.Proved = false;
+
+        var result = StartStaged(Conductor());
+
+        result.Ok.Should().BeFalse();
+        result.Refusal.Should().Contain("approval").And.Contain("not proved");
+        _missions.ForProblem("problem-1").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void The_global_stop_refuses_a_first_mandate_and_a_next_one_and_ends_the_work_instead_of_issuing_it()
+    {
+        var conductor = Conductor();
+        _stop.Engaged = true;
+        StartStaged(conductor).Refusal.Should().Contain("global stop");
+        _stop.Engaged = false;
+        var staging = StartStaged(conductor);
+        var id = staging.Mission!.Id;
+        conductor.Started(id);
+        conductor.HandOver(id, DossierFor(id));
+        _stop.Engaged = true;
+
+        var result = conductor.Decide(id, Grant());
+
+        result.Ok.Should().BeFalse();
+        result.Failures.Should().Contain(PreconditionFailure.KillSwitchEngaged);
+        _missions.ForProblem("problem-1").Should().ContainSingle("no mandate was issued under the stop");
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.Failed);
     }
 
     [Fact]
@@ -210,7 +272,7 @@ public sealed class ProblemConductorTests : IDisposable
     public void A_release_of_an_application_with_no_staging_needs_only_the_pipelines_artifact()
     {
         var conductor = Conductor();
-        var start = conductor.Start(Entry(), StagingDeclaration.DeclaredNoStaging, StagingRequirement.BlankMachine, StagingState.NotDefined, null, null);
+        var start = conductor.Start(Entry(), StagingDeclaration.DeclaredNoStaging, StagingRequirement.BlankMachine, StagingState.NotDefined, World.Release, null);
         var release = Through(conductor, start);
         _facts.ArtifactProved = false;
 
@@ -238,9 +300,9 @@ public sealed class ProblemConductorTests : IDisposable
     }
 
     [Theory]
-    [InlineData(ControllerDecisionKind.End, "the frame was not kept")]
-    [InlineData(ControllerDecisionKind.Escalate, "no fixed version exists")]
-    public void The_controller_can_end_or_escalate_and_the_mandate_is_revoked_and_the_problem_failed_with_the_reason(ControllerDecisionKind kind, string reason)
+    [InlineData(ControllerDecisionKind.End, "the frame was not kept", ProblemState.Failed)]
+    [InlineData(ControllerDecisionKind.Escalate, "no fixed version exists", ProblemState.Escalated)]
+    public void The_controller_can_end_or_escalate_the_mandate_is_revoked_and_an_escalation_waits_for_the_maintainer_instead_of_failing(ControllerDecisionKind kind, string reason, ProblemState expected)
     {
         var conductor = Conductor();
         var staging = StartStaged(conductor);
@@ -252,7 +314,7 @@ public sealed class ProblemConductorTests : IDisposable
 
         result.Mission!.State.Should().Be(MissionState.Ended);
         _mandates.IsRevoked(staging.Mandate!.Mandate.Id).Should().BeTrue();
-        _problems.Get("problem-1")!.State.Should().Be(ProblemState.Failed);
+        _problems.Get("problem-1")!.State.Should().Be(expected);
         _problems.Get("problem-1")!.Note.Should().Contain(reason);
     }
 
@@ -334,7 +396,10 @@ public sealed class ProblemConductorTests : IDisposable
     {
         var conductor = Conductor();
 
-        var result = conductor.Start(Entry(rule: "rule-1"), StagingDeclaration.DeclaredStaging, StagingRequirement.BlankMachine, StagingState.NotDefined, null, null);
+        var result = conductor.Start(Entry(rule: "rule-1"), StagingDeclaration.DeclaredStaging, StagingRequirement.BlankMachine, StagingState.NotDefined, World.Release, rule: World.Git);
+        var noRule = conductor.Start(Entry(rule: "rule-1") with { ProblemId = "problem-2" }, StagingDeclaration.DeclaredStaging, StagingRequirement.BlankMachine, StagingState.NotDefined, World.Release, rule: null);
+
+        noRule.Ok.Should().BeFalse("a validation by a rule needs the rule to give a power");
 
         result.Mandate!.Mandate.Source.Should().Be(MandateSource.StandingRule);
     }
@@ -348,5 +413,102 @@ public sealed class ProblemConductorTests : IDisposable
         public bool TryUse(string nonce) => _used.Add(nonce);
 
         public bool IsRevoked(string mandateId) => false;
+    }
+
+    [Fact]
+    public void An_escalated_problem_is_not_started_again_by_accident_and_the_audit_trail_says_so()
+    {
+        var conductor = Conductor();
+        var id = StartStaged(conductor).Mission!.Id;
+        conductor.Started(id);
+        conductor.HandOver(id, DossierFor(id));
+        conductor.Decide(id, new ControllerDecision(ControllerDecisionKind.Escalate, ["no fixed version exists"], null));
+
+        StartStaged(conductor).Refusal.Should().Contain("already");
+        _audit.Events.Should().Contain(entry => entry.StartsWith("problem.escalated problem-1", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Every_mandate_decision_send_back_and_end_is_written_to_the_audit_trail()
+    {
+        var conductor = Conductor();
+        var staging = StartStaged(conductor);
+        var id = staging.Mission!.Id;
+        conductor.Started(id);
+        conductor.HandOver(id, DossierFor(id));
+        _facts.DiffTouchesForbidden = true;
+        conductor.Decide(id, Grant());
+        _facts.DiffTouchesForbidden = false;
+        conductor.HandOver(id, DossierFor(id));
+        conductor.Decide(id, new ControllerDecision(ControllerDecisionKind.End, ["the frame was not kept"], null));
+
+        _audit.Events.Should().Contain(entry => entry.StartsWith("problem.started problem-1", StringComparison.Ordinal))
+            .And.Contain(entry => entry.StartsWith("mandate.issued", StringComparison.Ordinal) && entry.Contains("Staging for runner-staging", StringComparison.Ordinal))
+            .And.Contain(entry => entry.StartsWith("controller.decided", StringComparison.Ordinal) && entry.Contains("the evidence supports the claim", StringComparison.Ordinal))
+            .And.Contain(entry => entry.StartsWith("mission.sent-back", StringComparison.Ordinal))
+            .And.Contain(entry => entry.StartsWith("mandate.revoked", StringComparison.Ordinal))
+            .And.Contain(entry => entry.StartsWith("mission.ended", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Two_calls_that_overlap_on_the_same_problem_cannot_both_start_it()
+    {
+        var conductor = Conductor();
+        var results = new ConductResult[8];
+
+        Parallel.For(0, results.Length, index => results[index] = StartStaged(conductor));
+
+        results.Count(result => result.Ok).Should().Be(1);
+        _missions.ForProblem("problem-1").Should().ContainSingle();
+        _mandates.CountForProblem("problem-1").Should().Be(1);
+    }
+
+    [Fact]
+    public void The_sweep_ends_a_mission_whose_mandate_expired_without_a_runner_and_the_problem_does_not_stay_in_progress_for_ever()
+    {
+        var conductor = Conductor();
+        var id = StartStaged(conductor).Mission!.Id;
+        conductor.Started(id);
+        _time.Advance(TimeSpan.FromMinutes(61));
+
+        var ended = conductor.Sweep();
+
+        ended.Should().Be(1);
+        _missions.Get(id)!.End.Should().Be(MissionEnd.Stopped);
+        _missions.Get(id)!.EndReason.Should().Contain("expired");
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.Failed);
+        _mandates.IsRevoked(_missions.Get(id)!.MandateId!).Should().BeTrue();
+    }
+
+    [Fact]
+    public void The_sweep_stops_every_problem_in_progress_when_the_global_stop_is_engaged_and_after_the_time_bound()
+    {
+        var conductor = Conductor();
+        StartStaged(conductor);
+        conductor.Sweep().Should().Be(0);
+        _stop.Engaged = true;
+
+        conductor.Sweep().Should().Be(1);
+        _problems.Get("problem-1")!.Note.Should().Contain("global stop");
+
+        _stop.Engaged = false;
+        var other = Conductor();
+        other.Start(Entry() with { ProblemId = "problem-9" }, StagingDeclaration.DeclaredStaging, StagingRequirement.BlankMachine, StagingState.NotDefined, World.Release, null).Ok.Should().BeTrue();
+        _time.Advance(TimeSpan.FromHours(7));
+        other.Sweep().Should().Be(1);
+        _problems.Get("problem-9")!.Note.Should().Contain("time limit");
+    }
+
+    [Fact]
+    public void A_mission_waiting_for_the_controller_is_not_expired_by_the_sweep()
+    {
+        var conductor = Conductor();
+        var id = StartStaged(conductor).Mission!.Id;
+        conductor.Started(id);
+        conductor.HandOver(id, DossierFor(id));
+        _time.Advance(TimeSpan.FromMinutes(90));
+
+        conductor.Sweep().Should().Be(0);
+        _missions.Get(id)!.State.Should().Be(MissionState.HandingOver);
     }
 }

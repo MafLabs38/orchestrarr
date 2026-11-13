@@ -56,6 +56,8 @@ public sealed class InMemoryProblemStore : IProblemStore
         ArgumentNullException.ThrowIfNull(run);
         _runs[run.ProblemId] = run;
     }
+
+    public IReadOnlyList<ProblemRun> InProgress() => [.. _runs.Values.Where(run => run.State == ProblemState.InProgress)];
 }
 
 public sealed class InMemoryDossierStore : IDossierStore

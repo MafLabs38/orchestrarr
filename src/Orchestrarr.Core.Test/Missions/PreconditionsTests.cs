@@ -5,7 +5,7 @@ namespace Orchestrarr.Core.Test.Missions;
 public sealed class PreconditionsTests
 {
     private static PreconditionFacts Good(World world) => new(world, PlanCovers: true, BudgetAvailable: true, KillSwitchEngaged: false, Staging: StagingVerdict.Usable,
-        PreviousDossierExists: true, DiffTouchesForbiddenPath: false, CiGreenOnExactCommit: true, ArtifactIsTheOneProvedInStaging: true, WorkerClaimMatchesFacts: true, Loop: LoopVerdict.Allowed);
+        PreviousDossierExists: true, DiffIsClean: true, CiGreenOnExactCommit: true, ArtifactIsTheOneProvedInStaging: true, WorkerClaimMatchesFacts: true, Loop: LoopVerdict.Allowed);
 
     [Theory]
     [InlineData(World.Staging)]
@@ -26,7 +26,7 @@ public sealed class PreconditionsTests
             KillSwitchEngaged = true,
             Staging = StagingVerdict.RefusedNotProven,
             PreviousDossierExists = false,
-            DiffTouchesForbiddenPath = true,
+            DiffIsClean = false,
             CiGreenOnExactCommit = false,
             ArtifactIsTheOneProvedInStaging = false,
             WorkerClaimMatchesFacts = false,
@@ -34,6 +34,12 @@ public sealed class PreconditionsTests
         };
 
         MandatePreconditions.Check(facts, requiresStagingProof: true).Should().BeEquivalentTo(Enum.GetValues<PreconditionFailure>());
+    }
+
+    [Fact]
+    public void A_diff_that_is_not_known_to_be_clean_fails_the_check_unknown_counts_as_failing()
+    {
+        MandatePreconditions.Check(Good(World.Git) with { DiffIsClean = null }, requiresStagingProof: false).Should().Equal(PreconditionFailure.DiffTouchesForbiddenPath);
     }
 
     [Fact]

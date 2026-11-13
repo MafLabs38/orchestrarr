@@ -15,25 +15,22 @@ public sealed record StandingRule(string Id, string ProblemClass, World MaxWorld
 }
 
 /// <summary>
-/// The power in effect for a step is the **intersection** of the plan entry, the per-application and per-environment grant (D-10, D-11, D-53) and the mandate: the lowest of
-/// the maximum worlds (ADR 0038). A null maximum means "no power at all" for that source.
+/// The power in effect for a step is the **intersection** of the plan entry, the per-application and per-environment grant (D-10, D-11, D-53: off until the maintainer enables it) and the
+/// standing rule when the validation comes from one: the lowest of their maximum worlds (ADR 0038, FR-SAF-12). **A grant that is not given is no power at all**; a rule that does not
+/// apply (a validation by a person) is simply not part of the intersection.
 /// </summary>
 public static class EffectivePower
 {
-    public static World? Of(World? planEntry, World? grant, World? rule)
+    public static World? Of(World planEntry, World? grant, World? rule, bool byRule = false)
     {
-        World? lowest = null;
-        foreach (var candidate in new[] { planEntry, grant, rule })
+        if (grant is null || (byRule && rule is null))
         {
-            if (candidate is null)
-            {
-                continue;
-            }
-            lowest = lowest is null || candidate < lowest ? candidate : lowest;
+            return null;
         }
-        return lowest;
+        var lowest = planEntry < grant ? planEntry : grant.Value;
+        return byRule && rule < lowest ? rule : lowest;
     }
 
-    /// <summary>Whether a world may be entered with the powers given: every source that exists must reach it, and at least one must exist.</summary>
-    public static bool Reaches(World world, World? planEntry, World? grant, World? rule) => Of(planEntry, grant, rule) is { } highest && world <= highest;
+    /// <summary>Whether a world may be entered with the powers given.</summary>
+    public static bool Reaches(World world, World planEntry, World? grant, World? rule, bool byRule = false) => Of(planEntry, grant, rule, byRule) is { } highest && world <= highest;
 }

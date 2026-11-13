@@ -29,6 +29,7 @@ public sealed class ClaudeCliGatewayTests : IDisposable
         program.Should().Be("claude");
         arguments.Should().ContainInConsecutiveOrder("--tools", string.Empty, "--strict-mcp-config");
         arguments.Should().Contain(["--no-session-persistence", "--disable-slash-commands", "-p"]);
+        arguments.Should().ContainInConsecutiveOrder("--setting-sources", string.Empty, "--system-prompt");
         arguments.Should().ContainInConsecutiveOrder("--model", "model-x");
         arguments.Should().ContainInConsecutiveOrder("--system-prompt", "the system prompt", "the user prompt");
     }
@@ -87,5 +88,27 @@ public sealed class ClaudeCliGatewayTests : IDisposable
 
         reply.Ok.Should().BeFalse();
         reply.Failure.Should().Contain("in time");
+    }
+
+    [Fact]
+    public async Task The_program_runs_in_an_empty_folder_of_its_own_that_is_removed_after()
+    {
+        var seen = Path.Combine(_folder, "cwd");
+        var command = Script("pwd > \"" + seen + "\"\nls -A | wc -l >> \"" + seen + "\"\n");
+
+        await new ClaudeCliGateway(new AgentsOptions { Command = command }).RunAsync(Request(), TestContext.Current.CancellationToken);
+
+        var lines = await File.ReadAllLinesAsync(seen, TestContext.Current.CancellationToken);
+        lines[1].Trim().Should().Be("0", "the folder is empty");
+        Directory.Exists(lines[0]).Should().BeFalse("it is removed after the run");
+    }
+
+    [Fact]
+    public async Task Agents_that_are_not_enabled_answer_with_a_reason_and_run_nothing()
+    {
+        var reply = await new DisabledGateway().RunAsync(Request(), TestContext.Current.CancellationToken);
+
+        reply.Ok.Should().BeFalse();
+        reply.Failure.Should().Contain("not enabled");
     }
 }

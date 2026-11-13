@@ -5,6 +5,9 @@ public enum ProblemState
 {
     InPlan,
     InProgress,
+
+    /// <summary>The controller escalated: a decision that belongs to the maintainer, who is told. It waits; it is not a failure.</summary>
+    Escalated,
     Closed,
     Failed,
     SetAside,
@@ -62,6 +65,8 @@ public interface IProblemStore
     ProblemRun? Get(string problemId);
 
     void Save(ProblemRun run);
+
+    IReadOnlyList<ProblemRun> InProgress();
 }
 
 public interface IDossierStore

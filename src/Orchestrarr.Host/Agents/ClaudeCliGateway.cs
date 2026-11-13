@@ -22,6 +22,18 @@ public sealed class AgentsOptions
 
     /// <summary>A file with the subscription token, given to the program as an environment variable and never in an argument. Unset: the program uses the login of the user it runs as.</summary>
     public string? TokenFile { get; set; }
+
+    /// <summary>
+    /// Whether the control plane may run the agent program itself. **Off by default**: in a deployment the agents run in a sandbox of a runner profile (ARCHITECTURE section 3, D-25), and this
+    /// in-process way is the interim for development and for the first controller.
+    /// </summary>
+    public bool Enabled { get; set; }
+}
+
+/// <summary>The gateway when the agents are not enabled: nothing runs, and the answer says why.</summary>
+public sealed class DisabledGateway : IAgentGateway
+{
+    public Task<AgentReply> RunAsync(AgentRequest request, CancellationToken cancellationToken) => Task.FromResult(new AgentReply(false, string.Empty, "the agents are not enabled (Agents:Enabled)"));
 }
 
 /// <summary>
@@ -44,14 +56,15 @@ public sealed class ClaudeCliGateway(AgentsOptions options) : IAgentGateway
             arguments.AddRange(wrapper.Skip(1));
             arguments.Add(options.Command);
         }
-        arguments.AddRange(["-p", "--model", request.Model, "--tools", string.Empty, "--strict-mcp-config", "--no-session-persistence", "--disable-slash-commands", "--system-prompt", request.SystemPrompt, request.UserPrompt]);
+        arguments.AddRange(["-p", "--model", request.Model, "--tools", string.Empty, "--strict-mcp-config", "--no-session-persistence", "--disable-slash-commands", "--setting-sources", string.Empty, "--system-prompt", request.SystemPrompt, request.UserPrompt]);
         return (program, arguments);
     }
 
     public async Task<AgentReply> RunAsync(AgentRequest request, CancellationToken cancellationToken)
     {
         var (program, arguments) = Command(request);
-        var start = new ProcessStartInfo(program) { RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+        using var workspace = new TemporaryFolder();
+        var start = new ProcessStartInfo(program) { WorkingDirectory = workspace.Path, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
         foreach (var argument in arguments)
         {
             start.ArgumentList.Add(argument);
@@ -103,4 +116,12 @@ public sealed class ClaudeCliGateway(AgentsOptions options) : IAgentGateway
         }
         return text.ToString();
     }
+}
+
+/// <summary>An empty folder for the run, removed after it: no `CLAUDE.md`, no project settings and nothing of the host's tree for the program to read.</summary>
+internal sealed class TemporaryFolder : IDisposable
+{
+    public string Path { get; } = Directory.CreateTempSubdirectory("orchestrarr-agent-").FullName;
+
+    public void Dispose() => Directory.Delete(Path, recursive: true);
 }

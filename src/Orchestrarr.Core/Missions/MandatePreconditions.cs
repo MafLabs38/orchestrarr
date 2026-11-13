@@ -11,7 +11,7 @@ public sealed record PreconditionFacts(
     bool KillSwitchEngaged,
     StagingVerdict Staging,
     bool PreviousDossierExists,
-    bool DiffTouchesForbiddenPath,
+    bool? DiffIsClean,
     bool? CiGreenOnExactCommit,
     bool? ArtifactIsTheOneProvedInStaging,
     bool WorkerClaimMatchesFacts,
@@ -31,7 +31,7 @@ public enum PreconditionFailure
     LoopLimitReached,
 }
 
-/// <summary>What the code checks and never leaves to a judgement (FR-MAN-7). The controller judges the rest.</summary>
+/// <summary>What the code checks and never leaves to a judgement (FR-MAN-7). The controller judges the rest. <c>DiffTouchesForbiddenPath</c> also covers a diff that is not known: unknown counts as failing.</summary>
 public static class MandatePreconditions
 {
     /// <param name="facts">The facts.</param>
@@ -47,7 +47,8 @@ public static class MandatePreconditions
         Add(failures, facts.Loop != LoopVerdict.Allowed, PreconditionFailure.LoopLimitReached);
         // The first mission of a problem has no dossier before it; the next worlds do
         Add(failures, facts.World != World.Staging && !facts.PreviousDossierExists, PreconditionFailure.NoPreviousDossier);
-        Add(failures, facts.DiffTouchesForbiddenPath, PreconditionFailure.DiffTouchesForbiddenPath);
+        // A diff that is not known to be clean is not clean: unknown counts as failing
+        Add(failures, facts.DiffIsClean != true, PreconditionFailure.DiffTouchesForbiddenPath);
         Add(failures, facts.World != World.Staging && facts.CiGreenOnExactCommit != true, PreconditionFailure.CiNotGreenOnExactCommit);
         Add(failures, facts.World == World.Release && requiresStagingProof && facts.ArtifactIsTheOneProvedInStaging != true, PreconditionFailure.ArtifactNotProvedInStaging);
         Add(failures, !facts.WorkerClaimMatchesFacts, PreconditionFailure.ClaimDoesNotMatchFacts);

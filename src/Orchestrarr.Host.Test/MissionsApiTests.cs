@@ -92,7 +92,7 @@ public sealed class MissionsApiTests
     }
 
     [Fact]
-    public async Task An_escalation_by_the_controller_ends_the_mission_revokes_its_mandate_and_fails_the_problem()
+    public async Task An_escalation_by_the_controller_ends_the_mission_revokes_its_mandate_and_the_problem_waits_for_the_maintainer()
     {
         using var factory = new AccountsApiFactory();
         using var client = await SignedIn(factory);
@@ -104,7 +104,7 @@ public sealed class MissionsApiTests
         git.GetProperty("end").GetString().Should().Be("Refused");
         git.GetProperty("endReason").GetString().Should().Contain("escalated");
         git.GetProperty("mandate").GetProperty("revoked").GetBoolean().Should().BeTrue();
-        git.GetProperty("problemState").GetString().Should().Be("Failed");
+        git.GetProperty("problemState").GetString().Should().Be("Escalated");
     }
 
     [Fact]

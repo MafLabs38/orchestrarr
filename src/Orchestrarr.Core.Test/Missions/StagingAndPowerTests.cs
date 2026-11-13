@@ -34,14 +34,17 @@ public sealed class StagingAndPowerTests
     }
 
     [Fact]
-    public void The_power_in_effect_is_the_lowest_of_the_plan_the_grant_and_the_rule_and_a_rule_never_widens_a_grant()
+    public void The_power_in_effect_is_the_lowest_of_the_plan_the_grant_and_the_rule_a_rule_never_widens_a_grant_and_no_grant_is_no_power()
     {
-        EffectivePower.Of(World.Release, World.Git, World.Release).Should().Be(World.Git);
-        EffectivePower.Of(World.Release, null, null).Should().Be(World.Release);
-        EffectivePower.Of(null, null, null).Should().BeNull();
-        EffectivePower.Reaches(World.Release, World.Release, World.Git, World.Release).Should().BeFalse("the grant stops at the Git world");
-        EffectivePower.Reaches(World.Git, World.Release, World.Git, World.Release).Should().BeTrue();
-        EffectivePower.Reaches(World.Staging, null, null, null).Should().BeFalse("no source gives any power");
+        EffectivePower.Of(World.Release, World.Git, null).Should().Be(World.Git);
+        EffectivePower.Of(World.Git, World.Release, null).Should().Be(World.Git);
+        EffectivePower.Of(World.Release, World.Release, World.Staging, byRule: true).Should().Be(World.Staging);
+        EffectivePower.Of(World.Release, World.Git, World.Release, byRule: true).Should().Be(World.Git, "a rule never widens a grant");
+        EffectivePower.Of(World.Release, null, null).Should().BeNull("the grant is off until the maintainer enables it (D-10)");
+        EffectivePower.Of(World.Release, World.Release, null, byRule: true).Should().BeNull("a rule that is needed and missing is no power");
+        EffectivePower.Reaches(World.Release, World.Release, World.Git, null).Should().BeFalse("the grant stops at the Git world");
+        EffectivePower.Reaches(World.Git, World.Release, World.Git, null).Should().BeTrue();
+        EffectivePower.Reaches(World.Staging, World.Release, null, null).Should().BeFalse("no grant, no power");
     }
 
     [Fact]

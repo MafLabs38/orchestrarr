@@ -100,16 +100,18 @@ public sealed class SqliteMissionStoresTests : IDisposable
         var time = new FakeTimeProvider(new DateTimeOffset(2026, 11, 13, 12, 0, 0, TimeSpan.Zero));
         var ids = 0;
         ProblemConductor Conductor(SqliteDatabase database) => new(_signer, new SqliteMissionStore(database), new SqliteMandateLedger(database), new SqliteProblemStore(database), new SqliteDossierStore(database),
-            new GoodFacts(), new Runners(), time, ConductorOptions.Default, () => $"id-{++ids}");
+            new GoodFacts(), new Runners(), new Yes(), new NoStop(), new Silent(), time, ConductorOptions.Default, () => $"id-{++ids}");
         var entry = new PlanEntry("p1", "shop", "deprecated", "Replace the call", ["example/shop"], World.Release, new MissionBudget(20, 3, 50), new Validation("alice", null), time.GetUtcNow());
         var first = Conductor(_file.Open());
-        var staging = first.Start(entry, StagingDeclaration.DeclaredStaging, StagingRequirement.BlankMachine, StagingState.NotDefined, null, null);
+        var staging = first.Start(entry, StagingDeclaration.DeclaredStaging, StagingRequirement.BlankMachine, StagingState.NotDefined, World.Release, null);
+        staging.Refusal.Should().BeNull();
         first.Started(staging.Mission!.Id);
         first.HandOver(staging.Mission.Id, new Dossier(staging.Mission.Id, "done", "changed", [], [], false, null));
 
         var second = Conductor(_file.Reopen());
         var git = second.Decide(staging.Mission.Id, new ControllerDecision(ControllerDecisionKind.Grant, ["good"], null));
 
+        git.Refusal.Should().BeNull(string.Join(",", git.Failures));
         git.Mandate!.Mandate.World.Should().Be(World.Git);
         new SqliteMissionStore(_file.Reopen()).ForProblem("p1").Should().HaveCount(2);
         new SqliteMandateLedger(_file.Reopen()).CountForProblem("p1").Should().Be(2);
@@ -126,7 +128,24 @@ public sealed class SqliteMissionStoresTests : IDisposable
 
     private sealed class GoodFacts : IFactsSource
     {
-        public PreconditionFacts Facts(string problemId, World world, Dossier? dossier) => new(world, true, true, false, StagingVerdict.Usable, dossier is not null, false, true, true, true, LoopVerdict.Allowed);
+        public PreconditionFacts Facts(string problemId, World world, Dossier? dossier) => new(world, true, true, false, StagingVerdict.Usable, dossier is not null, true, true, true, true, LoopVerdict.Allowed);
+    }
+
+    private sealed class Yes : IApprovalCheck
+    {
+        public bool IsProved(PlanEntry entry) => true;
+    }
+
+    private sealed class NoStop : IStopSignal
+    {
+        public bool Engaged => false;
+    }
+
+    private sealed class Silent : IMissionAudit
+    {
+        public void Record(string eventName, string subject, string? detail)
+        {
+        }
     }
 
     private sealed class Runners : IRunnerDirectory

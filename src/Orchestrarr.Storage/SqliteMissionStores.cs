@@ -119,6 +119,14 @@ public sealed class SqliteProblemStore(SqliteDatabase database) : IProblemStore
 {
     public ProblemRun? Get(string problemId) => SqliteDatabase.Guard(() => MissionJson.Read<ProblemRun>(SqliteMissionStore.Scalar(database, "SELECT body FROM problems WHERE problem_id = $key;", problemId)));
 
+    public IReadOnlyList<ProblemRun> InProgress() => SqliteDatabase.Guard(() =>
+    {
+        using var connection = database.Connect();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT body FROM problems;";
+        return (IReadOnlyList<ProblemRun>)[.. SqliteMissionStore.Bodies<ProblemRun>(command).Where(run => run.State == ProblemState.InProgress)];
+    });
+
     public void Save(ProblemRun run)
     {
         ArgumentNullException.ThrowIfNull(run);
