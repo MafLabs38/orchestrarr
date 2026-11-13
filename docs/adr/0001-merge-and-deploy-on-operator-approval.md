@@ -1,6 +1,7 @@
 # 0001 — Orchestrarr merges and deploys on the operator's approval
 
 - **Status**: accepted
+- **Note (2026-11-13)**: Amended by [ADR 0038](0038-what-the-first-design-built-and-this-supersedes.md): the operator's approval is the plan validation or a bounded standing rule, and the later mandates are granted by a controller agent on facts fetched outside the agent.
 - **Date**: 2026-11-01
 - **Amends**: the initial safety principles ("a human merges", "approval gates beyond a pull request") of `docs/VISION.md` §5 and rule 5 of `CLAUDE.md`
 

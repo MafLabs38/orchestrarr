@@ -15,7 +15,7 @@ A developer-agent needs a shell and the tools of a developer to run its own test
 3. The acts that have **consequences outside the workspace are gated**: open a pull request, merge, deploy, roll back, create or restore a staging.
    The agent's identity on the forge can **only read and push to non-protected `orchestrarr/*` branches**, without the `workflows` permission; **opening a pull request and merging use another identity held by the runner or the control plane**, after the mandate check. They are performed by the runner or the control plane, only if the **mandate lists them and the preconditions hold**, and each is audited.
 4. The model credential is the maintainer's subscription token. It is **never inside a sandbox**: a credential proxy outside the sandbox adds it to the calls to the model provider, and the sandbox holds a dummy or short-lived scoped credential. The sandbox is a container with no capability, not root, bounded resources and limited network (registries only through read-only mirrors or a caching proxy).
-5. Containers needed in staging run in a **rootless or throwaway engine** that gives no access to the host; the runner and its keys stay outside the machine the agent controls.
+5. Containers needed in staging run in a **rootless or throwaway engine** that gives no access to the host; **the runner and its keys stay outside the machine the agent controls**: in the staging world on the platform side, outside the virtual machine; in the Git and release worlds in a process, user and filesystem separate from the agent's sandbox.
 6. The **gateway's holder** is one per sandbox: the runner of its world for the worker, the control plane (through a `controller` runner profile) for the controller.
 
 ## Consequences

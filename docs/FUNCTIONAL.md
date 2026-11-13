@@ -103,12 +103,12 @@ A problem goes through the same path whatever its weight; the path is a sequence
 
 1. **Seen.** A source reports a finding (section 5.1). Orchestrarr decides it is a problem inside the perimeter.
 2. **In the plan.** The problem appears in the plan with the limits it may be solved within. A **standing rule** may already cover it; otherwise the maintainer validates it. **(M)**
-3. **Staging ready?** If the application has a staging requirement, Orchestrarr checks that staging is available and **proven healthy on the unchanged code** (the baseline, section 5.7). If not, no mandate on the code is issued; the maintainer is told why. **(M)**
+3. **Staging ready?** If the application has a staging, Orchestrarr checks that it is available and **proven healthy on the unchanged code** (the baseline, section 5.7). If the maintainer **declared** that the application has no staging, this step is skipped (the rule of CASE-17). If the application's staging is **neither declared nor defined**, no mandate on the code is issued and the maintainer is told why (**fail closed**). **(M, P for the fail-closed default)**
 4. **Mission in the staging world.** A mandate is granted. The worker agent works in a workspace in the staging machine: it deploys the application there, changes the code, rebuilds, redeploys, tests (requests, a browser, the real behaviour), and iterates until it believes the problem is solved. It hands over a **dossier**. **(M)**
 5. **Controller, first crossing.** The controller reads the dossier and checks, without bias, that the contract was respected (section 5.6). If yes, it grants the mandate for the Git world; if no, it sends the mission back or ends it. **(M)**
-6. **Mission in the Git world.** The worker agent opens the pull request, follows the CI/CD pipelines, fixes what they report, and merges into develop when the rules allow. It hands over a dossier. **(M)**
+6. **Mission in the Git world.** The worker agent prepares its branch, **asks** for the pull request to be opened (a gated act performed by the runner or the control plane), follows the CI/CD pipelines, fixes what they report on its own branch, and **asks** for the merge into the integration branch when the rules allow. It hands over a dossier. **(M)**
 7. **Controller, second crossing.** The controller reads the new dossier (the pipelines' verdict, the merged commit). It grants the mandate for the release world, or refuses. **(M)**
-8. **Mission in the release world.** The worker agent deploys to production through the way the environment is deployed, then verifies the result as a tester would, with evidence. If production does not behave, it rolls back. **(M, rollback from rule 5 of CLAUDE.md)**
+8. **Mission in the release world.** The worker agent **asks** for the deployment, which the runner performs through the way the environment is deployed, then verifies the result as a tester would, with evidence. If production does not behave, it **asks** for the rollback, which the runner performs. **(M, rollback from rule 5 of CLAUDE.md; the acts are gated, P)**
 9. **Closed, or looped.** If the verification is good, the problem is closed and a report is written. If a defect shows up later, **a new mandate** is asked to repair (P8); the loop is bounded (section 5.11). **(M)**
 10. **Told.** The maintainer gets what is useful: nothing for a simple success, a notification for a complex case, a failure, an exposed secret, a loop that hit its limit. **(M)**
 
@@ -162,7 +162,7 @@ Each world has its own **place, rights and acts**. The rights are given by the e
 **FR-WLD-5.** A staging mission cannot push to the forge or reach production. **(P)**
 
 **The Git world** **(M)**
-**FR-WLD-6.** The agent works with the forge: branch, pull request, reading the CI/CD and quality pipelines, fixing what they report, merging into the integration branch when the repository's rules allow. **(M)**
+**FR-WLD-6.** The agent works with the forge through its own limited identity: branch, push to its own branches, reading the CI/CD and quality pipelines, fixing what they report. **Opening the pull request and merging into the integration branch are gated acts** that it asks for and that the runner or the control plane performs when the rules allow. **(M for the work, P for the gating)**
 **FR-WLD-7.** The agent **never modifies a pipeline** or the files that decide quality and release (workflows, quality configuration, ownership files, protection rules). The forge enforces it (FR-WLD-10: no `workflows` permission, protected files). If one of them is itself broken, the agent gives the maintainer **a patch or an issue**, never a pushed change and never a merge (CASE-08). **(M, P for the mechanism)**
 **FR-WLD-8.** The agent never pushes directly to a protected branch. **(M, rule 5)**
 **FR-WLD-9.** The agent may add or change tests when the quality gate needs it (coverage, for example); every change is visible in the pull request. **(M)**
@@ -170,11 +170,11 @@ Each world has its own **place, rights and acts**. The rights are given by the e
 **FR-WLD-10b.** Jobs that run on a branch written by the agent run **without secrets** (secrets sit behind environments that require a reviewer), so that a changed test, build script or workflow cannot exfiltrate a secret before anyone has looked. **(P)**
 
 **The release world** **(M)**
-**FR-WLD-11.** The agent deploys to production **through the way the environment is deployed** (GitOps, a declared deployment, an infrastructure-as-code apply), never by an improvised command on a machine. **(P)**
+**FR-WLD-11.** The agent **asks** for the deployment to production, which the runner performs **through the way the environment is deployed** (GitOps, a declared deployment, an infrastructure-as-code apply), never by an improvised command on a machine. **(P)**
 **FR-WLD-12.** After a deployment the agent **verifies** the application as a tester would (section 5.8). **(M)**
 **FR-WLD-12b.** The agent's requests to production go through an **egress proxy that allows only safe methods** (read) to production hosts and holds no production session or credential. A verification that has to change something (a request that writes) is a **declared act** performed under the mandate, not an improvised request. **(P)**
-**FR-WLD-13.** If the verification fails, the agent **rolls back**; the way back is known before the deployment starts. **When there is nothing to verify** (an application with no check), the release is allowed under the rule decided for CASE-17, is marked **unverified**, and the maintainer is told. **(M, rule 5; P for the unverified mark)**
-**FR-WLD-14.** A release mandate is issued only for an artifact that passed the Git world's pipelines **and was proved in staging, identified by its digest**. Any change of code **after** staging (a fix made in the Git world to satisfy a pipeline) gives a new digest and **sends the problem back to the staging world** for that digest; the release check compares digests. **(P, to confirm; the alternative is that staging deploys the artifact the CI built)**
+**FR-WLD-13.** If the verification fails, the agent **asks for a rollback**, which the runner performs; the way back is known before the deployment starts. **When there is nothing to verify** (an application with no check), the release is allowed under the rule decided for CASE-17, is marked **unverified**, and the maintainer is told. **(M, rule 5; P for the unverified mark)**
+**FR-WLD-14.** A release mandate is issued only for an artifact that passed the Git world's pipelines. **For an application with a staging, it is also the artifact proved in staging, identified by its digest**: any change of code **after** staging (a fix made in the Git world to satisfy a pipeline) gives a new digest and **sends the problem back to the staging world** for that digest; the release check compares digests. **For an application declared as having no staging**, only the pipelines' artifact is required. **(P, to confirm; the alternative is that staging deploys the artifact the CI built)**
 
 ### 5.5 Mandates
 
@@ -183,8 +183,8 @@ Each world has its own **place, rights and acts**. The rights are given by the e
 **FR-MAN-3.** A mandate **cannot be widened** by the agent that holds it. A change of scope is a new mandate. **(P)**
 **FR-MAN-4.** A mandate **expires** and can be **revoked**: by the kill switch, by the maintainer, by the budget. A revoked mandate stops its mission at once. **(M for the stop, P for the rest)**
 **FR-MAN-5.** Every mandate, every refusal and every crossing is written in the **audit trail**, with who decided and on what evidence. **(M, rule 5)**
-**FR-MAN-6.** A mandate on the code of an application is **refused while the application's staging requirement is not met** (section 5.7). **(M)**
-**FR-MAN-7.** Preconditions that the code can check are **checked by the code**, not left to the controller: the plan covers it, the budget is available, the kill switch is not engaged, the staging requirement is met, the previous mission's dossier exists, the diff touches no forbidden file, the continuous integration is green on the exact commit (release), the artifact is the one proved in staging. **The facts are fetched by the control plane itself** (the diff and the CI status from the forge on the exact commit, the health from Portarr), **never taken from the runner or from the dossier**; a mismatch between the worker's claim and the facts fails the check before the controller runs. **(P)**
+**FR-MAN-6.** A mandate on the code of an application is **refused while its staging is not usable**: staging **declared** and **baseline proven and not stale**, or the application **explicitly declared by the maintainer as having no staging** (CASE-17). An application whose staging is **neither declared nor defined** is refused (**fail closed**). **(M for the principle, P for the fail-closed default)**
+**FR-MAN-7.** Preconditions that the code can check are **checked by the code**, not left to the controller: the plan covers it, the budget is available, the kill switch is not engaged, the staging is usable (FR-MAN-6), the previous mission's dossier exists, the diff touches no forbidden file, the continuous integration is green on the exact commit (release), the artifact is the one proved in staging (FR-WLD-14). **The facts are fetched by the control plane itself** (the diff and the CI status from the forge on the exact commit, the health from Portarr), **never taken from the runner or from the dossier**; a mismatch between the worker's claim and the facts fails the check before the controller runs. **(P)**
 
 ### 5.6 The controller
 
@@ -206,7 +206,7 @@ This section answers the maintainer's question: *is there an environment that is
 **FR-STG-1.** Every application has a **staging requirement**, one of: **none** (it can be tested on a blank machine); **dependencies** (it needs declared other services or data); **full stack** (it needs the whole constellation it runs in). **(P, from the maintainer's examples: a monitoring tool needs nothing; a multi-service application needs its whole stack)**
 **FR-STG-2.** Every application that runs in production **must exist in staging** as a prerequisite, switched off or created on demand. Third-party applications are included. **(M)**
 **FR-STG-3.** An application has a **staging state**, one of: **not defined**; **defined** (how to bring it up is known); **provisioned** (it exists and can start); **baseline proven** (it was brought up on unchanged code and its tests passed, on a given revision and date); **stale** (the code or the production configuration moved since); **broken**. **(P)**
-**FR-STG-4.** A mandate on an application's code is **granted only when its staging requirement is met**: requirement none, or state **baseline proven** and not stale. For an application with no staging requirement defined, the rule of CASE-17 applies. **(M)**
+**FR-STG-4.** A mandate on an application's code is **granted only when its staging is usable**: requirement **none** (a blank machine is enough), or state **baseline proven** and not stale, or the application **explicitly declared by the maintainer as having no staging** (the rule of CASE-17, recorded as an accepted risk). **Undeclared is not the same as declared as having none**: an application nobody has described is **refused**, not let through. A **broken** or **stale** staging refuses the mandate until the baseline is proved again. **(M for the principle, P for the distinction)**
 **FR-STG-5.** The **baseline proof is itself a mission** (CASE-20): bring the application up on the unchanged code and test it. Its result is the state above. **(M)**
 **FR-STG-6.** Staging is **the same infrastructure code as production, applied to another inventory**, so that the two drift as little as possible. **(M)**
 **FR-STG-7.** Staging environments are **created on demand and restored to a clean baseline** after a mission (virtual machine snapshots). **(M, the idea of virtual machines on demand)**
@@ -273,7 +273,7 @@ The maintainer's needs, not a screen design. The existing screens are adapted; n
 These are traces of behaviour, not scripts: the steps inside a world are the agent's.
 
 **CASE-01: a routine dependency bump.**
-The bot opens a pull request; the problem is in the plan (a standing rule covers it). If the application has a staging, its baseline is checked, a **staging mission** deploys the bump there and the agent verifies the application; the controller reads the dossier and grants the Git mandate; the agent follows the pipelines and merges into develop; the controller grants the release mandate; the agent deploys and verifies. Closed. The maintainer received nothing.
+The bot opens a pull request; the problem is in the plan (a standing rule covers it). If the application has a staging, its baseline is checked, a **staging mission** deploys the bump there and the agent verifies the application; the controller reads the dossier and grants the Git mandate; the agent follows the pipelines and asks for the merge into develop; the controller grants the release mandate; the agent asks for the deployment and verifies. Closed. The maintainer received nothing.
 
 **CASE-02: a dependency is deprecated, the code must change.**
 The finding (a deprecation) opens a problem. The **staging mission** is the heavy one: the agent reads the library's notes and the build's errors, finds the replacement, refactors, writes or adapts tests, runs them, tests the application in staging. Its dossier says what changed and why. It marks the case **complex**. The Git and release worlds go as in CASE-01. At the end, an email tells the maintainer what to test.
@@ -349,13 +349,13 @@ At the functional level only. The architecture will say where each piece goes.
 **Decided by the maintainer**
 - Missions defined by place, as worlds (staging, Git, release), moved between by mandates; the controller is an agent; a bounded loop. (2026-11-13)
 - The agent is a developer with a mission, and the frame, not the path, is fixed. (2026-11-12, 2026-11-13)
-- A simple case is finished in production once staging is verified; "complex" is decided by the agent and notified by email; a broken pipeline is fixed by a pull request that the maintainer merges; an application with no staging or tests goes on like the others. (2026-11-13)
+- A simple case is finished in production once staging is verified; "complex" is decided by the agent and notified by email; a broken pipeline is handed to the maintainer as a patch or an issue, never pushed or merged by the agent; an application with no staging or tests goes on like the others. (2026-11-13)
 - Verification is done by the agent as a tester; a bare health check is a last resort. (2026-11-13)
 - Every production application must have a staging counterpart; staging mirrors production by the same infrastructure code; no real secret or side effect in staging. (2026-11-13)
 - Staging runs on a spare machine with a hypervisor: two virtual machines at once, a small disk (configuration of the platform). (2026-11-13)
 
 **Open points**
-1. How the **staging requirement** of each application is declared (in the description of the perimeter, in Portarr, or in the repository), and who writes it.
+1. How the **staging requirement** of each application is declared: **in the description of the perimeter, which only the maintainer edits** (never in the application's own repository, which a worker could change); Portarr supplies the facts. The form of the declaration is open.
 2. Where the **baseline verdict** (staging state) is stored and whether Portarr shows it.
 3. What the **controller** checks by judgement and what the code checks mechanically, and how it is kept independent.
 4. What a **mandate** contains exactly (acts, expiry, budget) and how it relates to today's approvals.

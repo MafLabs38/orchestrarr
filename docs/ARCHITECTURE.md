@@ -214,7 +214,7 @@ A **world** is a *place with rights*. It is realised by three things: a **runner
 
 | | Staging world | Git world | Release world |
 |---|---|---|---|
-| **Where the runner is** | In or beside the staging virtual machine | A workshop host (a machine separate from production, with the forge reachable) | Near the production environments, with the connection each environment is deployed through |
+| **Where the runner is** | **On the platform side, outside the virtual machine the agent controls**, driving the machine through the platform controller and a restricted channel | A workshop host, **in a process, user and filesystem separate from the agent's sandbox** (a machine separate from production, with the forge reachable) | Near the production environments, **never in the agent's sandbox or on its filesystem**, with the connection each environment is deployed through |
 | **What the agent works on** | A checkout and the application deployed in staging | A checkout, the pull request, the CI/CD runs | The deployed application in production |
 | **Tools** | Shell, git, build and test tools, **rootless or throwaway containers that give no access to the host**, requests, a browser automation | Shell, git (push to its own non-protected branches only), build and test tools; **no client that opens or merges a pull request** | Requests through an **egress proxy that allows safe methods only**, a browser automation, and **declared acts** the runner performs for it (deploy a version, roll back) |
 | **Credentials the agent sees** | None of production | A forge identity that **reads and pushes to `orchestrarr/*` branches only, without the `workflows` permission**. Opening a pull request and merging use **another identity** held by the runner or the control plane | None. The runner holds the deployment credentials and performs the acts the mandate allows |
@@ -434,7 +434,7 @@ sequenceDiagram
 |---|---|---|
 | Control plane and its storage | An environment of the production fleet. **Orchestrarr's own repository, images and runners are outside its own perimeter** (or need the maintainer's merge): it never changes the product that holds its mandates [FR-SAF-11] | One container; the model provider and the mail are reached from it |
 | Controller sandbox | A runner profile `controller` on a host independent of the worker runners, no tools, no network but the model provider (through the credential proxy) | Independent of the worker's runners |
-| Staging runner | The laboratory machine's staging virtual machines | Two slots |
+| Staging runner | On the platform side of the laboratory machine, outside the staging virtual machines | The slots are configuration |
 | Git runner (workshop) | A machine separate from production; at first the development host | **Open**: a dedicated workshop |
 | Release runner | A machine with the connections that production environments are deployed through | **Open**: which machine, which credentials |
 | Staging platform | A spare machine with a hypervisor (a few virtual machines, a small disk) | Constrains the number of stagings; the slot count is configuration |
@@ -474,9 +474,9 @@ The **API** stays REST, first, and the live hub carries what changes (topics for
 1. **Where the worker and controller agents physically run**, and how the controller sandbox is kept independent from every runner.
 2. **How the platform controller reaches the hypervisor**, and what exactly its token may do.
    **Configuration, not facts of the product**: the model of each agent role, the integration branch per repository, the number of staging slots.
-3. **The signature of a mandate** (a symmetric key shared with each runner, or an asymmetric key pair), and how a runner's identity is established.
+3. **How a runner's identity is established** (the signature of a mandate is decided: asymmetric, ADR 0031).
 4. **The mail path**: through Portarr or directly.
-5. **The forge identity** of the agent: a GitHub App limited per repository (the recommendation), and how its protection rules are written as code.
+5. **How the rulesets and code owners of each repository are written as code**, and how the agent's identity is created (a GitHub App without the workflows permission, decided in ADR 0035).
 6. **The description of the staging requirement**: where it is declared, who writes it.
 7. **Retention** of dossiers, traces and evidence.
 8. **The workshop and release hosts.**
