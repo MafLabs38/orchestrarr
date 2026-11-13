@@ -47,6 +47,7 @@ Weight: **S** simple (an agent reads, changes a line or two, the pipelines decid
 | CASE-17 | An application without tests or staging | A bump on an application that nothing verifies | Goes on to production like the others, with no net: nothing verifies the result (decided 2026-11-13) | S | A small application with no tests and no staging |
 | CASE-18 | A backup does not work | A backup finding (last success too old, never ran) | The cause is found and repaired on the machine, and a backup is shown to succeed (a later vertical) | M | A backup with a broken credential or a full disk |
 | CASE-19 | A failure in an application made of several services | A front end or one service of a multi-service application breaks after an update | The change is tested where the whole application runs (the staging stack, in a space reserved to the mission), not only in an isolated container; nothing in staging has a real side effect (no real secret, no real order) | C | A small multi-service application (front end, API, database, one external call) with a break that only shows end to end |
+| CASE-20 | The staging is proved healthy before anything changes | A mission on an application that has a staging | The application is brought up in staging on the unchanged code and tested by the agent; only when that baseline passes does the mission on the change start, so that a failure can be attributed to the change and not to the staging | S | A staging that is broken on purpose (a missing dependency, a stale data set) |
 
 ## 4. The laboratory
 
@@ -56,7 +57,7 @@ One repository (private) of **deliberately broken projects**, one or more for ea
 - **To judge** a change of Orchestrarr: the cases are the end-to-end tests. A case that does not resolve is a defect of the product.
 - **To grow**: a real incident that Orchestrarr mishandles becomes a new case.
 
-The staging machine is a separate machine of the maintainer's (arriving 2026-11-14). The testbed repository already in use for the first scenarios (`SCENARIOS.md`) is the seed of the laboratory.
+The staging machine is a separate machine of the maintainer's (arriving 2026-11-14): a former hypervisor, a Xeon E3-1270 with 32 GB of DDR3, a small system SSD and 1 TB in RAID 1, running a hypervisor (Proxmox) with **two virtual machines**, so two stagings can run at the same time. The size of a staging virtual machine is bounded by the small SSD. The testbed repository already in use for the first scenarios (`SCENARIOS.md`) is the seed of the laboratory.
 
 Open: the shape of the laboratory (one repository or one per family of cases, how the faults are reset between runs, how much of production's pipeline it copies).
 
@@ -104,7 +105,7 @@ Each sheet says what is known. **Open** marks what is not.
 - **Verification** is done by the agent as a tester would: real requests, a browser run, the behaviour that matters for that application. A bare health check is avoided whenever something better can be done (decided 2026-11-13).
 - **Open**: how a deployment on a machine without GitOps is done (a connection to the machine, a declared action).
 
-### CASE-05 to CASE-19
+### CASE-05 to CASE-20
 
 The sheets for these are written when the maintainer has read the table and said which ones matter first. Until then the table is the specification: trigger, expected outcome, weight and the fault to plant.
 
@@ -120,6 +121,30 @@ These come out of the cases and apply to all of them. They are needs, not design
 - **Failing cleanly**: a mission that cannot be finished leaves the system as it was, and says so.
 - **What was done is told**: a report per mission, in plain words, and an audit trail.
 - **Stopping**: a global stop reaches a mission that is running.
+
+## 6a. Staging policy (the maintainer's, 2026-11-13)
+
+- Many cases **cannot be proved without deploying the application, or a large part of it**, with the services it depends on. A single container is enough for a one-container application, not for a rich one (a multi-service trading application, a media stack that needs its indexers and download clients together).
+- So **every application that runs in production must also exist in staging**, as a prerequisite. It does not have to run all the time: it can be switched off, or created on demand as a dynamic environment (a virtual machine started when a mission needs it, restored to a clean baseline afterwards). Applications the maintainer does not maintain (third-party) are included: a version bump of one of them is tested with its whole constellation.
+- The staging is the **same infrastructure code as production applied to another inventory**, so that the two drift as little as possible.
+- Staging holds **no real secret and has no real side effect** (no real order, no real credential); each application settles what is safe.
+- **The staging is a property of the application.** An application with a staging goes through it; an application without one follows the rule already decided for an application with no net (CASE-17).
+- The staging is **proved healthy before** a mission changes anything (CASE-20).
+- Rolling it out is a long piece of infrastructure work, done application by application, starting with the ones that matter most.
+
+## 6c. Missions, worlds and mandates (agreed in broad lines, 2026-11-13)
+
+What defines a mission is **where it happens, not what it contains.** The maintainer sees the work as a chain of **worlds**, each a different place with different rights:
+
+1. **The staging world**: a workspace in the staging virtual machine, where the application is deployed from the branch and where the agent changes the code, rebuilds, redeploys and tests, the way a preview environment is used for a front end.
+2. **The Git world**: branch, pull request, CI/CD, merge into develop, the quality pipelines.
+3. **The release world**: deployment in production, verification, rollback.
+
+To move from one world to the next, the agent **asks the control plane for a mandate.** The control plane is itself an agent: it reads what the first one did and the evidence it brought, checks **without bias** that the contract was respected, and grants or refuses the mandate. This is a **cross-check** between two agents. The agent chooses how to work inside a mandate; it shows what it did before it gets the next one.
+
+The chain loops. A defect found in production does not end the story: a **new mandate** is asked to repair, and so on. The loop has a **limit** (a number of mandates and a time) after which the maintainer is told and the work stops.
+
+Kept open for the design: what the control-plane agent may check mechanically and what it judges; how it is kept independent from the worker (its own context, reading only the evidence); what a mandate says (the world, the acts, the budget, the expiry); how a mission gets from one world to the next (the "dossier" it hands over).
 
 ## 6b. What feeds the cases (inbound sources)
 
