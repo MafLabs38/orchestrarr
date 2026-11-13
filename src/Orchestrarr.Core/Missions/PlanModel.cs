@@ -39,6 +39,9 @@ public interface IMissionStore
     void Save(Mission mission);
 
     IReadOnlyList<Mission> ForProblem(string problemId);
+
+    /// <summary>The newest missions first, for the screens.</summary>
+    IReadOnlyList<Mission> Recent(int limit);
 }
 
 public interface IMandateLedger

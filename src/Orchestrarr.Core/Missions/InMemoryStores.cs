@@ -5,14 +5,22 @@ namespace Orchestrarr.Core.Missions;
 public sealed class InMemoryMissionStore : IMissionStore
 {
     private readonly ConcurrentDictionary<string, Mission> _missions = new(StringComparer.Ordinal);
+    private readonly ConcurrentQueue<string> _order = new();
 
     public Mission? Get(string id) => _missions.GetValueOrDefault(id);
 
     public void Save(Mission mission)
     {
         ArgumentNullException.ThrowIfNull(mission);
+        if (_missions.TryAdd(mission.Id, mission))
+        {
+            _order.Enqueue(mission.Id);
+            return;
+        }
         _missions[mission.Id] = mission;
     }
+
+    public IReadOnlyList<Mission> Recent(int limit) => [.. _order.Reverse().Take(Math.Max(limit, 0)).Select(id => _missions[id])];
 
     public IReadOnlyList<Mission> ForProblem(string problemId) => [.. _missions.Values.Where(mission => mission.ProblemId == problemId).OrderBy(mission => mission.Id, StringComparer.Ordinal)];
 }

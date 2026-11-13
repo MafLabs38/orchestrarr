@@ -16,6 +16,7 @@ using Orchestrarr.Host.Approvals;
 using Orchestrarr.Host.Accounts;
 using Orchestrarr.Host.Decisions;
 using Orchestrarr.Host.Live;
+using Orchestrarr.Host.Missions;
 using Orchestrarr.Host.Settings;
 using Orchestrarr.Host.Storage;
 using Orchestrarr.Host.Tasks;
@@ -65,6 +66,8 @@ var optionsSettings = (builder.Configuration.GetSection(SecurityOptionsConfigura
 builder.Services.AddApprovals(approvals, grants, storage, tasks, optionsSettings);
 // The accounts share the database of the approvals, so they come after it; the cookie's keys sit next to the database when there is one
 builder.Services.AddAccounts(auth, storage);
+// The missions, the mandates and the conductor of a problem (ADR 0030 to 0032); they share the database too
+builder.Services.AddMissions(builder.Configuration, storage, builder.Environment.ContentRootPath);
 builder.Services.AddOrchestrarrSecurity(auth, storage is SqliteStorage file ? Path.Combine(Path.GetDirectoryName(file.Path) ?? builder.Environment.ContentRootPath, "keys") : null);
 builder.Services.AddSingleton(builder.Configuration.GetSection(WorkItemCatalogOptions.SectionName).Get<WorkItemCatalogOptions>() ?? new WorkItemCatalogOptions());
 builder.Services.AddSingleton<WorkItemCatalog>();
@@ -148,6 +151,12 @@ api.MapApprovalEndpoints();
 app.MapHub<LiveHub>(LiveHub.Path, options => options.CloseOnAuthenticationExpiration = true).RequireAuthorization(Permissions.FleetRead);
 api.MapProblemsEndpoints();
 api.MapRunEndpoints();
+api.MapMissionEndpoints();
+if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Testing"))
+{
+    // Fake agents and fake facts, no power: for the sandbox and the tests, never for a deployment
+    api.MapDevMissionEndpoints();
+}
 // The routes of the runners carry their own token and no session: they are mapped outside the group that needs a person
 app.MapRunnerEndpoints(tasks);
 

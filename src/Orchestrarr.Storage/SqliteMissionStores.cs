@@ -47,6 +47,15 @@ public sealed class SqliteMissionStore(SqliteDatabase database) : IMissionStore
         return Bodies<Mission>(command);
     });
 
+    public IReadOnlyList<Mission> Recent(int limit) => SqliteDatabase.Guard(() =>
+    {
+        using var connection = database.Connect();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT body FROM missions ORDER BY rowid DESC LIMIT $limit;";
+        command.Parameters.AddWithValue("$limit", Math.Max(limit, 0));
+        return Bodies<Mission>(command);
+    });
+
     internal static object? Scalar(SqliteDatabase database, string sql, string key)
     {
         using var connection = database.Connect();
