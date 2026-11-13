@@ -1,6 +1,6 @@
 # 0036 — Loops are bounded, a failure is told, and a clean stop leaves nothing half done
 
-- **Status**: proposed (the architecture was described to the maintainer on 2026-11-13 and he agreed with it in broad lines; accepted when the pull request that carries it is merged)
+- **Status**: proposed (the architecture was described to the maintainer on 2026-11-13 and the maintainer agreed with it in broad lines; accepted when the pull request that carries it is merged)
 - **Date**: 2026-11-13
 - **Spec**: D-89 ([FUNCTIONAL.md](../FUNCTIONAL.md), [ARCHITECTURE.md](../ARCHITECTURE.md))
 
@@ -18,4 +18,4 @@ The maintainer wants the system to iterate (a defect found after a world opens a
 
 ## Consequences
 
-- Budgets are in attempts, turns and minutes, not money: a quota that is used up pauses and resumes.
+- Budgets are in attempts, turns and minutes, not money: a quota that is used up pauses and resumes. This settles SPEC Q-09.

@@ -2,7 +2,7 @@
 
 > Self-hosted orchestrator agent that coordinates worker agents to keep a fleet of applications healthy, in the spirit of the *arr suite.
 
-**Project stage: first verticals, read-only.** The safety model is accepted ([ADR 0001](docs/adr/0001-merge-and-deploy-on-operator-approval.md)) and the first vertical reads findings and shows decision cards. Orchestrarr holds **no write power yet**: do not grant a power that merges, deploys or writes to a repository before the maintainer has decided it. The agent runtime is decided (Claude Code, non-interactive; SPEC D-24, D-25, ADR 0004).
+**Project stage: restructuring around [FUNCTIONAL.md](docs/FUNCTIONAL.md); the first verticals are read-only.** The first design (fixed typed tasks, ceilings per row) is being replaced by missions, mandates and a controller agent ([ADR 0038](docs/adr/0038-what-the-first-design-built-and-this-supersedes.md)); do not extend the typed-task path. The safety model is accepted ([ADR 0001](docs/adr/0001-merge-and-deploy-on-operator-approval.md)) and the first vertical reads findings and shows decision cards. Orchestrarr holds **no write power yet**: do not grant a power that merges, deploys or writes to a repository before the maintainer has decided it. The agent runtime is decided (Claude Code, non-interactive; SPEC D-24, D-25, ADR 0004).
 
 This file is read automatically by Claude Code. It applies to every task in this repository.
 
@@ -12,6 +12,8 @@ This file is read automatically by Claude Code. It applies to every task in this
 |---|---|
 | [docs/VISION.md](docs/VISION.md) | Always: why this exists, what it must do, safety model, open questions |
 | [docs/TESTING.md](docs/TESTING.md) | Before writing or changing tests, or the pipeline: the strategy, the lanes, the thresholds |
+| [docs/FUNCTIONAL.md](docs/FUNCTIONAL.md) | Always: **the reference.** What the product does, by requirement. It wins over SPEC.md and the older ADRs until the reconciliation is finished ([ADR 0038](docs/adr/0038-what-the-first-design-built-and-this-supersedes.md)) |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/USE-CASES.md](docs/USE-CASES.md) | Before designing or building: the target architecture, and the cases that are also the end-to-end tests |
 | [docs/SPEC.md](docs/SPEC.md) | Always: frozen decisions `D-xx`, features `F-xx`, open questions `Q-xx` (same format as Portarr's). Draft, from the first interviews |
 
 ## Tech stack
@@ -20,7 +22,7 @@ Same as Portarr, so the three products share conventions:
 
 - **Backend**: .NET 10 (LTS), C# 14, ASP.NET Core (SignalR for the live screens, [ADR 0025](docs/adr/0025-everything-that-changes-is-pushed-to-the-screens-as-it-changes.md); FluentValidation planned, not used yet)
 - **Frontend**: React, TypeScript (strict), Vite, TanStack Query, CSS Modules
-- **Runner**: .NET, a separate process per environment that takes the approved tasks and runs them (`src/Orchestrarr.Runner`, it checks everything, then validating a pull request runs for real in a throwaway container and `RepairPullRequest` starts an agent in a container (both only when configured, [ADR 0024](docs/adr/0024-a-pull-request-is-validated-for-real-and-an-agent-may-try-to-repair-it-on-paper.md)); merging is a dry run and nothing is written to a repository; [ADR 0017](docs/adr/0017-orders-are-typed-tasks-approved-with-a-second-factor-that-the-executor-checks.md)). The earlier plan of a Rust launcher held by shared vectors (ADR 0014) is superseded
+- **Runner**: .NET, a separate process per environment that takes the approved tasks and runs them (*being superseded by [ADR 0038](docs/adr/0038-what-the-first-design-built-and-this-supersedes.md): the typed-task handlers are replaced by missions and mandates*; `src/Orchestrarr.Runner`, it checks everything, then validating a pull request runs for real in a throwaway container and `RepairPullRequest` starts an agent in a container (both only when configured, [ADR 0024](docs/adr/0024-a-pull-request-is-validated-for-real-and-an-agent-may-try-to-repair-it-on-paper.md)); merging is a dry run and nothing is written to a repository; [ADR 0017](docs/adr/0017-orders-are-typed-tasks-approved-with-a-second-factor-that-the-executor-checks.md)). The earlier plan of a Rust launcher held by shared vectors (ADR 0014) is superseded
 - **Tests**: xUnit v3 + NSubstitute + AwesomeAssertions, Vitest + Testing Library, Playwright (by hand against the sandbox, no committed suite yet; see [docs/TESTING.md](docs/TESTING.md) §6)
 - **Quality**: analyzers as errors and `dotnet format`, ESLint (SonarJS), Stylelint, Prettier, SonarQube, CodeQL, gitleaks, Trivy, Stryker, the five review agents. Same as Portarr, plus the fifth agent (`spec-reviewer`, [ADR 0008](docs/adr/0008-a-fifth-agent-keeps-the-documentation-true.md))
 - **CI/CD**: GitHub Actions, a container image on GHCR for the control plane (amd64 now, multi-arch when a target needs it); the Runner will have an image of its own ([ADR 0017](docs/adr/0017-orders-are-typed-tasks-approved-with-a-second-factor-that-the-executor-checks.md))

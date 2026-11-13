@@ -1,7 +1,7 @@
 # Orchestrarr: target architecture
 
-> **Status**: draft v0.1 (2026-11-13). Drawn from [FUNCTIONAL.md](FUNCTIONAL.md), which is the reference: every box below serves a requirement of it, named between brackets (for example `[FR-MAN-1]`). It replaces the architecture of the first verticals, which was built around fixed tasks and is being restructured (see the implementation plan, kept privately).
-> It says *how the product is built*, in broad but precise lines. It is **not yet decided** where a sentence says **Open**. The decision records (ADRs) for the big choices are written after the maintainer has read this document.
+> **Status**: draft v0.2 (2026-11-13), amended after the first review. Drawn from [FUNCTIONAL.md](FUNCTIONAL.md), which is the reference: every box below serves a requirement of it, named between brackets (for example `[FR-MAN-1]`). It replaces the architecture of the first verticals, which was built around fixed tasks and is being restructured (the phases of the work follow from it).
+> It says *how the product is built*, in broad but precise lines. It is **not yet decided** where a sentence says **Open**. The decision records for the big choices are ADRs 0030 to 0038.
 
 ## Contents
 
@@ -95,7 +95,7 @@ flowchart TB
 | **UI** | React, served by the control plane | The plan, missions in progress, history, staging state, the bell | FR-VIEW |
 | **Runner** | One .NET program, **configured with a world profile** (staging, Git, release), one or more per world | A workspace for a mission, the enforcement of a mandate's frame, the trace, the evidence | FR-WLD, FR-SAF |
 | **Agent sandbox** | A container started by a runner for one mission | The worker agent and the developer's tools | FR-WLD-3 |
-| **Controller sandbox** | A container with **no tools**, started by the control plane per decision | The controller agent and the dossier it reads | FR-CTL |
+| **Controller sandbox** | A container with **no tools**, run by a **dedicated runner profile (`controller`)** on a host independent of the worker runners, started for one decision | The controller agent and the dossier and facts it reads | FR-CTL |
 | **Storage** | One SQLite database for the control plane, one local store per runner | Plan, missions, mandates, dossiers, decisions, audit | section 11 |
 
 The runner is **plastic**: it does not know what a bump or a refactor is. It knows a mandate, a world profile and a workspace. [FR-MIS-2, section 9 of FUNCTIONAL]
@@ -216,8 +216,8 @@ A **world** is a *place with rights*. It is realised by three things: a **runner
 |---|---|---|---|
 | **Where the runner is** | In or beside the staging virtual machine | A workshop host (a machine separate from production, with the forge reachable) | Near the production environments, with the connection each environment is deployed through |
 | **What the agent works on** | A checkout and the application deployed in staging | A checkout, the pull request, the CI/CD runs | The deployed application in production |
-| **Tools** | Shell, git, build and test tools, container tooling for staging, requests, a browser automation | Shell, git, the forge client (limited identity), build and test tools | Requests, a browser automation (read-only against production), and **declared acts** the runner performs for it (deploy a version, roll back) |
-| **Credentials the agent sees** | None of production | A forge identity limited to the repositories of the mission | None. The runner holds the deployment credentials and performs the acts the mandate allows |
+| **Tools** | Shell, git, build and test tools, **rootless or throwaway containers that give no access to the host**, requests, a browser automation | Shell, git (push to its own non-protected branches only), build and test tools; **no client that opens or merges a pull request** | Requests through an **egress proxy that allows safe methods only**, a browser automation, and **declared acts** the runner performs for it (deploy a version, roll back) |
+| **Credentials the agent sees** | None of production | A forge identity that **reads and pushes to `orchestrarr/*` branches only, without the `workflows` permission**. Opening a pull request and merging use **another identity** held by the runner or the control plane | None. The runner holds the deployment credentials and performs the acts the mandate allows |
 | **Network** | Staging only, plus the model provider, the package registries | The forge, the registries, the model provider | Production endpoints for verification, the model provider |
 | **What it cannot do** | Push, reach production | Touch pipelines, merge a protected file, push to a protected branch | Any act the mandate does not list |
 
@@ -228,7 +228,7 @@ One abstraction, in the control plane's domain, runs a model in a sandbox: **it 
 - **Worker**: the full toolset of the world, the workspace, the mission's objective; output is the dossier and the evidence.
 - **Controller**: **no tools**; the input is the dossier and the facts; output is a decision in a fixed structure.
 
-Both use the maintainer's subscription token (held by the runner or the control plane, never put in a prompt, a log or the workspace). [FR-SAF-10]
+Both use the maintainer's subscription token, which is **never inside a sandbox**: a **credential proxy outside the sandbox** adds it to the calls to the model provider, and the sandbox holds a dummy or short-lived scoped credential. The worker's sandbox reaches the registries only through read-only mirrors or a caching proxy. [FR-SAF-10]
 
 ### Acts and tools: the line between free and gated
 
@@ -265,7 +265,7 @@ A mandate is a **signed statement of the control plane** that the runner checks 
 | Budget | Time, attempts, turns |
 | Expiry | After which the runner stops the mission |
 | Issued by | Plan validation, standing rule, or the controller's decision |
-| Signature | By the control plane's key; the runner verifies it and refuses otherwise |
+| Signature | **Asymmetric**: signed with a private key held **only by the control plane**; each runner holds the public key. A mandate is **bound to one runner identity and one world** and a runner refuses a mandate for another; it is **single-use** (a nonce is recorded), and the runner checks the kill switch and revocation **before every gated act**. A key shared between runners would let whoever takes a staging runner forge a release mandate |
 
 It reuses what exists: the approvals, the second factor on the maintainer's validation, the journal and the signature checks. A **plan validation** is an approval by the maintainer; a **standing rule** is a delegation; a **mandate** is what either of them produces for a given mission. [FR-MAN, FR-PLAN-5]
 
@@ -283,7 +283,7 @@ It reuses what exists: the approvals, the second factor on the maintainer's vali
 
 ### The controller
 
-- **Independent** [FR-CTL-2]: its own sandbox, **no tools**, a fresh context for every decision. It reads **the dossier and the facts the control plane gives it** (the diff, the pipeline result, the evidence files), **not the worker's reasoning**.
+- **Independent** [FR-CTL-2]: its own sandbox, **no tools**, a fresh context for every decision. It reads **the facts that the control plane fetched itself** (the diff and the CI status from the forge on the exact commit, the health from Portarr) **and the dossier, which is untrusted data**: the worker wrote it, so it is fenced as data in the prompt and never obeyed, and a grant never covers a step that the facts do not support. The tests and captures that matter are made or digested by the runner. The worker and the controller use the same model, so their errors can be correlated: this is why the mechanical checks and the facts outside the agent come first.
 - **Structured output** [FR-CTL-4]: grant, send back (with remarks), end, escalate; each with reasons.
 - **Bounded** [FR-CTL-6]: a number of send-backs per mission, then the mission ends and the maintainer is told.
 - **Cannot widen** [FR-CTL-5]: it cannot add acts or worlds that the plan does not allow, nor waive a mechanical check.
@@ -320,11 +320,11 @@ sequenceDiagram
 
 For each application: its **requirement** (none, dependencies, full stack), its **dependency set**, **how to bring it up** (the infrastructure code used for production applied to another inventory), its **safe configuration** (no real secret, no real side effect), and its **state** with the last **baseline**. [FR-STG]
 
-The catalogue lives in the control plane and **reads the facts from Portarr** (the staging environment exists, what runs there). The **verdict** (baseline proven) is Orchestrarr's, because only a test gives it. **Open**: whether Portarr shows the verdict, and where the requirement is declared (the description of the perimeter, Portarr, or the repository).
+The catalogue lives in the control plane and **stores only the verdict** (state, baseline revision, date, evidence digest). The facts (the staging environment exists, what runs there, the dependencies between applications, how an application is brought up) are **read from Portarr or from the description**, not copied. The knowledge that later missions read about an application comes from **Mnemarr** and is untrusted data for the agent. **Open**: whether Portarr shows the verdict, and where the requirement is declared (the description of the perimeter, Portarr, or the repository).
 
 ### The scheduler
 
-- **One mission at a time per application** [FR-MIS-6].
+- **One mission at a time per application, per repository and, in the release world, per target environment** [FR-MIS-6].
 - **Staging slots are scarce** (two at once on the laboratory machine): a staging mission waits for a free slot; the slot is reserved for the mission and released, restored to its baseline, at the end [FR-STG-7, FR-STG-8].
 - Priority by the problem's priority (a serious advisory first) [FR-FIND-6].
 
@@ -432,12 +432,12 @@ sequenceDiagram
 
 | Piece | Where | Note |
 |---|---|---|
-| Control plane and its storage | The production cluster, as another application of the fleet, deployed like the others | One container; the model provider and the mail are reached from it |
-| Controller sandbox | A host reachable by the control plane (a runner profile with no tools, no network but the model provider) | Independent of the worker's runners |
+| Control plane and its storage | An environment of the production fleet. **Orchestrarr's own repository, images and runners are outside its own perimeter** (or need the maintainer's merge): it never changes the product that holds its mandates [FR-SAF-11] | One container; the model provider and the mail are reached from it |
+| Controller sandbox | A runner profile `controller` on a host independent of the worker runners, no tools, no network but the model provider (through the credential proxy) | Independent of the worker's runners |
 | Staging runner | The laboratory machine's staging virtual machines | Two slots |
 | Git runner (workshop) | A machine separate from production; at first the development host | **Open**: a dedicated workshop |
 | Release runner | A machine with the connections that production environments are deployed through | **Open**: which machine, which credentials |
-| Staging platform | The former hypervisor (a Xeon E3 with 32 GB, two virtual machines, a small disk) | Constrains the number of stagings |
+| Staging platform | A spare machine with a hypervisor (a few virtual machines, a small disk) | Constrains the number of stagings; the slot count is configuration |
 
 ---
 
@@ -473,6 +473,7 @@ The **API** stays REST, first, and the live hub carries what changes (topics for
 
 1. **Where the worker and controller agents physically run**, and how the controller sandbox is kept independent from every runner.
 2. **How the platform controller reaches the hypervisor**, and what exactly its token may do.
+   **Configuration, not facts of the product**: the model of each agent role, the integration branch per repository, the number of staging slots.
 3. **The signature of a mandate** (a symmetric key shared with each runner, or an asymmetric key pair), and how a runner's identity is established.
 4. **The mail path**: through Portarr or directly.
 5. **The forge identity** of the agent: a GitHub App limited per repository (the recommendation), and how its protection rules are written as code.
