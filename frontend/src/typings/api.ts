@@ -247,7 +247,6 @@ export type CeilingReason =
   | 'notInScope'
   | 'managedByAutomation'
   | 'codeDiffersFromRunning'
-  | 'codeChangeShown'
   | 'severalEnvironments'
   | 'pinnedByDigest'
   | 'codeNotFullyRead';
@@ -290,9 +289,8 @@ export interface ProblemRow {
   applicationId: string | null;
   icon: string | null;
   source: string | null;
-  // Where the version is written in the code of the scope, and the version a change would write (ADR 0028)
+  // Where the version is written in the code of the scope (ADR 0028)
   locations: CodeLocation[] | null;
-  proposedTag: string | null;
   // The repositories of the description that cannot be read and that concern this row: the same warnings as the bell, on the row
   warnings: { repository: string; reason: string }[] | null;
 }
@@ -316,23 +314,6 @@ export interface CodeScopeStatus {
   stale: boolean;
   error: string | null;
   problems: { repository: string; reason: string }[];
-}
-
-// A change to a file of the scope, computed and not applied
-export interface CodeChange {
-  repository: string;
-  path: string;
-  line: number;
-  before: string;
-  after: string;
-  diff: string;
-}
-
-export interface CodeChangeReport {
-  rowId: string;
-  tag: string | null;
-  changes: CodeChange[];
-  left: CodeLocation[];
 }
 
 export type HistoryState = 'approved' | 'skipped';
