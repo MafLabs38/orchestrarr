@@ -174,7 +174,7 @@ stateDiagram-v2
     Seen --> SetAside: set aside
     InPlan --> InProgress: first mandate
     InProgress --> InProgress: next world, repair loop
-    InProgress --> Closed: verified in production
+    InProgress --> Closed: the controller closes it on facts
     InProgress --> Failed: budget, loop limit, ended
     Failed --> InPlan: taken again by the maintainer
     Closed --> InProgress: a defect shows up, new mandate

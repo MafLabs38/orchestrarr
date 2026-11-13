@@ -2,6 +2,8 @@
 
 > **Status**: draft v0.1 (2026-11-13), written from the maintainer's own words in the sessions of 2026-11-12 and 2026-11-13. It is the **base of work**: the architecture is drawn from it, not the reverse. It starts over from the use cases of [USE-CASES.md](USE-CASES.md).
 > **Scope**: what the product does, seen from the maintainer and from the systems around it. It says *what*, never *how it is built*. The architecture, the decision records (ADRs) and the existing [SPEC.md](SPEC.md) are reconciled with this document in a later pass; where they disagree, **this document wins** until then.
+> **Where the maintainer decided (M), this document wins over SPEC.md and the older ADRs until the reconciliation is finished; items marked (P) are proposals and do not override an accepted decision until the maintainer confirms them.**
+> **Where the maintainer decided (M), this document wins over SPEC.md and the older ADRs until the reconciliation is finished; items marked (P) are proposals and do not override an accepted decision until the maintainer confirms them.**
 > **Legend**: **(M)** the maintainer said it. **(P)** the assistant proposes it to fill a gap; it is not settled until the maintainer confirms it. Nothing here is built unless a section says so.
 
 ## Contents
@@ -146,7 +148,7 @@ An application with **no staging** skips steps 3 to 5; it goes from the plan str
 **FR-MIS-3.** A mission's life: **proposed, mandated, running, handing over, accepted, refused, ended** (done, complex, failed, stopped). **(P)**
 **FR-MIS-4.** A mission ends in one of: **done**, **done and complex**, **failed cleanly**, **stopped** (kill switch or budget). In every case it leaves a dossier and the system in a known state. **(M for clean stop, P for the names)**
 **FR-MIS-5.** The worker agent may **propose a further mission** (for example, "this bump needs a refactor first"). The control plane accepts it only within the plan's limits and a bound on the **number and the depth** of missions for one problem. **(M for the idea, P for the bound)**
-**FR-MIS-6.** At most **one mission at a time works on one application, on one repository and, in the release world, on one target environment** (several applications can share one infrastructure repository or one environment). **(P)**
+**FR-MIS-6.** At most **one mission at a time works on one application, on one repository and, in the release world, on one target environment**. **A problem holds the lock on its repository and environment from its first staging mission until it is closed or ended**, not only while a mission runs, so that another problem cannot merge in between and change the digest that was proved. **(P)**
 **FR-MIS-7.** The number of missions running together is bounded by what the machines can carry; in the laboratory, **two staging environments at once**. **(M)**
 **FR-MIS-8.** Orchestrarr keeps the history it needs for its screens and its audit. The **knowledge that later missions read** (what already broke on an application, runbooks) comes from **Mnemarr**, and is **untrusted data** for the agent: what an agent writes back is limited to fields the control plane produced (outcome, digest, links) or is reviewed by the maintainer before it becomes a runbook. **(M for memory, P for the rest)**
 
@@ -196,6 +198,7 @@ Each world has its own **place, rights and acts**. The rights are given by the e
 **FR-CTL-6.** The controller is **bounded** too: a number of send-backs per mission, after which the mission ends and the maintainer is told. **(P)**
 **FR-CTL-7.** When the controller and the worker disagree repeatedly, the problem is **escalated** rather than argued indefinitely. **(P)**
 **FR-CTL-8.** The tests and the captures that matter for a decision are **made or digested by the runner**, not only written by the agent, so that the controller does not rely on files fabricated by the worker. **(P)**
+**FR-CTL-9.** **Closing a problem, like rolling back, does not rest on the worker's word alone**: the runner makes or digests the verification evidence, the control plane reads the health from Portarr, and the **controller decides the closure** on those facts. A rollback is performed by the runner when the verification fails **or** when the health read from Portarr fails, even if the worker does not ask. **(P)**
 
 ### 5.7 Staging readiness
 
@@ -203,10 +206,10 @@ This section answers the maintainer's question: *is there an environment that is
 
 **The need.** Whether an application can be tested in staging depends on the application. A one-container tool may need nothing but a blank machine; a multi-service application needs its database, its other services and its front end. **(M)**
 
-**FR-STG-1.** Every application has a **staging requirement**, one of: **none** (it can be tested on a blank machine); **dependencies** (it needs declared other services or data); **full stack** (it needs the whole constellation it runs in). **(P, from the maintainer's examples: a monitoring tool needs nothing; a multi-service application needs its whole stack)**
+**FR-STG-1.** Every application has a **staging requirement**, one of: **blank machine** (it can be tested on a blank machine); **dependencies** (it needs declared other services or data); **full stack** (it needs the whole constellation it runs in). Not to be confused with an application **declared by the maintainer as having no staging** (FR-STG-4). **(P, from the maintainer's examples: a monitoring tool needs nothing; a multi-service application needs its whole stack)**
 **FR-STG-2.** Every application that runs in production **must exist in staging** as a prerequisite, switched off or created on demand. Third-party applications are included. **(M)**
 **FR-STG-3.** An application has a **staging state**, one of: **not defined**; **defined** (how to bring it up is known); **provisioned** (it exists and can start); **baseline proven** (it was brought up on unchanged code and its tests passed, on a given revision and date); **stale** (the code or the production configuration moved since); **broken**. **(P)**
-**FR-STG-4.** A mandate on an application's code is **granted only when its staging is usable**: requirement **none** (a blank machine is enough), or state **baseline proven** and not stale, or the application **explicitly declared by the maintainer as having no staging** (the rule of CASE-17, recorded as an accepted risk). **Undeclared is not the same as declared as having none**: an application nobody has described is **refused**, not let through. A **broken** or **stale** staging refuses the mandate until the baseline is proved again. **(M for the principle, P for the distinction)**
+**FR-STG-4.** A mandate on an application's code is **granted only when its staging is usable**: requirement **blank machine**, or state **baseline proven** and not stale, or the application **explicitly declared by the maintainer as having no staging** (the rule of CASE-17, recorded as an accepted risk). **Undeclared is not the same as declared as having none**: an application nobody has described is **refused**, not let through. A **broken** or **stale** staging refuses the mandate until the baseline is proved again. **(M for the principle, P for the distinction)**
 **FR-STG-5.** The **baseline proof is itself a mission** (CASE-20): bring the application up on the unchanged code and test it. Its result is the state above. **(M)**
 **FR-STG-6.** Staging is **the same infrastructure code as production, applied to another inventory**, so that the two drift as little as possible. **(M)**
 **FR-STG-7.** Staging environments are **created on demand and restored to a clean baseline** after a mission (virtual machine snapshots). **(M, the idea of virtual machines on demand)**
@@ -235,8 +238,9 @@ This section answers the maintainer's question: *is there an environment that is
 **FR-SAF-8.** A migration of a database is allowed only with a **backup taken first and a way back**; deleting data and handling a secret are never done by the agent alone. **(P, default)**
 **FR-SAF-9.** An **exposed secret** is removed from the code and the maintainer is told at once; **the rotation is the maintainer's** (CASE-13). **(M)**
 **FR-SAF-10.** The agent's model credential is the maintainer's subscription token. It is **never inside the agent's sandbox**: a credential proxy outside the sandbox adds it to the calls to the model provider, and the sandbox holds a dummy or a short-lived scoped credential. The registries reachable from a sandbox are **read-only mirrors or a caching proxy**, never arbitrary hosts. **(M for the subscription, P for the mechanism)**
-**FR-SAF-11.** **Orchestrarr's own repository, images and runners are outside the perimeter**, or any change to them requires the maintainer's merge; an agent never changes the product that holds its own mandates. **(P)**
+**FR-SAF-11.** **Orchestrarr's own repository, images and runners, and the description of the perimeter, are outside the perimeter**, or any change to them requires the maintainer's merge (code owners): an agent never changes the product that holds its own mandates, nor the file that says what it may touch. **(P)**
 **FR-SAF-12.** **Standing rules are bounded**: each has an **expiry**, a **maximum world** (for example up to the Git world unless the maintainer extends it), the perimeter it covers, and the same second factor to create or widen it. The power in effect for a step is the **intersection of the plan entry, the per-application and per-environment grant, and the mandate**; a rule never widens a grant. **(P)**
+**FR-SAF-13.** Evidence taken in the release world (requests, captures) is **limited to what the verification needs**, stored by the control plane and not sent to the forge; the release-world sandbox has **no forge access**, so production data cannot be pushed to a repository. **(P)**
 
 ### 5.10 Complexity and notifications
 

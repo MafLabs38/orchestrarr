@@ -12,7 +12,7 @@ This file is read automatically by Claude Code. It applies to every task in this
 |---|---|
 | [docs/VISION.md](docs/VISION.md) | Always: why this exists, what it must do, safety model, open questions |
 | [docs/TESTING.md](docs/TESTING.md) | Before writing or changing tests, or the pipeline: the strategy, the lanes, the thresholds |
-| [docs/FUNCTIONAL.md](docs/FUNCTIONAL.md) | Always: **the reference.** What the product does, by requirement. It wins over SPEC.md and the older ADRs until the reconciliation is finished ([ADR 0038](docs/adr/0038-what-the-first-design-built-and-this-supersedes.md)) |
+| [docs/FUNCTIONAL.md](docs/FUNCTIONAL.md) | Always: **the reference.** What the product does, by requirement. Where the maintainer decided (M) it wins over SPEC.md and the older ADRs until the reconciliation is finished; its (P) items are proposals ([ADR 0038](docs/adr/0038-what-the-first-design-built-and-this-supersedes.md)) |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/USE-CASES.md](docs/USE-CASES.md) | Before designing or building: the target architecture, and the cases that are also the end-to-end tests |
 | [docs/SPEC.md](docs/SPEC.md) | Always: frozen decisions `D-xx`, features `F-xx`, open questions `Q-xx` (same format as Portarr's). Draft, from the first interviews |
 

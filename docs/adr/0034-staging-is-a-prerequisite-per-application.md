@@ -10,14 +10,14 @@ Many cases cannot be proved in a lone container: an application of several servi
 
 ## Decision
 
-1. Every application has a **staging requirement**: **none** (a blank machine is enough), **dependencies** (declared other services or data), or **full stack** (the whole constellation).
+1. Every application has a **staging requirement**: **blank machine** (a blank machine is enough), **dependencies** (declared other services or data), or **full stack** (the whole constellation).
 2. Every application that runs in production **must exist in staging**, switched off or created on demand. Third-party applications are included.
 3. Staging is **the same infrastructure code as production applied to another inventory**, with **no real secret and no real side effect**.
 4. An application has a **staging state**: not defined, defined, provisioned, **baseline proven** (unchanged code passes its tests there, with a revision and a date), stale, broken.
 5. A mandate on an application's code is **granted only when its requirement is met**. The **baseline proof is itself a mission**.
 6. Staging environments are **created on demand and restored to a clean baseline** after a mission (snapshots), by a **platform controller** whose rights are limited to the pool of staging machines. Capacity (two stagings at once on the first machine) is a constraint the scheduler respects: missions wait for a free slot.
 7. Portarr says the **facts** (it exists, it runs); Orchestrarr says the **verdict** only a test gives.
-8. The cases are explicit: **requirement none** (a blank machine is enough): the mandate is granted, no baseline needed; **staging explicitly declared by the maintainer as none** (the rule of CASE-17): the application goes on like the others with no net, recorded as an accepted risk and reported as a parity-gap finding; **neither declared nor defined**: the mandate is **refused** (fail closed: unknown counts as stopped); **defined but broken or stale**: the mandate is refused until the baseline is proved again. The declaration lives in the **description of the perimeter, which only the maintainer edits**, never in the application's repository.
+8. The cases are explicit: **requirement blank machine**: the mandate is granted, no baseline needed; **staging explicitly declared by the maintainer as none** (the rule of CASE-17): the application goes on like the others with no net, recorded as an accepted risk and reported as a parity-gap finding; **neither declared nor defined**: the mandate is **refused** (fail closed: unknown counts as stopped); **defined but broken or stale**: the mandate is refused until the baseline is proved again. The declaration lives in the **description of the perimeter, which only the maintainer edits**, never in the application's repository.
 9. The **baseline mission** has no problem and no plan entry: its mandate is issued by the scheduler under a system standing rule (ADR 0031).
 10. Orchestrarr stores **only the verdict** (state, revision, date, evidence digest); the facts and dependencies are read from Portarr or the description.
 
