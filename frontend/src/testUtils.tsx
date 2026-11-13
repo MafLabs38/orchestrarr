@@ -60,7 +60,6 @@ export function problem(overrides: Partial<ProblemRow> = {}): ProblemRow {
     icon: null,
     source: null,
     locations: null,
-    proposedTag: null,
     warnings: null,
     ...overrides,
   };

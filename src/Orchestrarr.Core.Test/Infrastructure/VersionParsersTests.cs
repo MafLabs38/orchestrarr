@@ -115,7 +115,6 @@ public sealed class VersionParsersTests
         var found = VersionParsers.Find("kustomize", "example/infra", "kustomization.yaml", kustomization);
 
         found.Select(location => (location.Image.Name, location.Managed)).Should().Equal(("ghcr.io/example/api", "flux"), ("ghcr.io/example/web", "flux"), ("ghcr.io/example/job", null));
-        VersionPatch.Replace(kustomization, found[0], "1.2.4").Should().BeNull("Flux writes this line");
     }
 
     [Fact]
@@ -144,5 +143,15 @@ public sealed class VersionParsersTests
     public void A_kind_that_is_not_known_finds_nothing()
     {
         VersionParsers.Find("helm", "example/infra", "values.yaml", "image: app:1").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void A_quoted_tag_of_a_kustomize_entry_is_read_without_its_quotes_in_flow_and_in_block_style()
+    {
+        const string flow = "images:\n- {name: ghcr.io/example/api, newTag: \"1.9\"}\n";
+        const string block = "images:\n- name: ghcr.io/example/api\n  newTag: '1.9'\n";
+
+        VersionParsers.Find("kustomize", "example/infra", "k.yaml", flow)[0].Image.Tag.Should().Be("1.9");
+        VersionParsers.Find("kustomize", "example/infra", "k.yaml", block)[0].Image.Tag.Should().Be("1.9");
     }
 }

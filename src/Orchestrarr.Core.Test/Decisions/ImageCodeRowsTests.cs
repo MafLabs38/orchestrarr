@@ -22,12 +22,11 @@ public sealed class ImageCodeRowsTests
         DecisionTable.Build([item], new EmptyApplicationCatalog(), [], infrastructure: index).Single();
 
     [Fact]
-    public void An_outdated_image_found_in_the_code_shows_where_and_the_version_the_change_would_write_and_stays_information()
+    public void An_outdated_image_found_in_the_code_shows_where_its_version_is_written_and_stays_information()
     {
         var row = Row(ImageItem(Behind()), Code("        image: n8nio/n8n:1.108.2\n"));
 
-        row.Why.Should().Be(CeilingReason.CodeChangeShown);
-        row.ProposedTag.Should().Be("1.121.0");
+        row.Why.Should().Be(CeilingReason.NoActionDefined);
         row.Locations.Should().ContainSingle().Which.Should().Match<CodeLocation>(location => location.Repository == "example/infra" && location.Path == "k8s/n8n.yaml" && location.Line == 1);
     }
 
@@ -38,21 +37,6 @@ public sealed class ImageCodeRowsTests
 
         row.Why.Should().Be(CeilingReason.NotInScope);
         row.Locations.Should().BeEmpty();
-    }
-
-    [Fact]
-    public void The_change_of_a_row_is_computed_in_core_from_the_text_that_was_read_and_a_row_without_a_proposal_has_none()
-    {
-        var index = Code("        image: n8nio/n8n:1.108.2\n");
-        var proposing = Row(ImageItem(Behind()), index);
-        var notProposing = Row(ImageItem(Behind()), Code("image: other:1\n"));
-
-        var report = CodeChanges.For(proposing, index)!;
-
-        report.Tag.Should().Be("1.121.0");
-        report.Changes.Should().ContainSingle().Which.After.Should().Be("        image: n8nio/n8n:1.121.0");
-        report.Left.Should().BeEmpty();
-        CodeChanges.For(notProposing, index).Should().BeNull();
     }
 
     [Fact]
@@ -86,7 +70,6 @@ public sealed class ImageCodeRowsTests
         var row = Row(ImageItem(Behind()), Code("image: n8nio/n8n:1.108.2 # {\"$imagepolicy\": \"flux-system:n8n\"}\n"));
 
         row.Why.Should().Be(CeilingReason.ManagedByAutomation);
-        row.ProposedTag.Should().BeNull();
         row.Locations.Should().ContainSingle();
     }
 
@@ -96,21 +79,19 @@ public sealed class ImageCodeRowsTests
         var row = Row(ImageItem(Behind()), Code("image: n8nio/n8n:1.110.0\n"));
 
         row.Why.Should().Be(CeilingReason.CodeDiffersFromRunning);
-        row.ProposedTag.Should().BeNull();
     }
 
     [Fact]
-    public void A_major_version_shows_where_but_is_a_change_to_plan_and_not_a_tag_to_write()
+    public void A_major_version_shows_where_and_is_a_change_to_plan()
     {
         var row = Row(ImageItem(Behind(latest: "2.0.0", change: ImageChange.Major)), Code("image: n8nio/n8n:1.108.2\n"));
 
         row.Why.Should().Be(CeilingReason.MajorNeedsPlan);
-        row.ProposedTag.Should().BeNull();
         row.Locations.Should().ContainSingle();
     }
 
     [Fact]
-    public void A_floating_image_is_pinned_to_the_version_that_runs_when_it_is_known()
+    public void A_floating_image_shows_where_its_version_is_written_whether_or_not_the_running_version_is_known()
     {
         var floating = new Finding(FindingKind.FloatingImage, Severity.Info, 1, Image: new ImageUpdate("pihole/pihole:latest", "2025.07.1", null, ImageChange.None));
         var unknown = new Finding(FindingKind.FloatingImage, Severity.Info, 1, Image: new ImageUpdate("pihole/pihole:latest", null, null, ImageChange.None));
@@ -119,9 +100,7 @@ public sealed class ImageCodeRowsTests
         var pinned = Row(ImageItem(floating), code);
         var cannot = Row(ImageItem(unknown), code);
 
-        pinned.Why.Should().Be(CeilingReason.CodeChangeShown);
-        pinned.ProposedTag.Should().Be("2025.07.1");
-        cannot.ProposedTag.Should().BeNull("the version that runs is not known: nothing is guessed");
+        pinned.Why.Should().Be(CeilingReason.NoActionDefined);
         cannot.Locations.Should().ContainSingle();
     }
 
@@ -142,19 +121,8 @@ public sealed class ImageCodeRowsTests
 
         var row = Row(ImageItem(Behind("postgres:16-alpine", "16-alpine", "17-alpine")), code);
 
-        row.Why.Should().Be(CeilingReason.CodeChangeShown);
+        row.Why.Should().Be(CeilingReason.NoActionDefined);
         row.Locations.Should().ContainSingle().Which.Path.Should().Be("k8s/b.yaml");
-    }
-
-    [Fact]
-    public void A_floating_tag_that_is_a_branch_is_not_pinned_to_itself()
-    {
-        var floating = new Finding(FindingKind.FloatingImage, Severity.Info, 1, Image: new ImageUpdate("ghcr.io/example/app:develop", "develop", null, ImageChange.None));
-
-        var row = Row(ImageItem(floating), Code("image: ghcr.io/example/app:develop\n"));
-
-        row.ProposedTag.Should().BeNull();
-        row.Locations.Should().ContainSingle();
     }
 
     private static InfrastructureIndex CodeIn(string environment, string manifest) =>
@@ -169,7 +137,7 @@ public sealed class ImageCodeRowsTests
         var there = Row(item, CodeIn("host-1", "image: n8nio/n8n:1.108.2\n"));
 
         elsewhere.Why.Should().Be(CeilingReason.NotInScope, "the code of another environment does not describe this workload");
-        there.Why.Should().Be(CeilingReason.CodeChangeShown);
+        there.Why.Should().Be(CeilingReason.NoActionDefined);
     }
 
     [Fact]
@@ -177,7 +145,7 @@ public sealed class ImageCodeRowsTests
     {
         var item = ImageItem(Behind()) with { Placements = [new Placement("host-1", "Host 1", null, "n8n")] };
 
-        Row(item, Code("image: n8nio/n8n:1.108.2\n")).Why.Should().Be(CeilingReason.CodeChangeShown);
+        Row(item, Code("image: n8nio/n8n:1.108.2\n")).Why.Should().Be(CeilingReason.NoActionDefined);
     }
 
     [Fact]
@@ -190,19 +158,18 @@ public sealed class ImageCodeRowsTests
     }
 
     [Fact]
-    public void An_image_that_runs_in_several_environments_shows_its_places_and_proposes_no_change_for_all_at_once()
+    public void An_image_that_runs_in_several_environments_shows_its_places()
     {
         var item = ImageItem(Behind()) with { Placements = [new Placement("staging", "Staging", null, "n8n"), new Placement("production", "Production", null, "n8n")] };
 
         var row = Row(item, Code("image: n8nio/n8n:1.108.2\n"));
 
         row.Why.Should().Be(CeilingReason.SeveralEnvironments);
-        row.ProposedTag.Should().BeNull();
         row.Locations.Should().ContainSingle();
     }
 
     [Fact]
-    public void Places_in_several_environments_propose_nothing_even_when_the_placements_of_the_image_are_not_known()
+    public void Places_in_several_environments_are_told_even_when_the_placements_of_the_image_are_not_known()
     {
         var code = InfrastructureIndex.Build(new InfrastructureSnapshot(DateTimeOffset.UnixEpoch,
             [new InfrastructureFile("example/infra", "qual/n8n.yaml", "kubernetes", "image: n8nio/n8n:1.108.2\n", "qual"), new InfrastructureFile("example/infra", "prod/n8n.yaml", "kubernetes", "image: n8nio/n8n:1.108.2\n", "prod")], []));
@@ -210,7 +177,6 @@ public sealed class ImageCodeRowsTests
         var row = Row(ImageItem(Behind()), code);
 
         row.Why.Should().Be(CeilingReason.SeveralEnvironments);
-        row.ProposedTag.Should().BeNull();
         row.Locations.Should().HaveCount(2);
     }
 
@@ -229,16 +195,7 @@ public sealed class ImageCodeRowsTests
         rows.Select(row => row.Id).Should().OnlyHaveUniqueItems();
         var apiRow = rows.Single(row => row.Description.StartsWith("ghcr.io/example/api", StringComparison.Ordinal));
         apiRow.Locations.Should().ContainSingle().Which.Path.Should().Be("prod/api.yaml", "the image runs in production only: the staging line is not its");
-        apiRow.Why.Should().Be(CeilingReason.CodeChangeShown);
+        apiRow.Why.Should().Be(CeilingReason.NoActionDefined);
         rows.Single(row => row.Description.StartsWith("ghcr.io/example/web", StringComparison.Ordinal)).Locations.Should().ContainSingle().Which.Path.Should().Be("staging/web.yaml");
-    }
-
-    [Fact]
-    public void A_proposed_tag_that_is_not_a_tag_is_not_proposed()
-    {
-        var row = Row(ImageItem(Behind(latest: "1.121.0\"#")), Code("image: n8nio/n8n:1.108.2\n"));
-
-        row.ProposedTag.Should().BeNull();
-        row.Why.Should().NotBe(CeilingReason.CodeChangeShown);
     }
 }

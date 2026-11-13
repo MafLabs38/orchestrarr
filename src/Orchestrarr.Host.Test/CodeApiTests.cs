@@ -65,7 +65,7 @@ public sealed class CodeApiTests
         table.GetProperty("rows").EnumerateArray().First(row => row.GetProperty("description").GetString()!.StartsWith(reference, StringComparison.Ordinal));
 
     [Fact]
-    public async Task An_image_row_says_where_its_version_is_written_what_the_change_would_write_and_what_is_not_in_the_scope()
+    public async Task An_image_row_says_where_its_version_is_written_and_what_is_not_in_the_scope()
     {
         using var factory = new CodeApiFactory();
         using var client = await SignedIn(factory);
@@ -73,8 +73,7 @@ public sealed class CodeApiTests
         var table = await Table(client);
 
         var redis = ImageRow(table, "redis:7.2.3");
-        redis.GetProperty("why").GetString().Should().Be("codeChangeShown");
-        redis.GetProperty("proposedTag").GetString().Should().Be("7.2.6");
+        redis.GetProperty("why").GetString().Should().Be("noActionDefined");
         redis.GetProperty("locations").EnumerateArray().Single().GetProperty("path").GetString().Should().Be("k8s/cache.yaml");
         ImageRow(table, "grafana/grafana:11.2.0").GetProperty("why").GetString().Should().Be("managedByAutomation");
         var traefik = ImageRow(table, "ghcr.io/example/api-gateway:3.1.0");
@@ -86,26 +85,7 @@ public sealed class CodeApiTests
     }
 
     [Fact]
-    public async Task The_change_is_shown_as_a_diff_for_a_row_that_has_one_and_refused_for_the_others()
-    {
-        using var factory = new CodeApiFactory();
-        using var client = await SignedIn(factory);
-        var table = await Table(client);
-
-        var shown = await client.GetFromJsonAsync<JsonElement>($"/api/v1/problems/change?id={Uri.EscapeDataString(ImageRow(table, "redis:7.2.3").GetProperty("id").GetString()!)}", Ct);
-        var managed = await client.GetAsync($"/api/v1/problems/change?id={Uri.EscapeDataString(ImageRow(table, "grafana/grafana:11.2.0").GetProperty("id").GetString()!)}", Ct);
-        var unknown = await client.GetAsync("/api/v1/problems/change?id=nothing", Ct);
-
-        shown.GetProperty("tag").GetString().Should().Be("7.2.6");
-        var change = shown.GetProperty("changes").EnumerateArray().Single();
-        change.GetProperty("after").GetString().Should().Contain("redis:7.2.6");
-        change.GetProperty("diff").GetString().Should().Contain("-  - image: redis:7.2.3\n+  - image: redis:7.2.6");
-        managed.StatusCode.Should().Be(HttpStatusCode.Conflict);
-        unknown.StatusCode.Should().Be(HttpStatusCode.NotFound);
-    }
-
-    [Fact]
-    public async Task Without_a_scope_the_table_says_nothing_about_the_code_and_the_change_is_refused()
+    public async Task Without_a_scope_the_table_says_nothing_about_the_code()
     {
         using var factory = new TableApiFactory();
         using var client = await SignedIn(factory);
@@ -113,8 +93,6 @@ public sealed class CodeApiTests
         var table = await Table(client);
 
         table.GetProperty("code").GetProperty("inScope").GetBoolean().Should().BeFalse();
-        ImageRow(table, "redis:7.2.3").GetProperty("why").GetString().Should().NotBe("codeChangeShown");
-        using var anonymous = factory.CreateClient();
-        (await anonymous.GetAsync("/api/v1/problems/change?id=x", Ct)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        ImageRow(table, "redis:7.2.3").GetProperty("locations").ValueKind.Should().Be(JsonValueKind.Null);
     }
 }

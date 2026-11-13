@@ -4,8 +4,8 @@ using Orchestrarr.Core.WorkItems;
 
 namespace Orchestrarr.Core.Decisions;
 
-/// <summary>What the code of the scope changes about the row of an image: why it stops where it does, the places that write the version, and the version a change would write.</summary>
-internal sealed record CodeVerdict(CeilingReason Why, IReadOnlyList<CodeLocation>? Locations, string? ProposedTag);
+/// <summary>What the code of the scope says about the row of an image: why it stops where it does, and the places that write the version.</summary>
+internal sealed record CodeVerdict(CeilingReason Why, IReadOnlyList<CodeLocation>? Locations);
 
 /// <summary>
 /// Where the version of an image is written in the code of the scope, and what that says about the row (ADR 0028). Without a scope nothing is said about the code.
@@ -18,12 +18,12 @@ internal static class ImageCode
     {
         if (infrastructure is not { InScope: true } || finding.Image is not { } update || ImageReference.Parse(update.Reference) is not { } reference || without == CeilingReason.ManagedByPlatform)
         {
-            return new CodeVerdict(without, null, null);
+            return new CodeVerdict(without, null);
         }
         // A repository that deploys to one environment is about the workloads of that environment, not of another one: the placements of this image, not of the whole item
         var placements = update.Placements ?? item.Placements;
         var places = PlacesOf(infrastructure, reference, update, placements);
-        return Guard(finding, update, placements, places, infrastructure.Problems.Count > 0) ?? Propose(finding, update, reference, places.Locations, without);
+        return Guard(finding, update, placements, places, infrastructure.Problems.Count > 0) ?? new CodeVerdict(without, places.Locations);
     }
 
     // The same image can be written at several versions (a database of two majors): the places that write the version that runs are the ones the row is about
@@ -42,37 +42,24 @@ internal static class ImageCode
         if (locations.Count == 0)
         {
             // With a repository that could not be read, "written nowhere" is not known
-            return new CodeVerdict(someRepositoryUnreadable ? CeilingReason.CodeNotFullyRead : CeilingReason.NotInScope, [], null);
+            return new CodeVerdict(someRepositoryUnreadable ? CeilingReason.CodeNotFullyRead : CeilingReason.NotInScope, []);
         }
         var ours = locations.Where(location => location.Managed is null).ToList();
         if (ours.Count == 0)
         {
-            return new CodeVerdict(CeilingReason.ManagedByAutomation, locations, null);
+            return new CodeVerdict(CeilingReason.ManagedByAutomation, locations);
         }
         if (finding.Kind == FindingKind.OutdatedImage && !places.RunningIsWritten && update.Current is not null)
         {
-            return new CodeVerdict(CeilingReason.CodeDiffersFromRunning, locations, null);
+            return new CodeVerdict(CeilingReason.CodeDiffersFromRunning, locations);
         }
         if (ours.Any(location => location.Image.Digest is not null))
         {
-            return new CodeVerdict(CeilingReason.PinnedByDigest, locations, null);
+            return new CodeVerdict(CeilingReason.PinnedByDigest, locations);
         }
         // One environment at a time: several placements, or places that belong to several environments when the placements are not known, propose nothing
         var environments = placements.Select(placement => placement.EnvironmentId).Concat(ours.Select(location => location.Environment).OfType<string>()).Distinct(StringComparer.Ordinal).Count();
-        return environments > 1 ? new CodeVerdict(CeilingReason.SeveralEnvironments, locations, null) : null;
-    }
-
-    private static CodeVerdict Propose(Finding finding, ImageUpdate update, ImageReference reference, IReadOnlyList<CodeLocation> locations, CeilingReason without)
-    {
-        if (without == CeilingReason.MajorNeedsPlan)
-        {
-            return new CodeVerdict(without, locations, null);
-        }
-        // An outdated image goes to the latest version; a floating one is pinned to the version that runs, which changes nothing that is deployed
-        var proposed = finding.Kind == FindingKind.OutdatedImage ? update.Latest : update.Current;
-        // A tag that is not a version (latest, a branch) and the tag that is already written change nothing: nothing is proposed
-        var usable = ImageReference.IsTag(proposed) && !string.Equals(proposed, reference.Tag, StringComparison.OrdinalIgnoreCase) && ImageReference.Parse($"{reference.Name}:{proposed}") is { IsFloating: false };
-        return usable ? new CodeVerdict(CeilingReason.CodeChangeShown, locations, proposed) : new CodeVerdict(without, locations, null);
+        return environments > 1 ? new CodeVerdict(CeilingReason.SeveralEnvironments, locations) : null;
     }
 
     private sealed record Places(IReadOnlyList<CodeLocation> Locations, bool RunningIsWritten);

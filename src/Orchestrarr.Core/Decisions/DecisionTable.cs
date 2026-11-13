@@ -82,8 +82,6 @@ public enum CeilingReason
     /// <summary>The image runs in several environments: a change is made for one at a time, qualified and then promoted, so none is proposed for all at once.</summary>
     SeveralEnvironments,
 
-    /// <summary>The code that writes the version is known and the change is shown, computed and not applied: Orchestrarr holds no write power.</summary>
-    CodeChangeShown,
 }
 
 /// <summary>What the workshop last said about this very commit of a pull request, for the column that sits beside the forge's checks.</summary>
@@ -145,7 +143,6 @@ public sealed record ProblemRow(
     string? Icon = null,
     string? Source = null,
     IReadOnlyList<CodeLocation>? Locations = null,
-    string? ProposedTag = null,
     IReadOnlyList<RepositoryProblem>? Warnings = null);
 
 /// <summary>What a connected runner accepts, as it reported it. The table never promises more than they would run: with none connected, nothing can be run, and every row says so.</summary>
@@ -430,7 +427,7 @@ public static class DecisionTable
             var verdict = ImageCode.Of(item, finding, WhyNoAction(item, finding, policy), infrastructure);
             // A repository that builds several images has a finding for each: the row of each has its own places and its own change
             var id = finding.Image is { } update && imageFindings[finding.Kind] > 1 ? $"finding:{item.Id}:{finding.Kind}:{update.Reference}" : $"finding:{item.Id}:{finding.Kind}";
-            rows.Add(Of(item, id, kind.Value, description, finding.Severity, finding.Count, Ceiling.NoAction, verdict.Why, application) with { Locations = verdict.Locations, ProposedTag = verdict.ProposedTag });
+            rows.Add(Of(item, id, kind.Value, description, finding.Severity, finding.Count, Ceiling.NoAction, verdict.Why, application) with { Locations = verdict.Locations });
         }
     }
 
