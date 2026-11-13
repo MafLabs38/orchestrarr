@@ -100,7 +100,8 @@ Each sheet says what is known. **Open** marks what is not.
 - **Done when**: the new version runs and the service is healthy; or the previous version runs again and the maintainer has been told.
 - **Complexity**: M. It depends on how the environment is deployed and on whether a check exists.
 - **Fault in the laboratory**: a monitoring stack on a staging machine with images behind, deployed by compose, and the same on a staging cluster by GitOps.
-- **Open**: how a deployment on a machine without GitOps is done (a connection to the machine, a declared action), and what "the service answers" means for each application.
+- **Verification** is done by the agent as a tester would: real requests, a browser run, the behaviour that matters for that application. A bare health check is avoided whenever something better can be done (decided 2026-11-13).
+- **Open**: how a deployment on a machine without GitOps is done (a connection to the machine, a declared action).
 
 ### CASE-05 to CASE-18
 
@@ -113,10 +114,22 @@ These come out of the cases and apply to all of them. They are needs, not design
 - **A mission, not a workflow**: a case is given to the agent as an objective with a frame and a budget.
 - **The agent can run what a developer runs**: build, test, read the output, iterate. It works in an isolated workspace.
 - **The agent can drive the delivery chain**: open a branch and a pull request, read the CI, merge into develop, read staging, promote. The dangerous acts have conditions that the agent cannot argue with (the pipeline is green, staging is verified).
+- **Verification by the agent**: after a change, the agent checks the result as a tester would (requests, a browser run, the real behaviour), and keeps the evidence in its report. A bare health check is the fallback, not the method.
 - **Complexity is marked, and the maintainer is warned by email.**
 - **Failing cleanly**: a mission that cannot be finished leaves the system as it was, and says so.
 - **What was done is told**: a report per mission, in plain words, and an audit trail.
 - **Stopping**: a global stop reaches a mission that is running.
+
+## 6b. What feeds the cases (inbound sources)
+
+The process does not depend on how a problem is seen. What differs is the **source**, and the maintainer wants the vision to come from **Portarr** (it sees and describes; Orchestrarr acts), with Orchestrarr reading it. The sources the cases need, as needs:
+
+- **Vulnerabilities** in dependencies, images and containers: Dependabot alerts (installed), and a scanner of images and containers such as Trivy (to be checked in the fleet's pipelines).
+- **New versions** of dependencies and images: Dependabot's version pull requests; a tool that also reads compose files, manifests and Terraform (Renovate is one candidate).
+- **End of support** of an operating system, a platform or a runtime: a public database of release cycles (endoflife.date is one candidate); the maintainer learned by chance that an Ubuntu release his backend runs on had been unsupported for months.
+- **Deprecations in the code**: no single tool; candidates are the build's own warnings, SonarQube's rules on deprecated APIs, and the registries' deprecation flags.
+
+Open: which of these Portarr reports and which Orchestrarr reads directly. Not a design yet.
 
 ## 7. Decisions taken and defaults
 
@@ -135,7 +148,6 @@ These come out of the cases and apply to all of them. They are needs, not design
 - A deployment on a machine without GitOps (CASE-04) is a **declared action** run through a configured connection, never a free command.
 - The laboratory is **one repository** with a folder per case, reset by git between runs.
 
-**Still open, because they depend on what is built**
+**Still open, because it depends on what is built**
 
-- How a deprecation with no pull request becomes a finding (CASE-02).
-- What "the service answers" means for each application (CASE-04, CASE-06).
+- How a deprecation with no pull request becomes a finding (CASE-02); see section 6b for the sources.
