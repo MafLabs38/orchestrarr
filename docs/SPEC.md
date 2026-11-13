@@ -1,5 +1,7 @@
 # Orchestrarr — Functional and Technical Specification
 
+> **2026-11-13: the product is being restructured around [FUNCTIONAL.md](FUNCTIONAL.md) (the reference), [ARCHITECTURE.md](ARCHITECTURE.md) and [USE-CASES.md](USE-CASES.md); [ADR 0038](adr/0038-what-the-first-design-built-and-this-supersedes.md) lists what this file and the older ADRs say that no longer holds. Where they disagree, FUNCTIONAL.md wins until the reconciliation is finished.**
+>
 > **Status**: draft v0.22 (2026-11-12). Built: intake, the table of problems (D-67: a row per problem, how far it goes, one code for the whole selection, one batch for the Runner), the dependency pull requests from the forge, the table by application with its icon, rows kept honest, a skip and a history of what was decided (D-75 to D-77), the description as the perimeter and the version in the code (D-78 to D-81), the approval with a one-time code (queue, audit trail and global stop, kept in a SQLite file or in memory), local accounts with permission-based roles (D-66), and the .NET Runner (D-65: typed tasks, the second factor checked by the Runner, rights list, double control, delegations, a full trace shown as a timeline). **What runs**: the Runner validates a pull request for real in a throwaway container and lets an agent try to repair it on paper (D-72); merging is a dry run, and **no write power exists** (nothing is pushed). Decided, not built: the descriptions in a private configuration repository read through a provider (D-68; today a file, YAML or JSON, proposed in D-78), the production step and the batch per application on the Runner; proposed: a separate qualification host (D-69).
 > **Related documents**: [security-model.md](security-model.md) (how an order is secured, with diagrams) · [VISION.md](VISION.md) (pitch, safety principles, first interview questions) · [environment-file.md](environment-file.md) (standalone description format) · [adr/](adr/) (architecture decisions)
 > **Last updated**: 2026-11-12
@@ -135,6 +137,15 @@ In practice the operator rarely reads code: they check that the AI did not drift
 | 🟡 D-80 | **The change is shown, never applied**: `GET /problems/change` gives the exact diff; a floating tag is pinned to the version that runs; a major version shows the place and no version; a version that differs between the code and what runs is told. Applying a change is a write power that does not exist yet. |
 | 🟡 D-81 | **The platform and the operating systems are Portarr's to say**: whether K3s or the operating system of a machine is behind or out of support is reported by Portarr and read by Orchestrarr as a finding; Orchestrarr compares no platform version itself (the K3s rows of the first version of ADR 0028 §6 were removed). Reading those findings is a later vertical, once Portarr reports them. |
 | 🟡 D-82 | **One table, a History screen, notices in the bell** ([ADR 0029](adr/0029-the-table-is-one-table-and-the-history-is-a-screen-of-its-own.md)): no tabs; the history is a screen of its own; what is wrong with the description or its code is told in the notification bell, and a repository that cannot be read is also marked on the rows it concerns; no interface design that was not asked for (CLAUDE.md rule 16). |
+| 🟡 D-83 | **The mission is defined by its place: worlds, and a runner with a world profile** ([ADR 0030](adr/0030-the-mission-is-defined-by-its-place.md)): see [FUNCTIONAL.md](FUNCTIONAL.md) and [ARCHITECTURE.md](ARCHITECTURE.md). |
+| 🟡 D-84 | **A mandate is the signed permission to do a mission in a world** ([ADR 0031](adr/0031-a-mandate-is-the-signed-permission-for-a-mission.md)): see [FUNCTIONAL.md](FUNCTIONAL.md) and [ARCHITECTURE.md](ARCHITECTURE.md). |
+| 🟡 D-85 | **A controller agent reads the dossier and grants the next mandate** ([ADR 0032](adr/0032-a-controller-agent-grants-the-next-mandate.md)): see [FUNCTIONAL.md](FUNCTIONAL.md) and [ARCHITECTURE.md](ARCHITECTURE.md). |
+| 🟡 D-86 | **The agent gateway, and the line between free and gated acts** ([ADR 0033](adr/0033-the-agent-gateway-free-and-gated-acts.md)): see [FUNCTIONAL.md](FUNCTIONAL.md) and [ARCHITECTURE.md](ARCHITECTURE.md). |
+| 🟡 D-87 | **Staging is a prerequisite per application, proved before any mandate on the code** ([ADR 0034](adr/0034-staging-is-a-prerequisite-per-application.md)): see [FUNCTIONAL.md](FUNCTIONAL.md) and [ARCHITECTURE.md](ARCHITECTURE.md). |
+| 🟡 D-88 | **The frame is enforced by the environment, never by the agent's good will** ([ADR 0035](adr/0035-the-frame-is-enforced-by-the-environment.md)): see [FUNCTIONAL.md](FUNCTIONAL.md) and [ARCHITECTURE.md](ARCHITECTURE.md). |
+| 🟡 D-89 | **Loops are bounded, a failure is told, and a clean stop leaves nothing half done** ([ADR 0036](adr/0036-loops-are-bounded-and-a-failure-is-told.md)): see [FUNCTIONAL.md](FUNCTIONAL.md) and [ARCHITECTURE.md](ARCHITECTURE.md). |
+| 🟡 D-90 | **The maintainer is told by mail when it matters, and a complex case asks to be tried** ([ADR 0037](adr/0037-the-maintainer-is-told-by-mail-when-it-matters.md)): see [FUNCTIONAL.md](FUNCTIONAL.md) and [ARCHITECTURE.md](ARCHITECTURE.md). |
+| 🟡 D-91 | **What the first design built and this one supersedes** ([ADR 0038](adr/0038-what-the-first-design-built-and-this-supersedes.md)): see [FUNCTIONAL.md](FUNCTIONAL.md) and [ARCHITECTURE.md](ARCHITECTURE.md). |
 
 ---
 
@@ -322,6 +333,7 @@ User interface, deferred: the light theme (its accent text color is ready, nothi
 
 | Date | Change |
 |---|---|
+| 2026-11-13 | v0.23: restart from the needs: use cases, functional specification and architecture (missions in worlds, mandates, a controller agent, staging as a prerequisite); D-83 to D-91, ADRs 0030 to 0038, which supersede the typed tasks and the ceilings of a row. |
 | 2026-11-12 | v0.22: the tabs of the table are removed (one table, a History screen of its own, notices in the bell; D-82, [ADR 0029](adr/0029-the-table-is-one-table-and-the-history-is-a-screen-of-its-own.md)). |
 | 2026-11-12 | v0.21: the description is the perimeter and the version lives in the code: repositories read inside it, where each version is written, the change shown (D-78 to D-81, ADR 0028; the K3s rows were removed in v0.22, D-81). |
 | 2026-11-12 | v0.20: the table by application, with icons, honest rows, skip and a history (D-75, D-76, D-77, ADR 0027). |
