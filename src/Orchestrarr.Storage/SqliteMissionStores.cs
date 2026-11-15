@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Orchestrarr.Core.Approvals;
 using System.Text.Json.Serialization;
 using Microsoft.Data.Sqlite;
 using Orchestrarr.Core.Missions;
@@ -15,7 +16,18 @@ internal static class MissionJson
 
     public static string Write<T>(T value) => JsonSerializer.Serialize(value, Options);
 
-    public static T? Read<T>(object? body) where T : class => body is string text ? JsonSerializer.Deserialize<T>(text, Options) : null;
+    public static T? Read<T>(object? body) where T : class
+    {
+        try
+        {
+            return body is string text ? JsonSerializer.Deserialize<T>(text, Options) : null;
+        }
+        catch (JsonException)
+        {
+            // An unreadable document is the same failure as an unreachable file: the endpoints answer 503, the sweep does not skip it
+            throw new StorageUnavailableException("a stored document of the missions cannot be read");
+        }
+    }
 }
 
 public sealed class SqliteMissionStore(SqliteDatabase database) : IMissionStore
@@ -71,10 +83,8 @@ public sealed class SqliteMissionStore(SqliteDatabase database) : IMissionStore
         using var reader = command.ExecuteReader();
         while (reader.Read())
         {
-            if (MissionJson.Read<T>(reader.GetString(0)) is { } value)
-            {
-                list.Add(value);
-            }
+            // A row that cannot be read is a failure of the store, never a row that is left out: the sweep that stops problems must not skip one
+            list.Add(MissionJson.Read<T>(reader.GetString(0)) ?? throw new StorageUnavailableException("a stored document of the missions cannot be read"));
         }
         return list;
     }
@@ -101,6 +111,8 @@ public sealed class SqliteMandateLedger(SqliteDatabase database) : IMandateLedge
     public SignedMandate? Get(string id) => SqliteDatabase.Guard(() => MissionJson.Read<SignedMandate>(SqliteMissionStore.Scalar(database, "SELECT body FROM mandates WHERE id = $key;", id)));
 
     public int CountForProblem(string problemId) => SqliteDatabase.Guard(() => Convert.ToInt32(SqliteMissionStore.Scalar(database, "SELECT COUNT(*) FROM mandates WHERE problem_id = $key;", problemId), System.Globalization.CultureInfo.InvariantCulture));
+
+    public int CountForApproval(string approvalId) => SqliteDatabase.Guard(() => Convert.ToInt32(SqliteMissionStore.Scalar(database, "SELECT COUNT(*) FROM mandates WHERE json_extract(body, '$.mandate.approvalId') = $key;", approvalId), System.Globalization.CultureInfo.InvariantCulture));
 
     public void Revoke(string id) => SqliteDatabase.Guard(() =>
     {

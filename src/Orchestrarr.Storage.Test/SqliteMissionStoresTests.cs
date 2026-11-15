@@ -85,6 +85,61 @@ public sealed class SqliteMissionStoresTests : IDisposable
     }
 
     [Fact]
+    public void Mandates_are_counted_per_certificate_and_a_revoke_of_an_unknown_mandate_changes_nothing()
+    {
+        var ledger = new SqliteMandateLedger(_file.Open());
+        ledger.Record(Mandate("a"));
+        ledger.Record(Mandate("b", "other"));
+        ledger.Record(_signer.Sign(Mandate("c").Mandate with { ApprovalId = "approval-2" }));
+
+        ledger.CountForApproval("approval-1").Should().Be(2);
+        ledger.CountForApproval("approval-2").Should().Be(1);
+        ledger.CountForApproval("none").Should().Be(0);
+    }
+
+    [Fact]
+    public void Only_the_problems_in_progress_are_listed_and_a_change_of_state_moves_a_problem_out_of_the_list()
+    {
+        using var authority = new Authority(new FakeTimeProvider(new DateTimeOffset(2026, 11, 13, 12, 0, 0, TimeSpan.Zero)));
+        var store = new SqliteProblemStore(_file.Open());
+        ProblemRun Run(string id, ProblemState state)
+        {
+            var entry = new PlanEntry(id, "shop", "deprecated", "Replace", ["example/shop"], World.Release, new MissionBudget(20, 3, 50), new Validation("alice", null), new DateTimeOffset(2026, 11, 13, 11, 0, 0, TimeSpan.Zero));
+            return new ProblemRun(id, "shop", state, new DateTimeOffset(2026, 11, 13, 12, 0, 0, TimeSpan.Zero), entry, World.Git, true, authority.For(entry)!);
+        }
+        store.Save(Run("a", ProblemState.InProgress));
+        store.Save(Run("b", ProblemState.Closed));
+        store.Save(Run("c", ProblemState.Failed));
+        store.Save(Run("d", ProblemState.Escalated));
+        store.Save(Run("e", ProblemState.InProgress));
+
+        store.InProgress().Select(run => run.ProblemId).Should().BeEquivalentTo("a", "e");
+
+        store.Save(Run("a", ProblemState.Failed));
+
+        store.InProgress().Select(run => run.ProblemId).Should().Equal("e");
+    }
+
+    [Fact]
+    public void A_stored_document_that_cannot_be_read_is_a_failure_of_the_store_never_a_row_that_is_left_out()
+    {
+        var database = _file.Open();
+        var problems = new SqliteProblemStore(database);
+        using (var connection = database.Connect())
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = "INSERT INTO problems (problem_id, state, body) VALUES ('broken', 'InProgress', '{ not json');";
+            command.ExecuteNonQuery();
+        }
+
+        var inProgress = () => problems.InProgress();
+        var get = () => problems.Get("broken");
+
+        inProgress.Should().Throw<Orchestrarr.Core.Approvals.StorageUnavailableException>("the sweep that stops problems must not skip one it cannot read");
+        get.Should().Throw<Orchestrarr.Core.Approvals.StorageUnavailableException>();
+    }
+
+    [Fact]
     public void A_problem_and_a_dossier_are_kept()
     {
         var entry = new PlanEntry("p1", "shop", "deprecated", "Replace the call", ["example/shop"], World.Release, new MissionBudget(20, 3, 50), new Validation("alice", null), new DateTimeOffset(2026, 11, 13, 11, 0, 0, TimeSpan.Zero));
@@ -130,14 +185,16 @@ public sealed class SqliteMissionStoresTests : IDisposable
     {
         public bool KillSwitchEngaged => false;
 
-        public bool TryUse(string nonce) => true;
+        public MandateUse TryUse(string nonce, string approvalId, int maxMandates) => MandateUse.Used;
+
+        public bool IsApprovalRevoked(string approvalId) => false;
 
         public bool IsRevoked(string mandateId) => false;
     }
 
     private sealed class GoodFacts : IFactsSource
     {
-        public ObservedFacts Facts(string problemId, World world, Dossier? dossier) => new(true, true, true, true, true, true, MergeMayDeploy: false, ExecutedFilesTouched: false, TagCreationBlocked: true);
+        public ObservedFacts Facts(string problemId, World world, Dossier? dossier, string? commit) => new(true, true, true, true, true, true, MergeMayDeploy: false, ExecutedFilesTouched: false, TagCreationBlocked: true);
     }
 
     private sealed class Grants : IGrantSource
@@ -166,7 +223,8 @@ public sealed class SqliteMissionStoresTests : IDisposable
         {
             var code = Totp.Code(Secret, Totp.StepAt(_time.GetUtcNow(), new TotpOptions()), new TotpOptions());
             var request = new ApprovalRequest(CertificateKind.Problem, entry.ProblemId, entry.ApplicationId, entry.Repositories, entry.MaxWorld, entry.Budget, TimeSpan.FromHours(2));
-            return _authority.ApproveAsync(request, $"alice-{++_operators}", code, CancellationToken.None).GetAwaiter().GetResult().Approval;
+            var approver = $"alice-{++_operators}";
+            return _authority.Propose(request, approver) is { } proposal ? _authority.ApproveAsync(proposal.Id, approver, code, CancellationToken.None).GetAwaiter().GetResult().Approval : null;
         }
 
         public void Dispose()

@@ -19,32 +19,11 @@ public sealed class StagingAndPowerTests
     }
 
     [Fact]
-    public void A_standing_rule_covers_only_its_class_its_repositories_its_worlds_and_its_time()
+    public void The_power_in_effect_is_the_lowest_of_the_approval_and_the_grant_and_no_grant_is_no_power()
     {
-        var now = new DateTimeOffset(2026, 11, 13, 12, 0, 0, TimeSpan.Zero);
-        var rule = new StandingRule("r1", "deprecated-dependency", World.Git, ["example/shop"], now.AddDays(30), Revoked: false);
-
-        rule.Covers("deprecated-dependency", "example/shop", World.Git, now).Should().BeTrue();
-        rule.Covers("deprecated-dependency", "example/shop", World.Staging, now).Should().BeTrue("a power that reaches the Git world reaches staging before it");
-        rule.Covers("deprecated-dependency", "example/shop", World.Release, now).Should().BeFalse("the maximum world is the Git world");
-        rule.Covers("another-class", "example/shop", World.Git, now).Should().BeFalse();
-        rule.Covers("deprecated-dependency", "example/other", World.Git, now).Should().BeFalse();
-        rule.Covers("deprecated-dependency", "example/shop", World.Git, now.AddDays(31)).Should().BeFalse("it expires");
-        (rule with { Revoked = true }).Covers("deprecated-dependency", "example/shop", World.Git, now).Should().BeFalse();
-    }
-
-    [Fact]
-    public void The_power_in_effect_is_the_lowest_of_the_plan_the_grant_and_the_rule_a_rule_never_widens_a_grant_and_no_grant_is_no_power()
-    {
-        EffectivePower.Of(World.Release, World.Git, null).Should().Be(World.Git);
-        EffectivePower.Of(World.Git, World.Release, null).Should().Be(World.Git);
-        EffectivePower.Of(World.Release, World.Release, World.Staging, byRule: true).Should().Be(World.Staging);
-        EffectivePower.Of(World.Release, World.Git, World.Release, byRule: true).Should().Be(World.Git, "a rule never widens a grant");
-        EffectivePower.Of(World.Release, null, null).Should().BeNull("the grant is off until the maintainer enables it (D-10)");
-        EffectivePower.Of(World.Release, World.Release, null, byRule: true).Should().BeNull("a rule that is needed and missing is no power");
-        EffectivePower.Reaches(World.Release, World.Release, World.Git, null).Should().BeFalse("the grant stops at the Git world");
-        EffectivePower.Reaches(World.Git, World.Release, World.Git, null).Should().BeTrue();
-        EffectivePower.Reaches(World.Staging, World.Release, null, null).Should().BeFalse("no grant, no power");
+        EffectivePower.Of(World.Release, World.Git).Should().Be(World.Git);
+        EffectivePower.Of(World.Git, World.Release).Should().Be(World.Git, "a grant never widens the approval");
+        EffectivePower.Of(World.Release, null).Should().BeNull("the grant is off until the maintainer enables it (D-10)");
     }
 
     [Fact]

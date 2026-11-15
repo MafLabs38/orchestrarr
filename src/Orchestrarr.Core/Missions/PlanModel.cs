@@ -18,7 +18,7 @@ public sealed record Validation(string By, string? RuleId);
 
 /// <summary>
 /// A problem in the plan with the limits it may be solved within (FR-PLAN-2): how far it may go, the budget, the repositories. The plan entry is the first source of power; the
-/// grant of the application and the standing rule are the others (see <see cref="EffectivePower"/>).
+/// grant of the application and the certificate are the others (see <see cref="EffectivePower"/>).
 /// </summary>
 public sealed record PlanEntry(
     string ProblemId,
@@ -54,6 +54,9 @@ public interface IMandateLedger
     SignedMandate? Get(string id);
 
     int CountForProblem(string problemId);
+
+    /// <summary>How many mandates were issued under one certificate of the authority.</summary>
+    int CountForApproval(string approvalId);
 
     void Revoke(string id);
 
@@ -92,7 +95,7 @@ public sealed record ObservedFacts(
 /// <summary>The source of the facts. It says only what it observed: the plan, the stop, the loop and the staging are the conductor's own.</summary>
 public interface IFactsSource
 {
-    ObservedFacts Facts(string problemId, World world, Dossier? dossier);
+    ObservedFacts Facts(string problemId, World world, Dossier? dossier, string? commit);
 }
 
 /// <summary>Which runner serves a world for an application (a runner profile on a host).</summary>

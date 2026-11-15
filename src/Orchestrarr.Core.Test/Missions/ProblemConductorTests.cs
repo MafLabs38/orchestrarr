@@ -44,7 +44,7 @@ public sealed class ProblemConductorTests : IDisposable
 
         public bool? TagsBlocked { get; set; } = true;
 
-        public ObservedFacts Facts(string problemId, World world, Dossier? dossier) => new(true, !DiffTouchesForbidden, CiGreen, ArtifactProved, WayBack, ClaimMatches, MergeMayDeploy, ExecutedFiles, TagsBlocked);
+        public ObservedFacts Facts(string problemId, World world, Dossier? dossier, string? commit) => new(true, !DiffTouchesForbidden, CiGreen, ArtifactProved, WayBack, ClaimMatches, MergeMayDeploy, ExecutedFiles, TagsBlocked);
     }
 
     private sealed class FakeStop : IStopSignal
@@ -133,7 +133,7 @@ public sealed class ProblemConductorTests : IDisposable
         var conductor = Conductor();
         var staging = StartStaged(conductor);
         var git = Through(conductor, staging);
-        var state = new TestMandateState();
+        var state = new RunnerState();
 
         using var gitRunner = new MandateVerifier(_signer.PublicKey(), "runner-git", World.Git, state, _time, _authority.Verifier);
         using var stagingRunner = new MandateVerifier(_signer.PublicKey(), "runner-staging", World.Staging, state, _time, _authority.Verifier);
@@ -537,17 +537,6 @@ public sealed class ProblemConductorTests : IDisposable
         _missions.ForProblem("problem-1").Should().ContainSingle("no mandate for the Git world was issued");
     }
 
-    private sealed class TestMandateState : IMandateState
-    {
-        private readonly HashSet<string> _used = [];
-
-        public bool KillSwitchEngaged => false;
-
-        public bool TryUse(string nonce) => _used.Add(nonce);
-
-        public bool IsRevoked(string mandateId) => false;
-    }
-
     [Fact]
     public void An_escalated_problem_is_not_started_again_by_accident_and_the_audit_trail_says_so()
     {
@@ -748,5 +737,284 @@ public sealed class ProblemConductorTests : IDisposable
         ended.Ok.Should().BeTrue();
 
         conductor.Stop("problem-1", "x").Ok.Should().BeFalse("the problem is no longer in progress");
+    }
+
+    private static ConductResult StartUnstaged(ProblemConductor conductor, PlanEntry? entry = null) =>
+        conductor.Start(entry ?? Entry(), StagingDeclaration.DeclaredNoStaging, StagingRequirement.BlankMachine, StagingState.NotDefined);
+
+    [Fact]
+    public void The_mandate_of_an_accepted_mission_is_revoked_at_every_crossing_and_when_the_problem_closes()
+    {
+        var conductor = Conductor();
+        var staging = StartStaged(conductor);
+        var git = Through(conductor, staging);
+        _mandates.IsRevoked(staging.Mandate!.Mandate.Id).Should().BeTrue("the power never outlives the work");
+        var release = Through(conductor, git);
+        _mandates.IsRevoked(git.Mandate!.Mandate.Id).Should().BeTrue();
+
+        Through(conductor, release).Ok.Should().BeTrue();
+
+        _mandates.IsRevoked(release.Mandate!.Mandate.Id).Should().BeTrue("a closed problem leaves no mandate in force");
+    }
+
+    [Fact]
+    public void A_problem_that_stops_at_the_git_world_revokes_that_mandate_when_it_closes_and_a_send_back_that_ends_the_mission_revokes_it_too()
+    {
+        var conductor = Conductor();
+        var git = StartUnstaged(conductor, Entry(World.Git) with { ProblemId = "problem-1" });
+        git.Mandate!.Mandate.World.Should().Be(World.Git);
+        Through(conductor, git).Ok.Should().BeTrue();
+        _mandates.IsRevoked(git.Mandate.Mandate.Id).Should().BeTrue();
+
+        var looping = StartStaged(conductor, Entry() with { ProblemId = "problem-2" });
+        var id = looping.Mission!.Id;
+        for (var round = 0; round < 4 && _missions.Get(id)!.State != MissionState.Ended; round++)
+        {
+            conductor.Started(id);
+            conductor.HandOver(id, DossierFor(id));
+            conductor.Decide(id, new ControllerDecision(ControllerDecisionKind.SendBack, ["not yet"], "more tests"));
+        }
+
+        _missions.Get(id)!.State.Should().Be(MissionState.Ended);
+        _mandates.IsRevoked(looping.Mandate!.Mandate.Id).Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(null, true)]
+    [InlineData(false, false)]
+    public void A_start_in_the_git_world_checks_the_frame_of_the_merge_because_no_crossing_will(bool? mayDeploy, bool tagsBlocked)
+    {
+        _facts.MergeMayDeploy = mayDeploy;
+        _facts.TagsBlocked = tagsBlocked;
+
+        var result = StartUnstaged(Conductor(), Entry(World.Git));
+
+        result.Ok.Should().BeFalse();
+        result.Failures.Should().Contain(mayDeploy == false ? PreconditionFailure.AgentCouldCreateTags : PreconditionFailure.MergeMayDeployBeyondApproval);
+        _missions.ForProblem("problem-1").Should().BeEmpty();
+        _problems.Get("problem-1").Should().BeNull();
+    }
+
+    [Fact]
+    public void A_start_in_the_git_world_is_allowed_when_the_merge_does_not_deploy_and_tags_are_blocked_or_when_the_approval_reaches_the_release_world()
+    {
+        _facts.MergeMayDeploy = false;
+        StartUnstaged(Conductor(), Entry(World.Git)).Ok.Should().BeTrue();
+
+        _facts.MergeMayDeploy = true;
+        StartUnstaged(Conductor(), Entry() with { ProblemId = "problem-2" }).Ok.Should().BeTrue("the approval reaches the release world, where the merge that deploys belongs");
+    }
+
+    [Fact]
+    public void The_merge_ceiling_is_the_power_in_effect_now_not_the_certificate_alone()
+    {
+        // The certificate reaches the release world, the grant of the application was lowered to the Git world, and the merge may deploy
+        _grants.Max = World.Git;
+        _facts.MergeMayDeploy = true;
+        var conductor = Conductor();
+        var staging = StartStaged(conductor);
+        var id = staging.Mission!.Id;
+        conductor.Started(id);
+        conductor.HandOver(id, DossierFor(id));
+
+        var decided = conductor.Decide(id, Grant());
+
+        decided.Ok.Should().BeFalse();
+        decided.Failures.Should().Contain(PreconditionFailure.MergeMayDeployBeyondApproval);
+        _missions.ForProblem("problem-1").Should().ContainSingle("no Git mandate was issued");
+    }
+
+    [Fact]
+    public void The_act_gateway_allows_a_merge_only_when_the_facts_of_this_moment_on_this_commit_hold_and_writes_it_down()
+    {
+        var conductor = Conductor();
+        var git = Through(conductor, StartStaged(conductor));
+        var mission = git.Mission!.Id;
+
+        var allowed = conductor.AuthoriseAct(mission, GatedAct.MergePullRequest, "abc123");
+
+        allowed.Allowed.Should().BeTrue();
+        _audit.Events.Should().Contain(entry => entry.StartsWith("act.authorised") && entry.Contains("MergePullRequest on abc123"));
+
+        _facts.CiGreen = false;
+        var refused = conductor.AuthoriseAct(mission, GatedAct.MergePullRequest, "def456");
+
+        refused.Allowed.Should().BeFalse();
+        refused.Failures.Should().Contain(PreconditionFailure.CiNotGreenOnExactCommit);
+        _audit.Events.Should().Contain(entry => entry.StartsWith("act.refused") && entry.Contains("def456"));
+    }
+
+    [Fact]
+    public void The_act_gateway_refuses_a_diff_outside_the_frame_and_escalates_a_change_to_executed_files_where_the_merge_deploys()
+    {
+        var conductor = Conductor();
+        var git = Through(conductor, StartStaged(conductor));
+        var mission = git.Mission!.Id;
+
+        _facts.DiffTouchesForbidden = true;
+        conductor.AuthoriseAct(mission, GatedAct.MergePullRequest, "abc").Failures.Should().Contain(PreconditionFailure.DiffTouchesForbiddenPath);
+        _facts.DiffTouchesForbidden = false;
+        _facts.MergeMayDeploy = true;
+        _facts.ExecutedFiles = true;
+
+        var executed = conductor.AuthoriseAct(mission, GatedAct.MergePullRequest, "abc");
+
+        executed.Allowed.Should().BeFalse();
+        executed.Failures.Should().Contain(PreconditionFailure.ExecutedFilesTouchedWhereMergeDeploys);
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.Escalated);
+        _mandates.IsRevoked(git.Mandate!.Mandate.Id).Should().BeTrue("the mission ended, a person decides");
+    }
+
+    [Fact]
+    public void The_act_gateway_refuses_an_act_the_mandate_does_not_list_a_revoked_or_expired_mandate_a_stop_and_a_grant_lowered_below_the_world()
+    {
+        var conductor = Conductor();
+        var git = Through(conductor, StartStaged(conductor));
+        var mission = git.Mission!.Id;
+
+        conductor.AuthoriseAct(mission, GatedAct.Deploy, "abc").Refusal.Should().Contain("does not list");
+        conductor.AuthoriseAct("unknown", GatedAct.MergePullRequest, "abc").Refusal.Should().Contain("unknown");
+        _grants.Max = World.Staging;
+        conductor.AuthoriseAct(mission, GatedAct.MergePullRequest, "abc").Refusal.Should().Contain("no longer reach");
+        _grants.Max = World.Release;
+        _stop.Engaged = true;
+        conductor.AuthoriseAct(mission, GatedAct.MergePullRequest, "abc").Refusal.Should().Contain("global stop");
+        _stop.Engaged = false;
+        _time.Advance(TimeSpan.FromMinutes(61));
+        conductor.AuthoriseAct(mission, GatedAct.MergePullRequest, "abc").Refusal.Should().Contain("expired");
+        _mandates.Revoke(git.Mandate!.Mandate.Id);
+        conductor.AuthoriseAct(mission, GatedAct.MergePullRequest, "abc").Refusal.Should().Contain("no mandate in force");
+    }
+
+    [Fact]
+    public void An_act_that_does_not_change_what_runs_needs_only_the_mandate_and_a_failing_trail_refuses_the_power()
+    {
+        var conductor = Conductor();
+        var git = Through(conductor, StartStaged(conductor));
+        _facts.CiGreen = false;
+
+        conductor.AuthoriseAct(git.Mission!.Id, GatedAct.OpenPullRequest, null).Allowed.Should().BeTrue("opening a pull request changes nothing that runs");
+
+        _audit.Writable = false;
+        _facts.CiGreen = true;
+        conductor.AuthoriseAct(git.Mission.Id, GatedAct.MergePullRequest, "abc").Refusal.Should().Contain("audit trail");
+    }
+
+    [Fact]
+    public void An_approval_is_for_one_run_a_stopped_problem_is_not_started_again_on_it_but_a_new_approval_starts_it()
+    {
+        var conductor = Conductor();
+        StartStaged(conductor).Ok.Should().BeTrue();
+        conductor.Stop("problem-1", "the maintainer stopped it").Ok.Should().BeTrue();
+        // The authority gives the same certificate again: the stored one is the one that was used
+        var again = new ReusedApprovals(_problems.Get("problem-1")!.Approval);
+        var reusing = new ProblemConductor(_signer, _missions, _mandates, _problems, _dossiers, _facts, new Runners(), again, _authority.Verifier, _grants, _stop, _audit, _time, ConductorOptions.Default, () => $"id-{Interlocked.Increment(ref _ids)}");
+
+        var result = StartStaged(reusing);
+
+        result.Ok.Should().BeFalse();
+        result.Refusal.Should().Contain("already used");
+        StartStaged(conductor).Ok.Should().BeTrue("a new approval is a new decision of the maintainer");
+    }
+
+    private sealed class ReusedApprovals(SignedApproval approval) : IApprovalSource
+    {
+        public SignedApproval? For(PlanEntry entry) => approval;
+    }
+
+    [Fact]
+    public void The_sweep_stops_a_problem_whose_grant_was_lowered_below_the_world_that_is_running()
+    {
+        var conductor = Conductor();
+        var git = Through(conductor, Through(conductor, StartStaged(conductor)));
+        git.Mandate!.Mandate.World.Should().Be(World.Release);
+
+        _grants.Max = World.Git;
+
+        conductor.Sweep().Should().Be(1);
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.Failed);
+        _problems.Get("problem-1")!.Note.Should().Contain("lowered");
+    }
+
+    [Fact]
+    public void A_certificate_backs_only_as_many_mandates_as_it_says_whatever_the_control_plane_signs()
+    {
+        _authority.Adjust = request => request with { MaxMandates = 1 };
+        var conductor = Conductor();
+        var staging = StartStaged(conductor);
+        var id = staging.Mission!.Id;
+        conductor.Started(id);
+        conductor.HandOver(id, DossierFor(id));
+
+        var next = conductor.Decide(id, Grant());
+
+        next.Ok.Should().BeFalse();
+        next.Refusal.Should().Contain("no more mandates");
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.Failed);
+    }
+
+    [Fact]
+    public void The_dossier_is_kept_before_the_mission_waits_for_the_decision_and_a_refused_hand_over_keeps_nothing()
+    {
+        var conductor = Conductor();
+        var staging = StartStaged(conductor);
+        var id = staging.Mission!.Id;
+
+        conductor.HandOver(id, DossierFor(id)).Ok.Should().BeFalse("a mission that did not start cannot hand over");
+        _dossiers.Get(id).Should().BeNull();
+        conductor.Started(id);
+        conductor.HandOver(id, DossierFor(id)).Ok.Should().BeTrue();
+        _dossiers.Get(id).Should().NotBeNull();
+    }
+
+    [Fact]
+    public void A_refusal_that_moved_the_mission_says_so_and_a_plain_refusal_does_not()
+    {
+        var conductor = Conductor();
+        var staging = StartStaged(conductor);
+        var id = staging.Mission!.Id;
+        conductor.Started(id);
+        conductor.HandOver(id, DossierFor(id));
+        _facts.CiGreen = false;
+        _grants.Max = World.Release;
+
+        var plain = conductor.Decide("unknown", Grant());
+        var sentBack = conductor.Decide(id, Grant());
+
+        plain.Moved.Should().BeFalse();
+        sentBack.Ok.Should().BeFalse();
+    }
+
+    [Fact]
+    public void A_stop_on_a_mission_waiting_for_the_controller_revokes_its_mandate_and_a_second_decision_on_it_is_refused()
+    {
+        var conductor = Conductor();
+        var staging = StartStaged(conductor);
+        var id = staging.Mission!.Id;
+        conductor.Started(id);
+        conductor.HandOver(id, DossierFor(id));
+
+        conductor.Stop("problem-1", "the maintainer stopped it").Ok.Should().BeTrue();
+
+        _mandates.IsRevoked(staging.Mandate!.Mandate.Id).Should().BeTrue("a stop revokes the mandate even before the controller decided");
+        conductor.Decide(id, Grant()).Ok.Should().BeFalse("a mission that ended is not decided");
+        _missions.ForProblem("problem-1").Should().ContainSingle("no next-world mandate was issued");
+    }
+
+    [Fact]
+    public void A_decision_is_applied_once_the_second_grant_on_the_same_mission_issues_nothing()
+    {
+        var conductor = Conductor();
+        var staging = StartStaged(conductor);
+        var id = staging.Mission!.Id;
+        conductor.Started(id);
+        conductor.HandOver(id, DossierFor(id));
+        conductor.Decide(id, Grant()).Ok.Should().BeTrue();
+
+        var twice = conductor.Decide(id, Grant());
+
+        twice.Ok.Should().BeFalse();
+        _mandates.CountForProblem("problem-1").Should().Be(2, "one for the staging and one for the Git world, no more");
     }
 }

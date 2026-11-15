@@ -92,7 +92,8 @@ internal static class DevMissionEndpoints
             var secret = secrets.FindAsync("demo", CancellationToken.None).AsTask().GetAwaiter().GetResult()!;
             var code = Totp.Code(secret, Totp.StepAt(time.GetUtcNow(), options.Totp), options.Totp);
             var request = new ApprovalRequest(CertificateKind.Problem, entry.ProblemId, entry.ApplicationId, entry.Repositories, entry.MaxWorld, entry.Budget, TimeSpan.FromHours(2));
-            return authority.ApproveAsync(request, "demo", code, CancellationToken.None).GetAwaiter().GetResult().Approval;
+            // The demo plays both sides: it proposes, then confirms what it proposed with the code of the demo account
+            return authority.Propose(request, "demo") is { } proposal ? authority.ApproveAsync(proposal.Id, "demo", code, CancellationToken.None).GetAwaiter().GetResult().Approval : null;
         }
     }
 
@@ -115,6 +116,6 @@ internal static class DevMissionEndpoints
     {
         public bool Ci { get; set; } = true;
 
-        public ObservedFacts Facts(string problemId, World world, Dossier? dossier) => new(true, true, Ci, true, true, true, MergeMayDeploy: false, ExecutedFilesTouched: false, TagCreationBlocked: true);
+        public ObservedFacts Facts(string problemId, World world, Dossier? dossier, string? commit) => new(true, true, Ci, true, true, true, MergeMayDeploy: false, ExecutedFilesTouched: false, TagCreationBlocked: true);
     }
 }

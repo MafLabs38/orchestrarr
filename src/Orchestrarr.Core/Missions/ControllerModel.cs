@@ -8,7 +8,8 @@ public sealed record Dossier(
     IReadOnlyList<string> EvidenceDigests,
     IReadOnlyList<string> OpenPoints,
     bool Complex,
-    string? ComplexReason);
+    string? ComplexReason,
+    string? Commit = null);
 
 public enum ControllerDecisionKind
 {

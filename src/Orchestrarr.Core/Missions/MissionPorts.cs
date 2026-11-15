@@ -44,4 +44,6 @@ public static class MissionAuditEvents
     public const string MissionSentBack = "mission.sent-back";
     public const string MissionEnded = "mission.ended";
     public const string ControllerDecided = "controller.decided";
+    public const string ActAuthorised = "act.authorised";
+    public const string ActRefused = "act.refused";
 }

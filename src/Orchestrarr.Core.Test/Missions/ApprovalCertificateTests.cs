@@ -32,8 +32,8 @@ public sealed class ApprovalCertificateTests : IDisposable
         _authority.Approve(Request(), code: "000000").Approval.Should().BeNull();
         _authority.Approve(Request(), code: "abc").Result.Should().Be(SecondFactorResult.Malformed);
 
-        var once = await _authority.Authority.ApproveAsync(Request(), "bob", _authority.CodeFor(), TestContext.Current.CancellationToken);
-        var again = await _authority.Authority.ApproveAsync(Request(), "bob", _authority.CodeFor(), TestContext.Current.CancellationToken);
+        var once = await _authority.Authority.ProposeAndApproveAsync(Request(), "bob", _authority.CodeFor(), TestContext.Current.CancellationToken);
+        var again = await _authority.Authority.ProposeAndApproveAsync(Request(), "bob", _authority.CodeFor(), TestContext.Current.CancellationToken);
         once.Approval.Should().NotBeNull();
         again.Approval.Should().BeNull("the same code is not good twice");
         again.Result.Should().Be(SecondFactorResult.Reused);
@@ -68,7 +68,7 @@ public sealed class ApprovalCertificateTests : IDisposable
         var approval = _authority.Approve(Request(World.Git)).Approval!;
         var widened = approval with { Certificate = approval.Certificate with { MaxWorld = World.Release } };
         using var thief = new ApprovalAuthority(new SecondFactorGuard(new FixedSecrets(), new InMemorySecondFactorUseLedger(), _time, new SecondFactorOptions()), _time, () => Guid.NewGuid().ToString("N"));
-        var forged = (await thief.ApproveAsync(Request(World.Release), "mallory", Totp.Code(FixedSecrets.Secret, Totp.StepAt(_time.GetUtcNow(), new TotpOptions()), new TotpOptions()), TestContext.Current.CancellationToken)).Approval!;
+        var forged = (await thief.ProposeAndApproveAsync(Request(World.Release), "mallory", Totp.Code(FixedSecrets.Secret, Totp.StepAt(_time.GetUtcNow(), new TotpOptions()), new TotpOptions()), TestContext.Current.CancellationToken)).Approval!;
 
         _authority.Verifier.Check(widened, MandateFor(widened, World.Release)).Should().Be(ApprovalRefusal.BadSignature);
         _authority.Verifier.Check(forged, MandateFor(forged, World.Release)).Should().Be(ApprovalRefusal.BadSignature, "a control plane that made its own authority cannot make an approval the runners accept");
@@ -81,7 +81,7 @@ public sealed class ApprovalCertificateTests : IDisposable
     {
         using var controlPlane = MandateSigner.Create();
         var approval = _authority.Approve(Request(World.Git)).Approval!;
-        var state = new OpenState();
+        var state = new RunnerState();
         using var runner = new MandateVerifier(controlPlane.PublicKey(), "runner-git", World.Git, state, _time, _authority.Verifier);
 
         runner.Accept(controlPlane.Sign(MandateFor(approval), approval)).Should().Be(MandateRefusal.None);
@@ -95,15 +95,83 @@ public sealed class ApprovalCertificateTests : IDisposable
         releaseRunner.Accept(controlPlane.Sign(higher, approval)).Should().Be(MandateRefusal.NoValidApproval);
     }
 
-    private sealed class OpenState : IMandateState
+    [Fact]
+    public async Task The_code_confirms_what_the_authority_holds_and_nothing_else_so_whoever_relays_it_cannot_choose_what_is_signed()
     {
-        private readonly HashSet<string> _used = [];
+        var proposal = _authority.Authority.Propose(Request(World.Git), "carol")!;
 
-        public bool KillSwitchEngaged => false;
+        proposal.Summary.Should().Contain("problem-1").And.Contain("example/shop").And.Contain("Git world").And.Contain("at most 8 mandates");
+        _authority.Authority.Describe(proposal.Id)!.Digest.Should().Be(proposal.Digest);
+        // Another approver cannot confirm it, and the attempt uses it up
+        (await _authority.Authority.ApproveAsync(proposal.Id, "mallory", _authority.CodeFor(), TestContext.Current.CancellationToken)).Approval.Should().BeNull();
+        _authority.Authority.Describe(proposal.Id).Should().BeNull("a proposal is used up by the first attempt");
 
-        public bool TryUse(string nonce) => _used.Add(nonce);
+        var held = _authority.Authority.Propose(Request(World.Git), "carol")!;
+        var signed = (await _authority.Authority.ApproveAsync(held.Id, "carol", _authority.CodeFor(), TestContext.Current.CancellationToken)).Approval!;
 
-        public bool IsRevoked(string mandateId) => false;
+        signed.Certificate.MaxWorld.Should().Be(World.Git);
+        signed.Certificate.Repositories.Should().Equal("example/shop");
+        (await _authority.Authority.ApproveAsync(held.Id, "carol", _authority.CodeFor(), TestContext.Current.CancellationToken)).Approval.Should().BeNull("a proposal is confirmed once");
+        (await _authority.Authority.ApproveAsync("unknown", "carol", _authority.CodeFor(), TestContext.Current.CancellationToken)).Approval.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_proposal_that_waited_too_long_is_gone_and_a_wrong_code_uses_it_up()
+    {
+        var late = _authority.Authority.Propose(Request(), "dave")!;
+        _time.Advance(TimeSpan.FromMinutes(11));
+
+        _authority.Authority.Describe(late.Id).Should().BeNull();
+        (await _authority.Authority.ApproveAsync(late.Id, "dave", _authority.CodeFor(), TestContext.Current.CancellationToken)).Approval.Should().BeNull();
+
+        var guessed = _authority.Authority.Propose(Request(), "dave")!;
+        (await _authority.Authority.ApproveAsync(guessed.Id, "dave", "000000", TestContext.Current.CancellationToken)).Approval.Should().BeNull();
+        (await _authority.Authority.ApproveAsync(guessed.Id, "dave", _authority.CodeFor(), TestContext.Current.CancellationToken)).Approval.Should().BeNull("the proposal is used up: the maintainer asks again");
+    }
+
+    [Fact]
+    public void The_authority_puts_its_own_bounds_on_the_lifetime_and_the_number_of_mandates_whoever_asks()
+    {
+        _authority.Approve(Request() with { Lifetime = TimeSpan.FromDays(8) }).Approval.Should().BeNull("a problem is approved for a week at most");
+        _authority.Approve(Request() with { Kind = CertificateKind.Rule, Subject = "deprecated-dependency", Lifetime = TimeSpan.FromDays(29) }).Approval.Should().NotBeNull("a rule lives longer than a problem");
+        _authority.Approve(Request() with { Kind = CertificateKind.Rule, Subject = "deprecated-dependency", Lifetime = TimeSpan.FromDays(31) }).Approval.Should().BeNull();
+        _authority.Approve(Request() with { MaxMandates = 0 }).Approval.Should().BeNull();
+        _authority.Approve(Request() with { MaxMandates = 51 }).Approval.Should().BeNull();
+    }
+
+    [Fact]
+    public void A_runner_counts_the_mandates_under_a_certificate_and_refuses_the_one_beyond_what_the_certificate_says()
+    {
+        using var controlPlane = MandateSigner.Create();
+        var approval = _authority.Approve(Request(World.Git) with { MaxMandates = 2 }).Approval!;
+        var state = new RunnerState();
+        using var runner = new MandateVerifier(controlPlane.PublicKey(), "runner-git", World.Git, state, _time, _authority.Verifier);
+
+        runner.Accept(controlPlane.Sign(MandateFor(approval) with { Nonce = "n1" }, approval)).Should().Be(MandateRefusal.None);
+        runner.Accept(controlPlane.Sign(MandateFor(approval) with { Nonce = "n2" }, approval)).Should().Be(MandateRefusal.None);
+        runner.Accept(controlPlane.Sign(MandateFor(approval) with { Nonce = "n3" }, approval)).Should().Be(MandateRefusal.ApprovalUsedUp, "a signer cannot issue more under one approval than the maintainer allowed");
+        runner.Accept(controlPlane.Sign(MandateFor(approval) with { Nonce = "n1" }, approval)).Should().Be(MandateRefusal.Replayed);
+    }
+
+    [Fact]
+    public void A_withdrawn_certificate_is_refused_by_the_runner_before_it_expires_and_the_authority_publishes_the_list()
+    {
+        using var controlPlane = MandateSigner.Create();
+        var approval = _authority.Approve(Request(World.Git)).Approval!;
+        var state = new RunnerState();
+        using var runner = new MandateVerifier(controlPlane.PublicKey(), "runner-git", World.Git, state, _time, _authority.Verifier);
+        var signed = controlPlane.Sign(MandateFor(approval), approval);
+        runner.MayAct(signed, GatedAct.OpenPullRequest).Should().Be(MandateRefusal.None);
+
+        _authority.Authority.Revoke(approval.Certificate.Id);
+        _authority.Authority.Revoked().Should().Equal(approval.Certificate.Id);
+        foreach (var id in _authority.Authority.Revoked())
+        {
+            state.RevokedApprovals.Add(id);
+        }
+
+        runner.MayAct(signed, GatedAct.OpenPullRequest).Should().Be(MandateRefusal.ApprovalRevoked);
+        runner.Accept(controlPlane.Sign(MandateFor(approval) with { Nonce = "other" }, approval)).Should().Be(MandateRefusal.ApprovalRevoked);
     }
 
     private sealed class FixedSecrets : ISecondFactorSecrets

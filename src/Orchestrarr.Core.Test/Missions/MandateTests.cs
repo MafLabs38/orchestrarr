@@ -7,7 +7,7 @@ public sealed class MandateTests : IDisposable
 {
     private readonly FakeTimeProvider _time = new(new DateTimeOffset(2026, 11, 13, 12, 0, 0, TimeSpan.Zero));
     private readonly MandateSigner _signer = MandateSigner.Create();
-    private readonly FakeState _state = new();
+    private readonly RunnerState _state = new();
     private readonly TestAuthority _authority;
     private readonly List<IDisposable> _verifiers = [];
 
@@ -21,19 +21,6 @@ public sealed class MandateTests : IDisposable
         {
             verifier.Dispose();
         }
-    }
-
-    private sealed class FakeState : IMandateState
-    {
-        private readonly HashSet<string> _used = [];
-
-        public HashSet<string> Revoked { get; } = [];
-
-        public bool KillSwitchEngaged { get; set; }
-
-        public bool TryUse(string nonce) => _used.Add(nonce);
-
-        public bool IsRevoked(string mandateId) => Revoked.Contains(mandateId);
     }
 
     private Mandate Mandate(World world = World.Git, string runner = "runner-git", params GatedAct[] acts) => new(
@@ -156,7 +143,7 @@ public sealed class MandateTests : IDisposable
     }
 
     [Fact]
-    public void The_private_key_can_be_kept_and_loaded_again_and_the_public_half_alone_cannot_sign()
+    public void The_private_key_can_be_kept_and_loaded_again_and_signs_what_the_original_signs()
     {
         var restored = MandateSigner.FromPrivateKey(_signer.PrivateKey());
         using (restored)
@@ -165,6 +152,13 @@ public sealed class MandateTests : IDisposable
 
             Verifier().Accept(signed).Should().Be(MandateRefusal.None);
         }
-        _signer.PublicKey().Should().NotBeEquivalentTo(_signer.PrivateKey());
+    }
+
+    [Fact]
+    public void The_public_half_is_not_a_private_key_and_cannot_be_loaded_to_sign()
+    {
+        var load = () => MandateSigner.FromPrivateKey(_signer.PublicKey());
+
+        load.Should().Throw<System.Security.Cryptography.CryptographicException>();
     }
 }

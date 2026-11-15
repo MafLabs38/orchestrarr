@@ -53,13 +53,30 @@ public enum MandateRefusal
 
     /// <summary>The mandate has no certificate of the approval authority, or one that does not cover it (see <see cref="ApprovalRefusal"/>).</summary>
     NoValidApproval,
+
+    /// <summary>The authority withdrew the certificate before its expiry.</summary>
+    ApprovalRevoked,
+
+    /// <summary>The certificate already backed as many mandates as it allows: the control plane cannot sign more under it.</summary>
+    ApprovalUsedUp,
+}
+
+/// <summary>What recording a mandate's nonce gave.</summary>
+public enum MandateUse
+{
+    Used,
+    Replayed,
+    ApprovalUsedUp,
 }
 
 /// <summary>What a runner knows about a mandate beyond its content: whether it was already used, revoked, and whether the global stop is engaged.</summary>
 public interface IMandateState
 {
-    /// <summary>Records the nonce; false if it was already recorded (a replay).</summary>
-    bool TryUse(string nonce);
+    /// <summary>Records the nonce and counts the mandate against its certificate: a replay is refused, and so is a mandate beyond <paramref name="maxMandates"/> for the same certificate.</summary>
+    MandateUse TryUse(string nonce, string approvalId, int maxMandates);
+
+    /// <summary>Whether the authority withdrew this certificate (the runner reads the authority's list).</summary>
+    bool IsApprovalRevoked(string approvalId);
 
     bool IsRevoked(string mandateId);
 
@@ -103,7 +120,16 @@ public sealed class MandateVerifier : IDisposable
         {
             return refusal;
         }
-        return _state.TryUse(signed.Mandate.Nonce) ? MandateRefusal.None : MandateRefusal.Replayed;
+        if (signed.Approval is not { } approval)
+        {
+            return MandateRefusal.NoValidApproval;
+        }
+        return _state.TryUse(signed.Mandate.Nonce, signed.Mandate.ApprovalId, approval.Certificate.MaxMandates) switch
+        {
+            MandateUse.Used => MandateRefusal.None,
+            MandateUse.ApprovalUsedUp => MandateRefusal.ApprovalUsedUp,
+            _ => MandateRefusal.Replayed,
+        };
     }
 
     /// <summary>Before a gated act: the mandate is still good and lists the act. The nonce is not used again here.</summary>
@@ -130,6 +156,10 @@ public sealed class MandateVerifier : IDisposable
         if (_approvals.Check(signed.Approval, mandate) != ApprovalRefusal.None)
         {
             return MandateRefusal.NoValidApproval;
+        }
+        if (_state.IsApprovalRevoked(mandate.ApprovalId))
+        {
+            return MandateRefusal.ApprovalRevoked;
         }
         var now = _time.GetUtcNow();
         if (!string.Equals(mandate.RunnerId, _runnerId, StringComparison.Ordinal))

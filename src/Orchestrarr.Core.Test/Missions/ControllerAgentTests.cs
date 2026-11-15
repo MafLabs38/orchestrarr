@@ -21,6 +21,22 @@ public sealed class ControllerAgentTests
     }
 
     [Fact]
+    public void Nothing_the_worker_writes_makes_the_request_grow_without_bound()
+    {
+        var long_ = new string('x', 100_000);
+        var files = Enumerable.Range(0, 1000).Select(number => $"src/File{number}.cs").ToList();
+        var input = new ControllerInput(
+            new Mission("m1", "p1", "shop", World.Staging, "Replace", new MissionFrame(["example/shop"], [], "slot-1"), new MissionBudget(20, 3, 50), MissionState.HandingOver),
+            new Dossier("m1", long_, long_, [.. files], [.. files], false, null),
+            new FactsView(files, "green", "responds", []));
+
+        var request = new ControllerAgent(new FakeGateway(string.Empty), "m", TimeSpan.FromMinutes(1)).Build(input);
+
+        request.UserPrompt.Length.Should().BeLessThan(40_000);
+        request.UserPrompt.Should().Contain("and 800 more").And.Contain("…");
+    }
+
+    [Fact]
     public void The_prompt_has_the_facts_of_the_control_plane_outside_the_fenced_data_and_the_dossier_inside_it()
     {
         var request = new ControllerAgent(new FakeGateway(string.Empty), "model-x", TimeSpan.FromMinutes(2)).Build(Input(), boundary: "B0B0");

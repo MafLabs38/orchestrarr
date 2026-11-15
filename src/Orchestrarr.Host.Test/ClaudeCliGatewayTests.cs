@@ -22,7 +22,7 @@ public sealed class ClaudeCliGatewayTests : IDisposable
     }
 
     [Fact]
-    public void The_arguments_give_no_tool_no_mcp_no_session_and_the_prompts_as_arguments_not_a_shell_line()
+    public void The_arguments_give_no_tool_no_mcp_no_session_and_the_system_prompt_as_an_argument_not_a_shell_line()
     {
         var (program, arguments) = new ClaudeCliGateway(new AgentsOptions { Command = "claude" }).Command(Request());
 
@@ -31,7 +31,27 @@ public sealed class ClaudeCliGatewayTests : IDisposable
         arguments.Should().Contain(["--no-session-persistence", "--disable-slash-commands", "-p"]);
         arguments.Should().ContainInConsecutiveOrder("--setting-sources", string.Empty, "--system-prompt");
         arguments.Should().ContainInConsecutiveOrder("--model", "model-x");
-        arguments.Should().ContainInConsecutiveOrder("--system-prompt", "the system prompt", "the user prompt");
+        arguments.Should().ContainInConsecutiveOrder("--system-prompt", "the system prompt");
+        arguments.Should().NotContain("the user prompt", "the dossier goes on standard input: an argument is limited in length and shows in the process list");
+    }
+
+    [Fact]
+    public async Task The_user_prompt_goes_on_standard_input_and_the_program_sees_nothing_of_the_environment_of_the_host()
+    {
+        Environment.SetEnvironmentVariable("ORCHESTRARR_TEST_SECRET", "leaked");
+        try
+        {
+            var command = Script("input=$(cat)\necho \"$input|${ORCHESTRARR_TEST_SECRET:-absent}\"\n");
+
+            var reply = await new ClaudeCliGateway(new AgentsOptions { Command = command }).RunAsync(Request(), TestContext.Current.CancellationToken);
+
+            reply.Ok.Should().BeTrue();
+            reply.Text.Trim().Should().Be("the user prompt|absent");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("ORCHESTRARR_TEST_SECRET", null);
+        }
     }
 
     [Fact]

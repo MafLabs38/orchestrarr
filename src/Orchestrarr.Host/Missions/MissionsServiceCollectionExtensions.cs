@@ -96,7 +96,7 @@ internal sealed class ConfiguredRunners(MissionsOptions options) : IRunnerDirect
 /// </summary>
 internal sealed class ConservativeFacts : IFactsSource
 {
-    public ObservedFacts Facts(string problemId, World world, Dossier? dossier) => new(
+    public ObservedFacts Facts(string problemId, World world, Dossier? dossier, string? commit) => new(
         BudgetAvailable: false, DiffIsClean: null, CiGreenOnExactCommit: null, ArtifactIsTheOneProvedInStaging: null, WayBackKnown: null, WorkerClaimMatchesFacts: false);
 }
 
@@ -109,8 +109,16 @@ internal sealed class NoApprovals : IApprovalSource
 /// <summary>The grants the maintainer wrote in the settings, read from the configuration at every call (it reloads when the file changes): a grant removed from the settings is gone at the next crossing.</summary>
 internal sealed class ConfiguredGrants(IConfiguration configuration) : IGrantSource
 {
-    public World? MaxWorldFor(string applicationId) =>
-        configuration[$"{MissionsOptions.SectionName}:Grants:{applicationId}"] is { } name && Enum.TryParse<World>(name, ignoreCase: true, out var world) && Enum.IsDefined(world) ? world : null;
+    // An application id is compared as it is written (ordinal), and one that holds the path separator of the configuration cannot name another section
+    public World? MaxWorldFor(string applicationId)
+    {
+        if (applicationId.Contains(':', StringComparison.Ordinal))
+        {
+            return null;
+        }
+        var grant = configuration.GetSection($"{MissionsOptions.SectionName}:Grants").GetChildren().FirstOrDefault(child => string.Equals(child.Key, applicationId, StringComparison.Ordinal));
+        return grant?.Value is { } name && Enum.TryParse<World>(name, ignoreCase: true, out var world) && Enum.IsDefined(world) ? world : null;
+    }
 }
 
 internal static class AuthorityKey

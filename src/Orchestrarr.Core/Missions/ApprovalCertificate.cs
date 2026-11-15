@@ -26,7 +26,8 @@ public sealed record ApprovalCertificate(
     DateTimeOffset ExpiresAt,
     string Approver,
     string Nonce,
-    IReadOnlyList<string> ForbiddenPaths)
+    IReadOnlyList<string> ForbiddenPaths,
+    int MaxMandates)
 {
     /// <summary>The bytes that are signed: every field, in a fixed order, so that none can move or be replaced without breaking the signature.</summary>
     public byte[] CanonicalBytes()
@@ -54,14 +55,27 @@ public sealed record ApprovalCertificate(
         {
             writer.Text(path);
         }
+        writer.Int(MaxMandates);
         return writer.ToArray();
     }
 }
 
 public sealed record SignedApproval(ApprovalCertificate Certificate, byte[] Signature);
 
-/// <summary>What the maintainer asks the authority to certify.</summary>
-public sealed record ApprovalRequest(CertificateKind Kind, string Subject, string ApplicationId, IReadOnlyList<string> Repositories, World MaxWorld, MissionBudget Budget, TimeSpan Lifetime, IReadOnlyList<string>? ForbiddenPaths = null);
+/// <summary>What the maintainer asks the authority to certify. <c>MaxMandates</c> is how many mandates the whole certificate may back, counted by the runners: a certificate for a standing rule would otherwise back any number of problems.</summary>
+public sealed record ApprovalRequest(CertificateKind Kind, string Subject, string ApplicationId, IReadOnlyList<string> Repositories, World MaxWorld, MissionBudget Budget, TimeSpan Lifetime, IReadOnlyList<string>? ForbiddenPaths = null, int MaxMandates = 8);
+
+/// <summary>The bounds that the authority puts on what it signs, whoever asks: a certificate lives for a limited time and backs a limited number of mandates (a standing rule lives longer than a problem).</summary>
+public sealed record ApprovalPolicy(TimeSpan MaxProblemLifetime, TimeSpan MaxRuleLifetime, int MaxMandates, TimeSpan ProposalLifetime)
+{
+    public static ApprovalPolicy Default { get; } = new(TimeSpan.FromDays(7), TimeSpan.FromDays(30), 50, TimeSpan.FromMinutes(10));
+}
+
+/// <summary>
+/// A request the authority holds until the maintainer confirms it **on the authority's own channel**: <c>Summary</c> is what the authority shows and <c>Digest</c> identifies it. The code that
+/// confirms it signs exactly this and nothing else, so whoever relays the code cannot choose what is signed.
+/// </summary>
+public sealed record ApprovalProposal(string Id, string Approver, string Summary, string Digest, DateTimeOffset ExpiresAt);
 
 /// <summary>
 /// The approval authority (ADR 0031 point 7, ADR 0017 kept): it checks the maintainer's second-factor code with a secret that **the control plane does not hold**, and only then signs a certificate of what
@@ -74,8 +88,13 @@ public sealed class ApprovalAuthority : IDisposable
     private readonly SecondFactorGuard _guard;
     private readonly TimeProvider _time;
     private readonly Func<string> _newId;
+    private readonly ApprovalPolicy _policy;
+    private readonly Dictionary<string, (ApprovalProposal Proposal, ApprovalRequest Request)> _proposals = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _revoked = new(StringComparer.Ordinal);
+    private readonly object _gate = new();
 
-    public ApprovalAuthority(SecondFactorGuard guard, TimeProvider time, Func<string> newId, ECDsa? key = null)
+    /// <summary>The authority takes ownership of <paramref name="key"/> when one is given: it disposes it.</summary>
+    public ApprovalAuthority(SecondFactorGuard guard, TimeProvider time, Func<string> newId, ECDsa? key = null, ApprovalPolicy? policy = null)
     {
         ArgumentNullException.ThrowIfNull(guard);
         ArgumentNullException.ThrowIfNull(time);
@@ -84,28 +103,91 @@ public sealed class ApprovalAuthority : IDisposable
         _time = time;
         _newId = newId;
         _key = key ?? ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        _policy = policy ?? ApprovalPolicy.Default;
     }
 
     /// <summary>The public half, to give to the runners.</summary>
     public byte[] PublicKey() => _key.ExportSubjectPublicKeyInfo();
 
-    /// <summary>The certificate, or null with the reason when the code is not accepted. A request that asks for nothing (no repository, a world above what is asked, no lifetime) is refused before the code is spent.</summary>
-    public async Task<(SignedApproval? Approval, SecondFactorResult Result)> ApproveAsync(ApprovalRequest request, string approver, string? code, CancellationToken cancellationToken)
+    /// <summary>
+    /// The request is held, not signed: the authority shows <see cref="ApprovalProposal.Summary"/> to the maintainer on its own channel, and only a code typed there signs it. A request that asks for nothing
+    /// (no repository, no budget, no lifetime) or for more than the policy allows is refused here, before any code is spent. Null: refused.
+    /// </summary>
+    public ApprovalProposal? Propose(ApprovalRequest request, string approver)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentException.ThrowIfNullOrWhiteSpace(approver);
-        if (request.Repositories.Count == 0 || !request.Budget.IsValid || request.Lifetime <= TimeSpan.Zero)
+        var longest = request.Kind == CertificateKind.Rule ? _policy.MaxRuleLifetime : _policy.MaxProblemLifetime;
+        if (request.Repositories.Count == 0 || !request.Budget.IsValid || request.Lifetime <= TimeSpan.Zero || request.Lifetime > longest || request.MaxMandates < 1 || request.MaxMandates > _policy.MaxMandates)
         {
-            return (null, SecondFactorResult.Malformed);
+            return null;
+        }
+        var now = _time.GetUtcNow();
+        var summary = string.Create(System.Globalization.CultureInfo.InvariantCulture,
+            $"{request.Kind} {request.Subject} of {request.ApplicationId}: repositories {string.Join(", ", request.Repositories.Order(StringComparer.Ordinal))}; up to the {request.MaxWorld} world; {request.Budget.MaxMinutes} min, {request.Budget.MaxAttempts} attempts, {request.Budget.MaxTurns} turns; at most {request.MaxMandates} mandates; valid {request.Lifetime.TotalHours:0.#} h; forbidden: {string.Join(", ", (request.ForbiddenPaths ?? []).Order(StringComparer.Ordinal))}");
+        var digest = Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(summary)));
+        var proposal = new ApprovalProposal(_newId(), approver, summary, digest, now + _policy.ProposalLifetime);
+        lock (_gate)
+        {
+            foreach (var expired in _proposals.Where(entry => entry.Value.Proposal.ExpiresAt <= now).Select(entry => entry.Key).ToList())
+            {
+                _proposals.Remove(expired);
+            }
+            _proposals[proposal.Id] = (proposal, request);
+        }
+        return proposal;
+    }
+
+    /// <summary>What the authority shows the maintainer on its own channel for a proposal that is still open.</summary>
+    public ApprovalProposal? Describe(string proposalId)
+    {
+        lock (_gate)
+        {
+            return _proposals.TryGetValue(proposalId, out var held) && held.Proposal.ExpiresAt > _time.GetUtcNow() ? held.Proposal : null;
+        }
+    }
+
+    /// <summary>The certificate of the proposal that the code confirms, or null with the reason. The proposal is used up whatever the code says, so that a code cannot be tried again on it.</summary>
+    public async Task<(SignedApproval? Approval, SecondFactorResult Result)> ApproveAsync(string proposalId, string approver, string? code, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(approver);
+        (ApprovalProposal Proposal, ApprovalRequest Request) held;
+        lock (_gate)
+        {
+            if (!_proposals.Remove(proposalId ?? string.Empty, out held) || held.Proposal.ExpiresAt <= _time.GetUtcNow() || !string.Equals(held.Proposal.Approver, approver, StringComparison.Ordinal))
+            {
+                return (null, SecondFactorResult.Malformed);
+            }
         }
         var result = await _guard.VerifyAsync(approver, code, cancellationToken);
         if (result != SecondFactorResult.Verified)
         {
             return (null, result);
         }
+        var request = held.Request;
         var now = _time.GetUtcNow();
-        var certificate = new ApprovalCertificate(_newId(), request.Kind, request.Subject, request.ApplicationId, request.Repositories, request.MaxWorld, request.Budget, now, now + request.Lifetime, approver, _newId(), request.ForbiddenPaths ?? []);
+        var id = _newId();
+        var nonce = _newId();
+        var certificate = new ApprovalCertificate(id, request.Kind, request.Subject, request.ApplicationId, request.Repositories, request.MaxWorld, request.Budget, now, now + request.Lifetime, approver, nonce, request.ForbiddenPaths ?? [], request.MaxMandates);
         return (new SignedApproval(certificate, _key.SignData(certificate.CanonicalBytes(), HashAlgorithmName.SHA256)), result);
+    }
+
+    /// <summary>The maintainer withdraws an approval before its expiry (a standing rule revoked): every runner reads the list and refuses what the certificate backs.</summary>
+    public void Revoke(string certificateId)
+    {
+        lock (_gate)
+        {
+            _revoked.Add(certificateId);
+        }
+    }
+
+    /// <summary>The certificates withdrawn so far, for the runners to read (as they read the global stop).</summary>
+    public IReadOnlyCollection<string> Revoked()
+    {
+        lock (_gate)
+        {
+            return [.. _revoked];
+        }
     }
 
     public void Dispose() => _key.Dispose();

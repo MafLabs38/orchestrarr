@@ -121,6 +121,9 @@ public sealed class MissionsApiTests
         list.GetArrayLength().Should().Be(2);
         list[0].GetProperty("world").GetString().Should().Be("Release");
         raw.Should().NotContainEquivalentOf("signature", "the signature stays in the control plane");
+        raw.Should().NotContainEquivalentOf("approval").And.NotContainEquivalentOf("certificate", "the certificate of the authority stays in the control plane too");
+        using var document = JsonDocument.Parse(raw);
+        document.RootElement.GetProperty("mandate").EnumerateObject().Select(property => property.Name).Should().BeEquivalentTo("id", "runnerId", "source", "acts", "issuedAt", "expiresAt", "revoked");
     }
 
     [Fact]

@@ -33,14 +33,22 @@ public sealed class InMemoryMandateLedger : IMandateLedger
     public void Record(SignedMandate mandate)
     {
         ArgumentNullException.ThrowIfNull(mandate);
-        _mandates[mandate.Mandate.Id] = mandate;
+        _mandates.TryAdd(mandate.Mandate.Id, mandate);
     }
 
     public SignedMandate? Get(string id) => _mandates.GetValueOrDefault(id);
 
     public int CountForProblem(string problemId) => _mandates.Values.Count(mandate => mandate.Mandate.ProblemId == problemId);
 
-    public void Revoke(string id) => _revoked[id] = true;
+    public int CountForApproval(string approvalId) => _mandates.Values.Count(mandate => mandate.Mandate.ApprovalId == approvalId);
+
+    public void Revoke(string id)
+    {
+        if (_mandates.ContainsKey(id))
+        {
+            _revoked[id] = true;
+        }
+    }
 
     public bool IsRevoked(string id) => _revoked.ContainsKey(id);
 }

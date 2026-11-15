@@ -56,7 +56,7 @@ public sealed class ClaudeCliGateway(AgentsOptions options) : IAgentGateway
             arguments.AddRange(wrapper.Skip(1));
             arguments.Add(options.Command);
         }
-        arguments.AddRange(["-p", "--model", request.Model, "--tools", string.Empty, "--strict-mcp-config", "--no-session-persistence", "--disable-slash-commands", "--setting-sources", string.Empty, "--system-prompt", request.SystemPrompt, request.UserPrompt]);
+        arguments.AddRange(["-p", "--model", request.Model, "--tools", string.Empty, "--strict-mcp-config", "--no-session-persistence", "--disable-slash-commands", "--setting-sources", string.Empty, "--system-prompt", request.SystemPrompt]);
         return (program, arguments);
     }
 
@@ -69,6 +69,11 @@ public sealed class ClaudeCliGateway(AgentsOptions options) : IAgentGateway
         {
             start.ArgumentList.Add(argument);
         }
+        // The program gets nothing of the host's environment (its connection strings, its tokens, a proxy that would redirect the prompt): only what it needs to run, and its own token
+        start.Environment.Clear();
+        start.Environment["PATH"] = Environment.GetEnvironmentVariable("PATH") ?? "/usr/local/bin:/usr/bin:/bin";
+        start.Environment["HOME"] = workspace.Path;
+        start.Environment["LANG"] = "C.UTF-8";
         if (options.TokenFile is { Length: > 0 } file)
         {
             // A token file that is named and not there is no answer: running under the login of whoever started the host would be running as someone else, in silence
@@ -87,13 +92,13 @@ public sealed class ClaudeCliGateway(AgentsOptions options) : IAgentGateway
         {
             return new AgentReply(false, string.Empty, "the agent program could not be started");
         }
-        process.StandardInput.Close();
         using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         limit.CancelAfter(request.Timeout);
         try
         {
             var output = Read(process.StandardOutput, limit.Token);
             var errors = Read(process.StandardError, limit.Token);
+            await Feed(process.StandardInput, request.UserPrompt, limit.Token);
             await process.WaitForExitAsync(limit.Token);
             var text = await output;
             _ = await errors;
@@ -103,6 +108,21 @@ public sealed class ClaudeCliGateway(AgentsOptions options) : IAgentGateway
         {
             process.Kill(entireProcessTree: true);
             return new AgentReply(false, string.Empty, cancellationToken.IsCancellationRequested ? "stopped" : "the agent did not answer in time");
+        }
+    }
+
+    // The prompt goes on standard input: an argument is limited in length and visible to every process of the machine. A program that ended before it read it speaks through its exit code.
+    private static async Task Feed(StreamWriter input, string prompt, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await input.WriteAsync(prompt.AsMemory(), cancellationToken);
+            await input.FlushAsync(cancellationToken);
+            input.Close();
+        }
+        catch (IOException)
+        {
+            // The pipe is closed: the program is already gone
         }
     }
 

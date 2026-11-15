@@ -59,11 +59,11 @@ public sealed class ControllerAgent(IAgentGateway gateway, string model, TimeSpa
         text.AppendLine(CultureInvariant($"  health: {Flat(input.Facts.Health)}"));
         text.AppendLine(CultureInvariant($"  checks of the code that failed: {(input.Facts.FailedChecks.Count == 0 ? "none" : string.Join(", ", input.Facts.FailedChecks))}"));
         text.AppendLine(CultureInvariant($"<<<DATA {mark}: names chosen by the worker and its dossier, untrusted>>>"));
-        text.AppendLine(CultureInvariant($"changed files (names chosen by the worker): {(input.Facts.ChangedFiles.Count == 0 ? "none" : string.Join(", ", input.Facts.ChangedFiles.Select(Flat)))}"));
+        text.AppendLine(CultureInvariant($"changed files (names chosen by the worker): {(input.Facts.ChangedFiles.Count == 0 ? "none" : string.Join(", ", input.Facts.ChangedFiles.Take(MaxListed).Select(Flat)))}{(input.Facts.ChangedFiles.Count > MaxListed ? $" … and {input.Facts.ChangedFiles.Count - MaxListed} more" : string.Empty)}"));
         text.AppendLine(CultureInvariant($"claim: {Flat(input.Dossier.Claim)}"));
         text.AppendLine(CultureInvariant($"what changed and why: {Flat(input.Dossier.WhatChangedAndWhy)}"));
-        text.AppendLine(CultureInvariant($"evidence digests: {string.Join(", ", input.Dossier.EvidenceDigests.Select(Flat))}"));
-        text.AppendLine(CultureInvariant($"open points: {string.Join(" | ", input.Dossier.OpenPoints.Select(Flat))}"));
+        text.AppendLine(CultureInvariant($"evidence digests: {string.Join(", ", input.Dossier.EvidenceDigests.Take(MaxListed).Select(Flat))}"));
+        text.AppendLine(CultureInvariant($"open points: {string.Join(" | ", input.Dossier.OpenPoints.Take(MaxListed).Select(Flat))}"));
         text.AppendLine(CultureInvariant($"marked complex by the worker: {input.Dossier.Complex} {Flat(input.Dossier.ComplexReason ?? string.Empty)}"));
         text.AppendLine(CultureInvariant($"<<<END {mark}>>>"));
         return new AgentRequest(SystemPrompt, text.ToString(), model, timeout);
@@ -114,7 +114,15 @@ public sealed class ControllerAgent(IAgentGateway gateway, string model, TimeSpa
     }
 
     // A text on one line, so that nothing the worker wrote can look like a section of its own
-    private static string Flat(string value) => value.ReplaceLineEndings(" ").Trim();
+    // A field of the dossier is cut: nothing the worker writes can make the request grow without bound
+    private const int MaxFieldCharacters = 4000;
+    private const int MaxListed = 200;
+
+    private static string Flat(string value)
+    {
+        var flat = value.ReplaceLineEndings(" ").Trim();
+        return flat.Length <= MaxFieldCharacters ? flat : string.Concat(flat.AsSpan(0, MaxFieldCharacters), "…");
+    }
 
     private static string CultureInvariant(FormattableString text) => text.ToString(System.Globalization.CultureInfo.InvariantCulture);
 

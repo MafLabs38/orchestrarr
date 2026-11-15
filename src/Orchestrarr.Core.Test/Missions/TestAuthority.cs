@@ -36,7 +36,7 @@ internal sealed class TestAuthority : IApprovalSource, IDisposable
     public (SignedApproval? Approval, SecondFactorResult Result) Approve(ApprovalRequest request, string? code = null)
     {
         var operatorName = $"alice-{Interlocked.Increment(ref _operators)}";
-        return Authority.ApproveAsync(request, operatorName, code ?? CodeFor(), CancellationToken.None).GetAwaiter().GetResult();
+        return Authority.ProposeAndApproveAsync(request, operatorName, code ?? CodeFor(), CancellationToken.None).GetAwaiter().GetResult();
     }
 
     public SignedApproval? For(PlanEntry entry)
@@ -61,4 +61,44 @@ internal sealed class TestAuthority : IApprovalSource, IDisposable
         // Every operator name of the test has the same secret: the point is the authority's checks, not the enrolment
         public ValueTask<byte[]?> FindAsync(string subject, CancellationToken cancellationToken) => ValueTask.FromResult<byte[]?>(secret);
     }
+}
+
+internal static class AuthorityTestExtensions
+{
+    /// <summary>The two steps in one, for a test that is not about the binding of the code: the request is proposed, then confirmed with the code.</summary>
+    public static async Task<(SignedApproval? Approval, SecondFactorResult Result)> ProposeAndApproveAsync(this ApprovalAuthority authority, ApprovalRequest request, string approver, string? code, CancellationToken cancellationToken) =>
+        authority.Propose(request, approver) is { } proposal ? await authority.ApproveAsync(proposal.Id, approver, code, cancellationToken) : (null, SecondFactorResult.Malformed);
+}
+
+/// <summary>What a runner remembers, for tests: the nonces, the count per certificate, the revoked mandates and certificates, the stop.</summary>
+internal sealed class RunnerState : IMandateState
+{
+    private readonly HashSet<string> _used = [];
+    private readonly Dictionary<string, int> _perApproval = new(StringComparer.Ordinal);
+
+    public HashSet<string> Revoked { get; } = [];
+
+    public HashSet<string> RevokedApprovals { get; } = [];
+
+    public bool KillSwitchEngaged { get; set; }
+
+    public MandateUse TryUse(string nonce, string approvalId, int maxMandates)
+    {
+        if (_used.Contains(nonce))
+        {
+            return MandateUse.Replayed;
+        }
+        var count = _perApproval.GetValueOrDefault(approvalId);
+        if (count >= maxMandates)
+        {
+            return MandateUse.ApprovalUsedUp;
+        }
+        _used.Add(nonce);
+        _perApproval[approvalId] = count + 1;
+        return MandateUse.Used;
+    }
+
+    public bool IsRevoked(string mandateId) => Revoked.Contains(mandateId);
+
+    public bool IsApprovalRevoked(string approvalId) => RevokedApprovals.Contains(approvalId);
 }
