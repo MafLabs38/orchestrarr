@@ -26,7 +26,9 @@ public sealed record Mandate(
     DateTimeOffset ExpiresAt,
     MandateSource Source,
     string Nonce,
-    string ApprovalId)
+    string ApprovalId,
+    string ApplicationId,
+    string ProblemClass)
 {
     /// <summary>The bytes that are signed. Every field is in them, in a fixed order, so that no field can move or be replaced without breaking the signature.</summary>
     public byte[] CanonicalBytes()
@@ -53,6 +55,8 @@ public sealed record Mandate(
         writer.Int((int)Source);
         writer.Text(Nonce);
         writer.Text(ApprovalId);
+        writer.Text(ApplicationId);
+        writer.Text(ProblemClass);
         return writer.ToArray();
     }
 

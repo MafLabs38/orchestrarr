@@ -135,8 +135,8 @@ public sealed class ProblemConductorTests : IDisposable
         var git = Through(conductor, staging);
         var state = new TestMandateState();
 
-        using var gitRunner = new MandateVerifier(_signer.PublicKey(), "runner-git", World.Git, state, _time);
-        using var stagingRunner = new MandateVerifier(_signer.PublicKey(), "runner-staging", World.Staging, state, _time);
+        using var gitRunner = new MandateVerifier(_signer.PublicKey(), "runner-git", World.Git, state, _time, _authority.Verifier);
+        using var stagingRunner = new MandateVerifier(_signer.PublicKey(), "runner-staging", World.Staging, state, _time, _authority.Verifier);
 
         stagingRunner.Accept(git.Mandate!).Should().Be(MandateRefusal.WrongRunner);
         gitRunner.Accept(git.Mandate!).Should().Be(MandateRefusal.None);
@@ -696,5 +696,57 @@ public sealed class ProblemConductorTests : IDisposable
 
         results.Count(result => result.Ok).Should().Be(1);
         _mandates.CountForProblem("problem-1").Should().Be(1);
+    }
+
+    [Fact]
+    public void A_start_that_cannot_issue_its_mandate_leaves_nothing_in_progress_and_can_be_tried_again()
+    {
+        var conductor = Conductor();
+        _audit.Writable = false;
+        StartStaged(conductor).Ok.Should().BeFalse();
+        _problems.Get("problem-1").Should().BeNull("nothing was kept");
+
+        _audit.Writable = true;
+        StartStaged(conductor).Ok.Should().BeTrue("the retry is not refused as already in progress");
+    }
+
+    [Fact]
+    public void A_certificate_for_another_application_or_another_class_issues_no_mandate()
+    {
+        _authority.Adjust = request => request with { ApplicationId = "other-app" };
+        StartStaged(Conductor()).Refusal.Should().Contain("does not cover");
+
+        _authority.Adjust = null;
+        _authority.Kind = CertificateKind.Rule;
+        _authority.Adjust = request => request with { Subject = "secret-exposed" };
+        StartStaged(Conductor()).Refusal.Should().Contain("does not cover");
+    }
+
+    [Fact]
+    public void The_mandates_carry_the_forbidden_paths_of_the_certificate_and_the_application_and_class_of_the_problem()
+    {
+        _authority.Adjust = request => request with { ForbiddenPaths = ["infra/prod/**"] };
+        var conductor = Conductor();
+
+        var staging = StartStaged(conductor);
+
+        staging.Mandate!.Mandate.Frame.ForbiddenPaths.Should().Contain("infra/prod/**").And.Contain(".github/**");
+        staging.Mandate.Mandate.ApplicationId.Should().Be("shop");
+        staging.Mandate.Mandate.ProblemClass.Should().Be("deprecated-dependency");
+    }
+
+    [Fact]
+    public void A_stop_that_moves_the_problem_to_failed_is_a_stop_that_worked_even_with_no_mission_running()
+    {
+        var conductor = Conductor();
+        var id = StartStaged(conductor).Mission!.Id;
+        conductor.Started(id);
+        conductor.HandOver(id, DossierFor(id));
+        conductor.Decide(id, new ControllerDecision(ControllerDecisionKind.SendBack, ["incomplete"], "more tests"));
+        conductor.HandOver(id, DossierFor(id));
+        var ended = conductor.Decide(id, new ControllerDecision(ControllerDecisionKind.End, ["frame broken"], null));
+        ended.Ok.Should().BeTrue();
+
+        conductor.Stop("problem-1", "x").Ok.Should().BeFalse("the problem is no longer in progress");
     }
 }

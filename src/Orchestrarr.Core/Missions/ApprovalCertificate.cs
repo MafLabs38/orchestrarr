@@ -25,7 +25,8 @@ public sealed record ApprovalCertificate(
     DateTimeOffset IssuedAt,
     DateTimeOffset ExpiresAt,
     string Approver,
-    string Nonce)
+    string Nonce,
+    IReadOnlyList<string> ForbiddenPaths)
 {
     /// <summary>The bytes that are signed: every field, in a fixed order, so that none can move or be replaced without breaking the signature.</summary>
     public byte[] CanonicalBytes()
@@ -48,6 +49,11 @@ public sealed record ApprovalCertificate(
         writer.Seconds(ExpiresAt);
         writer.Text(Approver);
         writer.Text(Nonce);
+        writer.Int(ForbiddenPaths.Count);
+        foreach (var path in ForbiddenPaths.Order(StringComparer.Ordinal))
+        {
+            writer.Text(path);
+        }
         return writer.ToArray();
     }
 }
@@ -55,7 +61,7 @@ public sealed record ApprovalCertificate(
 public sealed record SignedApproval(ApprovalCertificate Certificate, byte[] Signature);
 
 /// <summary>What the maintainer asks the authority to certify.</summary>
-public sealed record ApprovalRequest(CertificateKind Kind, string Subject, string ApplicationId, IReadOnlyList<string> Repositories, World MaxWorld, MissionBudget Budget, TimeSpan Lifetime);
+public sealed record ApprovalRequest(CertificateKind Kind, string Subject, string ApplicationId, IReadOnlyList<string> Repositories, World MaxWorld, MissionBudget Budget, TimeSpan Lifetime, IReadOnlyList<string>? ForbiddenPaths = null);
 
 /// <summary>
 /// The approval authority (ADR 0031 point 7, ADR 0017 kept): it checks the maintainer's second-factor code with a secret that **the control plane does not hold**, and only then signs a certificate of what
@@ -98,7 +104,7 @@ public sealed class ApprovalAuthority : IDisposable
             return (null, result);
         }
         var now = _time.GetUtcNow();
-        var certificate = new ApprovalCertificate(_newId(), request.Kind, request.Subject, request.ApplicationId, request.Repositories, request.MaxWorld, request.Budget, now, now + request.Lifetime, approver, _newId());
+        var certificate = new ApprovalCertificate(_newId(), request.Kind, request.Subject, request.ApplicationId, request.Repositories, request.MaxWorld, request.Budget, now, now + request.Lifetime, approver, _newId(), request.ForbiddenPaths ?? []);
         return (new SignedApproval(certificate, _key.SignData(certificate.CanonicalBytes(), HashAlgorithmName.SHA256)), result);
     }
 
@@ -118,6 +124,10 @@ public enum ApprovalRefusal
     RepositoryNotApproved,
     BudgetAboveApproval,
     OutlivesApproval,
+    WrongApplication,
+    WrongClass,
+    ActsOfAnotherWorld,
+    ForbiddenPathsDropped,
 }
 
 /// <summary>
@@ -166,6 +176,14 @@ public sealed class ApprovalVerifier : IDisposable
         {
             return ApprovalRefusal.WrongProblem;
         }
+        if (certificate.Kind == CertificateKind.Rule && !string.Equals(certificate.Subject, mandate.ProblemClass, StringComparison.Ordinal))
+        {
+            return ApprovalRefusal.WrongClass;
+        }
+        if (!string.Equals(certificate.ApplicationId, mandate.ApplicationId, StringComparison.Ordinal))
+        {
+            return ApprovalRefusal.WrongApplication;
+        }
         if (mandate.World > certificate.MaxWorld)
         {
             return ApprovalRefusal.WorldAboveApproval;
@@ -177,6 +195,14 @@ public sealed class ApprovalVerifier : IDisposable
         if (mandate.Budget.MaxMinutes > certificate.Budget.MaxMinutes || mandate.Budget.MaxAttempts > certificate.Budget.MaxAttempts || mandate.Budget.MaxTurns > certificate.Budget.MaxTurns)
         {
             return ApprovalRefusal.BudgetAboveApproval;
+        }
+        if (!mandate.Acts.All(act => WorldActs.Of(mandate.World).Contains(act)))
+        {
+            return ApprovalRefusal.ActsOfAnotherWorld;
+        }
+        if (!certificate.ForbiddenPaths.All(path => mandate.Frame.ForbiddenPaths.Contains(path, StringComparer.Ordinal)))
+        {
+            return ApprovalRefusal.ForbiddenPathsDropped;
         }
         return mandate.ExpiresAt > certificate.ExpiresAt ? ApprovalRefusal.OutlivesApproval : ApprovalRefusal.None;
     }

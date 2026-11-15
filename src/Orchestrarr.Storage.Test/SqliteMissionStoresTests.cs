@@ -19,7 +19,7 @@ public sealed class SqliteMissionStoresTests : IDisposable
 
     private SignedMandate Mandate(string id = "mandate-1", string problem = "p1") => _signer.Sign(new Mandate(
         id, "m1", problem, World.Git, "runner-git", [GatedAct.OpenPullRequest, GatedAct.MergePullRequest], new MissionFrame(["example/shop"], [".github/**"], "Git:shop"), new MissionBudget(20, 3, 50),
-        new DateTimeOffset(2026, 11, 13, 12, 0, 0, TimeSpan.Zero), new DateTimeOffset(2026, 11, 13, 13, 0, 0, TimeSpan.Zero), MandateSource.Controller, "nonce-" + id, "approval-1"));
+        new DateTimeOffset(2026, 11, 13, 12, 0, 0, TimeSpan.Zero), new DateTimeOffset(2026, 11, 13, 13, 0, 0, TimeSpan.Zero), MandateSource.Controller, "nonce-" + id, "approval-1", "shop", "deprecated"));
 
     [Fact]
     public void A_mission_is_kept_with_everything_across_a_restart_and_a_save_replaces_it()
@@ -48,15 +48,21 @@ public sealed class SqliteMissionStoresTests : IDisposable
     }
 
     [Fact]
-    public void A_mandate_keeps_its_signature_across_a_restart_and_still_verifies()
+    public void A_mandate_keeps_its_signature_and_its_certificate_across_a_restart_and_still_verifies()
     {
-        new SqliteMandateLedger(_file.Open()).Record(Mandate());
+        var time = new FakeTimeProvider(new DateTimeOffset(2026, 11, 13, 12, 0, 0, TimeSpan.Zero));
+        using var authority = new Authority(time);
+        var entry = new PlanEntry("p1", "shop", "deprecated", "Replace the call", ["example/shop"], World.Release, new MissionBudget(20, 3, 50), new Validation("alice", null), time.GetUtcNow());
+        var approval = authority.For(entry)!;
+        var mandate = Mandate().Mandate with { ApprovalId = approval.Certificate.Id };
+        new SqliteMandateLedger(_file.Open()).Record(_signer.Sign(mandate, approval));
 
         var read = new SqliteMandateLedger(_file.Reopen()).Get("mandate-1")!;
 
         read.Mandate.Acts.Should().BeEquivalentTo([GatedAct.OpenPullRequest, GatedAct.MergePullRequest]);
-        var time = new FakeTimeProvider(new DateTimeOffset(2026, 11, 13, 12, 5, 0, TimeSpan.Zero));
-        using var runner = new MandateVerifier(_signer.PublicKey(), "runner-git", World.Git, new NoState(), time);
+        read.Approval!.Certificate.Id.Should().Be(approval.Certificate.Id);
+        time.Advance(TimeSpan.FromMinutes(5));
+        using var runner = new MandateVerifier(_signer.PublicKey(), "runner-git", World.Git, new NoState(), time, authority.Verifier);
         runner.Accept(read).Should().Be(MandateRefusal.None);
     }
 

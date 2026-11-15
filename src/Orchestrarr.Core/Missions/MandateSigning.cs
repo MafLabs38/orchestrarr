@@ -77,14 +77,15 @@ public sealed class MandateVerifier : IDisposable
     private readonly World _world;
     private readonly IMandateState _state;
     private readonly TimeProvider _time;
-    private readonly ApprovalVerifier? _approvals;
+    private readonly ApprovalVerifier _approvals;
 
-    /// <summary>The runner's side: the public key of the control plane, the runner and the world it serves, what it remembers, the clock, and the verifier of the authority's certificates. A runner that holds no verifier checks no approval: that is for tests and the sandbox, never for a deployment.</summary>
-    public MandateVerifier(ReadOnlySpan<byte> publicKey, string runnerId, World world, IMandateState state, TimeProvider time, ApprovalVerifier? approvals = null)
+    /// <summary>The runner's side: the public key of the control plane, the runner and the world it serves, what it remembers, the clock, and the verifier of the authority's certificates, which is required: a runner that checks no approval would accept any mandate the control plane signed.</summary>
+    public MandateVerifier(ReadOnlySpan<byte> publicKey, string runnerId, World world, IMandateState state, TimeProvider time, ApprovalVerifier approvals)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(runnerId);
         ArgumentNullException.ThrowIfNull(state);
         ArgumentNullException.ThrowIfNull(time);
+        ArgumentNullException.ThrowIfNull(approvals);
         _publicKey = ECDsa.Create();
         _publicKey.ImportSubjectPublicKeyInfo(publicKey, out _);
         _runnerId = runnerId;
@@ -126,7 +127,7 @@ public sealed class MandateVerifier : IDisposable
         {
             return MandateRefusal.BadSignature;
         }
-        if (_approvals is not null && _approvals.Check(signed.Approval, mandate) != ApprovalRefusal.None)
+        if (_approvals.Check(signed.Approval, mandate) != ApprovalRefusal.None)
         {
             return MandateRefusal.NoValidApproval;
         }

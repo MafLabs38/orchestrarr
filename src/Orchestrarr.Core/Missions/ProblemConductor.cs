@@ -29,12 +29,7 @@ public sealed class ProblemConductor(
     private readonly ProblemLocks _locks = problemLocks ?? new ProblemLocks();
 
     /// <summary>The acts a world lists in its mandates: the ones that have consequences outside the workspace.</summary>
-    public static IReadOnlyList<GatedAct> ActsOf(World world) => world switch
-    {
-        World.Staging => [GatedAct.ReserveStaging, GatedAct.RestoreStaging, GatedAct.ReleaseStaging],
-        World.Git => [GatedAct.OpenPullRequest, GatedAct.MergePullRequest],
-        _ => [GatedAct.Deploy, GatedAct.Rollback],
-    };
+    public static IReadOnlyList<GatedAct> ActsOf(World world) => WorldActs.Of(world);
 
     /// <summary>
     /// The highest world the powers reach **now**: the lowest of what the plan entry asked, what the maintainer's certificate says and the grant of the application read at this moment (D-10, D-11, D-53). Null: no power.
@@ -47,7 +42,9 @@ public sealed class ProblemConductor(
 
     // The certificate must say at least what the entry asks: the repositories, the budget
     private static bool Covers(SignedApproval approval, PlanEntry entry) =>
-        entry.Repositories.All(repository => approval.Certificate.Repositories.Contains(repository, StringComparer.Ordinal))
+        string.Equals(approval.Certificate.ApplicationId, entry.ApplicationId, StringComparison.Ordinal)
+        && (approval.Certificate.Kind == CertificateKind.Problem ? string.Equals(approval.Certificate.Subject, entry.ProblemId, StringComparison.Ordinal) : string.Equals(approval.Certificate.Subject, entry.ProblemClass, StringComparison.Ordinal))
+        && entry.Repositories.All(repository => approval.Certificate.Repositories.Contains(repository, StringComparer.Ordinal))
         && entry.Budget.MaxMinutes <= approval.Certificate.Budget.MaxMinutes && entry.Budget.MaxAttempts <= approval.Certificate.Budget.MaxAttempts && entry.Budget.MaxTurns <= approval.Certificate.Budget.MaxTurns;
 
     /// <summary>Starts a problem that is in the plan: the stop, the proved approval, the staging gate, the powers, then the first mandate in the first world.</summary>
@@ -88,8 +85,8 @@ public sealed class ProblemConductor(
             {
                 return ConductResult.Fail("the audit trail cannot be written: no power is granted");
             }
+            // The run is kept by Open once the first mandate exists: a start that fails leaves nothing in progress
             var run = new ProblemRun(entry.ProblemId, entry.ApplicationId, ProblemState.InProgress, time.GetUtcNow(), entry, highest, usesStaging, approval, first);
-            problems.Save(run);
             return Open(run, first, byRule ? MandateSource.StandingRule : MandateSource.PlanValidation);
         });
     }
@@ -214,7 +211,8 @@ public sealed class ProblemConductor(
         }
         problems.Save(run with { State = ProblemState.Failed, Note = reason });
         BestEffort(MissionAuditEvents.ProblemFailed, problemId, reason);
-        return last is null ? ConductResult.Fail("no mission was running") : ConductResult.Success(last);
+        // The problem moved to Failed even when no mission was running: that is a stop that worked
+        return new ConductResult(true, null, [], last, null);
     }
 
     private ConductResult Grant(ProblemRun run, Mission mission, ControllerDecision decision)
@@ -373,33 +371,29 @@ public sealed class ProblemConductor(
     {
         if (stop.Engaged)
         {
-            problems.Save(run with { State = ProblemState.Failed, Note = "the global stop is engaged" });
-            BestEffort(MissionAuditEvents.ProblemFailed, run.ProblemId, "the global stop is engaged");
-            return ConductResult.Fail("the global stop is engaged", [PreconditionFailure.KillSwitchEngaged]);
+            return Failed(run, "the global stop is engaged", [PreconditionFailure.KillSwitchEngaged]);
         }
         var entry = run.Entry;
         var loop = options.Loop.Check(mandates.CountForProblem(run.ProblemId), time.GetUtcNow() - run.StartedAt);
         if (loop != LoopVerdict.Allowed)
         {
-            problems.Save(run with { State = ProblemState.Failed, Note = $"the loop reached its limit: {loop}" });
-            BestEffort(MissionAuditEvents.ProblemFailed, run.ProblemId, $"the loop reached its limit: {loop}");
-            return ConductResult.Fail($"the loop reached its limit: {loop}", [PreconditionFailure.LoopLimitReached]);
+            return Failed(run, $"the loop reached its limit: {loop}", [PreconditionFailure.LoopLimitReached]);
         }
-        var frame = new MissionFrame(entry.Repositories, options.ForbiddenPaths, $"{world}:{entry.ApplicationId}");
+        var frame = new MissionFrame(entry.Repositories, [.. options.ForbiddenPaths.Union(run.Approval.Certificate.ForbiddenPaths, StringComparer.Ordinal)], $"{world}:{entry.ApplicationId}");
         var mission = new Mission(newId(), run.ProblemId, run.ApplicationId, world, ObjectiveOf(world, entry), frame, entry.Budget, MissionState.Proposed);
         var now = time.GetUtcNow();
         // A mandate never outlives the approval it falls inside
         var expires = now + options.MandateLifetime < run.Approval.Certificate.ExpiresAt ? now + options.MandateLifetime : run.Approval.Certificate.ExpiresAt;
-        var mandate = new Mandate(newId(), mission.Id, run.ProblemId, world, runners.RunnerFor(world, run.ApplicationId), ActsOf(world), frame, entry.Budget, now, expires, source, newId(), run.Approval.Certificate.Id);
+        var mandate = new Mandate(newId(), mission.Id, run.ProblemId, world, runners.RunnerFor(world, run.ApplicationId), ActsOf(world), frame, entry.Budget, now, expires, source, newId(), run.Approval.Certificate.Id, entry.ApplicationId, entry.ProblemClass);
         var covered = approvalVerifier.Check(run.Approval, mandate);
         if (covered != ApprovalRefusal.None)
         {
-            return ConductResult.Fail($"the mandate does not fall inside the approval: {covered}");
+            return Failed(run, $"the mandate does not fall inside the approval: {covered}");
         }
         // The mandate is written to the audit trail before it exists: a power is never granted on an entry that cannot be written
         if (!Required(MissionAuditEvents.MandateIssued, mandate.Id, Text($"{world} for {mandate.RunnerId}, {source}, until {mandate.ExpiresAt:u}, acts {string.Join(",", mandate.Acts)}")))
         {
-            return ConductResult.Fail("the audit trail cannot be written: no power is granted");
+            return Failed(run, "the audit trail cannot be written: no power is granted");
         }
         var signed = signer.Sign(mandate, run.Approval);
         mandates.Record(signed);
@@ -407,6 +401,14 @@ public sealed class ProblemConductor(
         missions.Save(mandated);
         problems.Save(run with { CurrentWorld = world });
         return ConductResult.Success(mandated, signed);
+    }
+
+    // A mandate that cannot be issued ends the problem as failed, with the reason and an entry in the trail: nothing is left in progress with no mission and no way forward
+    private ConductResult Failed(ProblemRun run, string reason, IReadOnlyList<PreconditionFailure>? failures = null)
+    {
+        problems.Save(run with { State = ProblemState.Failed, Note = reason });
+        BestEffort(MissionAuditEvents.ProblemFailed, run.ProblemId, reason);
+        return ConductResult.Fail(reason, failures);
     }
 
     // Every operation on a problem runs alone: two calls that overlap cannot both pass the same check of the state and issue two mandates

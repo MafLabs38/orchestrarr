@@ -37,7 +37,7 @@ internal static class MissionsServiceCollectionExtensions
             .AddSingleton<IRunnerDirectory>(new ConfiguredRunners(options))
             .AddSingleton<IFactsSource, ConservativeFacts>()
             .AddSingleton<IApprovalSource, NoApprovals>()
-            .AddSingleton<IGrantSource>(new ConfiguredGrants(options))
+            .AddSingleton<IGrantSource>(new ConfiguredGrants(configuration))
             .AddSingleton(provider => AuthorityKey.Verifier(options.ApprovalAuthorityPublicKeyFile, provider.GetRequiredService<TimeProvider>()))
             .AddSingleton<IStopSignal>(provider => new KillSwitchSignal(provider.GetRequiredService<IKillSwitchControl>()))
             .AddSingleton<IMissionAudit>(provider => new AuditTrailMissions(provider.GetRequiredService<IAuditSink>(), provider.GetRequiredService<TimeProvider>()))
@@ -106,11 +106,11 @@ internal sealed class NoApprovals : IApprovalSource
     public SignedApproval? For(PlanEntry entry) => null;
 }
 
-/// <summary>The grants the maintainer wrote in the settings, read at every call: a grant removed from the settings is gone at the next crossing.</summary>
-internal sealed class ConfiguredGrants(MissionsOptions options) : IGrantSource
+/// <summary>The grants the maintainer wrote in the settings, read from the configuration at every call (it reloads when the file changes): a grant removed from the settings is gone at the next crossing.</summary>
+internal sealed class ConfiguredGrants(IConfiguration configuration) : IGrantSource
 {
     public World? MaxWorldFor(string applicationId) =>
-        options.Grants.TryGetValue(applicationId, out var name) && Enum.TryParse<World>(name, ignoreCase: true, out var world) && Enum.IsDefined(world) ? world : null;
+        configuration[$"{MissionsOptions.SectionName}:Grants:{applicationId}"] is { } name && Enum.TryParse<World>(name, ignoreCase: true, out var world) && Enum.IsDefined(world) ? world : null;
 }
 
 internal static class AuthorityKey
