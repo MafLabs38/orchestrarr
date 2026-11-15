@@ -81,7 +81,7 @@ public static class MandatePreconditions
         Add(failures, facts.World != World.Staging && facts.CiGreenOnExactCommit != true, PreconditionFailure.CiNotGreenOnExactCommit);
         Add(failures, facts.World == World.Release && requiresStagingProof && facts.ArtifactIsTheOneProvedInStaging != true, PreconditionFailure.ArtifactNotProvedInStaging);
         Add(failures, !facts.WorkerClaimMatchesFacts, PreconditionFailure.ClaimDoesNotMatchFacts);
-        // A merge that may deploy is a release act (the maintainer, 2026-11-15: the agent judges the delivery mode, the ceiling holds): refused under an approval that stops before the release world, unknown counts as deploying
+        // A merge that may deploy is a release act (ADR 0035 point 7): refused under an approval that stops before the release world, unknown counts as deploying
         var mayDeploy = facts.MergeMayDeploy != false;
         Add(failures, facts.World == World.Git && mayDeploy, PreconditionFailure.MergeMayDeployUnderGitMandate);
         // In the release world, where that merge belongs, a change that touches what the pipeline executes is for a person to decide
