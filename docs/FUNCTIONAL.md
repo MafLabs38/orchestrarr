@@ -171,6 +171,7 @@ Each world has its own **place, rights and acts**. The rights are given by the e
 **FR-WLD-10b.** Jobs that run on a branch written by the agent run **without secrets** (secrets sit behind environments that require a reviewer), so that a changed test, build script or workflow cannot exfiltrate a secret before anyone has looked. **(P)**
 
 **The release world** **(M)**
+**FR-WLD-11a.** The facts that bound the release judgement are fetched by the control plane from the forge: whether a merge into the branch may deploy, whether the change touches files the pipeline executes, and whether the agent's identity is blocked from creating tags and releases; unknown counts as failing, and a change to executed files where a merge may deploy is escalated to the maintainer. **(P)**
 **FR-WLD-11.** The agent **asks** for the deployment to production, which the runner performs **through the way the environment is deployed** (GitOps, a declared deployment, an infrastructure-as-code apply), never by an improvised command on a machine. **(P)**
 **FR-WLD-12.** After a deployment the agent **verifies** the application as a tester would (section 5.8). **(M)**
 **FR-WLD-12b.** The agent's requests to production go through an **egress proxy that allows only safe methods** (read) to production hosts and holds no production session or credential. A verification that has to change something (a request that writes) is a **declared act** performed under the mandate, not an improvised request. **(P)**
@@ -180,7 +181,7 @@ Each world has its own **place, rights and acts**. The rights are given by the e
 ### 5.5 Mandates
 
 **FR-MAN-1.** A **mandate** is issued by the control plane for **one world and one mission**. It states: the world and the place, the application and repositories, the **acts allowed**, the frame, the **budget**, the **expiry**, and the dossier expected. **(M for the idea, P for the contents)**
-**FR-MAN-1b.** The maintainer's approval is **proved to the runner** (the second factor, checked with a secret the control plane does not hold): a runner accepts a mandate only if it falls within a plan entry that the maintainer validated; the controller's grants widen nothing past that entry. **(P, keeps the double control of the accepted design)**
+**FR-MAN-1b.** The maintainer's approval is **proved to the runner** by a certificate of the **approval authority** (it checks the second factor with a secret the control plane does not hold, and signs the problem or rule, the repositories, the highest world, the budget and the expiry): every mandate carries its certificate and a runner accepts a mandate only if it falls inside it; the controller's grants widen nothing past it. **(P, keeps the double control of the accepted design; built in the first code)**
 **FR-MAN-2.** The first mandate of a problem is issued from the plan (validated, or covered by a standing rule). The following ones are issued **only after the controller has crossed** the previous mission. **(M)**
 **FR-MAN-3.** A mandate **cannot be widened** by the agent that holds it. A change of scope is a new mandate. **(P)**
 **FR-MAN-4.** A mandate **expires** and can be **revoked**: by the kill switch, by the maintainer, by the budget. A revoked mandate stops its mission at once. **(M for the stop, P for the rest)**
