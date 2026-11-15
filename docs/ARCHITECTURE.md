@@ -27,7 +27,8 @@ The product is a **control plane** that holds a plan and issues **mandates**, an
 
 ```mermaid
 flowchart LR
-    M([Maintainer]) -- validates plan / rules --> CP
+    M([Maintainer]) -- validates plan / rules, code on the authority's own channel --> AUTH[Approval authority]
+    AUTH -- certificate --> CP
     P[Portarr<br/>sees the fleet] -- findings, environments --> CP
     subgraph CP[Control plane]
         direction TB
@@ -95,7 +96,7 @@ flowchart TB
 | **Approval authority** | A small .NET service **apart from the control plane**, with its own key and the second-factor secret | Holds the request it is given, **shows it to the maintainer on its own channel**, and signs an **approval certificate** (the problem or rule, the repositories, the highest world, the budget, the expiry, how many mandates it may back) only for the code typed there; keeps, in one store for every runner, the count of the mandates each certificate backed and the list of withdrawn certificates; holds no other power | FR-MAN-1b |
 | **UI** | React, served by the control plane | The plan, missions in progress, history, staging state, the bell | FR-VIEW |
 | **Runner** | One .NET program, **configured with a world profile** (staging, Git, release), one or more per world | A workspace for a mission, the enforcement of a mandate's frame, the trace, the evidence | FR-WLD, FR-SAF |
-| **Agent sandbox** | A container started by a runner for one mission | The worker agent and the developer's tools | FR-WLD-3 |
+| **Agent sandbox** | A container started by a runner for one mission (in the **staging world, the slot VM** itself: its egress, the model proxy, the mirrors and the staging network are enforced by the platform outside the VM) | The worker agent and the developer's tools | FR-WLD-3 |
 | **Controller sandbox** | A container with **no tools**, run by a **dedicated runner profile (`controller`)** on a host independent of the worker runners, started for one decision | The controller agent and the dossier and facts it reads | FR-CTL |
 | **Storage** | One SQLite database for the control plane, one local store per runner | Plan, missions, mandates, dossiers, decisions, audit | section 11 |
 
@@ -165,7 +166,7 @@ erDiagram
 | **Mission** | Work in one world | Objective, world, frame, budget, inputs, state, parent problem |
 | **Mandate** | The permission for a mission | World and place, acts, frame, budget, expiry, signature, state |
 | **Dossier** | What a mission hands over (a mission that is sent back hands over again under the same mandate) | What changed, why, the claim, open points, evidence, the commit it claims |
-| **Carried change** | The change that passed one world and goes to the next | The **tree** that staging deployed (a commit and its tree), **read by the control plane from the forge, never taken from the worker**; the Git world must push it unchanged, the merge into the integration branch must produce **the same tree** (a fast-forward, or a squash or merge checked by tree), and a later commit or a base that moved sends the problem back to staging |
+| **Carried change** | The change that passed one world and goes to the next | The **tree** that the staging runner exported and proved (a commit and its tree), **computed by the runner outside the slot and recorded by the control plane, never taken from the worker's claim**, with the evidence digest of the proof run it made itself; the Git world must push it unchanged, the merge into the integration branch must produce **the same tree** (a fast-forward, or a squash or merge checked by tree), and a later commit or a base that moved sends the problem back to staging |
 | **Evidence** | An artifact of verification | Requests and answers, captures, browser trace, test results, logs |
 | **Controller decision** | The controller's verdict on a dossier | Grant, send back, end, escalate; reasons; what it read |
 | **Staging profile** | What the application needs in staging | Requirement, dependencies, how it is brought up, safe configuration |
@@ -225,8 +226,8 @@ A **world** is a *place with rights*. It is realised by three things: a **runner
 | **Where the runner is** | **On the platform side, outside the virtual machine the agent controls**, driving the machine through the platform controller and a restricted channel | A workshop host, **in a process, user and filesystem separate from the agent's sandbox** (a machine separate from production, with the forge reachable) | Near the production environments, **never in the agent's sandbox or on its filesystem**, with the connection each environment is deployed through |
 | **What the agent works on** | A checkout and the application deployed in staging | A checkout, the pull request, the CI/CD runs | The deployed application in production |
 | **Tools** | Shell, git, build and test tools, **rootless or throwaway containers that give no access to the host**, requests, a browser automation | Shell, git (push to its own non-protected branches only), build and test tools; **no client that opens or merges a pull request** | Requests through an **egress proxy that allows safe methods only**, a browser automation, and **declared acts** the runner performs for it (deploy a version, roll back) |
-| **Credentials the agent sees** | None of production | A forge identity that **reads and pushes to `orchestrarr/*` branches only, without the `workflows` permission**. Opening a pull request and merging use **another identity** held only by the **act gateway of the Git world** (a runner apart from every agent sandbox) | None. The runner holds the deployment credentials and performs the acts the mandate allows |
-| **Network** | Staging only, plus the model provider, the package registries | The forge, the registries, the model provider | Production endpoints for verification, the model provider |
+| **Credentials the agent sees** | None of production | A forge identity that **reads and pushes to `orchestrarr/*` branches only (a ruleset on every other branch refuses it), without the `workflows` permission**. Opening a pull request and merging use **another identity** held only by the **act gateway of the Git world** (a runner apart from every agent sandbox) | None. The runner holds the deployment credentials and performs the acts the mandate allows |
+| **Network** | Its own staging segment only (no route to another slot, to the hypervisor or to the platform controller), plus the model provider, the package registries | The forge, the registries, the model provider | Production endpoints for verification, the model provider |
 | **What it cannot do** | Push, reach production | Touch pipelines, merge a protected file, push to a protected branch | Any act the mandate does not list |
 
 ### The agent gateway
@@ -286,7 +287,7 @@ It reuses what exists: the approvals, the second factor on the maintainer's vali
 |---|---|
 | The plan covers the problem | Whether the objective is met |
 | The budget is available, the kill switch is not engaged | Whether the evidence supports the claim |
-| The staging requirement is met (the baseline is proven and not stale, or the requirement is a blank machine, where the first step of the mission is the baseline) | Whether the change is what the mission asked for, with nothing unexpected |
+| The staging requirement is met (the baseline is proven and not stale, or the requirement is a blank machine, where the first step of the mission is the baseline, or the application is declared by the maintainer as having no staging: CASE-17) | Whether the change is what the mission asked for, with nothing unexpected |
 | The previous dossier exists | Whether the case is as complex as it says, and whether the maintainer should be involved |
 | The diff touches no forbidden file | Whether to send back, end or escalate |
 | CI is green on the exact commit (release) | |
@@ -394,6 +395,7 @@ The principle of the maintainer: **the frame is enforced by the environment, nev
 ```mermaid
 sequenceDiagram
     actor M as Maintainer
+    participant AUTH as Approval authority
     participant P as Portarr
     participant CP as Control plane
     participant S as Staging runner
@@ -402,7 +404,8 @@ sequenceDiagram
     participant C as Controller
     P->>CP: finding
     CP->>CP: problem in the plan
-    M->>CP: validates (or a standing rule covers it)
+    M->>AUTH: validates on the authority's channel (or a standing rule covers it)
+    AUTH-->>CP: certificate
     CP->>CP: staging ready? (baseline proven)
     CP->>S: mandate: staging world
     S-->>CP: dossier and evidence
