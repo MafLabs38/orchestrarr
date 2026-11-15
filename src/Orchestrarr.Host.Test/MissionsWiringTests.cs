@@ -42,7 +42,7 @@ public sealed class MissionsWiringTests : IDisposable
     }
 
     [Fact]
-    public async Task The_demo_routes_need_the_permission_to_approve_even_where_they_exist()
+    public async Task The_demo_routes_need_a_session_even_where_they_exist()
     {
         using var factory = new AccountsApiFactory();
         using var anonymous = factory.CreateClient();
@@ -76,6 +76,7 @@ public sealed class MissionsWiringTests : IDisposable
         using var factory = new ProductionFactory();
         factory.Services.GetRequiredService<IApprovalSource>().Should().BeOfType<NoApprovals>();
         factory.Services.GetRequiredService<IFactsSource>().Should().BeOfType<ConservativeFacts>();
+        factory.Services.GetRequiredService<IGrantSource>().MaxWorldFor("any-application").Should().BeNull("an application that is not listed has no power");
         factory.Services.GetRequiredService<IApprovalWithdrawals>().IsWithdrawn("anything").Should().BeTrue("the list that cannot be read counts as everything withdrawn");
         factory.Services.GetRequiredService<IApprovalSource>().For(new PlanEntry("p1", "shop", "class", "Replace", ["example/shop"], World.Release, new MissionBudget(20, 3, 50), new Validation("alice", null), DateTimeOffset.UnixEpoch)).Should().BeNull();
 

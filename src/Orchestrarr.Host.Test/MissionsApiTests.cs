@@ -29,7 +29,7 @@ public sealed class MissionsApiTests
     }
 
     [Fact]
-    public async Task The_missions_are_for_whoever_may_read_the_fleet_and_nobody_else()
+    public async Task The_missions_need_a_session_and_an_unknown_one_is_a_404()
     {
         using var factory = new AccountsApiFactory();
         using var anonymous = factory.CreateClient();

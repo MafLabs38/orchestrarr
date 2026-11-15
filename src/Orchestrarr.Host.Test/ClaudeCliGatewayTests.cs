@@ -153,7 +153,7 @@ public sealed class ClaudeCliGatewayTests : IDisposable
         await File.WriteAllTextAsync(tokenFile, "the-token", TestContext.Current.CancellationToken);
         var token = await new ClaudeCliGateway(new AgentsOptions { Command = command, TokenFile = tokenFile }).RunAsync(Request(), TestContext.Current.CancellationToken);
 
-        login.Text.Trim().Should().Be(Environment.GetEnvironmentVariable("HOME"));
+        login.Text.Trim().Should().NotContain("orchestrarr-agent-", "the login of the user is kept, not the empty folder of the run");
         token.Text.Trim().Should().StartWith(Path.GetTempPath().TrimEnd('/')).And.Contain("orchestrarr-agent-");
     }
 

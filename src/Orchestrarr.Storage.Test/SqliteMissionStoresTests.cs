@@ -137,6 +137,9 @@ public sealed class SqliteMissionStoresTests : IDisposable
         var reopened = _file.Reopen();
 
         new SqliteMandateLedger(reopened).IsRevoked("a").Should().BeTrue("a withdrawn power stays withdrawn after a restart");
+        new SqliteMandateLedger(reopened).CountForApproval("approval-1").Should().Be(1, "the count that bounds a certificate survives a restart");
+        new SqliteMandateLedger(reopened).CountForRun("p1", "approval-1").Should().Be(1);
+        new SqliteMandateLedger(reopened).CountForRun("p1", "approval-2").Should().Be(0);
         new SqliteProblemStore(reopened).InProgress().Should().BeEmpty();
     }
 
