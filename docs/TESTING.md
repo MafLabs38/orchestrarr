@@ -1,6 +1,5 @@
 # Orchestrarr — Testing and quality
 
-
 > Same strategy as Portarr's ([TESTING.md](https://github.com/MafLabs38/portarr/blob/develop/docs/TESTING.md)), scaled to what exists. The three products share conventions.
 
 > **Planned, not built**: the cases of [USE-CASES.md](USE-CASES.md) are the end-to-end tests of the restructured product (the laboratory of FUNCTIONAL section 8), and no laboratory exists yet. A section on how a case becomes a runnable test (the verdict, the lane, the threshold) is written when the first one runs.
@@ -81,6 +80,8 @@ Unit tests do not see what a person sees. Before a vertical goes to the maintain
 - **Playwright, headless Chromium, one browser and one page at a time** (a shared, small machine: check `uptime` and `free -m` first). Use any Playwright install of the machine from a script kept **outside the repository** (a scratch folder on disk, not `/tmp`): the script carries the address and the accounts of the sandbox, which are never committed.
 - Print what matters as **text** (the rows, the badges, the states, the console errors) and take **one screenshot only when the look is the question**: read it, fix what it shows, then **delete it at once** (an image read stays in the context of every later turn).
 - A bug found this way gets a test in the suite (Vitest or the API tests) in the same change, so that it stays found.
+
+The restructured design is tried in the sandbox with `POST /api/v1/dev/missions/demo` (`scenario=happy|red|escalate`), which uses fake agents and facts, and with `POST /api/v1/dev/controller/decide`, which needs `Agents:Enabled=true` and a `claude` login or `Agents:TokenFile` (README).
 
 ## 7. Seeing the code smells in the editor
 
