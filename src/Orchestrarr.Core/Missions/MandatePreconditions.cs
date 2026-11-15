@@ -17,7 +17,6 @@ public sealed record PreconditionFacts(
     bool WorkerClaimMatchesFacts,
     LoopVerdict Loop,
     bool? WayBackKnown = null,
-    World ApprovedMaxWorld = World.Staging,
     bool? MergeMayDeploy = null,
     bool? ExecutedFilesTouched = null,
     bool? TagCreationBlocked = null,
@@ -38,8 +37,8 @@ public enum PreconditionFailure
     LoopLimitReached,
     NoWayBackKnown,
 
-    /// <summary>The merge of the Git world may deploy (or is not known not to), and the approval does not reach the release world: the merge would be a release act that nobody approved.</summary>
-    MergeMayDeployBeyondApproval,
+    /// <summary>The merge of the Git world may deploy (or is not known not to): a merge that deploys is a release-world act, never performed under a Git-world mandate whatever the approval reaches; it goes through the release checks (the way back, the proof of the staging, the files the pipeline executes).</summary>
+    MergeMayDeployUnderGitMandate,
 
     /// <summary>The merge may deploy and the change touches files that the pipeline executes: the code that reaches the deployment secrets was not proved, so a person decides (the conductor escalates).</summary>
     ExecutedFilesTouchedWhereMergeDeploys,
@@ -84,8 +83,9 @@ public static class MandatePreconditions
         Add(failures, !facts.WorkerClaimMatchesFacts, PreconditionFailure.ClaimDoesNotMatchFacts);
         // A merge that may deploy is a release act (the maintainer, 2026-11-15: the agent judges the delivery mode, the ceiling holds): refused under an approval that stops before the release world, unknown counts as deploying
         var mayDeploy = facts.MergeMayDeploy != false;
-        Add(failures, facts.World == World.Git && mayDeploy && facts.ApprovedMaxWorld < World.Release, PreconditionFailure.MergeMayDeployBeyondApproval);
-        Add(failures, facts.World == World.Git && mayDeploy && facts.ApprovedMaxWorld >= World.Release && facts.ExecutedFilesTouched != false, PreconditionFailure.ExecutedFilesTouchedWhereMergeDeploys);
+        Add(failures, facts.World == World.Git && mayDeploy, PreconditionFailure.MergeMayDeployUnderGitMandate);
+        // In the release world, where that merge belongs, a change that touches what the pipeline executes is for a person to decide
+        Add(failures, facts.World == World.Release && mayDeploy && facts.ExecutedFilesTouched != false, PreconditionFailure.ExecutedFilesTouchedWhereMergeDeploys);
         // A tag or a release can deploy as a merge can: the forge must stop the agent's identity from creating one, as a fact read from the repository's rulesets
         Add(failures, facts.World == World.Git && facts.TagCreationBlocked != true, PreconditionFailure.AgentCouldCreateTags);
         // What the agent pushes must not run with a write credential of any kind (see the failure): read from the repository and the forge, unknown counts as reachable

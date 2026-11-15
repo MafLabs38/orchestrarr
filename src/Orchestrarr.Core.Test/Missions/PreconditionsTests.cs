@@ -5,7 +5,7 @@ namespace Orchestrarr.Core.Test.Missions;
 public sealed class PreconditionsTests
 {
     private static PreconditionFacts Good(World world) => new(world, PlanCovers: true, BudgetAvailable: true, KillSwitchEngaged: false, Staging: StagingVerdict.Usable,
-        PreviousDossierExists: true, DiffIsClean: true, CiGreenOnExactCommit: true, ArtifactIsTheOneProvedInStaging: true, WorkerClaimMatchesFacts: true, Loop: LoopVerdict.Allowed, WayBackKnown: true, ApprovedMaxWorld: World.Release, MergeMayDeploy: false, ExecutedFilesTouched: false, TagCreationBlocked: true, BranchCannotReachWriteCredentials: true, IdentityConfinedToItsBranches: true);
+        PreviousDossierExists: true, DiffIsClean: true, CiGreenOnExactCommit: true, ArtifactIsTheOneProvedInStaging: true, WorkerClaimMatchesFacts: true, Loop: LoopVerdict.Allowed, WayBackKnown: true, MergeMayDeploy: false, ExecutedFilesTouched: false, TagCreationBlocked: true, BranchCannotReachWriteCredentials: true, IdentityConfinedToItsBranches: true);
 
     [Theory]
     [InlineData(World.Staging)]
@@ -34,7 +34,7 @@ public sealed class PreconditionsTests
             WayBackKnown = null,
         };
 
-        MandatePreconditions.Check(facts, requiresStagingProof: true).Should().BeEquivalentTo(Enum.GetValues<PreconditionFailure>().Where(failure => failure is not (PreconditionFailure.MergeMayDeployBeyondApproval or PreconditionFailure.ExecutedFilesTouchedWhereMergeDeploys or PreconditionFailure.AgentCouldCreateTags or PreconditionFailure.AgentBranchCouldReachWriteCredentials or PreconditionFailure.AgentIdentityNotConfined or PreconditionFailure.ApprovalBacksNoMoreMandates)), "the checks about a merge are for the Git world, and the count of a certificate is the conductor's");
+        MandatePreconditions.Check(facts, requiresStagingProof: true).Should().BeEquivalentTo(Enum.GetValues<PreconditionFailure>().Where(failure => failure is not (PreconditionFailure.MergeMayDeployUnderGitMandate or PreconditionFailure.ExecutedFilesTouchedWhereMergeDeploys or PreconditionFailure.AgentCouldCreateTags or PreconditionFailure.AgentBranchCouldReachWriteCredentials or PreconditionFailure.AgentIdentityNotConfined or PreconditionFailure.ApprovalBacksNoMoreMandates)), "the checks about a merge are for the Git world, and the count of a certificate is the conductor's");
     }
 
     [Fact]
@@ -75,23 +75,24 @@ public sealed class PreconditionsTests
     }
 
     [Fact]
-    public void A_merge_that_may_deploy_needs_an_approval_that_reaches_the_release_world_and_unknown_counts_as_deploying()
+    public void A_merge_that_may_deploy_is_never_a_git_world_act_whatever_the_approval_and_unknown_counts_as_deploying()
     {
         var git = Good(World.Git);
 
-        MandatePreconditions.Check(git with { MergeMayDeploy = true, ApprovedMaxWorld = World.Git }, false).Should().Equal(PreconditionFailure.MergeMayDeployBeyondApproval);
-        MandatePreconditions.Check(git with { MergeMayDeploy = null, ApprovedMaxWorld = World.Git }, false).Should().Equal(PreconditionFailure.MergeMayDeployBeyondApproval);
-        MandatePreconditions.Check(git with { MergeMayDeploy = false, ApprovedMaxWorld = World.Git }, false).Should().BeEmpty("a merge that does not deploy is a Git act");
+        MandatePreconditions.Check(git with { MergeMayDeploy = true }, false).Should().Equal(PreconditionFailure.MergeMayDeployUnderGitMandate);
+        MandatePreconditions.Check(git with { MergeMayDeploy = null }, false).Should().Equal(PreconditionFailure.MergeMayDeployUnderGitMandate);
+        MandatePreconditions.Check(git with { MergeMayDeploy = false }, false).Should().BeEmpty("a merge that does not deploy is a Git act");
     }
 
     [Fact]
-    public void A_merge_that_may_deploy_with_executed_files_touched_or_unknown_is_for_a_person_even_when_the_approval_reaches_the_release_world()
+    public void In_the_release_world_a_merge_that_deploys_with_executed_files_touched_or_unknown_is_for_a_person()
     {
-        var git = Good(World.Git) with { MergeMayDeploy = true, ApprovedMaxWorld = World.Release };
+        var release = Good(World.Release) with { MergeMayDeploy = true };
 
-        MandatePreconditions.Check(git with { ExecutedFilesTouched = true }, false).Should().Equal(PreconditionFailure.ExecutedFilesTouchedWhereMergeDeploys);
-        MandatePreconditions.Check(git with { ExecutedFilesTouched = null }, false).Should().Equal(PreconditionFailure.ExecutedFilesTouchedWhereMergeDeploys);
-        MandatePreconditions.Check(git with { ExecutedFilesTouched = false }, false).Should().BeEmpty();
+        MandatePreconditions.Check(release with { ExecutedFilesTouched = true }, false).Should().Equal(PreconditionFailure.ExecutedFilesTouchedWhereMergeDeploys);
+        MandatePreconditions.Check(release with { ExecutedFilesTouched = null }, false).Should().Equal(PreconditionFailure.ExecutedFilesTouchedWhereMergeDeploys);
+        MandatePreconditions.Check(release with { ExecutedFilesTouched = false }, false).Should().BeEmpty();
+        MandatePreconditions.Check(Good(World.Release) with { MergeMayDeploy = false, ExecutedFilesTouched = true }, false).Should().BeEmpty("a deployment that is not a merge has no executed files to fear");
     }
 
     [Fact]
@@ -115,14 +116,5 @@ public sealed class PreconditionsTests
         MandatePreconditions.Check(Good(World.Git) with { IdentityConfinedToItsBranches = null }, false).Should().Equal(PreconditionFailure.AgentIdentityNotConfined);
         MandatePreconditions.Check(Good(World.Git) with { IdentityConfinedToItsBranches = false }, false).Should().Equal(PreconditionFailure.AgentIdentityNotConfined);
         MandatePreconditions.Check(Good(World.Release) with { IdentityConfinedToItsBranches = null }, false).Should().BeEmpty("the check is for the Git world");
-    }
-
-    [Fact]
-    public void An_approval_that_is_not_given_is_the_lowest_world_so_a_forgotten_fact_never_widens_the_power()
-    {
-        var forgotten = new PreconditionFacts(World.Git, true, true, false, StagingVerdict.Usable, true, true, true, true, true, LoopVerdict.Allowed, MergeMayDeploy: true, ExecutedFilesTouched: false, TagCreationBlocked: true,
-            BranchCannotReachWriteCredentials: true, IdentityConfinedToItsBranches: true);
-
-        MandatePreconditions.Check(forgotten, false).Should().Equal(PreconditionFailure.MergeMayDeployBeyondApproval);
     }
 }

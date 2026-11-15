@@ -37,4 +37,23 @@ public sealed class PathPatternsTests
         PathPatterns.AnyMatches([".github/**"], ["src/a.cs"]).Should().BeFalse();
         PathPatterns.AnyMatches([], ["src/a.cs"]).Should().BeFalse();
     }
+
+    [Theory]
+    [InlineData(".github/workflows/a\nb.yml")]
+    [InlineData("x\ny/s.enc.yaml")]
+    [InlineData("src/a.cs\n")]
+    [InlineData("src/../.github/x")]
+    [InlineData("./src/a.cs")]
+    [InlineData("src/a\u0007.cs")]
+    public void A_path_that_cannot_be_judged_counts_as_forbidden(string path)
+    {
+        PathPatterns.Matches(".github/**", path).Should().BeTrue("a line break, a control character or a dot segment in a path is never trusted");
+    }
+
+    [Fact]
+    public void A_trailing_line_break_does_not_hide_a_path_from_a_pattern()
+    {
+        PathPatterns.Matches("src/*.cs", "src/a.cs").Should().BeTrue();
+        PathPatterns.Matches("src/*.cs", "src/a.cs\n").Should().BeTrue();
+    }
 }

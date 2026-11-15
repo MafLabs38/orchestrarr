@@ -45,6 +45,9 @@ public sealed class ProblemConductorTests : IDisposable
 
         public bool UnknownPaths { get; set; }
 
+        /// <summary>What the forge says the base is; null: the base that was asked about.</summary>
+        public string? BaseCommit { get; set; }
+
         private IReadOnlyList<string>? Paths()
         {
             if (UnknownPaths)
@@ -74,7 +77,7 @@ public sealed class ProblemConductorTests : IDisposable
         public ObservedFacts Facts(FactsQuery query)
         {
             Last = query;
-            return new(true, DiffSaysClean, CiGreen, ArtifactProved, WayBack, ClaimMatches, MergeMayDeploy, ExecutedFiles, TagsBlocked, BranchSafe, HeadCommit ?? query.Commit, Confined, Paths());
+            return new(true, DiffSaysClean, CiGreen, ArtifactProved, WayBack, ClaimMatches, MergeMayDeploy, ExecutedFiles, TagsBlocked, BranchSafe, HeadCommit ?? query.Commit, Confined, Paths(), query.Repository, BaseCommit ?? query.BaseCommit);
         }
     }
 
@@ -563,21 +566,21 @@ public sealed class ProblemConductorTests : IDisposable
 
         var result = conductor.Decide(id, Grant());
 
-        result.Failures.Should().Contain(PreconditionFailure.MergeMayDeployBeyondApproval);
+        result.Failures.Should().Contain(PreconditionFailure.MergeMayDeployUnderGitMandate);
         _facts.MergeMayDeploy = null;
         conductor.HandOver(id, DossierFor(id));
-        conductor.Decide(id, Grant()).Failures.Should().Contain(PreconditionFailure.MergeMayDeployBeyondApproval);
+        conductor.Decide(id, Grant()).Failures.Should().Contain(PreconditionFailure.MergeMayDeployUnderGitMandate);
         _facts.MergeMayDeploy = false;
         conductor.HandOver(id, DossierFor(id));
         conductor.Decide(id, Grant()).Mandate!.Mandate.World.Should().Be(World.Git);
     }
 
     [Fact]
-    public void A_merge_that_may_deploy_with_changes_to_what_the_pipeline_executes_is_escalated_to_the_maintainer_not_sent_back()
+    public void A_deployment_that_is_a_merge_with_changes_to_what_the_pipeline_executes_is_escalated_to_the_maintainer_not_sent_back()
     {
         var conductor = Conductor();
-        var staging = StartStaged(conductor);
-        var id = staging.Mission!.Id;
+        var git = Through(conductor, StartStaged(conductor));
+        var id = git.Mission!.Id;
         conductor.Started(id);
         conductor.HandOver(id, DossierFor(id));
         _facts.MergeMayDeploy = true;
@@ -587,7 +590,7 @@ public sealed class ProblemConductorTests : IDisposable
 
         result.Failures.Should().Contain(PreconditionFailure.ExecutedFilesTouchedWhereMergeDeploys);
         _problems.Get("problem-1")!.State.Should().Be(ProblemState.Escalated);
-        _missions.ForProblem("problem-1").Should().ContainSingle("no mandate for the Git world was issued");
+        _missions.ForProblem("problem-1").Should().HaveCount(2, "no mandate for the release world was issued");
     }
 
     [Fact]
@@ -846,23 +849,23 @@ public sealed class ProblemConductorTests : IDisposable
         var result = StartUnstaged(Conductor(), Entry(World.Git));
 
         result.Ok.Should().BeFalse();
-        result.Failures.Should().Contain(mayDeploy == false ? PreconditionFailure.AgentCouldCreateTags : PreconditionFailure.MergeMayDeployBeyondApproval);
+        result.Failures.Should().Contain(mayDeploy == false ? PreconditionFailure.AgentCouldCreateTags : PreconditionFailure.MergeMayDeployUnderGitMandate);
         _missions.ForProblem("problem-1").Should().BeEmpty();
         _problems.Get("problem-1").Should().BeNull();
     }
 
     [Fact]
-    public void A_start_in_the_git_world_is_allowed_when_the_merge_does_not_deploy_and_tags_are_blocked_or_when_the_approval_reaches_the_release_world()
+    public void A_start_in_the_git_world_is_allowed_when_the_merge_does_not_deploy_and_tags_are_blocked_whatever_the_approval_reaches()
     {
         _facts.MergeMayDeploy = false;
         StartUnstaged(Conductor(), Entry(World.Git)).Ok.Should().BeTrue();
 
         _facts.MergeMayDeploy = true;
-        StartUnstaged(Conductor(), Entry() with { ProblemId = "problem-2" }).Ok.Should().BeTrue("the approval reaches the release world, where the merge that deploys belongs");
+        StartUnstaged(Conductor(), Entry() with { ProblemId = "problem-2" }).Failures.Should().Contain(PreconditionFailure.MergeMayDeployUnderGitMandate, "a merge that deploys is a release-world act, even when the approval reaches the release world");
     }
 
     [Fact]
-    public void The_merge_ceiling_is_the_power_in_effect_now_not_the_certificate_alone()
+    public void A_merge_that_may_deploy_is_refused_under_a_git_mandate_whatever_the_certificate_and_the_grant_reach()
     {
         // The certificate reaches the release world, the grant of the application was lowered to the Git world, and the merge may deploy
         _grants.Max = World.Git;
@@ -876,7 +879,7 @@ public sealed class ProblemConductorTests : IDisposable
         var decided = conductor.Decide(id, Grant());
 
         decided.Ok.Should().BeFalse();
-        decided.Failures.Should().Contain(PreconditionFailure.MergeMayDeployBeyondApproval);
+        decided.Failures.Should().Contain(PreconditionFailure.MergeMayDeployUnderGitMandate);
         _missions.ForProblem("problem-1").Should().ContainSingle("no Git mandate was issued");
     }
 
@@ -887,13 +890,13 @@ public sealed class ProblemConductorTests : IDisposable
         var git = Through(conductor, StartStaged(conductor));
         var mission = git.Mission!.Id;
 
-        var allowed = conductor.AuthoriseAct(mission, GatedAct.MergePullRequest, "abc123");
+        var allowed = conductor.AuthoriseAct(mission, GatedAct.MergePullRequest, "abc123", "example/shop", "base-1");
 
         allowed.Allowed.Should().BeTrue();
         _audit.Events.Should().Contain(entry => entry.StartsWith("act.authorised") && entry.Contains("MergePullRequest on abc123"));
 
         _facts.CiGreen = false;
-        var refused = conductor.AuthoriseAct(mission, GatedAct.MergePullRequest, "def456");
+        var refused = conductor.AuthoriseAct(mission, GatedAct.MergePullRequest, "def456", "example/shop", "base-1");
 
         refused.Allowed.Should().BeFalse();
         refused.Failures.Should().Contain(PreconditionFailure.CiNotGreenOnExactCommit);
@@ -908,17 +911,51 @@ public sealed class ProblemConductorTests : IDisposable
         var mission = git.Mission!.Id;
 
         _facts.DiffTouchesForbidden = true;
-        conductor.AuthoriseAct(mission, GatedAct.MergePullRequest, "abc").Failures.Should().Contain(PreconditionFailure.DiffTouchesForbiddenPath);
+        conductor.AuthoriseAct(mission, GatedAct.MergePullRequest, "abc", "example/shop", "base-1").Failures.Should().Contain(PreconditionFailure.DiffTouchesForbiddenPath);
         _facts.DiffTouchesForbidden = false;
+        _facts.MergeMayDeploy = true;
+
+        var deploying = conductor.AuthoriseAct(mission, GatedAct.MergePullRequest, "abc", "example/shop", "base-1");
+
+        deploying.Allowed.Should().BeFalse();
+        deploying.Failures.Should().Contain(PreconditionFailure.MergeMayDeployUnderGitMandate, "a merge that deploys is not a Git act");
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.InProgress);
+    }
+
+    [Fact]
+    public void In_the_release_world_a_deployment_that_is_a_merge_with_executed_files_touched_is_refused_and_escalated()
+    {
+        var conductor = Conductor();
+        var release = Through(conductor, Through(conductor, StartStaged(conductor)));
         _facts.MergeMayDeploy = true;
         _facts.ExecutedFiles = true;
 
-        var executed = conductor.AuthoriseAct(mission, GatedAct.MergePullRequest, "abc");
+        var executed = conductor.AuthoriseAct(release.Mission!.Id, GatedAct.Deploy, "abc", "example/shop", "base-1");
 
         executed.Allowed.Should().BeFalse();
         executed.Failures.Should().Contain(PreconditionFailure.ExecutedFilesTouchedWhereMergeDeploys);
         _problems.Get("problem-1")!.State.Should().Be(ProblemState.Escalated);
-        _mandates.IsRevoked(git.Mandate!.Mandate.Id).Should().BeTrue("the mission ended, a person decides");
+        _mandates.IsRevoked(release.Mandate!.Mandate.Id).Should().BeTrue("the mission ended, a person decides");
+    }
+
+    [Fact]
+    public void A_merge_or_a_deployment_names_its_repository_commit_and_base_and_a_rollback_is_not_authorised_on_the_mandate_alone()
+    {
+        var conductor = Conductor();
+        var git = Through(conductor, StartStaged(conductor));
+        var id = git.Mission!.Id;
+
+        conductor.AuthoriseAct(id, GatedAct.MergePullRequest, "abc", null, "base-1").Refusal.Should().Contain("repository, commit and base");
+        conductor.AuthoriseAct(id, GatedAct.MergePullRequest, "abc", "example/shop", null).Allowed.Should().BeFalse();
+        conductor.AuthoriseAct(id, GatedAct.MergePullRequest, "abc", "example/other", "base-1").Refusal.Should().Contain("not in the frame");
+        var allowed = conductor.AuthoriseAct(id, GatedAct.MergePullRequest, "abc", "example/shop", "base-1");
+        allowed.Allowed.Should().BeTrue();
+        (allowed.Repository, allowed.Commit, allowed.BaseCommit).Should().Be(("example/shop", "abc", "base-1"));
+        _facts.BaseCommit = "the-base-moved";
+        conductor.AuthoriseAct(id, GatedAct.MergePullRequest, "abc", "example/shop", "base-1").Failures.Should().Contain(PreconditionFailure.ClaimDoesNotMatchFacts, "the base the source read is not the base that was named");
+
+        var release = Through(conductor, git);
+        conductor.AuthoriseAct(release.Mission!.Id, GatedAct.Rollback, null).Refusal.Should().Contain("not built");
     }
 
     [Fact]
@@ -928,18 +965,18 @@ public sealed class ProblemConductorTests : IDisposable
         var git = Through(conductor, StartStaged(conductor));
         var mission = git.Mission!.Id;
 
-        conductor.AuthoriseAct(mission, GatedAct.Deploy, "abc").Refusal.Should().Contain("does not list");
-        conductor.AuthoriseAct("unknown", GatedAct.MergePullRequest, "abc").Refusal.Should().Contain("unknown");
+        conductor.AuthoriseAct(mission, GatedAct.Deploy, "abc", "example/shop", "base-1").Refusal.Should().Contain("does not list");
+        conductor.AuthoriseAct("unknown", GatedAct.MergePullRequest, "abc", "example/shop", "base-1").Refusal.Should().Contain("unknown");
         _grants.Max = World.Staging;
-        conductor.AuthoriseAct(mission, GatedAct.MergePullRequest, "abc").Refusal.Should().Contain("no longer reach");
+        conductor.AuthoriseAct(mission, GatedAct.MergePullRequest, "abc", "example/shop", "base-1").Refusal.Should().Contain("no longer reach");
         _grants.Max = World.Release;
         _stop.Engaged = true;
-        conductor.AuthoriseAct(mission, GatedAct.MergePullRequest, "abc").Refusal.Should().Contain("global stop");
+        conductor.AuthoriseAct(mission, GatedAct.MergePullRequest, "abc", "example/shop", "base-1").Refusal.Should().Contain("global stop");
         _stop.Engaged = false;
         _time.Advance(TimeSpan.FromMinutes(61));
-        conductor.AuthoriseAct(mission, GatedAct.MergePullRequest, "abc").Refusal.Should().Contain("expired");
+        conductor.AuthoriseAct(mission, GatedAct.MergePullRequest, "abc", "example/shop", "base-1").Refusal.Should().Contain("expired");
         _mandates.Revoke(git.Mandate!.Mandate.Id);
-        conductor.AuthoriseAct(mission, GatedAct.MergePullRequest, "abc").Refusal.Should().Contain("no mandate in force");
+        conductor.AuthoriseAct(mission, GatedAct.MergePullRequest, "abc", "example/shop", "base-1").Refusal.Should().Contain("no mandate in force");
     }
 
     [Fact]
@@ -953,7 +990,7 @@ public sealed class ProblemConductorTests : IDisposable
 
         _audit.Writable = false;
         _facts.CiGreen = true;
-        conductor.AuthoriseAct(git.Mission.Id, GatedAct.MergePullRequest, "abc").Refusal.Should().Contain("audit trail");
+        conductor.AuthoriseAct(git.Mission.Id, GatedAct.MergePullRequest, "abc", "example/shop", "base-1").Refusal.Should().Contain("audit trail");
     }
 
     [Fact]
@@ -1097,11 +1134,11 @@ public sealed class ProblemConductorTests : IDisposable
     {
         var conductor = Conductor();
         var git = Through(conductor, StartStaged(conductor));
-        conductor.AuthoriseAct(git.Mission!.Id, GatedAct.MergePullRequest, "abc").Allowed.Should().BeTrue();
+        conductor.AuthoriseAct(git.Mission!.Id, GatedAct.MergePullRequest, "abc", "example/shop", "base-1").Allowed.Should().BeTrue();
 
         _withdrawals.Withdrawn.Add(_problems.Get("problem-1")!.Approval.Certificate.Id);
 
-        conductor.AuthoriseAct(git.Mission.Id, GatedAct.MergePullRequest, "abc").Allowed.Should().BeFalse("a withdrawn approval does not authorise a merge");
+        conductor.AuthoriseAct(git.Mission.Id, GatedAct.MergePullRequest, "abc", "example/shop", "base-1").Allowed.Should().BeFalse("a withdrawn approval does not authorise a merge");
         conductor.Sweep().Should().Be(1);
         _problems.Get("problem-1")!.State.Should().Be(ProblemState.Failed);
         _mandates.IsRevoked(git.Mandate!.Mandate.Id).Should().BeTrue();
@@ -1114,7 +1151,7 @@ public sealed class ProblemConductorTests : IDisposable
         var release = Through(conductor, Through(conductor, StartStaged(conductor)));
         release.Mandate!.Mandate.World.Should().Be(World.Release);
 
-        conductor.AuthoriseAct(release.Mission!.Id, GatedAct.Deploy, "abc").Allowed.Should().BeTrue("the release mandate is the third and last one allowed, and it may deploy");
+        conductor.AuthoriseAct(release.Mission!.Id, GatedAct.Deploy, "abc", "example/shop", "base-1").Allowed.Should().BeTrue("the release mandate is the third and last one allowed, and it may deploy");
         var closed = Through(conductor, release);
 
         closed.Ok.Should().BeTrue();
@@ -1143,14 +1180,14 @@ public sealed class ProblemConductorTests : IDisposable
         var conductor = Conductor();
         var git = Through(conductor, StartStaged(conductor));
 
-        conductor.AuthoriseAct(git.Mission!.Id, GatedAct.MergePullRequest, null).Refusal.Should().Contain("named commit");
-        conductor.AuthoriseAct(git.Mission.Id, GatedAct.MergePullRequest, " ").Allowed.Should().BeFalse();
-        var allowed = conductor.AuthoriseAct(git.Mission.Id, GatedAct.MergePullRequest, "abc123");
+        conductor.AuthoriseAct(git.Mission!.Id, GatedAct.MergePullRequest, null, "example/shop", "base-1").Refusal.Should().Contain("named repository, commit and base");
+        conductor.AuthoriseAct(git.Mission.Id, GatedAct.MergePullRequest, " ", "example/shop", "base-1").Allowed.Should().BeFalse();
+        var allowed = conductor.AuthoriseAct(git.Mission.Id, GatedAct.MergePullRequest, "abc123", "example/shop", "base-1");
 
         allowed.Allowed.Should().BeTrue();
         allowed.Commit.Should().Be("abc123", "the gateway merges that commit and no other");
         _facts.HeadCommit = "pushed-after-the-check";
-        conductor.AuthoriseAct(git.Mission.Id, GatedAct.MergePullRequest, "abc123").Failures.Should().Contain(PreconditionFailure.ClaimDoesNotMatchFacts, "the head moved since the commit that is named");
+        conductor.AuthoriseAct(git.Mission.Id, GatedAct.MergePullRequest, "abc123", "example/shop", "base-1").Failures.Should().Contain(PreconditionFailure.ClaimDoesNotMatchFacts, "the head moved since the commit that is named");
     }
 
     [Fact]
@@ -1278,7 +1315,7 @@ public sealed class ProblemConductorTests : IDisposable
         conductor.HandOver(second, DossierFor(second) with { Claim = "run-2" });
         var git2 = conductor.Decide(second, Grant()).Mission!.Id;
 
-        conductor.AuthoriseAct(git2, GatedAct.MergePullRequest, "abc123").Allowed.Should().BeTrue();
+        conductor.AuthoriseAct(git2, GatedAct.MergePullRequest, "abc123", "example/shop", "base-1").Allowed.Should().BeTrue();
 
         _facts.Last!.Dossier!.Claim.Should().Be("run-2");
     }

@@ -148,9 +148,10 @@ internal static class AuthorityKey
     /// <summary>The verifier of the authority's certificates, from its public key. Without a key, a verifier of a key nobody holds: no certificate is valid.</summary>
     public static ApprovalVerifier Verifier(string? file, TimeProvider time)
     {
-        if (file is { Length: > 0 } && File.Exists(file))
+        if (file is { Length: > 0 })
         {
-            return new ApprovalVerifier(File.ReadAllBytes(file), time);
+            // A path that is set and leads nowhere is a mistake to stop on, not the same as no key (which is the safe state: nothing is valid)
+            return File.Exists(file) ? new ApprovalVerifier(File.ReadAllBytes(file), time) : throw new FileNotFoundException("Missions:ApprovalAuthorityPublicKeyFile names a file that does not exist.", file);
         }
         using var nobody = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         return new ApprovalVerifier(nobody.ExportSubjectPublicKeyInfo(), time);

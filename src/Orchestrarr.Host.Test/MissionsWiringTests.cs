@@ -107,8 +107,8 @@ public sealed class MissionsWiringTests : IDisposable
         using var verifier = AuthorityKey.Verifier(file, time);
         verifier.Check(signed, mandate).Should().Be(ApprovalRefusal.None);
 
-        using var missing = AuthorityKey.Verifier(Path.Combine(_folder, "missing.pub"), time);
-        missing.Check(signed, mandate).Should().Be(ApprovalRefusal.BadSignature, "a key file that is named and not there is no key: nothing is valid");
+        var absent = () => AuthorityKey.Verifier(Path.Combine(_folder, "missing.pub"), time);
+        absent.Should().Throw<FileNotFoundException>("a key file that is named and not there is a mistake: the host stops instead of looking the same as no key");
 
         var garbage = Path.Combine(_folder, "garbage.pub");
         File.WriteAllText(garbage, "this is not a key");

@@ -1,5 +1,11 @@
 namespace Orchestrarr.Core.Missions;
 
+/// <summary>The paths that no mission may touch whatever the settings say (the pipelines of the forge, the encrypted files, the environment files): one list, for the conductor's options and for the authority's floor.</summary>
+public static class ForbiddenPathsDefaults
+{
+    public static IReadOnlyList<string> Floor { get; } = [".github/**", "**/*.enc.*", "**/.env*"];
+}
+
 /// <summary>What bounds a mission: the repositories it may touch, the paths it may never touch (pipelines, secrets) and the place it works in (a staging slot, an environment, a branch prefix).</summary>
 public sealed record MissionFrame(IReadOnlyList<string> Repositories, IReadOnlyList<string> ForbiddenPaths, string Place);
 

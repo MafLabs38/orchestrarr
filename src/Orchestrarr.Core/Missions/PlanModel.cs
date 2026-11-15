@@ -99,7 +99,7 @@ public interface IDossierStore
 /// <summary>What the control plane fetched itself (FR-MAN-7; <c>ChangedPaths</c> are the paths changed on the head the source read, or null when they are not known: the conductor matches them against the frame of the mission, which holds the certificate's floor, so a source never decides what is forbidden): the diff and the CI status from the forge on the exact commit, the health from Portarr. A fact that is not known is null, and counts as failing.</summary>
 public sealed record ObservedFacts(
     bool BudgetAvailable, bool? DiffIsClean, bool? CiGreenOnExactCommit, bool? ArtifactIsTheOneProvedInStaging, bool? WayBackKnown, bool WorkerClaimMatchesFacts,
-    bool? MergeMayDeploy = null, bool? ExecutedFilesTouched = null, bool? TagCreationBlocked = null, bool? BranchCannotReachWriteCredentials = null, string? HeadCommit = null, bool? IdentityConfinedToItsBranches = null, IReadOnlyList<string>? ChangedPaths = null);
+    bool? MergeMayDeploy = null, bool? ExecutedFilesTouched = null, bool? TagCreationBlocked = null, bool? BranchCannotReachWriteCredentials = null, string? HeadCommit = null, bool? IdentityConfinedToItsBranches = null, IReadOnlyList<string>? ChangedPaths = null, string? Repository = null, string? BaseCommit = null);
 
 /// <summary>
 /// The source of the facts. It says only what it observed: the plan, the stop, the loop and the staging are the conductor's own. **The commit it is given is the worker's claim, not the commit to look at**: the source reads
@@ -111,9 +111,9 @@ public interface IFactsSource
 }
 
 /// <summary>
-/// What a source of facts is asked: the problem and the mission (none yet at the start of a problem), the world, the **frame of the mission** (its repositories, so that the source reads the right one), the dossier and the commit the worker claims.
+/// What a source of facts is asked (for an act: **the repository, the commit and the base it is about**, which the source reads and reports back): the problem and the mission (none yet at the start of a problem), the world, the **frame of the mission** (its repositories, so that the source reads the right one), the dossier and the commit the worker claims.
 /// </summary>
-public sealed record FactsQuery(string ProblemId, string? MissionId, World World, MissionFrame Frame, Dossier? Dossier, string? Commit);
+public sealed record FactsQuery(string ProblemId, string? MissionId, World World, MissionFrame Frame, Dossier? Dossier, string? Commit, string? Repository = null, string? BaseCommit = null);
 
 /// <summary>Which runner serves a world for an application (a runner profile on a host).</summary>
 public interface IRunnerDirectory

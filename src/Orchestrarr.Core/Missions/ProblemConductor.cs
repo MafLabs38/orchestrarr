@@ -5,7 +5,7 @@ namespace Orchestrarr.Core.Missions;
 /// <summary>The settings of the conductor: how long a mandate lasts, which paths no mission may touch, the bounds of the loop.</summary>
 public sealed record ConductorOptions(TimeSpan MandateLifetime, IReadOnlyList<string> ForbiddenPaths, LoopPolicy Loop)
 {
-    public static ConductorOptions Default { get; } = new(TimeSpan.FromMinutes(60), [".github/**", "**/*.enc.*", "**/.env*"], LoopPolicy.Default);
+    public static ConductorOptions Default { get; } = new(TimeSpan.FromMinutes(60), ForbiddenPathsDefaults.Floor, LoopPolicy.Default);
 }
 
 /// <summary>
@@ -118,7 +118,7 @@ public sealed class ProblemConductor(
             {
                 // An application with no staging starts in the Git world: the frame of the merge is checked here too, since no crossing will do it (the diff, the CI and the executed files are checked at the merge itself)
                 var frame = CheckFacts(run, World.Git, new MissionFrame(run.Entry.Repositories, [.. options.ForbiddenPaths.Union(run.Approval.Certificate.ForbiddenPaths, StringComparer.Ordinal)], "start"), missionId: null, previousDossierExists: true, dossier: null, commit: null, issuing: false)
-                    .Where(failure => failure is PreconditionFailure.MergeMayDeployBeyondApproval or PreconditionFailure.AgentCouldCreateTags or PreconditionFailure.AgentBranchCouldReachWriteCredentials or PreconditionFailure.AgentIdentityNotConfined).ToList();
+                    .Where(failure => failure is PreconditionFailure.MergeMayDeployUnderGitMandate or PreconditionFailure.AgentCouldCreateTags or PreconditionFailure.AgentBranchCouldReachWriteCredentials or PreconditionFailure.AgentIdentityNotConfined).ToList();
                 if (frame.Count > 0)
                 {
                     return ConductResult.Fail("the merge could deploy beyond the approval, or the agent could create tags or reach a write credential", frame);
@@ -326,7 +326,7 @@ public sealed class ProblemConductor(
     /// The **act gateway** (ARCHITECTURE section 5): before a merge or a deployment is performed, the checks of the code are made again **now, on the exact commit that is about to be merged or deployed**, with the
     /// power read at this moment. A mandate says which acts may be asked for; this says whether the act may be done now. Nothing is performed here: the control plane's gateway does the act when this allows it.
     /// </summary>
-    public ActAuthorisation AuthoriseAct(string missionId, GatedAct act, string? commit)
+    public ActAuthorisation AuthoriseAct(string missionId, GatedAct act, string? commit, string? repository = null, string? baseCommit = null)
     {
         if (missions.Get(missionId) is not { } first)
         {
@@ -357,12 +357,22 @@ public sealed class ProblemConductor(
                 return ActAuthorisation.Refused("the mandate or its certificate does not verify");
             }
             // The acts that change what runs (a merge, a deployment) need the facts of this moment **on a named commit**: the gateway performs the act on that commit and no other
-            if (act is GatedAct.MergePullRequest or GatedAct.Deploy && string.IsNullOrWhiteSpace(commit))
+            var changes = act is GatedAct.MergePullRequest or GatedAct.Deploy;
+            if (changes && (string.IsNullOrWhiteSpace(commit) || string.IsNullOrWhiteSpace(repository) || string.IsNullOrWhiteSpace(baseCommit)))
             {
-                return ActAuthorisation.Refused("a merge or a deployment is authorised on a named commit");
+                return ActAuthorisation.Refused("a merge or a deployment is authorised on a named repository, commit and base");
             }
-            var failures = act is GatedAct.MergePullRequest or GatedAct.Deploy
-                ? CheckFacts(run, mission.World, mission.Frame, mission.Id, previousDossierExists: PreviousDossierExists(run, mission), LatestDossier(run, mission), commit, issuing: false)
+            if (changes && !mission.Frame.Repositories.Contains(repository!, StringComparer.Ordinal))
+            {
+                return ActAuthorisation.Refused("the repository is not in the frame of the mission");
+            }
+            // The revert of a deploying merge is checked against the base tree recorded before the deploy: until the gateway that records it exists, no rollback is authorised on the mandate alone
+            if (act == GatedAct.Rollback)
+            {
+                return ActAuthorisation.Refused("the check of a rollback (the base tree recorded before the deploy) is not built: a person rolls back until the release runner exists");
+            }
+            var failures = changes
+                ? CheckFacts(run, mission.World, mission.Frame, mission.Id, previousDossierExists: PreviousDossierExists(run, mission), LatestDossier(run, mission), commit, issuing: false, repository, baseCommit)
                 : [];
             if (failures.Count > 0)
             {
@@ -374,7 +384,7 @@ public sealed class ProblemConductor(
                 return ActAuthorisation.Refused("a check of the code failed", failures);
             }
             return Required(MissionAuditEvents.ActAuthorised, mission.Id, Text($"{act} on {commit ?? "no commit"}"))
-                ? new ActAuthorisation(true, null, [], commit)
+                ? new ActAuthorisation(true, null, [], commit, repository, baseCommit)
                 : ActAuthorisation.Refused("the audit trail cannot be written: no power is granted");
         });
     }
@@ -393,22 +403,23 @@ public sealed class ProblemConductor(
 
     // The facts come from the control plane's own source; the plan, the stop, the loop and the staging are the conductor's own: none is taken from the worker
     // `issuing` is true only where a new mandate is about to be issued: the bound of the loop guards a new mandate, not the acts of one that is already in force nor the closing of the problem
-    private List<PreconditionFailure> CheckFacts(ProblemRun run, World world, MissionFrame frame, string? missionId, bool previousDossierExists, Dossier? dossier, string? commit, bool issuing)
+    private List<PreconditionFailure> CheckFacts(ProblemRun run, World world, MissionFrame frame, string? missionId, bool previousDossierExists, Dossier? dossier, string? commit, bool issuing, string? repository = null, string? baseCommit = null)
     {
-        var observed = facts.Facts(new FactsQuery(run.ProblemId, missionId, world, frame, dossier, commit));
+        var observed = facts.Facts(new FactsQuery(run.ProblemId, missionId, world, frame, dossier, commit, repository, baseCommit));
         // The commit the facts are about is the head that the source read itself; the worker's pointer is only a claim, and a claim that does not match (or that cannot be matched) fails the check
         // Past the staging world, no commit named is no claim that can match: unknown counts as failing
         var claimMatches = observed.WorkerClaimMatchesFacts
-            && (commit is null ? world == World.Staging : observed.HeadCommit is not null && string.Equals(observed.HeadCommit, commit, StringComparison.Ordinal));
-        // The ceiling of the merge is the power in effect now (the lowest of the entry, the certificate and the grant read at this moment), never the certificate alone; no power at all is the lowest world
-        var ceiling = HighestNow(run.Entry, run.Approval) ?? World.Staging;
+            && (commit is null ? world == World.Staging : observed.HeadCommit is not null && string.Equals(observed.HeadCommit, commit, StringComparison.Ordinal))
+            // For an act, the source read the repository and the base that the act names, and says so: nothing else is the commit that was checked
+            && (repository is null || string.Equals(observed.Repository, repository, StringComparison.Ordinal))
+            && (baseCommit is null || string.Equals(observed.BaseCommit, baseCommit, StringComparison.Ordinal));
         // The diff is clean when the source says so **and** the paths it changed are known and none is forbidden by the frame of this mission (the options' list and the certificate's floor)
         var diffClean = observed.DiffIsClean == true && observed.ChangedPaths is not null && !PathPatterns.AnyMatches(frame.ForbiddenPaths, observed.ChangedPaths);
         var checks = new PreconditionFacts(
             world, PlanCovers: true, observed.BudgetAvailable, stop.Engaged, run.UsesStaging ? StagingVerdict.Usable : StagingVerdict.UsableWithNoNet, previousDossierExists,
             diffClean, observed.CiGreenOnExactCommit, observed.ArtifactIsTheOneProvedInStaging, claimMatches,
             issuing ? options.Loop.Check(mandates.CountForRun(run.ProblemId, run.Approval.Certificate.Id), time.GetUtcNow() - run.StartedAt) : LoopVerdict.Allowed, observed.WayBackKnown,
-            ApprovedMaxWorld: ceiling, observed.MergeMayDeploy, observed.ExecutedFilesTouched, observed.TagCreationBlocked, observed.BranchCannotReachWriteCredentials, observed.IdentityConfinedToItsBranches);
+            observed.MergeMayDeploy, observed.ExecutedFilesTouched, observed.TagCreationBlocked, observed.BranchCannotReachWriteCredentials, observed.IdentityConfinedToItsBranches);
         // The release of an application with a staging needs the artifact that was proved there (FR-WLD-14)
         return [.. MandatePreconditions.Check(checks, requiresStagingProof: run.UsesStaging && world == World.Release)];
     }

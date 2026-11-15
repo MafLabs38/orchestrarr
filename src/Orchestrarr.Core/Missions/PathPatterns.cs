@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -9,12 +10,29 @@ namespace Orchestrarr.Core.Missions;
 /// </summary>
 public static class PathPatterns
 {
+    private static readonly ConcurrentDictionary<string, Regex> Compiled = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Whether the path is one that the pattern forbids. **A path that cannot be judged counts as forbidden** (fail closed): one that holds a control character (a line break in a file name), a <c>.</c> or <c>..</c> segment, or that
+    /// takes too long to match.
+    /// </summary>
     public static bool Matches(string pattern, string path)
     {
         ArgumentNullException.ThrowIfNull(pattern);
         ArgumentNullException.ThrowIfNull(path);
         var normalized = path.Replace('\\', '/').TrimStart('/');
-        return Regex.IsMatch(normalized, ToRegex(pattern), RegexOptions.CultureInvariant | RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1));
+        if (normalized.Any(char.IsControl) || normalized.Split('/').Any(segment => segment is "." or ".."))
+        {
+            return true;
+        }
+        try
+        {
+            return Compiled.GetOrAdd(pattern, text => new Regex(ToRegex(text), RegexOptions.CultureInvariant | RegexOptions.IgnoreCase | RegexOptions.Singleline, TimeSpan.FromSeconds(1))).IsMatch(normalized);
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            return true;
+        }
     }
 
     /// <summary>Whether any path matches any pattern.</summary>
@@ -55,6 +73,6 @@ public static class PathPatterns
                 position++;
             }
         }
-        return regex.Append('$').ToString();
+        return regex.Append(@"\z").ToString();
     }
 }
