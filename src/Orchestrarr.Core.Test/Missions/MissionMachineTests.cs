@@ -115,5 +115,8 @@ public sealed class MissionMachineTests
         Loop.Check(0, TimeSpan.Zero).Should().Be(LoopVerdict.Allowed);
         Loop.Check(Loop.MaxMandatesPerProblem, TimeSpan.Zero).Should().Be(LoopVerdict.TooManyMandates);
         Loop.Check(1, TimeSpan.FromHours(2)).Should().Be(LoopVerdict.TooLong);
+        Loop.Check(Loop.MaxMandatesPerProblem - 1, TimeSpan.Zero).Should().Be(LoopVerdict.Allowed, "one below the limit is still allowed");
+        Loop.Check(1, Loop.MaxTimePerProblem - TimeSpan.FromTicks(1)).Should().Be(LoopVerdict.Allowed, "just below the time bound");
+        Loop.Check(1, Loop.MaxTimePerProblem).Should().Be(LoopVerdict.TooLong, "the bound itself is the limit");
     }
 }

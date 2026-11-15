@@ -57,7 +57,7 @@ public sealed class MissionsApiTests
             mission.GetProperty("state").GetString().Should().Be("Accepted");
             mission.GetProperty("problemState").GetString().Should().Be("Closed");
             mission.GetProperty("mandate").GetProperty("runnerId").GetString().Should().StartWith("runner-");
-            mission.GetProperty("mandate").ValueKind.Should().Be(JsonValueKind.Object);
+            mission.GetProperty("mandate").GetProperty("revoked").GetBoolean().Should().BeTrue("the power never outlives the work");
         }
         var staging = missions.EnumerateArray().Single(mission => mission.GetProperty("world").GetString() == "Staging");
         staging.GetProperty("mandate").GetProperty("source").GetString().Should().Be("PlanValidation");
