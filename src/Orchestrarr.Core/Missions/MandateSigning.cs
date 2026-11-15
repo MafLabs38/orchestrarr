@@ -28,10 +28,10 @@ public sealed class MandateSigner : IDisposable
 
     public byte[] PrivateKey() => _key.ExportPkcs8PrivateKey();
 
-    public SignedMandate Sign(Mandate mandate)
+    public SignedMandate Sign(Mandate mandate, SignedApproval? approval = null)
     {
         ArgumentNullException.ThrowIfNull(mandate);
-        return new SignedMandate(mandate, _key.SignData(mandate.CanonicalBytes(), HashAlgorithmName.SHA256));
+        return new SignedMandate(mandate, _key.SignData(mandate.CanonicalBytes(), HashAlgorithmName.SHA256), approval);
     }
 
     public void Dispose() => _key.Dispose();
@@ -50,6 +50,9 @@ public enum MandateRefusal
     Revoked,
     KillSwitchEngaged,
     ActNotAllowed,
+
+    /// <summary>The mandate has no certificate of the approval authority, or one that does not cover it (see <see cref="ApprovalRefusal"/>).</summary>
+    NoValidApproval,
 }
 
 /// <summary>What a runner knows about a mandate beyond its content: whether it was already used, revoked, and whether the global stop is engaged.</summary>
@@ -74,8 +77,10 @@ public sealed class MandateVerifier : IDisposable
     private readonly World _world;
     private readonly IMandateState _state;
     private readonly TimeProvider _time;
+    private readonly ApprovalVerifier? _approvals;
 
-    public MandateVerifier(ReadOnlySpan<byte> publicKey, string runnerId, World world, IMandateState state, TimeProvider time)
+    /// <summary>The runner's side: the public key of the control plane, the runner and the world it serves, what it remembers, the clock, and the verifier of the authority's certificates. A runner that holds no verifier checks no approval: that is for tests and the sandbox, never for a deployment.</summary>
+    public MandateVerifier(ReadOnlySpan<byte> publicKey, string runnerId, World world, IMandateState state, TimeProvider time, ApprovalVerifier? approvals = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(runnerId);
         ArgumentNullException.ThrowIfNull(state);
@@ -86,6 +91,7 @@ public sealed class MandateVerifier : IDisposable
         _world = world;
         _state = state;
         _time = time;
+        _approvals = approvals;
     }
 
     /// <summary>Starts a mission: every check, and the nonce is used up. A mandate is single-use.</summary>
@@ -119,6 +125,10 @@ public sealed class MandateVerifier : IDisposable
         if (!_publicKey.VerifyData(mandate.CanonicalBytes(), signed.Signature, HashAlgorithmName.SHA256))
         {
             return MandateRefusal.BadSignature;
+        }
+        if (_approvals is not null && _approvals.Check(signed.Approval, mandate) != ApprovalRefusal.None)
+        {
+            return MandateRefusal.NoValidApproval;
         }
         var now = _time.GetUtcNow();
         if (!string.Equals(mandate.RunnerId, _runnerId, StringComparison.Ordinal))

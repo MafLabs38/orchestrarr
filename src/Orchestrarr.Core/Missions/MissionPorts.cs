@@ -1,12 +1,21 @@
 namespace Orchestrarr.Core.Missions;
 
 /// <summary>
-/// Whether the maintainer's approval of a plan entry is proved (ADR 0031 point 7): the first mandate of a problem is never issued on a validation that is only a name. The proof is the
-/// second factor, recorded through the queue of approvals; until the plan service links the two, the host answers no.
+/// The certificate of what the maintainer approved for a plan entry, issued by the approval authority (ADR 0031 point 7), or null when none was issued: the first mandate of a problem is never issued
+/// on a validation that is only a name. Until the plan service links a plan entry to a certificate, the host has none to give.
 /// </summary>
-public interface IApprovalCheck
+public interface IApprovalSource
 {
-    bool IsProved(PlanEntry entry);
+    SignedApproval? For(PlanEntry entry);
+}
+
+/// <summary>
+/// The grant of an application, **read again at every crossing** (D-10, D-11, D-53: off until the maintainer enables it): the highest world the maintainer enabled for it now. A grant that is withdrawn while a
+/// problem is in flight stops it at its next crossing. Null: no power at all.
+/// </summary>
+public interface IGrantSource
+{
+    World? MaxWorldFor(string applicationId);
 }
 
 /// <summary>The global stop, as the conductor reads it: while it is engaged no mandate is issued, and the sweep stops what is running.</summary>

@@ -36,13 +36,15 @@ internal static class MissionsServiceCollectionExtensions
             .AddSingleton(_ => SigningKey.Open(options.SigningKeyFile ?? (storage is SqliteStorage file ? Path.Combine(Path.GetDirectoryName(file.Path) ?? contentRoot, "keys", "mandate-signing.key") : null)))
             .AddSingleton<IRunnerDirectory>(new ConfiguredRunners(options))
             .AddSingleton<IFactsSource, ConservativeFacts>()
-            .AddSingleton<IApprovalCheck, UnprovedApprovals>()
+            .AddSingleton<IApprovalSource, NoApprovals>()
+            .AddSingleton<IGrantSource>(new ConfiguredGrants(options))
+            .AddSingleton(provider => AuthorityKey.Verifier(options.ApprovalAuthorityPublicKeyFile, provider.GetRequiredService<TimeProvider>()))
             .AddSingleton<IStopSignal>(provider => new KillSwitchSignal(provider.GetRequiredService<IKillSwitchControl>()))
             .AddSingleton<IMissionAudit>(provider => new AuditTrailMissions(provider.GetRequiredService<IAuditSink>(), provider.GetRequiredService<TimeProvider>()))
             .AddHostedService<MissionSweeper>()
             .AddSingleton(provider => new ProblemConductor(
                 provider.GetRequiredService<MandateSigner>(), provider.GetRequiredService<IMissionStore>(), provider.GetRequiredService<IMandateLedger>(), provider.GetRequiredService<IProblemStore>(),
-                provider.GetRequiredService<IDossierStore>(), provider.GetRequiredService<IFactsSource>(), provider.GetRequiredService<IRunnerDirectory>(), provider.GetRequiredService<IApprovalCheck>(),
+                provider.GetRequiredService<IDossierStore>(), provider.GetRequiredService<IFactsSource>(), provider.GetRequiredService<IRunnerDirectory>(), provider.GetRequiredService<IApprovalSource>(), provider.GetRequiredService<ApprovalVerifier>(), provider.GetRequiredService<IGrantSource>(),
                 provider.GetRequiredService<IStopSignal>(), provider.GetRequiredService<IMissionAudit>(), provider.GetRequiredService<TimeProvider>(),
                 options.Conductor(), () => Guid.NewGuid().ToString("N"), provider.GetRequiredService<ProblemLocks>()));
     }
@@ -98,10 +100,31 @@ internal sealed class ConservativeFacts : IFactsSource
         BudgetAvailable: false, DiffIsClean: null, CiGreenOnExactCommit: null, ArtifactIsTheOneProvedInStaging: null, WayBackKnown: null, WorkerClaimMatchesFacts: false);
 }
 
-/// <summary>The maintainer's approval is proved by the second factor, recorded through the queue of approvals (ADR 0031 point 7). The plan service that links a plan entry to an approval is not built: until then none is proved, so no real mandate is issued.</summary>
-internal sealed class UnprovedApprovals : IApprovalCheck
+/// <summary>The maintainer's approval is proved by a certificate of the approval authority (ADR 0031 point 7). The plan service that links a plan entry to a certificate is not built: until then none is given, so no real mandate is issued.</summary>
+internal sealed class NoApprovals : IApprovalSource
 {
-    public bool IsProved(PlanEntry entry) => false;
+    public SignedApproval? For(PlanEntry entry) => null;
+}
+
+/// <summary>The grants the maintainer wrote in the settings, read at every call: a grant removed from the settings is gone at the next crossing.</summary>
+internal sealed class ConfiguredGrants(MissionsOptions options) : IGrantSource
+{
+    public World? MaxWorldFor(string applicationId) =>
+        options.Grants.TryGetValue(applicationId, out var name) && Enum.TryParse<World>(name, ignoreCase: true, out var world) && Enum.IsDefined(world) ? world : null;
+}
+
+internal static class AuthorityKey
+{
+    /// <summary>The verifier of the authority's certificates, from its public key. Without a key, a verifier of a key nobody holds: no certificate is valid.</summary>
+    public static ApprovalVerifier Verifier(string? file, TimeProvider time)
+    {
+        if (file is { Length: > 0 } && File.Exists(file))
+        {
+            return new ApprovalVerifier(File.ReadAllBytes(file), time);
+        }
+        using var nobody = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+        return new ApprovalVerifier(nobody.ExportSubjectPublicKeyInfo(), time);
+    }
 }
 
 internal sealed class KillSwitchSignal(IKillSwitchControl killSwitch) : IStopSignal

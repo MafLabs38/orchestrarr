@@ -16,7 +16,11 @@ public sealed record PreconditionFacts(
     bool? ArtifactIsTheOneProvedInStaging,
     bool WorkerClaimMatchesFacts,
     LoopVerdict Loop,
-    bool? WayBackKnown = null);
+    bool? WayBackKnown = null,
+    World ApprovedMaxWorld = World.Release,
+    bool? MergeMayDeploy = null,
+    bool? ExecutedFilesTouched = null,
+    bool? TagCreationBlocked = null);
 
 public enum PreconditionFailure
 {
@@ -31,6 +35,15 @@ public enum PreconditionFailure
     ClaimDoesNotMatchFacts,
     LoopLimitReached,
     NoWayBackKnown,
+
+    /// <summary>The merge of the Git world may deploy (or is not known not to), and the approval does not reach the release world: the merge would be a release act that nobody approved.</summary>
+    MergeMayDeployBeyondApproval,
+
+    /// <summary>The merge may deploy and the change touches files that the pipeline executes: the code that reaches the deployment secrets was not proved, so a person decides (the conductor escalates).</summary>
+    ExecutedFilesTouchedWhereMergeDeploys,
+
+    /// <summary>The forge does not block the agent's identity from creating tags and releases (a ruleset), or it is not known: a tag could deploy without the release-world mandate.</summary>
+    AgentCouldCreateTags,
 }
 
 /// <summary>What the code checks and never leaves to a judgement (FR-MAN-7). The controller judges the rest. <c>DiffTouchesForbiddenPath</c> also covers a diff that is not known: unknown counts as failing.</summary>
@@ -54,6 +67,12 @@ public static class MandatePreconditions
         Add(failures, facts.World != World.Staging && facts.CiGreenOnExactCommit != true, PreconditionFailure.CiNotGreenOnExactCommit);
         Add(failures, facts.World == World.Release && requiresStagingProof && facts.ArtifactIsTheOneProvedInStaging != true, PreconditionFailure.ArtifactNotProvedInStaging);
         Add(failures, !facts.WorkerClaimMatchesFacts, PreconditionFailure.ClaimDoesNotMatchFacts);
+        // A merge that may deploy is a release act (the maintainer, 2026-11-15: the agent judges the delivery mode, the ceiling holds): refused under an approval that stops before the release world, unknown counts as deploying
+        var mayDeploy = facts.MergeMayDeploy != false;
+        Add(failures, facts.World == World.Git && mayDeploy && facts.ApprovedMaxWorld < World.Release, PreconditionFailure.MergeMayDeployBeyondApproval);
+        Add(failures, facts.World == World.Git && mayDeploy && facts.ApprovedMaxWorld >= World.Release && facts.ExecutedFilesTouched != false, PreconditionFailure.ExecutedFilesTouchedWhereMergeDeploys);
+        // A tag or a release can deploy as a merge can: the forge must stop the agent's identity from creating one, as a fact read from the repository's rulesets
+        Add(failures, facts.World == World.Git && facts.TagCreationBlocked != true, PreconditionFailure.AgentCouldCreateTags);
         // A deployment needs a way back known before it starts (FR-WLD-13, rule 5 of CLAUDE.md): unknown counts as failing
         Add(failures, facts.World == World.Release && facts.WayBackKnown != true, PreconditionFailure.NoWayBackKnown);
         return failures;

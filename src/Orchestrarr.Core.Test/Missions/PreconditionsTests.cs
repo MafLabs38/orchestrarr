@@ -5,7 +5,7 @@ namespace Orchestrarr.Core.Test.Missions;
 public sealed class PreconditionsTests
 {
     private static PreconditionFacts Good(World world) => new(world, PlanCovers: true, BudgetAvailable: true, KillSwitchEngaged: false, Staging: StagingVerdict.Usable,
-        PreviousDossierExists: true, DiffIsClean: true, CiGreenOnExactCommit: true, ArtifactIsTheOneProvedInStaging: true, WorkerClaimMatchesFacts: true, Loop: LoopVerdict.Allowed, WayBackKnown: true);
+        PreviousDossierExists: true, DiffIsClean: true, CiGreenOnExactCommit: true, ArtifactIsTheOneProvedInStaging: true, WorkerClaimMatchesFacts: true, Loop: LoopVerdict.Allowed, WayBackKnown: true, ApprovedMaxWorld: World.Release, MergeMayDeploy: false, ExecutedFilesTouched: false, TagCreationBlocked: true);
 
     [Theory]
     [InlineData(World.Staging)]
@@ -34,7 +34,7 @@ public sealed class PreconditionsTests
             WayBackKnown = null,
         };
 
-        MandatePreconditions.Check(facts, requiresStagingProof: true).Should().BeEquivalentTo(Enum.GetValues<PreconditionFailure>());
+        MandatePreconditions.Check(facts, requiresStagingProof: true).Should().BeEquivalentTo(Enum.GetValues<PreconditionFailure>().Where(failure => failure is not (PreconditionFailure.MergeMayDeployBeyondApproval or PreconditionFailure.ExecutedFilesTouchedWhereMergeDeploys or PreconditionFailure.AgentCouldCreateTags)), "the two checks about a merge are for the Git world");
     }
 
     [Fact]
@@ -72,5 +72,32 @@ public sealed class PreconditionsTests
     public void A_worker_that_claims_what_the_facts_do_not_show_fails_before_the_controller_runs()
     {
         MandatePreconditions.Check(Good(World.Git) with { WorkerClaimMatchesFacts = false }, requiresStagingProof: false).Should().Equal(PreconditionFailure.ClaimDoesNotMatchFacts);
+    }
+
+    [Fact]
+    public void A_merge_that_may_deploy_needs_an_approval_that_reaches_the_release_world_and_unknown_counts_as_deploying()
+    {
+        var git = Good(World.Git);
+
+        MandatePreconditions.Check(git with { MergeMayDeploy = true, ApprovedMaxWorld = World.Git }, false).Should().Equal(PreconditionFailure.MergeMayDeployBeyondApproval);
+        MandatePreconditions.Check(git with { MergeMayDeploy = null, ApprovedMaxWorld = World.Git }, false).Should().Equal(PreconditionFailure.MergeMayDeployBeyondApproval);
+        MandatePreconditions.Check(git with { MergeMayDeploy = false, ApprovedMaxWorld = World.Git }, false).Should().BeEmpty("a merge that does not deploy is a Git act");
+    }
+
+    [Fact]
+    public void A_merge_that_may_deploy_with_executed_files_touched_or_unknown_is_for_a_person_even_when_the_approval_reaches_the_release_world()
+    {
+        var git = Good(World.Git) with { MergeMayDeploy = true, ApprovedMaxWorld = World.Release };
+
+        MandatePreconditions.Check(git with { ExecutedFilesTouched = true }, false).Should().Equal(PreconditionFailure.ExecutedFilesTouchedWhereMergeDeploys);
+        MandatePreconditions.Check(git with { ExecutedFilesTouched = null }, false).Should().Equal(PreconditionFailure.ExecutedFilesTouchedWhereMergeDeploys);
+        MandatePreconditions.Check(git with { ExecutedFilesTouched = false }, false).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void An_agent_identity_that_could_create_a_tag_or_a_release_is_not_admitted_to_the_git_world_and_unknown_counts_as_able()
+    {
+        MandatePreconditions.Check(Good(World.Git) with { TagCreationBlocked = null }, false).Should().Equal(PreconditionFailure.AgentCouldCreateTags);
+        MandatePreconditions.Check(Good(World.Git) with { TagCreationBlocked = false }, false).Should().Equal(PreconditionFailure.AgentCouldCreateTags);
     }
 }

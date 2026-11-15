@@ -28,6 +28,12 @@ public sealed class MissionsOptions
     /// <summary>The paths no mission may touch, whatever its repository (pipelines, secrets). Unset: the pipelines of the forge, the encrypted files and the environment files.</summary>
     public string[]? ForbiddenPaths { get; set; }
 
+    /// <summary>The public key of the approval authority (ADR 0031 point 7), a file in SubjectPublicKeyInfo form. Unset: no certificate is ever valid, so no real mandate is issued.</summary>
+    public string? ApprovalAuthorityPublicKeyFile { get; set; }
+
+    /// <summary>The grant of each application: the highest world the maintainer enabled for it (`Staging`, `Git` or `Release`). An application that is not listed has none: it is off until the maintainer enables it (D-10). Read again at every crossing.</summary>
+    public Dictionary<string, string> Grants { get; set; } = [];
+
     public ConductorOptions Conductor() => new(
         TimeSpan.FromMinutes(Math.Max(1, MandateMinutes)),
         ForbiddenPaths ?? [.. ConductorOptions.Default.ForbiddenPaths],

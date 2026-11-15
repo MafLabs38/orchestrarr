@@ -1,5 +1,6 @@
 using Orchestrarr.Core.Accounts;
 using Orchestrarr.Core.Missions;
+using Orchestrarr.Core.SecondFactor;
 using Orchestrarr.Host.Approvals;
 
 namespace Orchestrarr.Host.Missions;
@@ -18,11 +19,14 @@ internal static class DevMissionEndpoints
             var facts = new DemoFacts();
             // A key of its own, made for this call: a demo mandate is never signed with the key of the control plane, so no real runner accepts it
             using var demoKey = MandateSigner.Create();
-            var conductor = new ProblemConductor(demoKey, missions, mandates, problems, dossiers, facts, runners, new DemoApprovals(), new DemoStop(), audit, time, options.Conductor(), () => Guid.NewGuid().ToString("N"), locks);
+            // A real approval authority with a real second factor of its own (a demo secret and the code of the moment), so that the certificates the demo mandates fall inside are real ones
+            using var authority = DemoApprovals.NewAuthority(time, out var approvals);
+            using var verifier = new ApprovalVerifier(authority.PublicKey(), time);
+            var conductor = new ProblemConductor(demoKey, missions, mandates, problems, dossiers, facts, runners, approvals, verifier, new DemoGrants(), new DemoStop(), audit, time, options.Conductor(), () => Guid.NewGuid().ToString("N"), locks);
             var name = string.IsNullOrWhiteSpace(application) ? "demo-shop" : application.Trim();
             var problemId = $"demo-{Guid.NewGuid():N}"[..13];
             var entry = new PlanEntry(problemId, name, "deprecated-dependency", "Replace the call to the removed method", [$"example/{name}"], World.Release, new MissionBudget(20, 3, 50), new Validation("demo", null), time.GetUtcNow());
-            var started = conductor.Start(entry, staging == false ? StagingDeclaration.DeclaredNoStaging : StagingDeclaration.DeclaredStaging, StagingRequirement.BlankMachine, StagingState.NotDefined, grant: World.Release, rule: null);
+            var started = conductor.Start(entry, staging == false ? StagingDeclaration.DeclaredNoStaging : StagingDeclaration.DeclaredStaging, StagingRequirement.BlankMachine, StagingState.NotDefined);
             if (!started.Ok)
             {
                 return Results.Json(new ErrorResponse(started.Refusal ?? "refused"), statusCode: StatusCodes.Status409Conflict);
@@ -70,10 +74,36 @@ internal static class DevMissionEndpoints
         }).RequireAuthorization(Permissions.ApprovalsCreate);
     }
 
-    // The demo has no approval to prove and no stop: it is for the sandbox and the tests, never for a deployment
-    private sealed class DemoApprovals : IApprovalCheck
+    // The demo has its own authority, its own second factor and a grant for every application: for the sandbox and the tests, never for a deployment
+    private sealed class DemoApprovals(ApprovalAuthority authority, ISecondFactorSecrets secrets, TimeProvider time, SecondFactorOptions options) : IApprovalSource
     {
-        public bool IsProved(PlanEntry entry) => true;
+        public static ApprovalAuthority NewAuthority(TimeProvider time, out IApprovalSource approvals)
+        {
+            var secret = OtpAuthUri.NewSecret();
+            var factor = new SecondFactorOptions();
+            var secrets = new DemoSecrets(secret);
+            var authority = new ApprovalAuthority(new SecondFactorGuard(secrets, new InMemorySecondFactorUseLedger(), time, factor), time, () => Guid.NewGuid().ToString("N"));
+            approvals = new DemoApprovals(authority, secrets, time, factor);
+            return authority;
+        }
+
+        public SignedApproval? For(PlanEntry entry)
+        {
+            var secret = secrets.FindAsync("demo", CancellationToken.None).AsTask().GetAwaiter().GetResult()!;
+            var code = Totp.Code(secret, Totp.StepAt(time.GetUtcNow(), options.Totp), options.Totp);
+            var request = new ApprovalRequest(CertificateKind.Problem, entry.ProblemId, entry.ApplicationId, entry.Repositories, entry.MaxWorld, entry.Budget, TimeSpan.FromHours(2));
+            return authority.ApproveAsync(request, "demo", code, CancellationToken.None).GetAwaiter().GetResult().Approval;
+        }
+    }
+
+    private sealed class DemoSecrets(byte[] secret) : ISecondFactorSecrets
+    {
+        public ValueTask<byte[]?> FindAsync(string subject, CancellationToken cancellationToken) => ValueTask.FromResult<byte[]?>(subject == "demo" ? secret : null);
+    }
+
+    private sealed class DemoGrants : IGrantSource
+    {
+        public World? MaxWorldFor(string applicationId) => World.Release;
     }
 
     private sealed class DemoStop : IStopSignal
@@ -85,6 +115,6 @@ internal static class DevMissionEndpoints
     {
         public bool Ci { get; set; } = true;
 
-        public ObservedFacts Facts(string problemId, World world, Dossier? dossier) => new(true, true, Ci, true, true, true);
+        public ObservedFacts Facts(string problemId, World world, Dossier? dossier) => new(true, true, Ci, true, true, true, MergeMayDeploy: false, ExecutedFilesTouched: false, TagCreationBlocked: true);
     }
 }

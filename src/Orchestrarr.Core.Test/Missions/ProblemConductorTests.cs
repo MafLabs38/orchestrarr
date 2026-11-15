@@ -13,11 +13,18 @@ public sealed class ProblemConductorTests : IDisposable
     private readonly InMemoryDossierStore _dossiers = new();
     private readonly FakeFacts _facts = new();
     private readonly FakeStop _stop = new();
-    private readonly FakeApprovals _approvals = new();
+    private readonly TestAuthority _authority;
+    private readonly FakeGrants _grants = new();
     private readonly FakeAudit _audit = new();
     private int _ids;
 
-    public void Dispose() => _signer.Dispose();
+    public ProblemConductorTests() => _authority = new TestAuthority(_time);
+
+    public void Dispose()
+    {
+        _signer.Dispose();
+        _authority.Dispose();
+    }
 
     private sealed class FakeFacts : IFactsSource
     {
@@ -31,7 +38,13 @@ public sealed class ProblemConductorTests : IDisposable
 
         public bool? WayBack { get; set; } = true;
 
-        public ObservedFacts Facts(string problemId, World world, Dossier? dossier) => new(true, !DiffTouchesForbidden, CiGreen, ArtifactProved, WayBack, ClaimMatches);
+        public bool? MergeMayDeploy { get; set; } = false;
+
+        public bool? ExecutedFiles { get; set; } = false;
+
+        public bool? TagsBlocked { get; set; } = true;
+
+        public ObservedFacts Facts(string problemId, World world, Dossier? dossier) => new(true, !DiffTouchesForbidden, CiGreen, ArtifactProved, WayBack, ClaimMatches, MergeMayDeploy, ExecutedFiles, TagsBlocked);
     }
 
     private sealed class FakeStop : IStopSignal
@@ -39,11 +52,11 @@ public sealed class ProblemConductorTests : IDisposable
         public bool Engaged { get; set; }
     }
 
-    private sealed class FakeApprovals : IApprovalCheck
+    private sealed class FakeGrants : IGrantSource
     {
-        public bool Proved { get; set; } = true;
+        public World? Max { get; set; } = World.Release;
 
-        public bool IsProved(PlanEntry entry) => Proved;
+        public World? MaxWorldFor(string applicationId) => Max;
     }
 
     private sealed class FakeAudit : IMissionAudit
@@ -68,7 +81,7 @@ public sealed class ProblemConductorTests : IDisposable
     }
 
     private ProblemConductor Conductor(ConductorOptions? options = null) =>
-        new(_signer, _missions, _mandates, _problems, _dossiers, _facts, new Runners(), _approvals, _stop, _audit, _time, options ?? ConductorOptions.Default, () => $"id-{Interlocked.Increment(ref _ids)}");
+        new(_signer, _missions, _mandates, _problems, _dossiers, _facts, new Runners(), _authority, _authority.Verifier, _grants, _stop, _audit, _time, options ?? ConductorOptions.Default, () => $"id-{Interlocked.Increment(ref _ids)}");
 
     private static PlanEntry Entry(World max = World.Release, string rule = "") => new("problem-1", "shop", "deprecated-dependency", "Replace the removed method", ["example/shop"], max, new MissionBudget(20, 3, 50),
         new Validation("alice", rule.Length == 0 ? null : rule), new DateTimeOffset(2026, 11, 13, 11, 0, 0, TimeSpan.Zero));
@@ -78,7 +91,7 @@ public sealed class ProblemConductorTests : IDisposable
     private static ControllerDecision Grant() => new(ControllerDecisionKind.Grant, ["the evidence supports the claim"], null);
 
     private static ConductResult StartStaged(ProblemConductor conductor, PlanEntry? entry = null) =>
-        conductor.Start(entry ?? Entry(), StagingDeclaration.DeclaredStaging, StagingRequirement.FullStack, StagingState.BaselineProven, grant: World.Release, rule: null);
+        conductor.Start(entry ?? Entry(), StagingDeclaration.DeclaredStaging, StagingRequirement.FullStack, StagingState.BaselineProven);
 
     private static ConductResult Through(ProblemConductor conductor, ConductResult step, bool complex = false)
     {
@@ -134,7 +147,7 @@ public sealed class ProblemConductorTests : IDisposable
     {
         var conductor = Conductor();
 
-        var result = conductor.Start(Entry(), StagingDeclaration.DeclaredNoStaging, StagingRequirement.BlankMachine, StagingState.NotDefined, World.Release, null);
+        var result = conductor.Start(Entry(), StagingDeclaration.DeclaredNoStaging, StagingRequirement.BlankMachine, StagingState.NotDefined);
 
         result.Mandate!.Mandate.World.Should().Be(World.Git);
     }
@@ -148,7 +161,7 @@ public sealed class ProblemConductorTests : IDisposable
     {
         var conductor = Conductor();
 
-        var result = conductor.Start(Entry(), declaration, StagingRequirement.FullStack, state, World.Release, null);
+        var result = conductor.Start(Entry(), declaration, StagingRequirement.FullStack, state);
 
         result.Ok.Should().BeFalse();
         result.Failures.Should().Contain(PreconditionFailure.StagingNotUsable);
@@ -163,7 +176,8 @@ public sealed class ProblemConductorTests : IDisposable
         StartStaged(conductor).Ok.Should().BeTrue();
 
         StartStaged(conductor).Refusal.Should().Contain("already");
-        var noGrant = conductor.Start(Entry() with { ProblemId = "problem-2" }, StagingDeclaration.DeclaredStaging, StagingRequirement.BlankMachine, StagingState.NotDefined, grant: null, rule: null);
+        _grants.Max = null;
+        var noGrant = conductor.Start(Entry() with { ProblemId = "problem-2" }, StagingDeclaration.DeclaredStaging, StagingRequirement.BlankMachine, StagingState.NotDefined);
 
         noGrant.Ok.Should().BeFalse();
         noGrant.Refusal.Should().Contain("grant is off");
@@ -173,7 +187,7 @@ public sealed class ProblemConductorTests : IDisposable
     [Fact]
     public void An_approval_that_is_not_proved_issues_no_mandate_and_a_validation_by_name_alone_is_not_one()
     {
-        _approvals.Proved = false;
+        _authority.Issue = false;
 
         var result = StartStaged(Conductor());
 
@@ -276,7 +290,7 @@ public sealed class ProblemConductorTests : IDisposable
     public void A_release_of_an_application_with_no_staging_needs_only_the_pipelines_artifact()
     {
         var conductor = Conductor();
-        var start = conductor.Start(Entry(), StagingDeclaration.DeclaredNoStaging, StagingRequirement.BlankMachine, StagingState.NotDefined, World.Release, null);
+        var start = conductor.Start(Entry(), StagingDeclaration.DeclaredNoStaging, StagingRequirement.BlankMachine, StagingState.NotDefined);
         var release = Through(conductor, start);
         _facts.ArtifactProved = false;
 
@@ -396,16 +410,131 @@ public sealed class ProblemConductorTests : IDisposable
     }
 
     [Fact]
-    public void A_standing_rule_issues_the_first_mandate_as_a_standing_rule()
+    public void A_standing_rule_issues_the_first_mandate_as_a_standing_rule_and_its_ceiling_is_the_certificates()
     {
+        _authority.Kind = CertificateKind.Rule;
+        _authority.Adjust = request => request with { MaxWorld = World.Git };
         var conductor = Conductor();
 
-        var result = conductor.Start(Entry(rule: "rule-1"), StagingDeclaration.DeclaredStaging, StagingRequirement.BlankMachine, StagingState.NotDefined, World.Release, rule: World.Git);
-        var noRule = conductor.Start(Entry(rule: "rule-1") with { ProblemId = "problem-2" }, StagingDeclaration.DeclaredStaging, StagingRequirement.BlankMachine, StagingState.NotDefined, World.Release, rule: null);
-
-        noRule.Ok.Should().BeFalse("a validation by a rule needs the rule to give a power");
+        var result = StartStaged(conductor, Entry(rule: "rule-1"));
 
         result.Mandate!.Mandate.Source.Should().Be(MandateSource.StandingRule);
+        _problems.Get("problem-1")!.HighestAllowed.Should().Be(World.Git, "the rule's certificate stops at the Git world");
+    }
+
+    [Fact]
+    public void A_grant_withdrawn_while_the_problem_is_in_flight_stops_it_at_the_next_crossing_and_a_lowered_grant_closes_it_at_its_new_ceiling()
+    {
+        var withdrawn = Conductor();
+        var staging = StartStaged(withdrawn);
+        var id = staging.Mission!.Id;
+        withdrawn.Started(id);
+        withdrawn.HandOver(id, DossierFor(id));
+        _grants.Max = null;
+
+        var stopped = withdrawn.Decide(id, Grant());
+
+        stopped.Mission!.End.Should().Be(MissionEnd.Refused);
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.Failed);
+        _problems.Get("problem-1")!.Note.Should().Contain("withdrawn");
+        _missions.ForProblem("problem-1").Should().ContainSingle("no next mandate was issued");
+
+        _grants.Max = World.Release;
+        var other = Entry() with { ProblemId = "problem-2" };
+        var second = StartStaged(withdrawn, other);
+        var secondId = second.Mission!.Id;
+        withdrawn.Started(secondId);
+        withdrawn.HandOver(secondId, DossierFor(secondId));
+        _grants.Max = World.Staging;
+
+        var closed = withdrawn.Decide(secondId, Grant());
+
+        closed.Ok.Should().BeTrue();
+        _problems.Get("problem-2")!.State.Should().Be(ProblemState.Closed);
+        _problems.Get("problem-2")!.Note.Should().Contain("Staging");
+    }
+
+    [Fact]
+    public void The_sweep_stops_a_problem_whose_grant_was_withdrawn_even_when_nothing_else_happens()
+    {
+        var conductor = Conductor();
+        var id = StartStaged(conductor).Mission!.Id;
+        conductor.Started(id);
+        _grants.Max = null;
+
+        conductor.Sweep().Should().Be(1);
+
+        _problems.Get("problem-1")!.Note.Should().Contain("grant");
+    }
+
+    [Fact]
+    public void A_certificate_that_says_less_than_the_plan_entry_asks_issues_no_mandate_and_a_lower_ceiling_in_the_certificate_wins_over_the_entry()
+    {
+        _authority.Adjust = request => request with { Repositories = ["example/other"] };
+        StartStaged(Conductor()).Refusal.Should().Contain("does not cover");
+
+        _authority.Adjust = request => request with { Budget = new MissionBudget(1, 1, 1) };
+        StartStaged(Conductor()).Refusal.Should().Contain("does not cover");
+
+        _authority.Adjust = request => request with { MaxWorld = World.Git };
+        var result = StartStaged(Conductor(), Entry(max: World.Release));
+
+        result.Ok.Should().BeTrue();
+        _problems.Get("problem-1")!.HighestAllowed.Should().Be(World.Git);
+    }
+
+    [Fact]
+    public void Every_mandate_carries_the_certificate_it_falls_inside_and_never_outlives_it()
+    {
+        _authority.Lifetime = TimeSpan.FromMinutes(10);
+        var conductor = Conductor();
+
+        var staging = StartStaged(conductor);
+
+        staging.Mandate!.Approval.Should().NotBeNull();
+        staging.Mandate.Mandate.ApprovalId.Should().Be(staging.Mandate.Approval.Certificate.Id);
+        staging.Mandate.Mandate.ExpiresAt.Should().Be(staging.Mandate.Approval.Certificate.ExpiresAt, "the certificate expires before the default lifetime of a mandate");
+        _authority.Verifier.Check(staging.Mandate.Approval, staging.Mandate.Mandate).Should().Be(ApprovalRefusal.None);
+    }
+
+    [Fact]
+    public void A_merge_that_may_deploy_is_refused_under_an_approval_that_stops_before_the_release_world_and_unknown_counts_as_deploying()
+    {
+        _authority.Adjust = request => request with { MaxWorld = World.Git };
+        var conductor = Conductor();
+        var staging = StartStaged(conductor, Entry(max: World.Git));
+        var id = staging.Mission!.Id;
+        conductor.Started(id);
+        conductor.HandOver(id, DossierFor(id));
+        _facts.MergeMayDeploy = true;
+
+        var result = conductor.Decide(id, Grant());
+
+        result.Failures.Should().Contain(PreconditionFailure.MergeMayDeployBeyondApproval);
+        _facts.MergeMayDeploy = null;
+        conductor.HandOver(id, DossierFor(id));
+        conductor.Decide(id, Grant()).Failures.Should().Contain(PreconditionFailure.MergeMayDeployBeyondApproval);
+        _facts.MergeMayDeploy = false;
+        conductor.HandOver(id, DossierFor(id));
+        conductor.Decide(id, Grant()).Mandate!.Mandate.World.Should().Be(World.Git);
+    }
+
+    [Fact]
+    public void A_merge_that_may_deploy_with_changes_to_what_the_pipeline_executes_is_escalated_to_the_maintainer_not_sent_back()
+    {
+        var conductor = Conductor();
+        var staging = StartStaged(conductor);
+        var id = staging.Mission!.Id;
+        conductor.Started(id);
+        conductor.HandOver(id, DossierFor(id));
+        _facts.MergeMayDeploy = true;
+        _facts.ExecutedFiles = true;
+
+        var result = conductor.Decide(id, Grant());
+
+        result.Failures.Should().Contain(PreconditionFailure.ExecutedFilesTouchedWhereMergeDeploys);
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.Escalated);
+        _missions.ForProblem("problem-1").Should().ContainSingle("no mandate for the Git world was issued");
     }
 
     private sealed class TestMandateState : IMandateState
@@ -497,7 +626,7 @@ public sealed class ProblemConductorTests : IDisposable
 
         _stop.Engaged = false;
         var other = Conductor();
-        other.Start(Entry() with { ProblemId = "problem-9" }, StagingDeclaration.DeclaredStaging, StagingRequirement.BlankMachine, StagingState.NotDefined, World.Release, null).Ok.Should().BeTrue();
+        other.Start(Entry() with { ProblemId = "problem-9" }, StagingDeclaration.DeclaredStaging, StagingRequirement.BlankMachine, StagingState.NotDefined).Ok.Should().BeTrue();
         _time.Advance(TimeSpan.FromHours(7));
         other.Sweep().Should().Be(1);
         _problems.Get("problem-9")!.Note.Should().Contain("time limit");
@@ -559,8 +688,8 @@ public sealed class ProblemConductorTests : IDisposable
     public void Two_conductors_on_the_same_stores_that_share_the_locks_do_not_overlap_on_a_problem()
     {
         var locks = new ProblemLocks();
-        var one = new ProblemConductor(_signer, _missions, _mandates, _problems, _dossiers, _facts, new Runners(), _approvals, _stop, _audit, _time, ConductorOptions.Default, () => $"a-{Interlocked.Increment(ref _ids)}", locks);
-        var two = new ProblemConductor(_signer, _missions, _mandates, _problems, _dossiers, _facts, new Runners(), _approvals, _stop, _audit, _time, ConductorOptions.Default, () => $"b-{Interlocked.Increment(ref _ids)}", locks);
+        var one = new ProblemConductor(_signer, _missions, _mandates, _problems, _dossiers, _facts, new Runners(), _authority, _authority.Verifier, _grants, _stop, _audit, _time, ConductorOptions.Default, () => $"a-{Interlocked.Increment(ref _ids)}", locks);
+        var two = new ProblemConductor(_signer, _missions, _mandates, _problems, _dossiers, _facts, new Runners(), _authority, _authority.Verifier, _grants, _stop, _audit, _time, ConductorOptions.Default, () => $"b-{Interlocked.Increment(ref _ids)}", locks);
         var results = new ConductResult[8];
 
         Parallel.For(0, results.Length, index => results[index] = StartStaged(index % 2 == 0 ? one : two));

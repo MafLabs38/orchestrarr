@@ -35,7 +35,7 @@ public sealed class MandateTests : IDisposable
     private Mandate Mandate(World world = World.Git, string runner = "runner-git", params GatedAct[] acts) => new(
         "mandate-1", "mission-1", "problem-1", world, runner, acts.Length == 0 ? [GatedAct.OpenPullRequest] : acts,
         new MissionFrame(["example/shop"], [".github/**"], "orchestrarr/fix-1"), new MissionBudget(20, 3, 50),
-        _time.GetUtcNow(), _time.GetUtcNow().AddMinutes(30), MandateSource.PlanValidation, "nonce-1");
+        _time.GetUtcNow(), _time.GetUtcNow().AddMinutes(30), MandateSource.PlanValidation, "nonce-1", "approval-1");
 
     private MandateVerifier Verifier(World world = World.Git, string runner = "runner-git")
     {

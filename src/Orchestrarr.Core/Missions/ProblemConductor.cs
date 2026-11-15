@@ -24,7 +24,7 @@ public sealed record ConductResult(bool Ok, string? Refusal, IReadOnlyList<Preco
 /// </summary>
 public sealed class ProblemConductor(
     MandateSigner signer, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, IDossierStore dossiers, IFactsSource facts, IRunnerDirectory runners,
-    IApprovalCheck approvals, IStopSignal stop, IMissionAudit audit, TimeProvider time, ConductorOptions options, Func<string> newId, ProblemLocks? problemLocks = null)
+    IApprovalSource approvals, ApprovalVerifier approvalVerifier, IGrantSource grants, IStopSignal stop, IMissionAudit audit, TimeProvider time, ConductorOptions options, Func<string> newId, ProblemLocks? problemLocks = null)
 {
     private readonly ProblemLocks _locks = problemLocks ?? new ProblemLocks();
 
@@ -36,8 +36,22 @@ public sealed class ProblemConductor(
         _ => [GatedAct.Deploy, GatedAct.Rollback],
     };
 
+    /// <summary>
+    /// The highest world the powers reach **now**: the lowest of what the plan entry asked, what the maintainer's certificate says and the grant of the application read at this moment (D-10, D-11, D-53). Null: no power.
+    /// </summary>
+    private World? HighestNow(PlanEntry entry, SignedApproval approval)
+    {
+        var approved = entry.MaxWorld < approval.Certificate.MaxWorld ? entry.MaxWorld : approval.Certificate.MaxWorld;
+        return EffectivePower.Of(approved, grants.MaxWorldFor(entry.ApplicationId), rule: null);
+    }
+
+    // The certificate must say at least what the entry asks: the repositories, the budget
+    private static bool Covers(SignedApproval approval, PlanEntry entry) =>
+        entry.Repositories.All(repository => approval.Certificate.Repositories.Contains(repository, StringComparer.Ordinal))
+        && entry.Budget.MaxMinutes <= approval.Certificate.Budget.MaxMinutes && entry.Budget.MaxAttempts <= approval.Certificate.Budget.MaxAttempts && entry.Budget.MaxTurns <= approval.Certificate.Budget.MaxTurns;
+
     /// <summary>Starts a problem that is in the plan: the stop, the proved approval, the staging gate, the powers, then the first mandate in the first world.</summary>
-    public ConductResult Start(PlanEntry entry, StagingDeclaration declaration, StagingRequirement requirement, StagingState state, World? grant, World? rule)
+    public ConductResult Start(PlanEntry entry, StagingDeclaration declaration, StagingRequirement requirement, StagingState state)
     {
         ArgumentNullException.ThrowIfNull(entry);
         return Locked(entry.ProblemId, () =>
@@ -50,9 +64,13 @@ public sealed class ProblemConductor(
             {
                 return ConductResult.Fail("the problem is already being worked on");
             }
-            if (!approvals.IsProved(entry))
+            if (approvals.For(entry) is not { } approval)
             {
                 return ConductResult.Fail("the maintainer's approval of this plan entry is not proved");
+            }
+            if (!Covers(approval, entry))
+            {
+                return ConductResult.Fail("the certificate of the approval does not cover this plan entry");
             }
             var verdict = StagingGate.Decide(declaration, requirement, state);
             if (verdict is not (StagingVerdict.Usable or StagingVerdict.UsableWithNoNet))
@@ -61,8 +79,8 @@ public sealed class ProblemConductor(
             }
             var usesStaging = verdict == StagingVerdict.Usable;
             var first = usesStaging ? World.Staging : World.Git;
-            var byRule = entry.Validation.RuleId is not null;
-            if (EffectivePower.Of(entry.MaxWorld, grant, rule, byRule) is not { } highest || first > highest)
+            var byRule = approval.Certificate.Kind == CertificateKind.Rule;
+            if (HighestNow(entry, approval) is not { } highest || first > highest)
             {
                 return ConductResult.Fail("the powers given do not reach the first world: the grant is off until the maintainer enables it");
             }
@@ -70,7 +88,7 @@ public sealed class ProblemConductor(
             {
                 return ConductResult.Fail("the audit trail cannot be written: no power is granted");
             }
-            var run = new ProblemRun(entry.ProblemId, entry.ApplicationId, ProblemState.InProgress, time.GetUtcNow(), entry, highest, usesStaging, first);
+            var run = new ProblemRun(entry.ProblemId, entry.ApplicationId, ProblemState.InProgress, time.GetUtcNow(), entry, highest, usesStaging, approval, first);
             problems.Save(run);
             return Open(run, first, byRule ? MandateSource.StandingRule : MandateSource.PlanValidation);
         });
@@ -168,6 +186,10 @@ public sealed class ProblemConductor(
         {
             return "the problem reached its time limit";
         }
+        if (HighestNow(run.Entry, run.Approval) is null)
+        {
+            return "the grant of the application was withdrawn";
+        }
         var expired = missions.ForProblem(run.ProblemId).Any(mission => mission.State is MissionState.Mandated or MissionState.Running
             && mission.MandateId is { } id && mandates.Get(id) is { } signed && now >= signed.Mandate.ExpiresAt);
         return expired ? "the mandate expired" : null;
@@ -214,8 +236,13 @@ public sealed class ProblemConductor(
             BestEffort(MissionAuditEvents.ProblemClosed, run.ProblemId, null);
             return ConductResult.Success(closed);
         }
+        // The power is read again here, at every crossing: a grant withdrawn since the start stops the problem (the grant of an application is the maintainer's to give and to take back)
+        if (HighestNow(run.Entry, run.Approval) is not { } highest)
+        {
+            return End(run, mission, MissionEvent.EndedByController, ProblemState.Failed, "the grant of the application was withdrawn");
+        }
         var next = mission.World + 1;
-        if (next > run.HighestAllowed)
+        if (next > highest)
         {
             // The powers given stop here: the problem is done up to the world its powers allow, and says so (a plan validated up to the Git world ends there)
             var checks = CheckFacts(run, mission.World, dossier);
@@ -225,13 +252,13 @@ public sealed class ProblemConductor(
             }
             var reached = MissionMachine.Apply(mission, MissionEvent.Granted, options.Loop, complex: complex).Mission ?? mission;
             missions.Save(reached);
-            problems.Save(run with { State = ProblemState.Closed, CurrentWorld = null, Note = $"done up to the {run.HighestAllowed} world, the highest that its powers allow" });
-            BestEffort(MissionAuditEvents.MissionAccepted, mission.Id, Text($"highest world reached: {run.HighestAllowed}"));
+            problems.Save(run with { State = ProblemState.Closed, CurrentWorld = null, Note = $"done up to the {highest} world, the highest that its powers allow" });
+            BestEffort(MissionAuditEvents.MissionAccepted, mission.Id, Text($"highest world reached: {highest}"));
             BestEffort(MissionAuditEvents.ProblemClosed, run.ProblemId, "done up to the highest world its powers allow");
             return ConductResult.Success(reached);
         }
         var failures = CheckFacts(run, next, dossier);
-        if (!ControllerLimits.MayGrant(decision, next, run.HighestAllowed, failures))
+        if (!ControllerLimits.MayGrant(decision, next, highest, failures))
         {
             return failures.Count > 0 ? SendBackWithFailures(mission, run, failures) : ConductResult.Fail("the controller may not grant a world that the plan does not allow");
         }
@@ -248,13 +275,20 @@ public sealed class ProblemConductor(
         var checks = new PreconditionFacts(
             world, PlanCovers: true, observed.BudgetAvailable, stop.Engaged, run.UsesStaging ? StagingVerdict.Usable : StagingVerdict.UsableWithNoNet, PreviousDossierExists: dossier is not null,
             observed.DiffIsClean, observed.CiGreenOnExactCommit, observed.ArtifactIsTheOneProvedInStaging, observed.WorkerClaimMatchesFacts,
-            options.Loop.Check(mandates.CountForProblem(run.ProblemId), time.GetUtcNow() - run.StartedAt), observed.WayBackKnown);
+            options.Loop.Check(mandates.CountForProblem(run.ProblemId), time.GetUtcNow() - run.StartedAt), observed.WayBackKnown,
+            ApprovedMaxWorld: run.Approval.Certificate.MaxWorld, observed.MergeMayDeploy, observed.ExecutedFilesTouched, observed.TagCreationBlocked);
         // The release of an application with a staging needs the artifact that was proved there (FR-WLD-14)
         return [.. MandatePreconditions.Check(checks, requiresStagingProof: run.UsesStaging && world == World.Release)];
     }
 
     private ConductResult SendBackWithFailures(Mission mission, ProblemRun run, IReadOnlyList<PreconditionFailure> failures)
     {
+        // A change that touches what the pipeline executes where a merge may deploy is for a person to decide: it is escalated, not sent back
+        if (failures.Contains(PreconditionFailure.ExecutedFilesTouchedWhereMergeDeploys))
+        {
+            var escalated = Escalate(run, mission, "the change touches files that the pipeline executes, and the merge may deploy: a person decides");
+            return escalated.Ok ? new ConductResult(false, "escalated to the maintainer", failures, escalated.Mission, null) : escalated;
+        }
         // A limit of the loop or the global stop cannot be repaired by sending the mission back: the work stops
         if (failures.Contains(PreconditionFailure.LoopLimitReached) || failures.Contains(PreconditionFailure.KillSwitchEngaged))
         {
@@ -354,13 +388,20 @@ public sealed class ProblemConductor(
         var frame = new MissionFrame(entry.Repositories, options.ForbiddenPaths, $"{world}:{entry.ApplicationId}");
         var mission = new Mission(newId(), run.ProblemId, run.ApplicationId, world, ObjectiveOf(world, entry), frame, entry.Budget, MissionState.Proposed);
         var now = time.GetUtcNow();
-        var mandate = new Mandate(newId(), mission.Id, run.ProblemId, world, runners.RunnerFor(world, run.ApplicationId), ActsOf(world), frame, entry.Budget, now, now + options.MandateLifetime, source, newId());
+        // A mandate never outlives the approval it falls inside
+        var expires = now + options.MandateLifetime < run.Approval.Certificate.ExpiresAt ? now + options.MandateLifetime : run.Approval.Certificate.ExpiresAt;
+        var mandate = new Mandate(newId(), mission.Id, run.ProblemId, world, runners.RunnerFor(world, run.ApplicationId), ActsOf(world), frame, entry.Budget, now, expires, source, newId(), run.Approval.Certificate.Id);
+        var covered = approvalVerifier.Check(run.Approval, mandate);
+        if (covered != ApprovalRefusal.None)
+        {
+            return ConductResult.Fail($"the mandate does not fall inside the approval: {covered}");
+        }
         // The mandate is written to the audit trail before it exists: a power is never granted on an entry that cannot be written
         if (!Required(MissionAuditEvents.MandateIssued, mandate.Id, Text($"{world} for {mandate.RunnerId}, {source}, until {mandate.ExpiresAt:u}, acts {string.Join(",", mandate.Acts)}")))
         {
             return ConductResult.Fail("the audit trail cannot be written: no power is granted");
         }
-        var signed = signer.Sign(mandate);
+        var signed = signer.Sign(mandate, run.Approval);
         mandates.Record(signed);
         var mandated = MissionMachine.Apply(mission, MissionEvent.MandateIssued, options.Loop, mandateId: mandate.Id).Mission ?? mission;
         missions.Save(mandated);

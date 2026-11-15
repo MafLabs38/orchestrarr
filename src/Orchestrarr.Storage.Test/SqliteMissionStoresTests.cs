@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Time.Testing;
 using Orchestrarr.Core.Missions;
+using Orchestrarr.Core.SecondFactor;
 
 namespace Orchestrarr.Storage.Test;
 
@@ -18,7 +19,7 @@ public sealed class SqliteMissionStoresTests : IDisposable
 
     private SignedMandate Mandate(string id = "mandate-1", string problem = "p1") => _signer.Sign(new Mandate(
         id, "m1", problem, World.Git, "runner-git", [GatedAct.OpenPullRequest, GatedAct.MergePullRequest], new MissionFrame(["example/shop"], [".github/**"], "Git:shop"), new MissionBudget(20, 3, 50),
-        new DateTimeOffset(2026, 11, 13, 12, 0, 0, TimeSpan.Zero), new DateTimeOffset(2026, 11, 13, 13, 0, 0, TimeSpan.Zero), MandateSource.Controller, "nonce-" + id));
+        new DateTimeOffset(2026, 11, 13, 12, 0, 0, TimeSpan.Zero), new DateTimeOffset(2026, 11, 13, 13, 0, 0, TimeSpan.Zero), MandateSource.Controller, "nonce-" + id, "approval-1"));
 
     [Fact]
     public void A_mission_is_kept_with_everything_across_a_restart_and_a_save_replaces_it()
@@ -81,7 +82,8 @@ public sealed class SqliteMissionStoresTests : IDisposable
     public void A_problem_and_a_dossier_are_kept()
     {
         var entry = new PlanEntry("p1", "shop", "deprecated", "Replace the call", ["example/shop"], World.Release, new MissionBudget(20, 3, 50), new Validation("alice", null), new DateTimeOffset(2026, 11, 13, 11, 0, 0, TimeSpan.Zero));
-        var run = new ProblemRun("p1", "shop", ProblemState.InProgress, new DateTimeOffset(2026, 11, 13, 12, 0, 0, TimeSpan.Zero), entry, World.Git, UsesStaging: true, World.Staging);
+        using var authority = new Authority(new FakeTimeProvider(new DateTimeOffset(2026, 11, 13, 12, 0, 0, TimeSpan.Zero)));
+        var run = new ProblemRun("p1", "shop", ProblemState.InProgress, new DateTimeOffset(2026, 11, 13, 12, 0, 0, TimeSpan.Zero), entry, World.Git, UsesStaging: true, authority.For(entry)!, World.Staging);
         var dossier = new Dossier("m1", "done", "replaced the call", ["sha256:aa"], ["check the cache"], true, "a refactor");
         var database = _file.Open();
         new SqliteProblemStore(database).Save(run);
@@ -99,11 +101,12 @@ public sealed class SqliteMissionStoresTests : IDisposable
     {
         var time = new FakeTimeProvider(new DateTimeOffset(2026, 11, 13, 12, 0, 0, TimeSpan.Zero));
         var ids = 0;
+        using var authority = new Authority(time);
         ProblemConductor Conductor(SqliteDatabase database) => new(_signer, new SqliteMissionStore(database), new SqliteMandateLedger(database), new SqliteProblemStore(database), new SqliteDossierStore(database),
-            new GoodFacts(), new Runners(), new Yes(), new NoStop(), new Silent(), time, ConductorOptions.Default, () => $"id-{++ids}");
+            new GoodFacts(), new Runners(), authority, authority.Verifier, new Grants(), new NoStop(), new Silent(), time, ConductorOptions.Default, () => $"id-{++ids}");
         var entry = new PlanEntry("p1", "shop", "deprecated", "Replace the call", ["example/shop"], World.Release, new MissionBudget(20, 3, 50), new Validation("alice", null), time.GetUtcNow());
         var first = Conductor(_file.Open());
-        var staging = first.Start(entry, StagingDeclaration.DeclaredStaging, StagingRequirement.BlankMachine, StagingState.NotDefined, World.Release, null);
+        var staging = first.Start(entry, StagingDeclaration.DeclaredStaging, StagingRequirement.BlankMachine, StagingState.NotDefined);
         staging.Refusal.Should().BeNull();
         first.Started(staging.Mission!.Id);
         first.HandOver(staging.Mission.Id, new Dossier(staging.Mission.Id, "done", "changed", [], [], false, null));
@@ -128,12 +131,48 @@ public sealed class SqliteMissionStoresTests : IDisposable
 
     private sealed class GoodFacts : IFactsSource
     {
-        public ObservedFacts Facts(string problemId, World world, Dossier? dossier) => new(true, true, true, true, true, true);
+        public ObservedFacts Facts(string problemId, World world, Dossier? dossier) => new(true, true, true, true, true, true, MergeMayDeploy: false, ExecutedFilesTouched: false, TagCreationBlocked: true);
     }
 
-    private sealed class Yes : IApprovalCheck
+    private sealed class Grants : IGrantSource
     {
-        public bool IsProved(PlanEntry entry) => true;
+        public World? MaxWorldFor(string applicationId) => World.Release;
+    }
+
+    // A real authority and a real second factor: the certificates the stored mandates fall inside are real ones
+    private sealed class Authority : IApprovalSource, IDisposable
+    {
+        private static readonly byte[] Secret = [9, 8, 7, 6, 5, 4, 3, 2, 1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+        private readonly TimeProvider _time;
+        private readonly ApprovalAuthority _authority;
+        private int _operators;
+
+        public Authority(TimeProvider time)
+        {
+            _time = time;
+            _authority = new ApprovalAuthority(new SecondFactorGuard(new Secrets(), new InMemorySecondFactorUseLedger(), time, new SecondFactorOptions()), time, () => Guid.NewGuid().ToString("N"));
+            Verifier = new ApprovalVerifier(_authority.PublicKey(), time);
+        }
+
+        public ApprovalVerifier Verifier { get; }
+
+        public SignedApproval? For(PlanEntry entry)
+        {
+            var code = Totp.Code(Secret, Totp.StepAt(_time.GetUtcNow(), new TotpOptions()), new TotpOptions());
+            var request = new ApprovalRequest(CertificateKind.Problem, entry.ProblemId, entry.ApplicationId, entry.Repositories, entry.MaxWorld, entry.Budget, TimeSpan.FromHours(2));
+            return _authority.ApproveAsync(request, $"alice-{++_operators}", code, CancellationToken.None).GetAwaiter().GetResult().Approval;
+        }
+
+        public void Dispose()
+        {
+            _authority.Dispose();
+            Verifier.Dispose();
+        }
+
+        private sealed class Secrets : ISecondFactorSecrets
+        {
+            public ValueTask<byte[]?> FindAsync(string subject, CancellationToken cancellationToken) => ValueTask.FromResult<byte[]?>(Secret);
+        }
     }
 
     private sealed class NoStop : IStopSignal
