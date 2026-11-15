@@ -50,7 +50,11 @@ public enum PreconditionFailure
     /// <summary>The certificate of the approval already backed as many mandates as it says: no mandate can be issued under it (this is not the loop bound of the problem).</summary>
     ApprovalBacksNoMoreMandates,
 
-    /// <summary>The release of a repository that deploys by merge needs a revert that can land: the gateway's identity can merge a revert into the base branch with no human review, or it is not known (a revert that waits for a person leaves production on the version that failed).</summary>
+    /// <summary>
+    /// The release of a repository that deploys by merge needs a revert that can land by itself. The fact is a property of **the rules of the base branch**, not of the identity: the revert lands through the normal rules (the required checks,
+    /// **no required human review for anyone**), and **an identity that can bypass the rules (a bypass actor of a ruleset, an administrator) counts as unable**: a bypass would also skip the rules for every other merge of that identity, and it is the maintainer's
+    /// to give or not (Q-35). Not known counts as unable. Until he answers, a repository whose protected branch needs a human review is refused a release.
+    /// </summary>
     RevertCouldNotLand,
 
     /// <summary>The agent's identity on the forge can write to branches other than its own prefix (no ruleset confines it), or it is not known: a push to a human's or a bot's branch could be merged with no mandate. Not known counts as unconfined.</summary>

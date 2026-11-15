@@ -1,0 +1,86 @@
+using System.Globalization;
+
+namespace Orchestrarr.Core.Missions;
+
+/// <summary>The act gateway's side in the control plane: the authorisation of a merge or a deployment at the moment it is done (ARCHITECTURE section 6).</summary>
+public sealed partial class ProblemConductor
+{
+    /// <summary>
+    /// The **act gateway** (ARCHITECTURE section 5): before a merge or a deployment is performed, the checks of the code are made again **now, on the exact commit that is about to be merged or deployed**, with the
+    /// power read at this moment. A mandate says which acts may be asked for; this says whether the act may be done now. Nothing is performed here: the control plane's gateway does the act when this allows it.
+    /// </summary>
+    public ActAuthorisation AuthoriseAct(string missionId, GatedAct act, string? commit, string? repository = null, string? baseCommit = null)
+    {
+        if (missions.Get(missionId) is not { } first)
+        {
+            return ActAuthorisation.Refused("unknown mission");
+        }
+        return Locked(first.ProblemId, () =>
+        {
+            if (missions.Get(missionId) is not { State: MissionState.Mandated or MissionState.Running or MissionState.HandingOver } mission || mission.MandateId is not { } mandateId
+                || mandates.Get(mandateId) is not { } signed || mandates.IsRevoked(mandateId))
+            {
+                return ActAuthorisation.Refused("the mission has no mandate in force");
+            }
+            if (time.GetUtcNow() >= signed.Mandate.ExpiresAt || !signed.Mandate.Acts.Contains(act))
+            {
+                return ActAuthorisation.Refused("the mandate has expired or does not list this act");
+            }
+            if (stop.Engaged)
+            {
+                return ActAuthorisation.Refused("the global stop is engaged");
+            }
+            if (problems.Get(mission.ProblemId) is not { State: ProblemState.InProgress } run || HighestNow(run.Entry, run.Approval) is not { } highest || mission.World > highest)
+            {
+                return ActAuthorisation.Refused("the powers of the problem no longer reach this world, or the certificate was withdrawn");
+            }
+            // What was stored is verified again, not trusted: the mandate is the control plane's own signature and falls inside the certificate of the authority
+            if (!signer.Verify(signed) || approvalVerifier.Check(run.Approval, signed.Mandate) != ApprovalRefusal.None)
+            {
+                return ActAuthorisation.Refused("the mandate or its certificate does not verify");
+            }
+            // The acts that change what runs (a merge, a deployment) need the facts of this moment **on a named commit**: the gateway performs the act on that commit and no other
+            var changes = act is GatedAct.MergePullRequest or GatedAct.Deploy;
+            if (changes && (string.IsNullOrWhiteSpace(commit) || string.IsNullOrWhiteSpace(repository) || string.IsNullOrWhiteSpace(baseCommit)))
+            {
+                return ActAuthorisation.Refused("a merge or a deployment is authorised on a named repository, commit and base");
+            }
+            if (changes && !mission.Frame.Repositories.Contains(repository!, StringComparer.Ordinal))
+            {
+                return ActAuthorisation.Refused("the repository is not in the frame of the mission");
+            }
+            // The revert of a deploying merge is checked against the base tree recorded before the deploy: until the gateway that records it exists, no rollback is authorised on the mandate alone
+            if (act == GatedAct.Rollback)
+            {
+                return ActAuthorisation.Refused("the check of a rollback (the base tree recorded before the deploy) is not built: a person rolls back until the release runner exists");
+            }
+            var failures = changes
+                ? CheckFacts(run, mission.World, mission.Frame, mission.Id, previousDossierExists: PreviousDossierExists(run, mission), LatestDossier(run, mission), commit, issuing: false, repository, baseCommit)
+                : [];
+            if (failures.Count > 0)
+            {
+                BestEffort(MissionAuditEvents.ActRefused, mission.Id, Text($"{act} on {commit ?? "an unknown commit"}: {string.Join(", ", failures)}"));
+                if (failures.Contains(PreconditionFailure.ExecutedFilesTouchedWhereMergeDeploys))
+                {
+                    _ = Escalate(run, mission, "the change touches files that the pipeline executes, and the merge may deploy: a person decides", MissionEvent.Stopped);
+                }
+                return ActAuthorisation.Refused("a check of the code failed", failures);
+            }
+            return Required(MissionAuditEvents.ActAuthorised, mission.Id, Text($"{act} on {commit ?? "no commit"}"))
+                ? new ActAuthorisation(true, null, [], commit, repository, baseCommit)
+                : ActAuthorisation.Refused("the audit trail cannot be written: no power is granted");
+        });
+    }
+
+    // Whether the world before this one left a dossier, which the mission of a world needs (a problem with no staging has none to show)
+    private bool PreviousDossierExists(ProblemRun run, Mission mission) =>
+        mission.World == World.Staging || (mission.World == World.Git && !run.UsesStaging) || LatestDossier(run, mission) is not null;
+
+    // The dossier of the world before, **of this run**: the missions of an earlier run of the same problem (under an earlier approval) are not looked at, and the newest of a world wins
+    private Dossier? LatestDossier(ProblemRun run, Mission mission) =>
+        missions.ForProblem(run.ProblemId)
+            .Select((other, order) => (Mission: other, Order: order))
+            .Where(entry => entry.Mission.World < mission.World && entry.Mission.MandateId is { } id && mandates.Get(id) is { } signed && string.Equals(signed.Mandate.ApprovalId, run.Approval.Certificate.Id, StringComparison.Ordinal))
+            .OrderByDescending(entry => entry.Mission.World).ThenByDescending(entry => entry.Order)
+            .Select(entry => dossiers.Get(entry.Mission.Id)).FirstOrDefault(found => found is not null);
+}

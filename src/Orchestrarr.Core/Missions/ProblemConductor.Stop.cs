@@ -1,0 +1,87 @@
+using System.Globalization;
+
+namespace Orchestrarr.Core.Missions;
+
+/// <summary>The stop, the budget and the sweep of the conductor: what ends a problem that no runner will end for itself.</summary>
+public sealed partial class ProblemConductor
+{
+    /// <summary>The global stop, the maintainer or the budget: every mandate of the problem is revoked and the running mission ends cleanly.</summary>
+    public ConductResult Stop(string problemId, string reason) => Locked(problemId, () => StopLocked(problemId, reason));
+
+    /// <summary>The mission used up its budget: it ends as failed and the problem fails with it; a loop never goes on past a budget.</summary>
+    public ConductResult BudgetExhausted(string missionId) =>
+        OnMission(missionId, mission => problems.Get(mission.ProblemId) is { } run ? End(run, mission, MissionEvent.BudgetExhausted, "the budget is used up") : ConductResult.Fail("the problem of this mission is unknown"));
+
+    /// <summary>
+    /// What no runner will ever say for itself: with the global stop engaged every problem in progress is stopped; a mandate that expired while its mission had not handed over ends it (a runner
+    /// that disappeared would otherwise leave the problem in progress for ever); a problem that has run for longer than its bound is stopped. Returns how many problems were ended.
+    /// </summary>
+    public int Sweep()
+    {
+        var ended = 0;
+        foreach (var run in problems.InProgress())
+        {
+            // One run that cannot be read or stopped never keeps the others from being stopped: the failure is written down and the pass goes on
+            try
+            {
+                var reason = SweepReason(run);
+                if (reason is not null && Stop(run.ProblemId, reason).Ok)
+                {
+                    ended++;
+                }
+            }
+            catch (Exception failure) when (failure is not OperationCanceledException)
+            {
+                BestEffort(MissionAuditEvents.SweepFailed, run.ProblemId, Text($"{failure.GetType().Name}: the next pass tries again"));
+            }
+        }
+        return ended;
+    }
+
+    private string? SweepReason(ProblemRun run)
+    {
+        var now = time.GetUtcNow();
+        if (stop.Engaged)
+        {
+            return "the global stop is engaged";
+        }
+        if (now - run.StartedAt >= options.Loop.MaxTimePerProblem)
+        {
+            return "the problem reached its time limit";
+        }
+        if (HighestNow(run.Entry, run.Approval) is not { } highest)
+        {
+            return "the grant of the application was withdrawn";
+        }
+        if (run.CurrentWorld is { } current && current > highest)
+        {
+            return "the grant of the application was lowered below the world that is running";
+        }
+        var expired = missions.ForProblem(run.ProblemId).Any(mission => mission.State is MissionState.Mandated or MissionState.Running
+            && mission.MandateId is { } id && mandates.Get(id) is { } signed && now >= signed.Mandate.ExpiresAt);
+        return expired ? "the mandate expired" : null;
+    }
+
+    private ConductResult StopLocked(string problemId, string reason)
+    {
+        if (problems.Get(problemId) is not { State: ProblemState.InProgress } run)
+        {
+            return ConductResult.Fail("the problem is not being worked on");
+        }
+        Mission? last = null;
+        foreach (var mission in missions.ForProblem(problemId))
+        {
+            Revoke(mission);
+            if (!mission.IsOver && MissionMachine.Apply(mission, MissionEvent.Stopped, options.Loop, reason: reason) is { Mission: { } ended })
+            {
+                missions.Save(ended);
+                BestEffort(MissionAuditEvents.MissionEnded, mission.Id, Text($"stopped: {reason}"));
+                last = ended;
+            }
+        }
+        problems.Save(run with { State = ProblemState.Failed, Note = reason });
+        BestEffort(MissionAuditEvents.ProblemFailed, problemId, reason);
+        // The problem moved to Failed even when no mission was running: that is a stop that worked
+        return new ConductResult(true, null, [], last, null);
+    }
+}
