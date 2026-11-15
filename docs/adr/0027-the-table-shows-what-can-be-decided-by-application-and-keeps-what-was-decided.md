@@ -1,6 +1,6 @@
 # 0027 — The table shows what can be decided, by application, and keeps what was decided
 
-- **Status**: partly superseded by [ADR 0038](0038-what-the-first-design-built-and-this-supersedes.md): the steps and ceilings of a row
+- **Status**: proposed, accepted when the pull request is merged; partly superseded by [ADR 0038](0038-what-the-first-design-built-and-this-supersedes.md) once that is accepted (the code stays until its replacement works): the steps and ceilings of a row
 - **Date**: 2026-11-12
 - **Spec**: D-75, D-76, D-77 (refines D-67 and ADR 0019; supersedes ADR 0003 for what the table shows)
 

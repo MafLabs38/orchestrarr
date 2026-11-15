@@ -1,5 +1,7 @@
 # Orchestrarr — Testing and quality
 
+> The cases of [USE-CASES.md](USE-CASES.md) are the end-to-end tests of the restructured product (the laboratory of FUNCTIONAL section 8).
+
 > Same strategy as Portarr's ([TESTING.md](https://github.com/MafLabs38/portarr/blob/develop/docs/TESTING.md)), scaled to what exists. The three products share conventions.
 
 ## 1. What is tested, and where

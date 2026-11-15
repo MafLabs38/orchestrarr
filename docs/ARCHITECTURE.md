@@ -92,7 +92,7 @@ flowchart TB
 | Container | What it is | Holds | Requirements |
 |---|---|---|---|
 | **Control plane** | One .NET service (API, live hub, background workers), one image | The domain (section 4), the mandate service, the controller, the staging catalogue and scheduler, the audit, the kill switch, the accounts | all |
-| **Approval authority** | A small .NET service **apart from the control plane**, with its own key and the second-factor secret | Holds the request it is given, **shows it to the maintainer on its own channel**, and signs an **approval certificate** (the problem or rule, the repositories, the highest world, the budget, the expiry, how many mandates it may back) only for the code typed there; keeps the list of withdrawn certificates; holds no other power | FR-MAN-1b |
+| **Approval authority** | A small .NET service **apart from the control plane**, with its own key and the second-factor secret | Holds the request it is given, **shows it to the maintainer on its own channel**, and signs an **approval certificate** (the problem or rule, the repositories, the highest world, the budget, the expiry, how many mandates it may back) only for the code typed there; keeps, in one store for every runner, the count of the mandates each certificate backed and the list of withdrawn certificates; holds no other power | FR-MAN-1b |
 | **UI** | React, served by the control plane | The plan, missions in progress, history, staging state, the bell | FR-VIEW |
 | **Runner** | One .NET program, **configured with a world profile** (staging, Git, release), one or more per world | A workspace for a mission, the enforcement of a mandate's frame, the trace, the evidence | FR-WLD, FR-SAF |
 | **Agent sandbox** | A container started by a runner for one mission | The worker agent and the developer's tools | FR-WLD-3 |
@@ -165,7 +165,7 @@ erDiagram
 | **Mission** | Work in one world | Objective, world, frame, budget, inputs, state, parent problem |
 | **Mandate** | The permission for a mission | World and place, acts, frame, budget, expiry, signature, state |
 | **Dossier** | What a mission hands over (a mission that is sent back hands over again under the same mandate) | What changed, why, the claim, open points, evidence, the commit it claims |
-| **Carried change** | The change that passed one world and goes to the next | The commit (or tree hash) that staging deployed, **read by the control plane from the forge, never taken from the worker**; the Git world must push it unchanged, and any later commit sends the problem back to staging |
+| **Carried change** | The change that passed one world and goes to the next | The **tree** that staging deployed (a commit and its tree), **read by the control plane from the forge, never taken from the worker**; the Git world must push it unchanged, the merge into the integration branch must produce **the same tree** (a fast-forward, or a squash or merge checked by tree), and a later commit or a base that moved sends the problem back to staging |
 | **Evidence** | An artifact of verification | Requests and answers, captures, browser trace, test results, logs |
 | **Controller decision** | The controller's verdict on a dossier | Grant, send back, end, escalate; reasons; what it read |
 | **Staging profile** | What the application needs in staging | Requirement, dependencies, how it is brought up, safe configuration |
@@ -236,7 +236,7 @@ One abstraction, in the control plane's domain, runs a model in a sandbox: **it 
 - **Worker**: the full toolset of the world, the workspace, the mission's objective; output is the dossier and the evidence.
 - **Controller**: **no tools**; the input is the dossier and the facts; output is a decision in a fixed structure.
 
-Both use the maintainer's subscription token, which is **never inside a sandbox**: a **credential proxy outside the sandbox** adds it to the calls to the model provider, and the sandbox holds a dummy or short-lived scoped credential. The worker's sandbox reaches the registries only through read-only mirrors or a caching proxy. [FR-SAF-10]
+Both use the maintainer's subscription token, which is **never inside a sandbox**: a **credential proxy outside the sandbox, which is a policy point and not a pass-through** (the messages endpoint only, no provider-side tool that calls out, a cap on the size and the rate of a request, a digest of each request in the audit trail), adds it to the calls to the model provider, and the sandbox holds a dummy or short-lived scoped credential. The worker's sandbox reaches the registries only through read-only mirrors or a caching proxy. [FR-SAF-10]
 
 ### Acts and tools: the line between free and gated
 
@@ -273,7 +273,7 @@ A mandate is a **signed statement of the control plane** that the runner checks 
 | Budget | Time, attempts, turns |
 | Expiry | After which the runner stops the mission |
 | Issued by | Plan validation, standing rule, or the controller's decision |
-| Proof of the approval | The plan validation (or the creation of a standing rule) carries the **second factor, checked by the approval authority** (a service apart from the control plane, which holds the secret the control plane does not: ADR 0017 kept). The authority signs a **certificate** of what it showed and nothing else (the code is not bound to anything the control plane relays: ADR 0017's limit is carried over, and the authority's own channel is what removes it); every mandate carries it, and the **runner checks the certificate** (the authority's signature, the validity, this problem or rule, how many mandates it already backed, whether the authority withdrew it) and accepts the mandate only if it falls within it. A compromised control plane can sign mandates **inside** what the maintainer approved, never beyond it; **the residual risk is the content of a standing rule** (see ADR 0031 point 7) |
+| Proof of the approval | The plan validation (or the creation of a standing rule) carries the **second factor, checked by the approval authority** (a service apart from the control plane, which holds the secret the control plane does not: ADR 0017 kept). The authority signs a **certificate** of what it showed and nothing else (the code is not bound to anything the control plane relays: ADR 0017's limit is carried over, and the authority's own channel is what removes it); every mandate carries it, and the **runner checks the certificate** (the authority's signature, the validity, this problem or rule) and **asks the authority** how many mandates it already backed and whether it was withdrawn (a runner that cannot ask refuses) and accepts the mandate only if it falls within it. A compromised control plane can sign mandates **inside** what the maintainer approved, never beyond it; **the residual risk is the content of a standing rule** (see ADR 0031 point 7) |
 | Signature | **Asymmetric**: signed with a private key held **only by the control plane**; each runner holds the public key. A mandate is **bound to one runner identity and one world** and a runner refuses a mandate for another; it is **single-use** (a nonce is recorded), and the runner checks the kill switch and revocation **before every gated act**. A key shared between runners would let whoever takes a staging runner forge a release mandate |
 
 It reuses what exists: the approvals, the second factor on the maintainer's validation, the journal and the signature checks. A **plan validation** is an approval by the maintainer; a **standing rule** is a delegation; a **mandate** is what either of them produces for a given mission. [FR-MAN, FR-PLAN-5]
@@ -286,7 +286,7 @@ It reuses what exists: the approvals, the second factor on the maintainer's vali
 |---|---|
 | The plan covers the problem | Whether the objective is met |
 | The budget is available, the kill switch is not engaged | Whether the evidence supports the claim |
-| The staging requirement is met, the baseline is not stale | Whether the change is what the mission asked for, with nothing unexpected |
+| The staging requirement is met (the baseline is proven and not stale, or the requirement is a blank machine, where the first step of the mission is the baseline) | Whether the change is what the mission asked for, with nothing unexpected |
 | The previous dossier exists | Whether the case is as complex as it says, and whether the maintainer should be involved |
 | The diff touches no forbidden file | Whether to send back, end or escalate |
 | CI is green on the exact commit (release) | |
