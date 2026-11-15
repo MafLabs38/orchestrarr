@@ -26,7 +26,7 @@ Same as Portarr, so the three products share conventions:
 - **Tests**: xUnit v3 + NSubstitute + AwesomeAssertions, Vitest + Testing Library, Playwright (by hand against the sandbox, no committed suite yet; see [docs/TESTING.md](docs/TESTING.md) §6)
 - **Quality**: analyzers as errors and `dotnet format`, ESLint (SonarJS), Stylelint, Prettier, SonarQube, CodeQL, gitleaks, Trivy, Stryker, the five review agents. Same as Portarr, plus the fifth agent (`spec-reviewer`, [ADR 0008](docs/adr/0008-a-fifth-agent-keeps-the-documentation-true.md))
 - **CI/CD**: GitHub Actions, a container image on GHCR for the control plane (amd64 now, multi-arch when a target needs it); the Runner will have an image of its own ([ADR 0017](docs/adr/0017-orders-are-typed-tasks-approved-with-a-second-factor-that-the-executor-checks.md))
-- Agent runtime: Claude Code, non-interactive, in a container on a workshop host (decided, SPEC D-24, D-25, ADR 0004); acting on infrastructure is a separate proposal (D-34); today it runs only to repair a pull request on paper in the Runner's sandbox, with nothing pushed (ADR 0024).
+- Agent runtime: Claude Code, non-interactive, in a container on a workshop host (decided, SPEC D-24, D-25, ADR 0004); acting on infrastructure is a separate proposal (D-34, superseded in part by D-91, ADR 0038); today it runs only to repair a pull request on paper in the Runner's sandbox, with nothing pushed (ADR 0024).
 
 ## Non-negotiable rules
 

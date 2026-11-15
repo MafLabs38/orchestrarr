@@ -166,7 +166,7 @@ erDiagram
 | **Mission** | Work in one world | Objective, world, frame, budget, inputs, state, parent problem |
 | **Mandate** | The permission for a mission | World and place, acts, frame, budget, expiry, signature, state |
 | **Dossier** | What a mission hands over (a mission that is sent back hands over again under the same mandate) | What changed, why, the claim, open points, evidence, the commit it claims |
-| **Carried change** | The change that passed one world and goes to the next | The **tree** that the staging runner exported and proved (a commit and its tree), **computed by the runner outside the slot and recorded by the control plane, never taken from the worker's claim**, with the evidence digest of the proof run it made itself; the Git world must push it unchanged, the merge into the integration branch must produce **the same tree** (a fast-forward, or a squash or merge checked by tree), and a later commit or a base that moved sends the problem back to staging |
+| **Carried change** | The change that passed one world and goes to the next | The **tree** that the staging runner exported and proved (a commit and its tree), **computed by the runner outside the slot and recorded by the control plane, never taken from the worker's claim**, with the evidence digest of the proof run it made itself, **signed by the staging runner's key** and verified by the act gateway and the release runner; the Git world must push it unchanged, the merge into the integration branch must produce **the same tree** (a fast-forward, or a squash or merge checked by tree), and a later commit or a base that moved sends the problem back to staging |
 | **Evidence** | An artifact of verification | Requests and answers, captures, browser trace, test results, logs |
 | **Controller decision** | The controller's verdict on a dossier | Grant, send back, end, escalate; reasons; what it read |
 | **Staging profile** | What the application needs in staging | Requirement, dependencies, how it is brought up, safe configuration |
@@ -378,7 +378,7 @@ The principle of the maintainer: **the frame is enforced by the environment, nev
 | **Approval** | What the maintainer validated: the problem or rule, the repositories, the highest world, the budget, the expiry | The approval authority signs the certificate; the runner verifies it with every mandate |
 | **Mandate** | Which acts, which place, which budget, which expiry; signed | The control plane signs; the runner verifies |
 | **The runner** | Isolation of the workspace (a container with no capability, not root, bounded resources), forbidden paths refused, network limited, a stop that kills the sandbox | The runner |
-| **The act gateway** | Gated acts only if the mandate lists them, the certificate covers them and the preconditions hold **at the moment of the act, on the exact commit**; the **only holder of the merge identity** | The Git runner (apart from the agent sandbox) verifies the mandate and the certificate; the control plane authorises (power read now, stop, audit written first) |
+| **The act gateway** | Gated acts only if the mandate lists them, the certificate covers them and the preconditions hold **at the moment of the act, on the exact commit**; the **only holder of the merge identity**, which for a repository that deploys by merge also performs the deployment and its rollback (a revert merged by it) under a release mandate addressed to it | The Git runner (apart from the agent sandbox) verifies the mandate and the certificate; the control plane authorises (power read now, stop, audit written first) |
 | **Checks by code** | The preconditions of section 6 | Control plane |
 | **The controller** | A second look, independent | Control plane |
 | **The kill switch** | Stops every mission, revokes every mandate; unknown counts as stopped | Control plane, polled by every runner |
@@ -495,5 +495,6 @@ The **API** stays REST, first, and the live hub carries what changes (topics for
 6. **The description of the staging requirement**: where it is declared, who writes it.
 7. **Retention** of dossiers, traces and evidence.
 8. **The workshop and release hosts.**
+9. **The form of the approval authority's own channel** (a page of the authority, a push to a device, a separate interface), and that the authority is **a second service to install** next to the control plane's single container (Q-36).
 
 **Configuration, not facts of the product**: the model of each agent role, the integration branch per repository, the number of staging slots.
