@@ -95,6 +95,7 @@ flowchart TB
 | **Control plane** | One .NET service (API, live hub, background workers), one image | The domain (section 4), the mandate service, the controller, the staging catalogue and scheduler, the audit, the kill switch, the accounts | all |
 | **Approval authority** | A small .NET service **apart from the control plane**, with its own key and the second-factor secret | Holds the request it is given, **shows it to the maintainer on its own channel**, and signs an **approval certificate** (the problem or rule, the repositories, the highest world, the budget, the expiry, how many mandates it may back) only for the code typed there; keeps, in one store for every runner, the count of the mandates each certificate backed and the list of withdrawn certificates; holds no other power | FR-MAN-1b |
 | **UI** | React, served by the control plane | The plan, missions in progress, history, staging state, the bell | FR-VIEW |
+| **Act gateway of the Git world** | A runner on **a host apart from every agent sandbox**, with its own key | Holds the merge and pull-request identity, verifies the mandate and the certificate, asks the control plane to authorise each act, performs it on the checked commit | FR-WLD-6, FR-WLD-10 |
 | **Runner** | One .NET program, **configured with a world profile** (staging, Git, release), one or more per world | A workspace for a mission, the enforcement of a mandate's frame, the trace, the evidence | FR-WLD, FR-SAF |
 | **Agent sandbox** | A container started by a runner for one mission (in the **staging world, the slot VM** itself: its egress, the model proxy, the mirrors and the staging network are enforced by the platform outside the VM) | The worker agent and the developer's tools | FR-WLD-3 |
 | **Controller sandbox** | A container with **no tools**, run by a **dedicated runner profile (`controller`)** on a host independent of the worker runners, started for one decision | The controller agent and the dossier and facts it reads | FR-CTL |
@@ -378,7 +379,7 @@ The principle of the maintainer: **the frame is enforced by the environment, nev
 | **Approval** | What the maintainer validated: the problem or rule, the repositories, the highest world, the budget, the expiry | The approval authority signs the certificate; the runner verifies it with every mandate |
 | **Mandate** | Which acts, which place, which budget, which expiry; signed | The control plane signs; the runner verifies |
 | **The runner** | Isolation of the workspace (a container with no capability, not root, bounded resources), forbidden paths refused, network limited, a stop that kills the sandbox | The runner |
-| **The act gateway** | Gated acts only if the mandate lists them, the certificate covers them and the preconditions hold **at the moment of the act, on the exact commit**; the **only holder of the merge identity**, which for a repository that deploys by merge also performs the deployment and its rollback (a revert merged by it) under a release mandate addressed to it | The Git runner (apart from the agent sandbox) verifies the mandate and the certificate; the control plane authorises (power read now, stop, audit written first) |
+| **The act gateway** | Gated acts only if the mandate lists them, the certificate covers them and the preconditions hold **at the moment of the act, on the exact commit**; the **only holder of the merge identity**, which for a repository that deploys by merge also performs the merge that deploys and its rollback (a revert), **asked for by the release runner** under the same certificate and authorised at each act | The act gateway of the Git world (**a host apart from every agent sandbox**) verifies the mandate and the certificate; the control plane authorises (power read now, stop, audit written first) |
 | **Checks by code** | The preconditions of section 6 | Control plane |
 | **The controller** | A second look, independent | Control plane |
 | **The kill switch** | Stops every mission, revokes every mandate; unknown counts as stopped | Control plane, polled by every runner |
@@ -451,6 +452,7 @@ sequenceDiagram
 | Controller sandbox | A runner profile `controller` on a host independent of the worker runners, no tools, no network but the model provider (through the credential proxy) | Independent of the worker's runners |
 | Approval authority | A process apart from the control plane, **on another host** (or with a hardware-backed key), with its own key and the second-factor secret | On the same host as the control plane it would protect against a bug, not against the compromise it exists for: that is a residual risk that the maintainer accepts or removes |
 | Staging runner | On the platform side of the laboratory machine, outside the staging virtual machines | The slots are configuration |
+| Act gateway of the Git world | **A host apart from every agent sandbox**, with the merge identity | **Open**: which host; never the host where the agent works |
 | Git runner (workshop) | A machine separate from production; at first the development host | **Open**: a dedicated workshop |
 | Release runner | A machine with the connections that production environments are deployed through | **Open**: which machine, which credentials |
 | Staging platform | A spare machine with a hypervisor (a few virtual machines, a small disk) | Constrains the number of stagings; the slot count is configuration |
@@ -489,12 +491,13 @@ The **API** stays REST, first, and the live hub carries what changes (topics for
 
 1. **Where the worker and controller agents physically run**, and how the controller sandbox is kept independent from every runner.
 2. **How the platform controller reaches the hypervisor**, and what exactly its token may do.
-3. **How a runner's identity is established** (the signature of a mandate is decided: asymmetric, ADR 0031).
+3. **How a runner's identity is established** (the signature of a mandate is decided: asymmetric, ADR 0031), and where the keys that verify it are pinned: the staging runner's key in the configuration of the gateway and the release runner, the authority's key in every runner's own configuration, **never delivered by the control plane**.
 4. **The mail path**: through Portarr or directly.
 5. **How the rulesets and code owners of each repository are written as code**, and how the agent's identity is created (a GitHub App without the workflows permission, decided in ADR 0035).
 6. **The description of the staging requirement**: where it is declared, who writes it.
 7. **Retention** of dossiers, traces and evidence.
 8. **The workshop and release hosts.**
-9. **The form of the approval authority's own channel** (a page of the authority, a push to a device, a separate interface), and that the authority is **a second service to install** next to the control plane's single container (Q-36).
+9. **Where the act gateway of the Git world runs** (a host apart from every agent sandbox) and how its identity on the forge is held.
+10. **The form of the approval authority's own channel** (a page of the authority, a push to a device, a separate interface), and that the authority is **a second service to install** next to the control plane's single container (Q-36).
 
 **Configuration, not facts of the product**: the model of each agent role, the integration branch per repository, the number of staging slots.
