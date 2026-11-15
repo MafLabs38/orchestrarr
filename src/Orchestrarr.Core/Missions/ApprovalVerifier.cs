@@ -19,6 +19,9 @@ public enum ApprovalRefusal
     WrongClass,
     ActsOfAnotherWorld,
     ForbiddenPathsDropped,
+
+    /// <summary>The certificate's kind or highest world is not one that exists: it would bind no problem and no class.</summary>
+    UnknownKind,
 }
 
 /// <summary>
@@ -46,6 +49,11 @@ public sealed class ApprovalVerifier : IDisposable
             return ApprovalRefusal.Missing;
         }
         var certificate = approval.Certificate;
+        // A kind or a world that is not one of the defined ones is no certificate: every later check is written for the two kinds that exist
+        if (!Enum.IsDefined(certificate.Kind) || !Enum.IsDefined(certificate.MaxWorld))
+        {
+            return ApprovalRefusal.UnknownKind;
+        }
         if (!_publicKey.VerifyData(certificate.CanonicalBytes(), approval.Signature, HashAlgorithmName.SHA256))
         {
             return ApprovalRefusal.BadSignature;

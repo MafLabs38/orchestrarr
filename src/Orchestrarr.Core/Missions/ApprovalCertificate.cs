@@ -95,6 +95,11 @@ public sealed class ApprovalAuthority : IDisposable
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentException.ThrowIfNullOrWhiteSpace(approver);
+        // Only the two kinds and the three worlds that exist can be certified: any other value would pass every check written for one of them
+        if (!Enum.IsDefined(request.Kind) || !Enum.IsDefined(request.MaxWorld))
+        {
+            return null;
+        }
         var longest = request.Kind == CertificateKind.Rule ? _policy.MaxRuleLifetime : _policy.MaxProblemLifetime;
         // The floor of forbidden paths is part of every certificate, whatever the request lists, and the maintainer reads it in the summary
         var forbidden = (IReadOnlyList<string>)[.. (request.ForbiddenPaths ?? []).Union(_policy.ForbiddenPathsFloor, StringComparer.Ordinal)];

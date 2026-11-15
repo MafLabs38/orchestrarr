@@ -259,6 +259,18 @@ public sealed class ApprovalCertificateTests : IDisposable
         approval.Certificate.ForbiddenPaths.Should().BeEquivalentTo(".github/**", "**/*.enc.*", "**/.env*", "infra/**");
     }
 
+    [Fact]
+    public void A_kind_or_a_world_that_does_not_exist_is_never_certified_and_never_accepted()
+    {
+        _authority.Authority.Propose(Request() with { Kind = (CertificateKind)2 }, "erin").Should().BeNull();
+        _authority.Authority.Propose(Request() with { MaxWorld = (World)7 }, "erin").Should().BeNull();
+        var good = _authority.Approve(Request(World.Git)).Approval!;
+        var wildcard = good with { Certificate = good.Certificate with { Kind = (CertificateKind)2 } };
+
+        // Signed or not, a certificate of a kind that does not exist binds no problem and no class: it is refused before anything else
+        _authority.Verifier.Check(wildcard, MandateFor(good)).Should().Be(ApprovalRefusal.UnknownKind);
+    }
+
     private sealed class FixedSecrets : ISecondFactorSecrets
     {
         public static readonly byte[] Secret = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
