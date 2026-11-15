@@ -92,6 +92,7 @@ flowchart TB
 | Container | What it is | Holds | Requirements |
 |---|---|---|---|
 | **Control plane** | One .NET service (API, live hub, background workers), one image | The domain (section 4), the mandate service, the controller, the staging catalogue and scheduler, the audit, the kill switch, the accounts | all |
+| **Approval authority** | A small .NET service **apart from the control plane**, with its own key and the second-factor secret | Checks the maintainer's code (`SecondFactorGuard`) and signs an **approval certificate** (the problem or rule, the repositories, the highest world, the budget, the expiry); holds no other power | FR-MAN-1b |
 | **UI** | React, served by the control plane | The plan, missions in progress, history, staging state, the bell | FR-VIEW |
 | **Runner** | One .NET program, **configured with a world profile** (staging, Git, release), one or more per world | A workspace for a mission, the enforcement of a mandate's frame, the trace, the evidence | FR-WLD, FR-SAF |
 | **Agent sandbox** | A container started by a runner for one mission | The worker agent and the developer's tools | FR-WLD-3 |
@@ -113,6 +114,9 @@ flowchart TB
         NOT[Notifier]
         ACC[Accounts and approvals]
     end
+    AUTH[Approval authority<br/>apart, own key and secret]
+    ACC -- code --> AUTH
+    AUTH -- certificate --> MAN
     DB[(SQLite)]
     API --- PLAN & MIS & MAN & STG
     PLAN & MIS & MAN & CTL & STG & AUD & ACC --- DB
@@ -217,7 +221,7 @@ A **world** is a *place with rights*. It is realised by three things: a **runner
 | **Where the runner is** | **On the platform side, outside the virtual machine the agent controls**, driving the machine through the platform controller and a restricted channel | A workshop host, **in a process, user and filesystem separate from the agent's sandbox** (a machine separate from production, with the forge reachable) | Near the production environments, **never in the agent's sandbox or on its filesystem**, with the connection each environment is deployed through |
 | **What the agent works on** | A checkout and the application deployed in staging | A checkout, the pull request, the CI/CD runs | The deployed application in production |
 | **Tools** | Shell, git, build and test tools, **rootless or throwaway containers that give no access to the host**, requests, a browser automation | Shell, git (push to its own non-protected branches only), build and test tools; **no client that opens or merges a pull request** | Requests through an **egress proxy that allows safe methods only**, a browser automation, and **declared acts** the runner performs for it (deploy a version, roll back) |
-| **Credentials the agent sees** | None of production | A forge identity that **reads and pushes to `orchestrarr/*` branches only, without the `workflows` permission**. Opening a pull request and merging use **another identity** held by the runner or the control plane | None. The runner holds the deployment credentials and performs the acts the mandate allows |
+| **Credentials the agent sees** | None of production | A forge identity that **reads and pushes to `orchestrarr/*` branches only, without the `workflows` permission**. Opening a pull request and merging use **another identity** held only by the control plane's act gateway | None. The runner holds the deployment credentials and performs the acts the mandate allows |
 | **Network** | Staging only, plus the model provider, the package registries | The forge, the registries, the model provider | Production endpoints for verification, the model provider |
 | **What it cannot do** | Push, reach production | Touch pipelines, merge a protected file, push to a protected branch | Any act the mandate does not list |
 
@@ -232,7 +236,7 @@ Both use the maintainer's subscription token, which is **never inside a sandbox*
 
 ### Acts and tools: the line between free and gated
 
-The worker agent is **free** inside its workspace: it runs commands, edits, tests. The acts with **consequences outside the workspace** are **gated**: they are performed by the runner or the control plane, **only if the mandate lists them and the preconditions hold**, and each is written to the audit trail.
+The worker agent is **free** inside its workspace: it runs commands, edits, tests. The acts with **consequences outside the workspace** are **gated**: they are performed by the control plane's act gateway, **only if the mandate lists them and the preconditions hold**, and each is written to the audit trail.
 
 | Free (inside the workspace) | Gated (outside, by mandate) |
 |---|---|
@@ -265,7 +269,7 @@ A mandate is a **signed statement of the control plane** that the runner checks 
 | Budget | Time, attempts, turns |
 | Expiry | After which the runner stops the mission |
 | Issued by | Plan validation, standing rule, or the controller's decision |
-| Proof of the approval | The plan validation (or the creation of a standing rule) carries the **second factor, checked by the runner with a secret the control plane does not hold** (ADR 0017 kept). The runner accepts a mandate only if it falls within a plan entry the maintainer validated; a compromised control plane cannot give itself more |
+| Proof of the approval | The plan validation (or the creation of a standing rule) carries the **second factor, checked by the approval authority** (a service apart from the control plane, which holds the secret the control plane does not: ADR 0017 kept). The authority signs a **certificate**; every mandate carries it, and the **runner checks the certificate** (the authority's signature, the validity, this problem or rule) and accepts the mandate only if it falls within it; a compromised control plane cannot give itself more |
 | Signature | **Asymmetric**: signed with a private key held **only by the control plane**; each runner holds the public key. A mandate is **bound to one runner identity and one world** and a runner refuses a mandate for another; it is **single-use** (a nonce is recorded), and the runner checks the kill switch and revocation **before every gated act**. A key shared between runners would let whoever takes a staging runner forge a release mandate |
 
 It reuses what exists: the approvals, the second factor on the maintainer's validation, the journal and the signature checks. A **plan validation** is an approval by the maintainer; a **standing rule** is a delegation; a **mandate** is what either of them produces for a given mission. [FR-MAN, FR-PLAN-5]
@@ -364,9 +368,10 @@ The principle of the maintainer: **the frame is enforced by the environment, nev
 |---|---|---|
 | **The forge** | No push to a protected branch; code owners on the pipeline and quality files; the agent's identity cannot merge a change to a protected file; required checks | GitHub rulesets and code owners (infrastructure as code of the repositories) |
 | **Credentials** | One repository, one world, short-lived, never visible to the agent beyond what the world needs; **no production secret in the agent's reach** | The runner and the control plane mint and hold them |
+| **Approval** | What the maintainer validated: the problem or rule, the repositories, the highest world, the budget, the expiry | The approval authority signs the certificate; the runner verifies it with every mandate |
 | **Mandate** | Which acts, which place, which budget, which expiry; signed | The control plane signs; the runner verifies |
 | **The runner** | Isolation of the workspace (a container with no capability, not root, bounded resources), forbidden paths refused, network limited, a stop that kills the sandbox | The runner |
-| **The act gateway** | Gated acts only if listed and preconditions hold | Runner and control plane |
+| **The act gateway** | Gated acts only if listed and preconditions hold; the **only holder of the merge identity** | Control plane (the runner checks the mandate before asking) |
 | **Checks by code** | The preconditions of section 6 | Control plane |
 | **The controller** | A second look, independent | Control plane |
 | **The kill switch** | Stops every mission, revokes every mandate; unknown counts as stopped | Control plane, polled by every runner |
@@ -435,6 +440,7 @@ sequenceDiagram
 |---|---|---|
 | Control plane and its storage | An environment of the production fleet. **Orchestrarr's own repository, images and runners are outside its own perimeter** (or need the maintainer's merge): it never changes the product that holds its mandates [FR-SAF-11] | One container; the model provider and the mail are reached from it |
 | Controller sandbox | A runner profile `controller` on a host independent of the worker runners, no tools, no network but the model provider (through the credential proxy) | Independent of the worker's runners |
+| Approval authority | A process apart from the control plane, on another host or at least another account, with its own key and the second-factor secret | A deployment choice; the control plane never holds its secret |
 | Staging runner | On the platform side of the laboratory machine, outside the staging virtual machines | The slots are configuration |
 | Git runner (workshop) | A machine separate from production; at first the development host | **Open**: a dedicated workshop |
 | Release runner | A machine with the connections that production environments are deployed through | **Open**: which machine, which credentials |
