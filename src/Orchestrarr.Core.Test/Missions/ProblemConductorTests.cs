@@ -44,7 +44,9 @@ public sealed class ProblemConductorTests : IDisposable
 
         public bool? TagsBlocked { get; set; } = true;
 
-        public ObservedFacts Facts(string problemId, World world, Dossier? dossier, string? commit) => new(true, !DiffTouchesForbidden, CiGreen, ArtifactProved, WayBack, ClaimMatches, MergeMayDeploy, ExecutedFiles, TagsBlocked);
+        public bool? BranchSafe { get; set; } = true;
+
+        public ObservedFacts Facts(string problemId, World world, Dossier? dossier, string? commit) => new(true, !DiffTouchesForbidden, CiGreen, ArtifactProved, WayBack, ClaimMatches, MergeMayDeploy, ExecutedFiles, TagsBlocked, BranchSafe);
     }
 
     private sealed class FakeStop : IStopSignal
@@ -708,7 +710,7 @@ public sealed class ProblemConductorTests : IDisposable
         _authority.Adjust = null;
         _authority.Kind = CertificateKind.Rule;
         _authority.Adjust = request => request with { Subject = "secret-exposed" };
-        StartStaged(Conductor()).Refusal.Should().Contain("does not cover");
+        StartStaged(Conductor(), Entry(World.Git)).Refusal.Should().Contain("does not cover");
     }
 
     [Fact]

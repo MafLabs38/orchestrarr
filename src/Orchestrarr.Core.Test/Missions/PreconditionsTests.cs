@@ -5,7 +5,7 @@ namespace Orchestrarr.Core.Test.Missions;
 public sealed class PreconditionsTests
 {
     private static PreconditionFacts Good(World world) => new(world, PlanCovers: true, BudgetAvailable: true, KillSwitchEngaged: false, Staging: StagingVerdict.Usable,
-        PreviousDossierExists: true, DiffIsClean: true, CiGreenOnExactCommit: true, ArtifactIsTheOneProvedInStaging: true, WorkerClaimMatchesFacts: true, Loop: LoopVerdict.Allowed, WayBackKnown: true, ApprovedMaxWorld: World.Release, MergeMayDeploy: false, ExecutedFilesTouched: false, TagCreationBlocked: true);
+        PreviousDossierExists: true, DiffIsClean: true, CiGreenOnExactCommit: true, ArtifactIsTheOneProvedInStaging: true, WorkerClaimMatchesFacts: true, Loop: LoopVerdict.Allowed, WayBackKnown: true, ApprovedMaxWorld: World.Release, MergeMayDeploy: false, ExecutedFilesTouched: false, TagCreationBlocked: true, BranchCannotReachSecrets: true);
 
     [Theory]
     [InlineData(World.Staging)]
@@ -34,7 +34,7 @@ public sealed class PreconditionsTests
             WayBackKnown = null,
         };
 
-        MandatePreconditions.Check(facts, requiresStagingProof: true).Should().BeEquivalentTo(Enum.GetValues<PreconditionFailure>().Where(failure => failure is not (PreconditionFailure.MergeMayDeployBeyondApproval or PreconditionFailure.ExecutedFilesTouchedWhereMergeDeploys or PreconditionFailure.AgentCouldCreateTags)), "the two checks about a merge are for the Git world");
+        MandatePreconditions.Check(facts, requiresStagingProof: true).Should().BeEquivalentTo(Enum.GetValues<PreconditionFailure>().Where(failure => failure is not (PreconditionFailure.MergeMayDeployBeyondApproval or PreconditionFailure.ExecutedFilesTouchedWhereMergeDeploys or PreconditionFailure.AgentCouldCreateTags or PreconditionFailure.AgentBranchCouldReachSecrets)), "the checks about a merge are for the Git world");
     }
 
     [Fact]
@@ -99,5 +99,13 @@ public sealed class PreconditionsTests
     {
         MandatePreconditions.Check(Good(World.Git) with { TagCreationBlocked = null }, false).Should().Equal(PreconditionFailure.AgentCouldCreateTags);
         MandatePreconditions.Check(Good(World.Git) with { TagCreationBlocked = false }, false).Should().Equal(PreconditionFailure.AgentCouldCreateTags);
+    }
+
+    [Fact]
+    public void A_branch_whose_code_could_run_with_a_secret_is_not_admitted_to_the_git_world_and_unknown_counts_as_reachable()
+    {
+        MandatePreconditions.Check(Good(World.Git) with { BranchCannotReachSecrets = null }, false).Should().Equal(PreconditionFailure.AgentBranchCouldReachSecrets);
+        MandatePreconditions.Check(Good(World.Git) with { BranchCannotReachSecrets = false }, false).Should().Equal(PreconditionFailure.AgentBranchCouldReachSecrets);
+        MandatePreconditions.Check(Good(World.Staging) with { BranchCannotReachSecrets = null }, false).Should().BeEmpty("the check is for the Git world");
     }
 }

@@ -109,10 +109,10 @@ public sealed class ProblemConductor(
             {
                 // An application with no staging starts in the Git world: the frame of the merge is checked here too, since no crossing will do it (the diff, the CI and the executed files are checked at the merge itself)
                 var frame = CheckFacts(run, World.Git, previousDossierExists: true, dossier: null, commit: null)
-                    .Where(failure => failure is PreconditionFailure.MergeMayDeployBeyondApproval or PreconditionFailure.AgentCouldCreateTags).ToList();
+                    .Where(failure => failure is PreconditionFailure.MergeMayDeployBeyondApproval or PreconditionFailure.AgentCouldCreateTags or PreconditionFailure.AgentBranchCouldReachSecrets).ToList();
                 if (frame.Count > 0)
                 {
-                    return ConductResult.Fail("the merge could deploy beyond the approval, or tags could be created by the agent", frame);
+                    return ConductResult.Fail("the merge could deploy beyond the approval, or the agent could create tags or reach a secret", frame);
                 }
             }
             return Open(run, first, byRule ? MandateSource.StandingRule : MandateSource.PlanValidation);
@@ -366,7 +366,7 @@ public sealed class ProblemConductor(
             world, PlanCovers: true, observed.BudgetAvailable, stop.Engaged, run.UsesStaging ? StagingVerdict.Usable : StagingVerdict.UsableWithNoNet, previousDossierExists,
             observed.DiffIsClean, observed.CiGreenOnExactCommit, observed.ArtifactIsTheOneProvedInStaging, observed.WorkerClaimMatchesFacts,
             options.Loop.Check(mandates.CountForProblem(run.ProblemId), time.GetUtcNow() - run.StartedAt), observed.WayBackKnown,
-            ApprovedMaxWorld: ceiling, observed.MergeMayDeploy, observed.ExecutedFilesTouched, observed.TagCreationBlocked);
+            ApprovedMaxWorld: ceiling, observed.MergeMayDeploy, observed.ExecutedFilesTouched, observed.TagCreationBlocked, observed.BranchCannotReachSecrets);
         // The release of an application with a staging needs the artifact that was proved there (FR-WLD-14)
         return [.. MandatePreconditions.Check(checks, requiresStagingProof: run.UsesStaging && world == World.Release)];
     }

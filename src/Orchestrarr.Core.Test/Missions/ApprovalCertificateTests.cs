@@ -135,6 +135,8 @@ public sealed class ApprovalCertificateTests : IDisposable
         _authority.Approve(Request() with { Lifetime = TimeSpan.FromDays(8) }).Approval.Should().BeNull("a problem is approved for a week at most");
         _authority.Approve(Request() with { Kind = CertificateKind.Rule, Subject = "deprecated-dependency", Lifetime = TimeSpan.FromDays(29) }).Approval.Should().NotBeNull("a rule lives longer than a problem");
         _authority.Approve(Request() with { Kind = CertificateKind.Rule, Subject = "deprecated-dependency", Lifetime = TimeSpan.FromDays(31) }).Approval.Should().BeNull();
+        _authority.Approve(Request(World.Release) with { Kind = CertificateKind.Rule, Subject = "deprecated-dependency" }).Approval.Should().BeNull("a standing rule reaches the Git world at most: the release world needs a certificate for the problem itself");
+        _authority.Approve(Request(World.Git) with { Kind = CertificateKind.Rule, Subject = "deprecated-dependency" }).Approval.Should().NotBeNull();
         _authority.Approve(Request() with { MaxMandates = 0 }).Approval.Should().BeNull();
         _authority.Approve(Request() with { MaxMandates = 51 }).Approval.Should().BeNull();
     }

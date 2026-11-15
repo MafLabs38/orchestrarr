@@ -90,7 +90,7 @@ public interface IDossierStore
 /// <summary>What the control plane fetched itself (FR-MAN-7): the diff and the CI status from the forge on the exact commit, the health from Portarr. A fact that is not known is null, and counts as failing.</summary>
 public sealed record ObservedFacts(
     bool BudgetAvailable, bool? DiffIsClean, bool? CiGreenOnExactCommit, bool? ArtifactIsTheOneProvedInStaging, bool? WayBackKnown, bool WorkerClaimMatchesFacts,
-    bool? MergeMayDeploy = null, bool? ExecutedFilesTouched = null, bool? TagCreationBlocked = null);
+    bool? MergeMayDeploy = null, bool? ExecutedFilesTouched = null, bool? TagCreationBlocked = null, bool? BranchCannotReachSecrets = null);
 
 /// <summary>The source of the facts. It says only what it observed: the plan, the stop, the loop and the staging are the conductor's own.</summary>
 public interface IFactsSource
