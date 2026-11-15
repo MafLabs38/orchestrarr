@@ -16,8 +16,10 @@ internal static class MissionsServiceCollectionExtensions
         var options = configuration.GetSection(MissionsOptions.SectionName).Get<MissionsOptions>() ?? new MissionsOptions();
         services.AddSingleton(options);
         var agents = configuration.GetSection(AgentsOptions.SectionName).Get<AgentsOptions>() ?? new AgentsOptions();
+        // Refused here, at start, not on the first use of the controller
+        var controllerTimeout = agents.ControllerTimeoutSeconds >= 10 ? TimeSpan.FromSeconds(agents.ControllerTimeoutSeconds) : throw new InvalidOperationException($"Agents:ControllerTimeoutSeconds must be at least 10 seconds, not {agents.ControllerTimeoutSeconds}.");
         services.AddSingleton(agents).AddSingleton<IAgentGateway>(agents.Enabled ? new ClaudeCliGateway(agents) : new DisabledGateway())
-            .AddSingleton(provider => new ControllerAgent(provider.GetRequiredService<IAgentGateway>(), agents.ControllerModel, TimeSpan.FromSeconds(agents.ControllerTimeoutSeconds >= 10 ? agents.ControllerTimeoutSeconds : throw new InvalidOperationException($"Agents:ControllerTimeoutSeconds must be at least 10 seconds, not {agents.ControllerTimeoutSeconds}."))));
+            .AddSingleton(provider => new ControllerAgent(provider.GetRequiredService<IAgentGateway>(), agents.ControllerModel, controllerTimeout));
         if (storage is SqliteStorage)
         {
             services

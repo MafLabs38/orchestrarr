@@ -37,6 +37,23 @@ public sealed class ProblemConductorTests : IDisposable
 
         public bool DiffTouchesForbidden { get; set; }
 
+        /// <summary>What the source says about the diff, whatever the paths: the frame of the mission decides on the paths.</summary>
+        public bool DiffSaysClean { get; set; } = true;
+
+        /// <summary>The paths changed on the head; null: the source says what the flag says.</summary>
+        public IReadOnlyList<string>? ChangedPaths { get; set; }
+
+        public bool UnknownPaths { get; set; }
+
+        private IReadOnlyList<string>? Paths()
+        {
+            if (UnknownPaths)
+            {
+                return null;
+            }
+            return ChangedPaths ?? (DiffTouchesForbidden ? [".github/workflows/ci.yml"] : ["src/Orders.cs", "tests/OrdersTests.cs"]);
+        }
+
         public bool? WayBack { get; set; } = true;
 
         public bool? MergeMayDeploy { get; set; } = false;
@@ -52,7 +69,7 @@ public sealed class ProblemConductorTests : IDisposable
         /// <summary>What the forge says the head is; null: the head is the commit that was asked about.</summary>
         public string? HeadCommit { get; set; }
 
-        public ObservedFacts Facts(string problemId, World world, Dossier? dossier, string? commit) => new(true, !DiffTouchesForbidden, CiGreen, ArtifactProved, WayBack, ClaimMatches, MergeMayDeploy, ExecutedFiles, TagsBlocked, BranchSafe, HeadCommit ?? commit, Confined);
+        public ObservedFacts Facts(string problemId, World world, Dossier? dossier, string? commit) => new(true, DiffSaysClean, CiGreen, ArtifactProved, WayBack, ClaimMatches, MergeMayDeploy, ExecutedFiles, TagsBlocked, BranchSafe, HeadCommit ?? commit, Confined, Paths());
     }
 
     private sealed class FakeStop : IStopSignal
@@ -563,8 +580,10 @@ public sealed class ProblemConductorTests : IDisposable
         conductor.HandOver(id, DossierFor(id));
         conductor.Decide(id, new ControllerDecision(ControllerDecisionKind.Escalate, ["no fixed version exists"], null));
 
-        StartStaged(conductor).Refusal.Should().Contain("already");
         _audit.Events.Should().Contain(entry => entry.StartsWith("problem.escalated problem-1", StringComparison.Ordinal));
+        var again = new ReusedApprovals(_problems.Get("problem-1")!.Approval);
+        StartStaged(Build(again, null, "id", null)).Refusal.Should().Contain("already used", "the same approval does not start it again");
+        StartStaged(conductor).Ok.Should().BeTrue("a new approval is the maintainer's decision about the escalation");
     }
 
     [Fact]
@@ -1157,5 +1176,37 @@ public sealed class ProblemConductorTests : IDisposable
 
         decided.Ok.Should().BeFalse();
         decided.Failures.Should().Contain(PreconditionFailure.AgentIdentityNotConfined);
+    }
+
+    [Fact]
+    public void The_forbidden_paths_of_the_mission_decide_the_diff_so_the_floor_of_the_certificate_holds_when_the_options_list_is_empty()
+    {
+        var conductor = Conductor(ConductorOptions.Default with { ForbiddenPaths = [] });
+        var staging = StartStaged(conductor);
+        staging.Mandate!.Mandate.Frame.ForbiddenPaths.Should().Contain(".github/**", "the certificate's floor is in the frame whatever the options say");
+        var id = staging.Mission!.Id;
+        conductor.Started(id);
+        conductor.HandOver(id, DossierFor(id));
+        _facts.ChangedPaths = [".github/workflows/ci.yml"];
+
+        var decided = conductor.Decide(id, Grant());
+
+        decided.Failures.Should().Contain(PreconditionFailure.DiffTouchesForbiddenPath, "the source said the diff is clean, and the frame says otherwise");
+    }
+
+    [Fact]
+    public void A_diff_whose_paths_are_not_known_is_not_clean()
+    {
+        var conductor = Conductor();
+        var id = StartStaged(conductor).Mission!.Id;
+        conductor.Started(id);
+        conductor.HandOver(id, DossierFor(id));
+        _facts.ChangedPaths = null;
+        _facts.DiffSaysClean = true;
+
+        // The fake falls back to a clean list when none is set: an unknown list is a source that returns none
+        _facts.UnknownPaths = true;
+
+        conductor.Decide(id, Grant()).Failures.Should().Contain(PreconditionFailure.DiffTouchesForbiddenPath);
     }
 }

@@ -142,4 +142,32 @@ public sealed class ClaudeCliGatewayTests : IDisposable
         reply.Ok.Should().BeFalse();
         reply.Failure.Should().Contain("token file");
     }
+
+    [Fact]
+    public async Task Without_a_token_file_the_program_keeps_the_login_of_the_user_and_with_one_it_sees_only_its_own_folder()
+    {
+        var command = Script("echo \"$HOME\"\n");
+
+        var login = await new ClaudeCliGateway(new AgentsOptions { Command = command }).RunAsync(Request(), TestContext.Current.CancellationToken);
+        var tokenFile = Path.Combine(_folder, "token");
+        await File.WriteAllTextAsync(tokenFile, "the-token", TestContext.Current.CancellationToken);
+        var token = await new ClaudeCliGateway(new AgentsOptions { Command = command, TokenFile = tokenFile }).RunAsync(Request(), TestContext.Current.CancellationToken);
+
+        login.Text.Trim().Should().Be(Environment.GetEnvironmentVariable("HOME"));
+        token.Text.Trim().Should().StartWith(Path.GetTempPath().TrimEnd('/')).And.Contain("orchestrarr-agent-");
+    }
+
+    [Fact]
+    [System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
+    public async Task A_token_file_that_cannot_be_read_is_no_answer_with_a_reason()
+    {
+        var unreadable = Path.Combine(_folder, "unreadable-token");
+        await File.WriteAllTextAsync(unreadable, "the-token", TestContext.Current.CancellationToken);
+        File.SetUnixFileMode(unreadable, UnixFileMode.None);
+
+        var reply = await new ClaudeCliGateway(new AgentsOptions { Command = Script("echo hi\n"), TokenFile = unreadable }).RunAsync(Request(), TestContext.Current.CancellationToken);
+
+        reply.Ok.Should().BeFalse();
+        reply.Failure.Should().Contain("cannot be read");
+    }
 }

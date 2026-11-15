@@ -72,7 +72,8 @@ public sealed class ClaudeCliGateway(AgentsOptions options) : IAgentGateway
         // The program gets nothing of the host's environment (its connection strings, its tokens, a proxy that would redirect the prompt): only what it needs to run, and its own token
         start.Environment.Clear();
         start.Environment["PATH"] = Environment.GetEnvironmentVariable("PATH") ?? "/usr/local/bin:/usr/bin:/bin";
-        start.Environment["HOME"] = workspace.Path;
+        // With a token file the program signs in with it and sees only its own folder; without one it uses the login of the user that runs the host (kept in that user's home), as documented
+        start.Environment["HOME"] = options.TokenFile is { Length: > 0 } ? workspace.Path : Environment.GetEnvironmentVariable("HOME") ?? workspace.Path;
         start.Environment["LANG"] = "C.UTF-8";
         if (options.TokenFile is { Length: > 0 } file)
         {
