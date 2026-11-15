@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Json;
 using System.Security.Cryptography;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
@@ -31,18 +32,54 @@ public sealed class MissionsWiringTests : IDisposable
         using var factory = new ProductionFactory();
         using var client = factory.CreateClient();
         client.DefaultRequestHeaders.Add("X-Orchestrarr-Request", "test");
+        (await client.PostAsJsonAsync("/api/v1/auth/login", new { name = AccountsApiFactory.AdminName, password = AccountsApiFactory.AdminPassword }, TestContext.Current.CancellationToken)).EnsureSuccessStatusCode();
 
-        (await client.PostAsync("/api/v1/dev/missions/demo", null, TestContext.Current.CancellationToken)).StatusCode.Should().BeOneOf(HttpStatusCode.NotFound, HttpStatusCode.Unauthorized);
+        // Signed in as the administrator, who holds every permission: the route is not there
+        (await client.PostAsync("/api/v1/dev/missions/demo", null, TestContext.Current.CancellationToken)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await client.PostAsync("/api/v1/dev/controller/decide", null, TestContext.Current.CancellationToken)).StatusCode.Should().Be(HttpStatusCode.NotFound);
         factory.Services.GetServices<Microsoft.AspNetCore.Routing.EndpointDataSource>().SelectMany(source => source.Endpoints).OfType<Microsoft.AspNetCore.Routing.RouteEndpoint>()
             .Select(route => route.RoutePattern.RawText).Should().NotContain(text => text != null && text.Contains("/dev/", StringComparison.Ordinal));
     }
 
     [Fact]
+    public async Task The_demo_routes_need_the_permission_to_approve_even_where_they_exist()
+    {
+        using var factory = new AccountsApiFactory();
+        using var anonymous = factory.CreateClient();
+        anonymous.DefaultRequestHeaders.Add("X-Orchestrarr-Request", "test");
+
+        (await anonymous.PostAsync("/api/v1/dev/missions/demo", null, TestContext.Current.CancellationToken)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await anonymous.PostAsync("/api/v1/dev/controller/decide", null, TestContext.Current.CancellationToken)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task The_missions_api_only_reads()
+    {
+        using var factory = new AccountsApiFactory();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Orchestrarr-Request", "test");
+        (await client.PostAsJsonAsync("/api/v1/auth/login", new { name = AccountsApiFactory.AdminName, password = AccountsApiFactory.AdminPassword }, TestContext.Current.CancellationToken)).EnsureSuccessStatusCode();
+
+        foreach (var path in new[] { "/api/v1/missions", "/api/v1/missions/any" })
+        {
+            foreach (var method in new[] { HttpMethod.Post, HttpMethod.Put, HttpMethod.Delete, HttpMethod.Patch })
+            {
+                var response = await client.SendAsync(new HttpRequestMessage(method, path), TestContext.Current.CancellationToken);
+                response.StatusCode.Should().BeOneOf(HttpStatusCode.NotFound, HttpStatusCode.MethodNotAllowed);
+            }
+        }
+    }
+
+    [Fact]
     public void The_production_wiring_issues_no_mandate_because_no_approval_is_given_and_no_fact_is_known()
     {
-        new NoApprovals().For(new PlanEntry("p1", "shop", "class", "Replace", ["example/shop"], World.Release, new MissionBudget(20, 3, 50), new Validation("alice", null), DateTimeOffset.UnixEpoch)).Should().BeNull();
+        using var factory = new ProductionFactory();
+        factory.Services.GetRequiredService<IApprovalSource>().Should().BeOfType<NoApprovals>();
+        factory.Services.GetRequiredService<IFactsSource>().Should().BeOfType<ConservativeFacts>();
+        factory.Services.GetRequiredService<IApprovalWithdrawals>().IsWithdrawn("anything").Should().BeTrue("the list that cannot be read counts as everything withdrawn");
+        factory.Services.GetRequiredService<IApprovalSource>().For(new PlanEntry("p1", "shop", "class", "Replace", ["example/shop"], World.Release, new MissionBudget(20, 3, 50), new Validation("alice", null), DateTimeOffset.UnixEpoch)).Should().BeNull();
 
-        var facts = new ConservativeFacts().Facts("p1", World.Git, null, "abc");
+        var facts = factory.Services.GetRequiredService<IFactsSource>().Facts("p1", World.Git, null, "abc");
 
         facts.DiffIsClean.Should().BeNull();
         facts.CiGreenOnExactCommit.Should().BeNull();

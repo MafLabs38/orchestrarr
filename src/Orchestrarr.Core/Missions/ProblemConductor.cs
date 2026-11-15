@@ -28,16 +28,18 @@ public sealed record ConductResult(bool Ok, string? Refusal, IReadOnlyList<Preco
 /// are reached through mandates. Every refusal says why, nothing the controller says can waive a check of the code, **every operation on a problem is serialised**, and **every mandate, decision and
 /// end is written to the audit trail**.
 /// </summary>
-/// <summary>The answer of the act gateway: the act may be performed now, or why not.</summary>
-public sealed record ActAuthorisation(bool Allowed, string? Refusal, IReadOnlyList<PreconditionFailure> Failures)
-{
-    public static ActAuthorisation Refused(string refusal, IReadOnlyList<PreconditionFailure>? failures = null) => new(false, refusal, failures ?? []);
-}
-
 public sealed class ProblemConductor(
-    MandateSigner signer, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, IDossierStore dossiers, IFactsSource facts, IRunnerDirectory runners,
-    IApprovalSource approvals, ApprovalVerifier approvalVerifier, IGrantSource grants, IStopSignal stop, IMissionAudit audit, TimeProvider time, ConductorOptions options, Func<string> newId, ProblemLocks? problemLocks = null)
+    MandateSigner signer, MissionStores stores, PowerSources powers, IFactsSource facts, IRunnerDirectory runners, IMissionAudit audit, TimeProvider time, ConductorOptions options, Func<string> newId, ProblemLocks? problemLocks = null)
 {
+    private readonly IMissionStore missions = stores.Missions;
+    private readonly IMandateLedger mandates = stores.Mandates;
+    private readonly IProblemStore problems = stores.Problems;
+    private readonly IDossierStore dossiers = stores.Dossiers;
+    private readonly IApprovalSource approvals = powers.Approvals;
+    private readonly ApprovalVerifier approvalVerifier = powers.Verifier;
+    private readonly IApprovalWithdrawals withdrawals = powers.Withdrawals;
+    private readonly IGrantSource grants = powers.Grants;
+    private readonly IStopSignal stop = powers.Stop;
     private readonly ProblemLocks _locks = problemLocks ?? new ProblemLocks();
 
     /// <summary>The acts a world lists in its mandates: the ones that have consequences outside the workspace.</summary>
@@ -48,6 +50,11 @@ public sealed class ProblemConductor(
     /// </summary>
     private World? HighestNow(PlanEntry entry, SignedApproval approval)
     {
+        // A certificate the authority withdrew is no power at all, for the crossings, the acts and the sweep alike (a list that cannot be read counts as withdrawn)
+        if (withdrawals.IsWithdrawn(approval.Certificate.Id))
+        {
+            return null;
+        }
         var approved = entry.MaxWorld < approval.Certificate.MaxWorld ? entry.MaxWorld : approval.Certificate.MaxWorld;
         return EffectivePower.Of(approved, grants.MaxWorldFor(entry.ApplicationId));
     }
@@ -78,8 +85,9 @@ public sealed class ProblemConductor(
             {
                 return ConductResult.Fail("the maintainer's approval of this plan entry is not proved");
             }
-            // An approval is for one run: a problem that was stopped, failed or closed is started again only on a new approval (a stop is not undone by calling Start again)
-            if (previous is not null && string.Equals(previous.Approval.Certificate.Id, approval.Certificate.Id, StringComparison.Ordinal))
+            // An approval is for one run: a problem that was stopped, failed or closed is started again only on a new approval (a stop is not undone by calling Start again, nor an old approval brought back after a newer one)
+            if ((previous is not null && string.Equals(previous.Approval.Certificate.Id, approval.Certificate.Id, StringComparison.Ordinal))
+                || (approval.Certificate.Kind == CertificateKind.Problem && mandates.CountForApproval(approval.Certificate.Id) > 0))
             {
                 return ConductResult.Fail("this approval was already used by this problem: the maintainer approves again");
             }
@@ -108,11 +116,11 @@ public sealed class ProblemConductor(
             if (first == World.Git)
             {
                 // An application with no staging starts in the Git world: the frame of the merge is checked here too, since no crossing will do it (the diff, the CI and the executed files are checked at the merge itself)
-                var frame = CheckFacts(run, World.Git, previousDossierExists: true, dossier: null, commit: null)
-                    .Where(failure => failure is PreconditionFailure.MergeMayDeployBeyondApproval or PreconditionFailure.AgentCouldCreateTags or PreconditionFailure.AgentBranchCouldReachSecrets).ToList();
+                var frame = CheckFacts(run, World.Git, previousDossierExists: true, dossier: null, commit: null, issuing: false)
+                    .Where(failure => failure is PreconditionFailure.MergeMayDeployBeyondApproval or PreconditionFailure.AgentCouldCreateTags or PreconditionFailure.AgentBranchCouldReachWriteCredentials).ToList();
                 if (frame.Count > 0)
                 {
-                    return ConductResult.Fail("the merge could deploy beyond the approval, or the agent could create tags or reach a secret", frame);
+                    return ConductResult.Fail("the merge could deploy beyond the approval, or the agent could create tags or reach a write credential", frame);
                 }
             }
             return Open(run, first, byRule ? MandateSource.StandingRule : MandateSource.PlanValidation);
@@ -174,7 +182,7 @@ public sealed class ProblemConductor(
             {
                 ControllerDecisionKind.Grant => Grant(run, mission, decision),
                 ControllerDecisionKind.SendBack => SendBack(mission, run),
-                ControllerDecisionKind.End => End(run, mission, MissionEvent.EndedByController, ProblemState.Failed, decision.Reasons[0]),
+                ControllerDecisionKind.End => End(run, mission, MissionEvent.EndedByController, decision.Reasons[0]),
                 _ => Escalate(run, mission, decision.Reasons[0]),
             };
         });
@@ -185,7 +193,7 @@ public sealed class ProblemConductor(
 
     /// <summary>The mission used up its budget: it ends as failed and the problem fails with it; a loop never goes on past a budget.</summary>
     public ConductResult BudgetExhausted(string missionId) =>
-        OnMission(missionId, mission => problems.Get(mission.ProblemId) is { } run ? End(run, mission, MissionEvent.BudgetExhausted, ProblemState.Failed, "the budget is used up") : ConductResult.Fail("the problem of this mission is unknown"));
+        OnMission(missionId, mission => problems.Get(mission.ProblemId) is { } run ? End(run, mission, MissionEvent.BudgetExhausted, "the budget is used up") : ConductResult.Fail("the problem of this mission is unknown"));
 
     /// <summary>
     /// What no runner will ever say for itself: with the global stop engaged every problem in progress is stopped; a mandate that expired while its mission had not handed over ends it (a runner
@@ -259,24 +267,24 @@ public sealed class ProblemConductor(
         if (mission.World == World.Release)
         {
             // The last world: the controller closes the problem on facts (FR-CTL-9), after the same checks
-            var closing = CheckFacts(run, mission.World, previousDossierExists: dossier is not null, dossier, commit: dossier?.Commit);
+            var closing = ClosingChecks(run, mission, dossier);
             return closing.Count > 0 ? SendBackWithFailures(mission, run, closing) : Close(run, mission, complex, null, "release verified", null);
         }
         // The power is read again here, at every crossing: a grant withdrawn since the start stops the problem (the grant of an application is the maintainer's to give and to take back)
         if (HighestNow(run.Entry, run.Approval) is not { } highest)
         {
-            return End(run, mission, MissionEvent.EndedByController, ProblemState.Failed, "the grant of the application was withdrawn");
+            return End(run, mission, MissionEvent.EndedByController, "the grant of the application was withdrawn");
         }
         var next = mission.World + 1;
         if (next > highest)
         {
             // The powers given stop here: the problem is done up to the world its powers allow, and says so (a plan validated up to the Git world ends there)
-            var checks = CheckFacts(run, mission.World, previousDossierExists: dossier is not null, dossier, commit: dossier?.Commit);
+            var checks = ClosingChecks(run, mission, dossier);
             return checks.Count > 0
                 ? SendBackWithFailures(mission, run, checks)
                 : Close(run, mission, complex, $"done up to the {highest} world, the highest that its powers allow", Text($"highest world reached: {highest}"), "done up to the highest world its powers allow");
         }
-        var failures = CheckFacts(run, next, previousDossierExists: dossier is not null, dossier, commit: dossier?.Commit);
+        var failures = CheckFacts(run, next, previousDossierExists: dossier is not null, dossier, commit: dossier?.Commit, issuing: true);
         if (!ControllerLimits.MayGrant(decision, next, highest, failures))
         {
             return failures.Count > 0 ? SendBackWithFailures(mission, run, failures) : ConductResult.Fail("the controller may not grant a world that the plan does not allow");
@@ -288,6 +296,10 @@ public sealed class ProblemConductor(
         BestEffort(MissionAuditEvents.MissionAccepted, mission.Id, Text($"next world {next}"));
         return Open(run with { CurrentWorld = next }, next, MandateSource.Controller);
     }
+
+    // The checks to close a problem in the world of the mission: the facts of that world on the commit the worker claims, with no new mandate to issue
+    private List<PreconditionFailure> ClosingChecks(ProblemRun run, Mission mission, Dossier? dossier) =>
+        CheckFacts(run, mission.World, previousDossierExists: dossier is not null, dossier, commit: dossier?.Commit, issuing: false);
 
     // The mission is accepted and the problem is closed: the mandate is revoked, the problem says how far it went
     private ConductResult Close(ProblemRun run, Mission mission, bool complex, string? problemNote, string acceptedDetail, string? closedDetail)
@@ -328,11 +340,16 @@ public sealed class ProblemConductor(
             }
             if (problems.Get(mission.ProblemId) is not { State: ProblemState.InProgress } run || HighestNow(run.Entry, run.Approval) is not { } highest || mission.World > highest)
             {
-                return ActAuthorisation.Refused("the powers of the problem no longer reach this world");
+                return ActAuthorisation.Refused("the powers of the problem no longer reach this world, or the certificate was withdrawn");
+            }
+            // What was stored is verified again, not trusted: the mandate is the control plane's own signature and falls inside the certificate of the authority
+            if (!signer.Verify(signed) || approvalVerifier.Check(run.Approval, signed.Mandate) != ApprovalRefusal.None)
+            {
+                return ActAuthorisation.Refused("the mandate or its certificate does not verify");
             }
             // The acts that change what runs (a merge, a deployment) need the facts of this moment; the other acts only need the mandate
             var failures = act is GatedAct.MergePullRequest or GatedAct.Deploy
-                ? CheckFacts(run, mission.World, previousDossierExists: PreviousDossierExists(run, mission), LatestDossier(run, mission), commit)
+                ? CheckFacts(run, mission.World, previousDossierExists: PreviousDossierExists(run, mission), LatestDossier(run, mission), commit, issuing: false)
                 : [];
             if (failures.Count > 0)
             {
@@ -357,16 +374,19 @@ public sealed class ProblemConductor(
         missions.ForProblem(run.ProblemId).Where(other => other.World < mission.World).OrderByDescending(other => other.World).Select(other => dossiers.Get(other.Id)).FirstOrDefault(found => found is not null);
 
     // The facts come from the control plane's own source; the plan, the stop, the loop and the staging are the conductor's own: none is taken from the worker
-    private List<PreconditionFailure> CheckFacts(ProblemRun run, World world, bool previousDossierExists, Dossier? dossier, string? commit)
+    // `issuing` is true only where a new mandate is about to be issued: the bound of the loop guards a new mandate, not the acts of one that is already in force nor the closing of the problem
+    private List<PreconditionFailure> CheckFacts(ProblemRun run, World world, bool previousDossierExists, Dossier? dossier, string? commit, bool issuing)
     {
         var observed = facts.Facts(run.ProblemId, world, dossier, commit);
+        // The commit the facts are about is the head that the source read itself; the worker's pointer is only a claim, and a claim that does not match (or that cannot be matched) fails the check
+        var claimMatches = observed.WorkerClaimMatchesFacts && (commit is null || (observed.HeadCommit is not null && string.Equals(observed.HeadCommit, commit, StringComparison.Ordinal)));
         // The ceiling of the merge is the power in effect now (the lowest of the entry, the certificate and the grant read at this moment), never the certificate alone; no power at all is the lowest world
         var ceiling = HighestNow(run.Entry, run.Approval) ?? World.Staging;
         var checks = new PreconditionFacts(
             world, PlanCovers: true, observed.BudgetAvailable, stop.Engaged, run.UsesStaging ? StagingVerdict.Usable : StagingVerdict.UsableWithNoNet, previousDossierExists,
-            observed.DiffIsClean, observed.CiGreenOnExactCommit, observed.ArtifactIsTheOneProvedInStaging, observed.WorkerClaimMatchesFacts,
-            options.Loop.Check(mandates.CountForProblem(run.ProblemId), time.GetUtcNow() - run.StartedAt), observed.WayBackKnown,
-            ApprovedMaxWorld: ceiling, observed.MergeMayDeploy, observed.ExecutedFilesTouched, observed.TagCreationBlocked, observed.BranchCannotReachSecrets);
+            observed.DiffIsClean, observed.CiGreenOnExactCommit, observed.ArtifactIsTheOneProvedInStaging, claimMatches,
+            issuing ? options.Loop.Check(mandates.CountForProblem(run.ProblemId), time.GetUtcNow() - run.StartedAt) : LoopVerdict.Allowed, observed.WayBackKnown,
+            ApprovedMaxWorld: ceiling, observed.MergeMayDeploy, observed.ExecutedFilesTouched, observed.TagCreationBlocked, observed.BranchCannotReachWriteCredentials);
         // The release of an application with a staging needs the artifact that was proved there (FR-WLD-14)
         return [.. MandatePreconditions.Check(checks, requiresStagingProof: run.UsesStaging && world == World.Release)];
     }
@@ -383,7 +403,7 @@ public sealed class ProblemConductor(
         if (failures.Contains(PreconditionFailure.LoopLimitReached) || failures.Contains(PreconditionFailure.KillSwitchEngaged))
         {
             var why = failures.Contains(PreconditionFailure.KillSwitchEngaged) ? "the global stop is engaged" : "the loop reached its limit";
-            var ended = End(run, mission, MissionEvent.EndedByController, ProblemState.Failed, why);
+            var ended = End(run, mission, MissionEvent.EndedByController, why);
             return ended.Ok ? new ConductResult(false, $"{why}: the work stops", failures, ended.Mission, null) : ended;
         }
         var sent = SendBack(mission, run);
@@ -424,7 +444,7 @@ public sealed class ProblemConductor(
         return ConductResult.Success(ended);
     }
 
-    private ConductResult End(ProblemRun run, Mission mission, MissionEvent ending, ProblemState problemState, string reason)
+    private ConductResult End(ProblemRun run, Mission mission, MissionEvent ending, string reason)
     {
         var transition = MissionMachine.Apply(mission, ending, options.Loop, reason: reason);
         if (transition.Mission is not { } ended)
@@ -433,7 +453,7 @@ public sealed class ProblemConductor(
         }
         missions.Save(ended);
         Revoke(mission);
-        problems.Save(run with { State = problemState, Note = reason });
+        problems.Save(run with { State = ProblemState.Failed, Note = reason });
         BestEffort(MissionAuditEvents.MissionEnded, mission.Id, Text($"{ended.End}: {reason}"));
         BestEffort(MissionAuditEvents.ProblemFailed, run.ProblemId, reason);
         return ConductResult.Success(ended);

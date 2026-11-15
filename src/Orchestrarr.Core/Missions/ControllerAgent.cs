@@ -46,6 +46,10 @@ public sealed class ControllerAgent(IAgentGateway gateway, string model, TimeSpa
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
+    // A field of the dossier is cut: nothing the worker writes can make the request grow without bound
+    private const int MaxFieldCharacters = 4000;
+    private const int MaxListed = 200;
+
     /// <summary>The prompt for one decision. The boundary is random per request, so that nothing the worker wrote can close the data section.</summary>
     public AgentRequest Build(ControllerInput input, string? boundary = null)
     {
@@ -113,11 +117,7 @@ public sealed class ControllerAgent(IAgentGateway gateway, string model, TimeSpa
         }
     }
 
-    // A text on one line, so that nothing the worker wrote can look like a section of its own
-    // A field of the dossier is cut: nothing the worker writes can make the request grow without bound
-    private const int MaxFieldCharacters = 4000;
-    private const int MaxListed = 200;
-
+    // A text on one line: no line break of the worker can start a line of its own in the prompt
     private static string Flat(string value)
     {
         var flat = value.ReplaceLineEndings(" ").Trim();

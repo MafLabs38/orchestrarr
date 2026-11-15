@@ -106,8 +106,30 @@ public sealed class ClaudeCliGateway(AgentsOptions options) : IAgentGateway
         }
         catch (OperationCanceledException)
         {
-            process.Kill(entireProcessTree: true);
+            await Stop(process);
             return new AgentReply(false, string.Empty, cancellationToken.IsCancellationRequested ? "stopped" : "the agent did not answer in time");
+        }
+    }
+
+    // The program is killed with its tree and waited for (for a short time) before its folder is removed: it may already be gone, and the answer must still be "did not answer in time"
+    private static async Task Stop(Process process)
+    {
+        try
+        {
+            process.Kill(entireProcessTree: true);
+        }
+        catch (InvalidOperationException)
+        {
+            // It ended between the timeout and the kill
+        }
+        using var grace = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        try
+        {
+            await process.WaitForExitAsync(grace.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            // It does not leave: the folder below is removed all the same
         }
     }
 
@@ -148,5 +170,15 @@ internal sealed class TemporaryFolder : IDisposable
 {
     public string Path { get; } = Directory.CreateTempSubdirectory("orchestrarr-agent-").FullName;
 
-    public void Dispose() => Directory.Delete(Path, recursive: true);
+    public void Dispose()
+    {
+        try
+        {
+            Directory.Delete(Path, recursive: true);
+        }
+        catch (IOException)
+        {
+            // A program that has not let go of its folder yet: it is a temporary folder, the system removes it later
+        }
+    }
 }

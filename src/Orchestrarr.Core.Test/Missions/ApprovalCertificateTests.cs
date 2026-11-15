@@ -100,7 +100,7 @@ public sealed class ApprovalCertificateTests : IDisposable
     {
         var proposal = _authority.Authority.Propose(Request(World.Git), "carol")!;
 
-        proposal.Summary.Should().Contain("problem-1").And.Contain("example/shop").And.Contain("Git world").And.Contain("at most 8 mandates");
+        proposal.Summary.Should().Contain("problem-1").And.Contain("example/shop").And.Contain("highest world: Git").And.Contain("mandates: at most 8");
         _authority.Authority.Describe(proposal.Id)!.Digest.Should().Be(proposal.Digest);
         // Another approver cannot confirm it, and the attempt uses it up
         (await _authority.Authority.ApproveAsync(proposal.Id, "mallory", _authority.CodeFor(), TestContext.Current.CancellationToken)).Approval.Should().BeNull();
@@ -174,6 +174,79 @@ public sealed class ApprovalCertificateTests : IDisposable
 
         runner.MayAct(signed, GatedAct.OpenPullRequest).Should().Be(MandateRefusal.ApprovalRevoked);
         runner.Accept(controlPlane.Sign(MandateFor(approval) with { Nonce = "other" }, approval)).Should().Be(MandateRefusal.ApprovalRevoked);
+    }
+
+    [Fact]
+    public void The_summary_the_maintainer_reads_has_one_line_per_field_and_a_requester_cannot_make_it_say_something_else()
+    {
+        var proposal = _authority.Authority.Propose(Request(World.Release) with { Repositories = ["example/shop", "example/api"] }, "erin")!;
+
+        proposal.Summary.Split('\n').Should().Contain(["kind: Problem", "subject: \"problem-1\"", "application: \"shop\"", "repository: \"example/api\"", "repository: \"example/shop\"", "highest world: Release"]);
+        // A value that holds a line break, a control character or nothing is refused, so it cannot start a line of its own
+        _authority.Authority.Propose(Request() with { ApplicationId = "shop\nhighest world: Staging" }, "erin").Should().BeNull();
+        _authority.Authority.Propose(Request() with { Subject = "problem-1\u0007" }, "erin").Should().BeNull();
+        _authority.Authority.Propose(Request() with { Repositories = [string.Empty] }, "erin").Should().BeNull();
+        _authority.Authority.Propose(Request() with { ForbiddenPaths = ["a\r\nb"] }, "erin").Should().BeNull();
+    }
+
+    [Fact]
+    public void Two_requests_that_read_alike_do_not_share_a_digest_because_it_is_over_the_canonical_encoding()
+    {
+        var one = _authority.Authority.Propose(Request() with { Repositories = ["a, b"] }, "erin")!;
+        var two = _authority.Authority.Propose(Request() with { Repositories = ["a", "b"] }, "erin")!;
+        var same = _authority.Authority.Propose(Request() with { Repositories = ["a", "b"] }, "erin")!;
+
+        one.Digest.Should().NotBe(two.Digest);
+        two.Digest.Should().Be(same.Digest, "the same request has the same digest");
+        two.Summary.Should().NotBe(one.Summary);
+    }
+
+    [Fact]
+    public void The_count_of_a_certificate_is_the_authoritys_one_for_every_runner_so_two_runners_cannot_double_it()
+    {
+        using var controlPlane = MandateSigner.Create();
+        var approval = _authority.Approve(Request(World.Git) with { MaxMandates = 2 }).Approval!;
+        var state = new RunnerState(_authority.Authority);
+        using var one = new MandateVerifier(controlPlane.PublicKey(), "runner-git", World.Git, state, _time, _authority.Verifier);
+        using var other = new MandateVerifier(controlPlane.PublicKey(), "runner-git", World.Git, new RunnerState(_authority.Authority), _time, _authority.Verifier);
+
+        one.Accept(controlPlane.Sign(MandateFor(approval) with { Nonce = "n1" }, approval)).Should().Be(MandateRefusal.None);
+        other.Accept(controlPlane.Sign(MandateFor(approval) with { Nonce = "n2" }, approval)).Should().Be(MandateRefusal.None);
+        one.Accept(controlPlane.Sign(MandateFor(approval) with { Nonce = "n3" }, approval)).Should().Be(MandateRefusal.ApprovalUsedUp);
+        other.Accept(controlPlane.Sign(MandateFor(approval) with { Nonce = "n4" }, approval)).Should().Be(MandateRefusal.ApprovalUsedUp, "the other runner sees the same count");
+    }
+
+    [Fact]
+    public void A_runner_that_cannot_ask_the_authority_refuses_and_a_withdrawal_reaches_every_runner()
+    {
+        using var controlPlane = MandateSigner.Create();
+        var approval = _authority.Approve(Request(World.Git)).Approval!;
+        var state = new RunnerState(_authority.Authority);
+        using var runner = new MandateVerifier(controlPlane.PublicKey(), "runner-git", World.Git, state, _time, _authority.Verifier);
+        var signed = controlPlane.Sign(MandateFor(approval), approval);
+
+        state.AuthorityDown = true;
+        runner.Accept(signed).Should().Be(MandateRefusal.AuthorityUnreachable);
+        runner.MayAct(signed, GatedAct.OpenPullRequest).Should().Be(MandateRefusal.AuthorityUnreachable, "unknown counts as withdrawn");
+        state.AuthorityDown = false;
+        runner.Accept(signed).Should().Be(MandateRefusal.None);
+        _authority.Authority.Revoke(approval.Certificate.Id);
+        runner.MayAct(signed, GatedAct.OpenPullRequest).Should().Be(MandateRefusal.ApprovalRevoked);
+    }
+
+    [Fact]
+    public void What_the_authority_keeps_goes_through_a_ledger_that_a_restart_can_keep()
+    {
+        var ledger = new InMemoryAuthorityLedger();
+        using var first = new ApprovalAuthority(new SecondFactorGuard(new FixedSecrets(), new InMemorySecondFactorUseLedger(), _time, new SecondFactorOptions()), _time, () => Guid.NewGuid().ToString("N"), ledger: ledger);
+        first.Revoke("c1");
+        first.Use("c2", "n1", 1).Should().Be(MandateUse.Used);
+
+        using var restarted = new ApprovalAuthority(new SecondFactorGuard(new FixedSecrets(), new InMemorySecondFactorUseLedger(), _time, new SecondFactorOptions()), _time, () => Guid.NewGuid().ToString("N"), ledger: ledger);
+
+        restarted.IsRevoked("c1").Should().BeTrue("a withdrawn certificate stays withdrawn when the authority restarts");
+        restarted.Use("c2", "n2", 1).Should().Be(MandateUse.ApprovalUsedUp);
+        restarted.Use("c9", "n1", 5).Should().Be(MandateUse.Replayed, "a nonce is used once");
     }
 
     private sealed class FixedSecrets : ISecondFactorSecrets

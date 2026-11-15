@@ -121,6 +121,26 @@ public sealed class SqliteMissionStoresTests : IDisposable
     }
 
     [Fact]
+    public void A_revocation_and_a_problem_that_failed_stay_so_after_a_restart()
+    {
+        using var authority = new Authority(new FakeTimeProvider(new DateTimeOffset(2026, 11, 13, 12, 0, 0, TimeSpan.Zero)));
+        var entry = new PlanEntry("p1", "shop", "deprecated", "Replace", ["example/shop"], World.Release, new MissionBudget(20, 3, 50), new Validation("alice", null), new DateTimeOffset(2026, 11, 13, 11, 0, 0, TimeSpan.Zero));
+        var database = _file.Open();
+        var ledger = new SqliteMandateLedger(database);
+        ledger.Record(Mandate("a"));
+        ledger.Revoke("a");
+        var problems = new SqliteProblemStore(database);
+        var run = new ProblemRun("p1", "shop", ProblemState.InProgress, new DateTimeOffset(2026, 11, 13, 12, 0, 0, TimeSpan.Zero), entry, World.Git, true, authority.For(entry)!);
+        problems.Save(run);
+        problems.Save(run with { State = ProblemState.Failed });
+
+        var reopened = _file.Reopen();
+
+        new SqliteMandateLedger(reopened).IsRevoked("a").Should().BeTrue("a withdrawn power stays withdrawn after a restart");
+        new SqliteProblemStore(reopened).InProgress().Should().BeEmpty();
+    }
+
+    [Fact]
     public void A_stored_document_that_cannot_be_read_is_a_failure_of_the_store_never_a_row_that_is_left_out()
     {
         var database = _file.Open();
@@ -163,8 +183,9 @@ public sealed class SqliteMissionStoresTests : IDisposable
         var time = new FakeTimeProvider(new DateTimeOffset(2026, 11, 13, 12, 0, 0, TimeSpan.Zero));
         var ids = 0;
         using var authority = new Authority(time);
-        ProblemConductor Conductor(SqliteDatabase database) => new(_signer, new SqliteMissionStore(database), new SqliteMandateLedger(database), new SqliteProblemStore(database), new SqliteDossierStore(database),
-            new GoodFacts(), new Runners(), authority, authority.Verifier, new Grants(), new NoStop(), new Silent(), time, ConductorOptions.Default, () => $"id-{++ids}");
+        ProblemConductor Conductor(SqliteDatabase database) => new(_signer,
+            new MissionStores(new SqliteMissionStore(database), new SqliteMandateLedger(database), new SqliteProblemStore(database), new SqliteDossierStore(database)),
+            new PowerSources(authority, authority.Verifier, new Withdrawals(), new Grants(), new NoStop()), new GoodFacts(), new Runners(), new Silent(), time, ConductorOptions.Default, () => $"id-{++ids}");
         var entry = new PlanEntry("p1", "shop", "deprecated", "Replace the call", ["example/shop"], World.Release, new MissionBudget(20, 3, 50), new Validation("alice", null), time.GetUtcNow());
         var first = Conductor(_file.Open());
         var staging = first.Start(entry, StagingDeclaration.DeclaredStaging, StagingRequirement.BlankMachine, StagingState.NotDefined);
@@ -192,9 +213,14 @@ public sealed class SqliteMissionStoresTests : IDisposable
         public bool IsRevoked(string mandateId) => false;
     }
 
+    private sealed class Withdrawals : IApprovalWithdrawals
+    {
+        public bool IsWithdrawn(string certificateId) => false;
+    }
+
     private sealed class GoodFacts : IFactsSource
     {
-        public ObservedFacts Facts(string problemId, World world, Dossier? dossier, string? commit) => new(true, true, true, true, true, true, MergeMayDeploy: false, ExecutedFilesTouched: false, TagCreationBlocked: true, BranchCannotReachSecrets: true);
+        public ObservedFacts Facts(string problemId, World world, Dossier? dossier, string? commit) => new(true, true, true, true, true, true, MergeMayDeploy: false, ExecutedFilesTouched: false, TagCreationBlocked: true, BranchCannotReachWriteCredentials: true, HeadCommit: commit);
     }
 
     private sealed class Grants : IGrantSource

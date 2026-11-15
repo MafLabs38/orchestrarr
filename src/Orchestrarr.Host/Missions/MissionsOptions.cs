@@ -14,13 +14,13 @@ public sealed class MissionsOptions
 
     public string ReleaseRunner { get; set; } = "runner-release";
 
-    public int MandateMinutes { get; set; } = 60;
+    public int MandateMinutes { get; set; } = (int)ConductorOptions.Default.MandateLifetime.TotalMinutes;
 
-    public int MaxSendBacksPerMission { get; set; } = 3;
+    public int MaxSendBacksPerMission { get; set; } = LoopPolicy.Default.MaxSendBacksPerMission;
 
-    public int MaxMandatesPerProblem { get; set; } = 8;
+    public int MaxMandatesPerProblem { get; set; } = LoopPolicy.Default.MaxMandatesPerProblem;
 
-    public int MaxHoursPerProblem { get; set; } = 6;
+    public int MaxHoursPerProblem { get; set; } = (int)LoopPolicy.Default.MaxTimePerProblem.TotalHours;
 
     /// <summary>Where the private key that signs the mandates is kept. Unset: next to the database when there is one, else a key that lives as long as the host.</summary>
     public string? SigningKeyFile { get; set; }
@@ -31,8 +31,24 @@ public sealed class MissionsOptions
     /// <summary>The public key of the approval authority (ADR 0031 point 7), a file in SubjectPublicKeyInfo form. Unset: no certificate is ever valid, so no real mandate is issued.</summary>
     public string? ApprovalAuthorityPublicKeyFile { get; set; }
 
-    public ConductorOptions Conductor() => new(
-        TimeSpan.FromMinutes(Math.Max(1, MandateMinutes)),
-        ForbiddenPaths ?? [.. ConductorOptions.Default.ForbiddenPaths],
-        new LoopPolicy(Math.Max(1, MaxSendBacksPerMission), Math.Max(1, MaxMandatesPerProblem), TimeSpan.FromHours(Math.Max(1, MaxHoursPerProblem))));
+    /// <summary>The settings of the conductor. A bound that is not a positive number is refused at start, not corrected: a loop with no bound is the mistake to catch.</summary>
+    public ConductorOptions Conductor()
+    {
+        Positive(MandateMinutes, nameof(MandateMinutes));
+        Positive(MaxSendBacksPerMission, nameof(MaxSendBacksPerMission));
+        Positive(MaxMandatesPerProblem, nameof(MaxMandatesPerProblem));
+        Positive(MaxHoursPerProblem, nameof(MaxHoursPerProblem));
+        return new ConductorOptions(
+            TimeSpan.FromMinutes(MandateMinutes),
+            ForbiddenPaths ?? [.. ConductorOptions.Default.ForbiddenPaths],
+            new LoopPolicy(MaxSendBacksPerMission, MaxMandatesPerProblem, TimeSpan.FromHours(MaxHoursPerProblem)));
+    }
+
+    private static void Positive(int value, string name)
+    {
+        if (value < 1)
+        {
+            throw new InvalidOperationException($"{SectionName}:{name} must be a positive number, not {value}.");
+        }
+    }
 }

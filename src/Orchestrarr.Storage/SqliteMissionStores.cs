@@ -1,7 +1,7 @@
 using System.Text.Json;
-using Orchestrarr.Core.Approvals;
 using System.Text.Json.Serialization;
 using Microsoft.Data.Sqlite;
+using Orchestrarr.Core.Approvals;
 using Orchestrarr.Core.Missions;
 
 namespace Orchestrarr.Storage;
@@ -99,9 +99,10 @@ public sealed class SqliteMandateLedger(SqliteDatabase database) : IMandateLedge
         {
             using var connection = database.Connect();
             using var command = connection.CreateCommand();
-            command.CommandText = "INSERT INTO mandates (id, problem_id, body) VALUES ($id, $problem, $body) ON CONFLICT(id) DO NOTHING;";
+            command.CommandText = "INSERT INTO mandates (id, problem_id, approval_id, body) VALUES ($id, $problem, $approval, $body) ON CONFLICT(id) DO NOTHING;";
             command.Parameters.AddWithValue("$id", mandate.Mandate.Id);
             command.Parameters.AddWithValue("$problem", mandate.Mandate.ProblemId);
+            command.Parameters.AddWithValue("$approval", mandate.Mandate.ApprovalId);
             command.Parameters.AddWithValue("$body", MissionJson.Write(mandate));
             command.ExecuteNonQuery();
             return true;
@@ -112,7 +113,7 @@ public sealed class SqliteMandateLedger(SqliteDatabase database) : IMandateLedge
 
     public int CountForProblem(string problemId) => SqliteDatabase.Guard(() => Convert.ToInt32(SqliteMissionStore.Scalar(database, "SELECT COUNT(*) FROM mandates WHERE problem_id = $key;", problemId), System.Globalization.CultureInfo.InvariantCulture));
 
-    public int CountForApproval(string approvalId) => SqliteDatabase.Guard(() => Convert.ToInt32(SqliteMissionStore.Scalar(database, "SELECT COUNT(*) FROM mandates WHERE json_extract(body, '$.mandate.approvalId') = $key;", approvalId), System.Globalization.CultureInfo.InvariantCulture));
+    public int CountForApproval(string approvalId) => SqliteDatabase.Guard(() => Convert.ToInt32(SqliteMissionStore.Scalar(database, "SELECT COUNT(*) FROM mandates WHERE approval_id = $key;", approvalId), System.Globalization.CultureInfo.InvariantCulture));
 
     public void Revoke(string id) => SqliteDatabase.Guard(() =>
     {

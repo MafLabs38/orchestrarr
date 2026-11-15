@@ -77,6 +77,97 @@ public sealed record ApprovalPolicy(TimeSpan MaxProblemLifetime, TimeSpan MaxRul
 /// </summary>
 public sealed record ApprovalProposal(string Id, string Approver, string Summary, string Digest, DateTimeOffset ExpiresAt);
 
+/// <summary>The authority could not be asked (the count of a certificate, its withdrawal): a runner that cannot ask refuses, the same rule as the stop.</summary>
+public sealed class AuthorityUnreachableException : Exception
+{
+    public AuthorityUnreachableException()
+        : base("The approval authority cannot be reached.")
+    {
+    }
+
+    public AuthorityUnreachableException(string message)
+        : base(message)
+    {
+    }
+
+    public AuthorityUnreachableException(string message, Exception innerException)
+        : base(message, innerException)
+    {
+    }
+}
+
+/// <summary>
+/// What the authority keeps, in **one place for every runner**: the certificates it withdrew and how many mandates each one backed. A count kept by each runner would let a compromised control plane
+/// spread mandates over the runners and exceed it. The authority runs apart and keeps this in its own store; the in-memory one below is for tests and for a first start.
+/// </summary>
+public interface IAuthorityLedger
+{
+    void Revoke(string certificateId);
+
+    bool IsRevoked(string certificateId);
+
+    IReadOnlyCollection<string> Revoked();
+
+    /// <summary>Counts one mandate, once per nonce (asking again for the same nonce answers the same), against <paramref name="maxMandates"/>.</summary>
+    MandateUse Use(string certificateId, string nonce, int maxMandates);
+}
+
+public sealed class InMemoryAuthorityLedger : IAuthorityLedger
+{
+    private readonly HashSet<string> _revoked = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, HashSet<string>> _uses = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _seen = new(StringComparer.Ordinal);
+    private readonly object _gate = new();
+
+    public void Revoke(string certificateId)
+    {
+        lock (_gate)
+        {
+            _revoked.Add(certificateId);
+        }
+    }
+
+    public bool IsRevoked(string certificateId)
+    {
+        lock (_gate)
+        {
+            return _revoked.Contains(certificateId);
+        }
+    }
+
+    public IReadOnlyCollection<string> Revoked()
+    {
+        lock (_gate)
+        {
+            return [.. _revoked];
+        }
+    }
+
+    public MandateUse Use(string certificateId, string nonce, int maxMandates)
+    {
+        lock (_gate)
+        {
+            // A nonce is used once whatever the certificate: a second request for it is a replay
+            if (!_seen.Add(nonce))
+            {
+                return MandateUse.Replayed;
+            }
+            if (!_uses.TryGetValue(certificateId, out var used))
+            {
+                used = new HashSet<string>(StringComparer.Ordinal);
+                _uses[certificateId] = used;
+            }
+            if (used.Count >= maxMandates)
+            {
+                _seen.Remove(nonce);
+                return MandateUse.ApprovalUsedUp;
+            }
+            used.Add(nonce);
+            return MandateUse.Used;
+        }
+    }
+}
+
 /// <summary>
 /// The approval authority (ADR 0031 point 7, ADR 0017 kept): it checks the maintainer's second-factor code with a secret that **the control plane does not hold**, and only then signs a certificate of what
 /// was approved. It runs apart from the control plane (its own process, its own key), so that a compromised control plane can issue mandates but not an approval, and a mandate beyond a certificate is
@@ -90,11 +181,11 @@ public sealed class ApprovalAuthority : IDisposable
     private readonly Func<string> _newId;
     private readonly ApprovalPolicy _policy;
     private readonly Dictionary<string, (ApprovalProposal Proposal, ApprovalRequest Request)> _proposals = new(StringComparer.Ordinal);
-    private readonly HashSet<string> _revoked = new(StringComparer.Ordinal);
+    private readonly IAuthorityLedger _ledger;
     private readonly object _gate = new();
 
     /// <summary>The authority takes ownership of <paramref name="key"/> when one is given: it disposes it.</summary>
-    public ApprovalAuthority(SecondFactorGuard guard, TimeProvider time, Func<string> newId, ECDsa? key = null, ApprovalPolicy? policy = null)
+    public ApprovalAuthority(SecondFactorGuard guard, TimeProvider time, Func<string> newId, ECDsa? key = null, ApprovalPolicy? policy = null, IAuthorityLedger? ledger = null)
     {
         ArgumentNullException.ThrowIfNull(guard);
         ArgumentNullException.ThrowIfNull(time);
@@ -104,6 +195,7 @@ public sealed class ApprovalAuthority : IDisposable
         _newId = newId;
         _key = key ?? ECDsa.Create(ECCurve.NamedCurves.nistP256);
         _policy = policy ?? ApprovalPolicy.Default;
+        _ledger = ledger ?? new InMemoryAuthorityLedger();
     }
 
     /// <summary>The public half, to give to the runners.</summary>
@@ -118,14 +210,17 @@ public sealed class ApprovalAuthority : IDisposable
         ArgumentNullException.ThrowIfNull(request);
         ArgumentException.ThrowIfNullOrWhiteSpace(approver);
         var longest = request.Kind == CertificateKind.Rule ? _policy.MaxRuleLifetime : _policy.MaxProblemLifetime;
-        if (request.Repositories.Count == 0 || !request.Budget.IsValid || request.Lifetime <= TimeSpan.Zero || request.Lifetime > longest || request.MaxMandates < 1 || request.MaxMandates > _policy.MaxMandates || (request.Kind == CertificateKind.Rule && request.MaxWorld > _policy.MaxRuleWorld))
+        var forbidden = request.ForbiddenPaths ?? [];
+        // Every identifier is plain text on one line: nothing a requester writes can pass for a line, a separator or a quote of what the maintainer reads
+        if (request.Repositories.Count == 0 || !request.Budget.IsValid || request.Lifetime <= TimeSpan.Zero || request.Lifetime > longest || request.MaxMandates < 1 || request.MaxMandates > _policy.MaxMandates
+            || (request.Kind == CertificateKind.Rule && request.MaxWorld > _policy.MaxRuleWorld)
+            || !Plain(request.Subject) || !Plain(request.ApplicationId) || !request.Repositories.All(Plain) || !forbidden.All(Plain))
         {
             return null;
         }
         var now = _time.GetUtcNow();
-        var summary = string.Create(System.Globalization.CultureInfo.InvariantCulture,
-            $"{request.Kind} {request.Subject} of {request.ApplicationId}: repositories {string.Join(", ", request.Repositories.Order(StringComparer.Ordinal))}; up to the {request.MaxWorld} world; {request.Budget.MaxMinutes} min, {request.Budget.MaxAttempts} attempts, {request.Budget.MaxTurns} turns; at most {request.MaxMandates} mandates; valid {request.Lifetime.TotalHours:0.#} h; forbidden: {string.Join(", ", (request.ForbiddenPaths ?? []).Order(StringComparer.Ordinal))}");
-        var digest = Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(summary)));
+        var summary = Summary(request, forbidden);
+        var digest = Convert.ToHexString(SHA256.HashData(CanonicalRequest(request, forbidden)));
         var proposal = new ApprovalProposal(_newId(), approver, summary, digest, now + _policy.ProposalLifetime);
         lock (_gate)
         {
@@ -136,6 +231,53 @@ public sealed class ApprovalAuthority : IDisposable
             _proposals[proposal.Id] = (proposal, request);
         }
         return proposal;
+    }
+
+    private static bool Plain(string value) => value.Length is > 0 and <= 200 && !value.Any(char.IsControl);
+
+    // One labelled line per field, each value quoted: a repository is a line of its own, so ["a, b"] and ["a", "b"] cannot look alike
+    private static string Summary(ApprovalRequest request, IReadOnlyList<string> forbidden)
+    {
+        static string Quote(string value) => System.Text.Json.JsonSerializer.Serialize(value);
+        var lines = new List<string>
+        {
+            $"kind: {request.Kind}",
+            $"subject: {Quote(request.Subject)}",
+            $"application: {Quote(request.ApplicationId)}",
+        };
+        lines.AddRange(request.Repositories.Order(StringComparer.Ordinal).Select(repository => $"repository: {Quote(repository)}"));
+        lines.Add($"highest world: {request.MaxWorld}");
+        lines.Add(string.Create(System.Globalization.CultureInfo.InvariantCulture, $"budget: {request.Budget.MaxMinutes} minutes, {request.Budget.MaxAttempts} attempts, {request.Budget.MaxTurns} turns"));
+        lines.Add(string.Create(System.Globalization.CultureInfo.InvariantCulture, $"mandates: at most {request.MaxMandates}"));
+        lines.Add(string.Create(System.Globalization.CultureInfo.InvariantCulture, $"valid for: {request.Lifetime.TotalHours:0.##} hours"));
+        lines.AddRange(forbidden.Order(StringComparer.Ordinal).Select(path => $"forbidden path: {Quote(path)}"));
+        return string.Join('\n', lines);
+    }
+
+    // The digest is over the same canonical encoding as the certificate, never over the text that is displayed
+    private static byte[] CanonicalRequest(ApprovalRequest request, IReadOnlyList<string> forbidden)
+    {
+        var writer = new CanonicalWriter();
+        writer.Int((int)request.Kind);
+        writer.Text(request.Subject);
+        writer.Text(request.ApplicationId);
+        writer.Int(request.Repositories.Count);
+        foreach (var repository in request.Repositories.Order(StringComparer.Ordinal))
+        {
+            writer.Text(repository);
+        }
+        writer.Int((int)request.MaxWorld);
+        writer.Int(request.Budget.MaxMinutes);
+        writer.Int(request.Budget.MaxAttempts);
+        writer.Int(request.Budget.MaxTurns);
+        writer.Int((int)request.Lifetime.TotalSeconds);
+        writer.Int(forbidden.Count);
+        foreach (var path in forbidden.Order(StringComparer.Ordinal))
+        {
+            writer.Text(path);
+        }
+        writer.Int(request.MaxMandates);
+        return writer.ToArray();
     }
 
     /// <summary>What the authority shows the maintainer on its own channel for a proposal that is still open.</summary>
@@ -150,11 +292,12 @@ public sealed class ApprovalAuthority : IDisposable
     /// <summary>The certificate of the proposal that the code confirms, or null with the reason. The proposal is used up whatever the code says, so that a code cannot be tried again on it.</summary>
     public async Task<(SignedApproval? Approval, SecondFactorResult Result)> ApproveAsync(string proposalId, string approver, string? code, CancellationToken cancellationToken)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(proposalId);
         ArgumentException.ThrowIfNullOrWhiteSpace(approver);
         (ApprovalProposal Proposal, ApprovalRequest Request) held;
         lock (_gate)
         {
-            if (!_proposals.Remove(proposalId ?? string.Empty, out held) || held.Proposal.ExpiresAt <= _time.GetUtcNow() || !string.Equals(held.Proposal.Approver, approver, StringComparison.Ordinal))
+            if (!_proposals.Remove(proposalId, out held) || held.Proposal.ExpiresAt <= _time.GetUtcNow() || !string.Equals(held.Proposal.Approver, approver, StringComparison.Ordinal))
             {
                 return (null, SecondFactorResult.Malformed);
             }
@@ -172,23 +315,16 @@ public sealed class ApprovalAuthority : IDisposable
         return (new SignedApproval(certificate, _key.SignData(certificate.CanonicalBytes(), HashAlgorithmName.SHA256)), result);
     }
 
-    /// <summary>The maintainer withdraws an approval before its expiry (a standing rule revoked): every runner reads the list and refuses what the certificate backs.</summary>
-    public void Revoke(string certificateId)
-    {
-        lock (_gate)
-        {
-            _revoked.Add(certificateId);
-        }
-    }
+    /// <summary>The maintainer withdraws an approval before its expiry (a standing rule revoked): the runners and the control plane read it, and it is kept by the authority's ledger.</summary>
+    public void Revoke(string certificateId) => _ledger.Revoke(certificateId);
 
-    /// <summary>The certificates withdrawn so far, for the runners to read (as they read the global stop).</summary>
-    public IReadOnlyCollection<string> Revoked()
-    {
-        lock (_gate)
-        {
-            return [.. _revoked];
-        }
-    }
+    public bool IsRevoked(string certificateId) => _ledger.IsRevoked(certificateId);
+
+    /// <summary>The certificates withdrawn so far.</summary>
+    public IReadOnlyCollection<string> Revoked() => _ledger.Revoked();
+
+    /// <summary>A runner asks, before it accepts a mandate, to count it against its certificate: one counter for every runner, held here.</summary>
+    public MandateUse Use(string certificateId, string nonce, int maxMandates) => _ledger.Use(certificateId, nonce, maxMandates);
 
     public void Dispose() => _key.Dispose();
 }

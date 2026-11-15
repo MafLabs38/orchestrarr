@@ -20,6 +20,19 @@ public sealed class ControllerAgentTests
         }
     }
 
+    [Theory]
+    [InlineData("{\"decision\":\"grant\",\"reasons\":[\"ok\"]} {\"decision\":\"end\",\"reasons\":[\"no\"]}")]
+    [InlineData("The schema is {\"decision\":\"grant|send_back|end|escalate\",\"reasons\":[\"..\"]} and my answer is end")]
+    [InlineData("{\"decision\":\"grant\"}")]
+    [InlineData("{\"decision\":\"GRANT\",\"reasons\":[\" \"]}")]
+    public void An_answer_with_two_objects_a_quoted_schema_or_no_reason_is_no_decision_never_a_grant(string text)
+    {
+        var outcome = ControllerAgent.Parse(text);
+
+        outcome.Decision.Should().BeNull();
+        outcome.Failure.Should().NotBeNullOrEmpty();
+    }
+
     [Fact]
     public void Nothing_the_worker_writes_makes_the_request_grow_without_bound()
     {

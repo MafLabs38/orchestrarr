@@ -26,6 +26,13 @@ public sealed class MandateSigner : IDisposable
     /// <summary>The public half, to give to the runners (SubjectPublicKeyInfo).</summary>
     public byte[] PublicKey() => _key.ExportSubjectPublicKeyInfo();
 
+    /// <summary>Whether this signer signed the mandate: the control plane checks what it stored before it authorises an act on it.</summary>
+    public bool Verify(SignedMandate signed)
+    {
+        ArgumentNullException.ThrowIfNull(signed);
+        return _key.VerifyData(signed.Mandate.CanonicalBytes(), signed.Signature, HashAlgorithmName.SHA256);
+    }
+
     public byte[] PrivateKey() => _key.ExportPkcs8PrivateKey();
 
     public SignedMandate Sign(Mandate mandate, SignedApproval? approval = null)
@@ -59,6 +66,9 @@ public enum MandateRefusal
 
     /// <summary>The certificate already backed as many mandates as it allows: the control plane cannot sign more under it.</summary>
     ApprovalUsedUp,
+
+    /// <summary>The authority could not be asked about the certificate (its count, its withdrawal): the runner refuses, as it does when the stop cannot be read.</summary>
+    AuthorityUnreachable,
 }
 
 /// <summary>What recording a mandate's nonce gave.</summary>
@@ -72,10 +82,13 @@ public enum MandateUse
 /// <summary>What a runner knows about a mandate beyond its content: whether it was already used, revoked, and whether the global stop is engaged.</summary>
 public interface IMandateState
 {
-    /// <summary>Records the nonce and counts the mandate against its certificate: a replay is refused, and so is a mandate beyond <paramref name="maxMandates"/> for the same certificate.</summary>
+    /// <summary>
+    /// Records the nonce and counts the mandate against its certificate: a replay is refused, and so is a mandate beyond <paramref name="maxMandates"/> for the same certificate. **The count is the authority's, one for every runner**
+    /// (<see cref="ApprovalAuthority.Use"/>): it throws <see cref="AuthorityUnreachableException"/> when the authority cannot be asked, and the runner then refuses.
+    /// </summary>
     MandateUse TryUse(string nonce, string approvalId, int maxMandates);
 
-    /// <summary>Whether the authority withdrew this certificate (the runner reads the authority's list).</summary>
+    /// <summary>Whether the authority withdrew this certificate (<see cref="ApprovalAuthority.IsRevoked"/>); throws <see cref="AuthorityUnreachableException"/> when it cannot be asked.</summary>
     bool IsApprovalRevoked(string approvalId);
 
     bool IsRevoked(string mandateId);
@@ -124,12 +137,19 @@ public sealed class MandateVerifier : IDisposable
         {
             return MandateRefusal.NoValidApproval;
         }
-        return _state.TryUse(signed.Mandate.Nonce, signed.Mandate.ApprovalId, approval.Certificate.MaxMandates) switch
+        try
         {
-            MandateUse.Used => MandateRefusal.None,
-            MandateUse.ApprovalUsedUp => MandateRefusal.ApprovalUsedUp,
-            _ => MandateRefusal.Replayed,
-        };
+            return _state.TryUse(signed.Mandate.Nonce, signed.Mandate.ApprovalId, approval.Certificate.MaxMandates) switch
+            {
+                MandateUse.Used => MandateRefusal.None,
+                MandateUse.ApprovalUsedUp => MandateRefusal.ApprovalUsedUp,
+                _ => MandateRefusal.Replayed,
+            };
+        }
+        catch (AuthorityUnreachableException)
+        {
+            return MandateRefusal.AuthorityUnreachable;
+        }
     }
 
     /// <summary>Before a gated act: the mandate is still good and lists the act. The nonce is not used again here.</summary>
@@ -157,9 +177,16 @@ public sealed class MandateVerifier : IDisposable
         {
             return MandateRefusal.NoValidApproval;
         }
-        if (_state.IsApprovalRevoked(mandate.ApprovalId))
+        try
         {
-            return MandateRefusal.ApprovalRevoked;
+            if (_state.IsApprovalRevoked(mandate.ApprovalId))
+            {
+                return MandateRefusal.ApprovalRevoked;
+            }
+        }
+        catch (AuthorityUnreachableException)
+        {
+            return MandateRefusal.AuthorityUnreachable;
         }
         var now = _time.GetUtcNow();
         if (!string.Equals(mandate.RunnerId, _runnerId, StringComparison.Ordinal))

@@ -71,10 +71,13 @@ internal static class AuthorityTestExtensions
 }
 
 /// <summary>What a runner remembers, for tests: the nonces, the count per certificate, the revoked mandates and certificates, the stop.</summary>
-internal sealed class RunnerState : IMandateState
+internal sealed class RunnerState(ApprovalAuthority? authority = null) : IMandateState
 {
     private readonly HashSet<string> _used = [];
     private readonly Dictionary<string, int> _perApproval = new(StringComparer.Ordinal);
+
+    /// <summary>The authority cannot be asked (when the state is backed by one): the runner must refuse.</summary>
+    public bool AuthorityDown { get; set; }
 
     public HashSet<string> Revoked { get; } = [];
 
@@ -84,6 +87,10 @@ internal sealed class RunnerState : IMandateState
 
     public MandateUse TryUse(string nonce, string approvalId, int maxMandates)
     {
+        if (authority is not null)
+        {
+            return AuthorityDown ? throw new AuthorityUnreachableException() : authority.Use(approvalId, nonce, maxMandates);
+        }
         if (_used.Contains(nonce))
         {
             return MandateUse.Replayed;
@@ -100,5 +107,12 @@ internal sealed class RunnerState : IMandateState
 
     public bool IsRevoked(string mandateId) => Revoked.Contains(mandateId);
 
-    public bool IsApprovalRevoked(string approvalId) => RevokedApprovals.Contains(approvalId);
+    public bool IsApprovalRevoked(string approvalId)
+    {
+        if (authority is null)
+        {
+            return RevokedApprovals.Contains(approvalId);
+        }
+        return AuthorityDown ? throw new AuthorityUnreachableException() : authority.IsRevoked(approvalId);
+    }
 }

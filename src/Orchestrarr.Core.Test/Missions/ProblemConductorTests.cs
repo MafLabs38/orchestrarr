@@ -15,6 +15,7 @@ public sealed class ProblemConductorTests : IDisposable
     private readonly FakeStop _stop = new();
     private readonly TestAuthority _authority;
     private readonly FakeGrants _grants = new();
+    private readonly FakeWithdrawals _withdrawals = new();
     private readonly FakeAudit _audit = new();
     private int _ids;
 
@@ -46,7 +47,10 @@ public sealed class ProblemConductorTests : IDisposable
 
         public bool? BranchSafe { get; set; } = true;
 
-        public ObservedFacts Facts(string problemId, World world, Dossier? dossier, string? commit) => new(true, !DiffTouchesForbidden, CiGreen, ArtifactProved, WayBack, ClaimMatches, MergeMayDeploy, ExecutedFiles, TagsBlocked, BranchSafe);
+        /// <summary>What the forge says the head is; null: the head is the commit that was asked about.</summary>
+        public string? HeadCommit { get; set; }
+
+        public ObservedFacts Facts(string problemId, World world, Dossier? dossier, string? commit) => new(true, !DiffTouchesForbidden, CiGreen, ArtifactProved, WayBack, ClaimMatches, MergeMayDeploy, ExecutedFiles, TagsBlocked, BranchSafe, HeadCommit ?? commit);
     }
 
     private sealed class FakeStop : IStopSignal
@@ -59,6 +63,13 @@ public sealed class ProblemConductorTests : IDisposable
         public World? Max { get; set; } = World.Release;
 
         public World? MaxWorldFor(string applicationId) => Max;
+    }
+
+    private sealed class FakeWithdrawals : IApprovalWithdrawals
+    {
+        public HashSet<string> Withdrawn { get; } = [];
+
+        public bool IsWithdrawn(string certificateId) => Withdrawn.Contains(certificateId);
     }
 
     private sealed class FakeAudit : IMissionAudit
@@ -82,8 +93,10 @@ public sealed class ProblemConductorTests : IDisposable
         public string RunnerFor(World world, string applicationId) => $"runner-{world}".ToLowerInvariant();
     }
 
-    private ProblemConductor Conductor(ConductorOptions? options = null) =>
-        new(_signer, _missions, _mandates, _problems, _dossiers, _facts, new Runners(), _authority, _authority.Verifier, _grants, _stop, _audit, _time, options ?? ConductorOptions.Default, () => $"id-{Interlocked.Increment(ref _ids)}");
+    private ProblemConductor Conductor(ConductorOptions? options = null) => Build(_authority, options, "id", locks: null);
+
+    private ProblemConductor Build(IApprovalSource approvals, ConductorOptions? options, string idPrefix, ProblemLocks? locks) =>
+        new(_signer, new MissionStores(_missions, _mandates, _problems, _dossiers), new PowerSources(approvals, _authority.Verifier, _withdrawals, _grants, _stop), _facts, new Runners(), _audit, _time, options ?? ConductorOptions.Default, () => $"{idPrefix}-{Interlocked.Increment(ref _ids)}", locks);
 
     private static PlanEntry Entry(World max = World.Release, string rule = "") => new("problem-1", "shop", "deprecated-dependency", "Replace the removed method", ["example/shop"], max, new MissionBudget(20, 3, 50),
         new Validation("alice", rule.Length == 0 ? null : rule), new DateTimeOffset(2026, 11, 13, 11, 0, 0, TimeSpan.Zero));
@@ -679,8 +692,8 @@ public sealed class ProblemConductorTests : IDisposable
     public void Two_conductors_on_the_same_stores_that_share_the_locks_do_not_overlap_on_a_problem()
     {
         var locks = new ProblemLocks();
-        var one = new ProblemConductor(_signer, _missions, _mandates, _problems, _dossiers, _facts, new Runners(), _authority, _authority.Verifier, _grants, _stop, _audit, _time, ConductorOptions.Default, () => $"a-{Interlocked.Increment(ref _ids)}", locks);
-        var two = new ProblemConductor(_signer, _missions, _mandates, _problems, _dossiers, _facts, new Runners(), _authority, _authority.Verifier, _grants, _stop, _audit, _time, ConductorOptions.Default, () => $"b-{Interlocked.Increment(ref _ids)}", locks);
+        var one = Build(_authority, null, "a", locks);
+        var two = Build(_authority, null, "b", locks);
         var results = new ConductResult[8];
 
         Parallel.For(0, results.Length, index => results[index] = StartStaged(index % 2 == 0 ? one : two));
@@ -911,7 +924,7 @@ public sealed class ProblemConductorTests : IDisposable
         conductor.Stop("problem-1", "the maintainer stopped it").Ok.Should().BeTrue();
         // The authority gives the same certificate again: the stored one is the one that was used
         var again = new ReusedApprovals(_problems.Get("problem-1")!.Approval);
-        var reusing = new ProblemConductor(_signer, _missions, _mandates, _problems, _dossiers, _facts, new Runners(), again, _authority.Verifier, _grants, _stop, _audit, _time, ConductorOptions.Default, () => $"id-{Interlocked.Increment(ref _ids)}");
+        var reusing = Build(again, null, "id", null);
 
         var result = StartStaged(reusing);
 
@@ -986,6 +999,8 @@ public sealed class ProblemConductorTests : IDisposable
 
         plain.Moved.Should().BeFalse();
         sentBack.Ok.Should().BeFalse();
+        sentBack.Moved.Should().BeTrue("the check failed and the mission was sent back");
+        sentBack.Mission!.SendBacks.Should().Be(1);
     }
 
     [Fact]
@@ -1018,5 +1033,67 @@ public sealed class ProblemConductorTests : IDisposable
 
         twice.Ok.Should().BeFalse();
         _mandates.CountForProblem("problem-1").Should().Be(2, "one for the staging and one for the Git world, no more");
+    }
+
+    [Fact]
+    public void A_worker_that_names_another_commit_than_the_head_the_forge_reads_gets_no_mandate_for_the_next_world()
+    {
+        var conductor = Conductor();
+        var staging = StartStaged(conductor);
+        var id = staging.Mission!.Id;
+        conductor.Started(id);
+        conductor.HandOver(id, DossierFor(id) with { Commit = "clean-green-commit" });
+        _facts.HeadCommit = "the-real-head";
+
+        var decided = conductor.Decide(id, Grant());
+
+        decided.Ok.Should().BeFalse();
+        decided.Failures.Should().Contain(PreconditionFailure.ClaimDoesNotMatchFacts);
+        _missions.ForProblem("problem-1").Should().ContainSingle("no mandate was issued on the worker's pointer");
+    }
+
+    [Fact]
+    public void A_certificate_the_authority_withdrew_stops_the_acts_the_crossings_and_the_sweep()
+    {
+        var conductor = Conductor();
+        var git = Through(conductor, StartStaged(conductor));
+        conductor.AuthoriseAct(git.Mission!.Id, GatedAct.MergePullRequest, "abc").Allowed.Should().BeTrue();
+
+        _withdrawals.Withdrawn.Add(_problems.Get("problem-1")!.Approval.Certificate.Id);
+
+        conductor.AuthoriseAct(git.Mission.Id, GatedAct.MergePullRequest, "abc").Allowed.Should().BeFalse("a withdrawn approval does not authorise a merge");
+        conductor.Sweep().Should().Be(1);
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.Failed);
+        _mandates.IsRevoked(git.Mandate!.Mandate.Id).Should().BeTrue();
+    }
+
+    [Fact]
+    public void The_bound_on_the_mandates_of_a_problem_guards_a_new_mandate_not_the_acts_of_the_last_one_or_the_closing()
+    {
+        var conductor = Conductor(ConductorOptions.Default with { Loop = new LoopPolicy(3, 3, TimeSpan.FromHours(6)) });
+        var release = Through(conductor, Through(conductor, StartStaged(conductor)));
+        release.Mandate!.Mandate.World.Should().Be(World.Release);
+
+        conductor.AuthoriseAct(release.Mission!.Id, GatedAct.Deploy, "abc").Allowed.Should().BeTrue("the release mandate is the third and last one allowed, and it may deploy");
+        var closed = Through(conductor, release);
+
+        closed.Ok.Should().BeTrue();
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.Closed, "a release that used the last mandate is a success, not a failure");
+    }
+
+    [Fact]
+    public void An_old_approval_does_not_come_back_to_life_after_a_newer_one_was_used()
+    {
+        var conductor = Conductor();
+        var first = StartStaged(conductor);
+        var x = first.Mandate!.Approval!;
+        conductor.Stop("problem-1", "stopped").Ok.Should().BeTrue();
+        StartStaged(conductor).Ok.Should().BeTrue("a new approval Y");
+        conductor.Stop("problem-1", "stopped again").Ok.Should().BeTrue();
+
+        var again = StartStaged(Build(new ReusedApprovals(x), null, "id", null));
+
+        again.Ok.Should().BeFalse();
+        again.Refusal.Should().Contain("already used");
     }
 }

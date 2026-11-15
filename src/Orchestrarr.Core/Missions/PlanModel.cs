@@ -34,6 +34,12 @@ public sealed record PlanEntry(
 /// <summary>What the control plane keeps about one problem while it is worked on: its plan entry, the certificate of the approval, the highest world its powers reached when it started (a display: the power is read again at each crossing), and whether its application has a staging.</summary>
 public sealed record ProblemRun(string ProblemId, string ApplicationId, ProblemState State, DateTimeOffset StartedAt, PlanEntry Entry, World HighestAllowed, bool UsesStaging, SignedApproval Approval, World? CurrentWorld = null, string? Note = null);
 
+/// <summary>The four stores of the missions, together: the missions, the mandates, the problems and the dossiers.</summary>
+public sealed record MissionStores(IMissionStore Missions, IMandateLedger Mandates, IProblemStore Problems, IDossierStore Dossiers);
+
+/// <summary>What the power of a problem is read from, at every crossing and every act: the approval source, the verifier of its certificates, the withdrawals the authority published, the grants and the global stop.</summary>
+public sealed record PowerSources(IApprovalSource Approvals, ApprovalVerifier Verifier, IApprovalWithdrawals Withdrawals, IGrantSource Grants, IStopSignal Stop);
+
 /// <summary>The stores of the control plane, behind interfaces so that SQLite and memory give the same answers.</summary>
 public interface IMissionStore
 {
@@ -90,9 +96,12 @@ public interface IDossierStore
 /// <summary>What the control plane fetched itself (FR-MAN-7): the diff and the CI status from the forge on the exact commit, the health from Portarr. A fact that is not known is null, and counts as failing.</summary>
 public sealed record ObservedFacts(
     bool BudgetAvailable, bool? DiffIsClean, bool? CiGreenOnExactCommit, bool? ArtifactIsTheOneProvedInStaging, bool? WayBackKnown, bool WorkerClaimMatchesFacts,
-    bool? MergeMayDeploy = null, bool? ExecutedFilesTouched = null, bool? TagCreationBlocked = null, bool? BranchCannotReachSecrets = null);
+    bool? MergeMayDeploy = null, bool? ExecutedFilesTouched = null, bool? TagCreationBlocked = null, bool? BranchCannotReachWriteCredentials = null, string? HeadCommit = null);
 
-/// <summary>The source of the facts. It says only what it observed: the plan, the stop, the loop and the staging are the conductor's own.</summary>
+/// <summary>
+/// The source of the facts. It says only what it observed: the plan, the stop, the loop and the staging are the conductor's own. **The commit it is given is the worker's claim, not the commit to look at**: the source reads
+/// the head of the mission's branch from the forge itself and says it in <c>HeadCommit</c>; a claim that differs, or a head it cannot read, fails the check.
+/// </summary>
 public interface IFactsSource
 {
     ObservedFacts Facts(string problemId, World world, Dossier? dossier, string? commit);

@@ -21,7 +21,7 @@ public sealed record PreconditionFacts(
     bool? MergeMayDeploy = null,
     bool? ExecutedFilesTouched = null,
     bool? TagCreationBlocked = null,
-    bool? BranchCannotReachSecrets = null);
+    bool? BranchCannotReachWriteCredentials = null);
 
 public enum PreconditionFailure
 {
@@ -46,8 +46,12 @@ public enum PreconditionFailure
     /// <summary>The forge does not block the agent's identity from creating tags and releases (a ruleset), or it is not known: a tag could deploy without the release-world mandate.</summary>
     AgentCouldCreateTags,
 
-    /// <summary>A workflow that runs in the context of the base branch (<c>pull_request_target</c>, <c>workflow_run</c>) could check out or run what the agent pushed, or a secret is reachable outside an environment that needs a reviewer: the agent's code could run with a secret. Not known counts as reachable.</summary>
-    AgentBranchCouldReachSecrets,
+    /// <summary>
+    /// A job that runs on the agent's branch could obtain a **write credential**, not only a secret: a workflow of the base branch's context (<c>pull_request_target</c>, <c>workflow_run</c>) that runs what the agent pushed, a secret outside an environment that needs
+    /// a reviewer, an <c>id-token: write</c> permission on a workflow that the agent's branch triggers (or a federation trust not pinned to protected refs or environments), a write scope of the default workflow token, or the setting that lets Actions
+    /// approve pull requests. Not known counts as reachable.
+    /// </summary>
+    AgentBranchCouldReachWriteCredentials,
 }
 
 /// <summary>What the code checks and never leaves to a judgement (FR-MAN-7). The controller judges the rest. <c>DiffTouchesForbiddenPath</c> also covers a diff that is not known: unknown counts as failing.</summary>
@@ -77,8 +81,8 @@ public static class MandatePreconditions
         Add(failures, facts.World == World.Git && mayDeploy && facts.ApprovedMaxWorld >= World.Release && facts.ExecutedFilesTouched != false, PreconditionFailure.ExecutedFilesTouchedWhereMergeDeploys);
         // A tag or a release can deploy as a merge can: the forge must stop the agent's identity from creating one, as a fact read from the repository's rulesets
         Add(failures, facts.World == World.Git && facts.TagCreationBlocked != true, PreconditionFailure.AgentCouldCreateTags);
-        // What the agent pushes must not run with a secret: no workflow of the base branch's context runs it, and no secret is reachable outside a reviewer-gated environment (read from the repository, unknown counts as reachable)
-        Add(failures, facts.World == World.Git && facts.BranchCannotReachSecrets != true, PreconditionFailure.AgentBranchCouldReachSecrets);
+        // What the agent pushes must not run with a write credential of any kind (see the failure): read from the repository and the forge, unknown counts as reachable
+        Add(failures, facts.World == World.Git && facts.BranchCannotReachWriteCredentials != true, PreconditionFailure.AgentBranchCouldReachWriteCredentials);
         // A deployment needs a way back known before it starts (FR-WLD-13, rule 5 of CLAUDE.md): unknown counts as failing
         Add(failures, facts.World == World.Release && facts.WayBackKnown != true, PreconditionFailure.NoWayBackKnown);
         return failures;

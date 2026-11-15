@@ -18,6 +18,15 @@ public interface IGrantSource
     World? MaxWorldFor(string applicationId);
 }
 
+/// <summary>
+/// The certificates that the approval authority withdrew, read like the stop: **a list that cannot be read counts as everything withdrawn**. A withdrawn certificate stops the problems that run on it
+/// (the crossings, the acts and the sweep), not only the runners that read the list.
+/// </summary>
+public interface IApprovalWithdrawals
+{
+    bool IsWithdrawn(string certificateId);
+}
+
 /// <summary>The global stop, as the conductor reads it: while it is engaged no mandate is issued, and the sweep stops what is running.</summary>
 public interface IStopSignal
 {

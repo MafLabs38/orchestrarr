@@ -1,8 +1,8 @@
 using System.Security.Cryptography;
 using Orchestrarr.Core.Approvals;
 using Orchestrarr.Core.Launch;
-using Orchestrarr.Host.Agents;
 using Orchestrarr.Core.Missions;
+using Orchestrarr.Host.Agents;
 using Orchestrarr.Host.Storage;
 using Orchestrarr.Storage;
 
@@ -42,11 +42,12 @@ internal static class MissionsServiceCollectionExtensions
             .AddSingleton<IStopSignal>(provider => new KillSwitchSignal(provider.GetRequiredService<IKillSwitchControl>()))
             .AddSingleton<IMissionAudit>(provider => new AuditTrailMissions(provider.GetRequiredService<IAuditSink>(), provider.GetRequiredService<TimeProvider>()))
             .AddHostedService<MissionSweeper>()
+            .AddSingleton<IApprovalWithdrawals, UnreadableWithdrawals>()
+            .AddSingleton(provider => new MissionStores(provider.GetRequiredService<IMissionStore>(), provider.GetRequiredService<IMandateLedger>(), provider.GetRequiredService<IProblemStore>(), provider.GetRequiredService<IDossierStore>()))
+            .AddSingleton(provider => new PowerSources(provider.GetRequiredService<IApprovalSource>(), provider.GetRequiredService<ApprovalVerifier>(), provider.GetRequiredService<IApprovalWithdrawals>(), provider.GetRequiredService<IGrantSource>(), provider.GetRequiredService<IStopSignal>()))
             .AddSingleton(provider => new ProblemConductor(
-                provider.GetRequiredService<MandateSigner>(), provider.GetRequiredService<IMissionStore>(), provider.GetRequiredService<IMandateLedger>(), provider.GetRequiredService<IProblemStore>(),
-                provider.GetRequiredService<IDossierStore>(), provider.GetRequiredService<IFactsSource>(), provider.GetRequiredService<IRunnerDirectory>(), provider.GetRequiredService<IApprovalSource>(), provider.GetRequiredService<ApprovalVerifier>(), provider.GetRequiredService<IGrantSource>(),
-                provider.GetRequiredService<IStopSignal>(), provider.GetRequiredService<IMissionAudit>(), provider.GetRequiredService<TimeProvider>(),
-                options.Conductor(), () => Guid.NewGuid().ToString("N"), provider.GetRequiredService<ProblemLocks>()));
+                provider.GetRequiredService<MandateSigner>(), provider.GetRequiredService<MissionStores>(), provider.GetRequiredService<PowerSources>(), provider.GetRequiredService<IFactsSource>(), provider.GetRequiredService<IRunnerDirectory>(),
+                provider.GetRequiredService<IMissionAudit>(), provider.GetRequiredService<TimeProvider>(), options.Conductor(), () => Guid.NewGuid().ToString("N"), provider.GetRequiredService<ProblemLocks>()));
     }
 }
 
@@ -100,6 +101,12 @@ internal sealed class ConservativeFacts : IFactsSource
         BudgetAvailable: false, DiffIsClean: null, CiGreenOnExactCommit: null, ArtifactIsTheOneProvedInStaging: null, WayBackKnown: null, WorkerClaimMatchesFacts: false);
 }
 
+/// <summary>The list of the certificates that the authority withdrew cannot be read yet (the authority is not deployed): **every certificate counts as withdrawn**, the same direction as a stop that cannot be read.</summary>
+internal sealed class UnreadableWithdrawals : IApprovalWithdrawals
+{
+    public bool IsWithdrawn(string certificateId) => true;
+}
+
 /// <summary>The maintainer's approval is proved by a certificate of the approval authority (ADR 0031 point 7). The plan service that links a plan entry to a certificate is not built: until then none is given, so no real mandate is issued.</summary>
 internal sealed class NoApprovals : IApprovalSource
 {
@@ -130,7 +137,7 @@ internal static class AuthorityKey
         {
             return new ApprovalVerifier(File.ReadAllBytes(file), time);
         }
-        using var nobody = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+        using var nobody = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         return new ApprovalVerifier(nobody.ExportSubjectPublicKeyInfo(), time);
     }
 }
