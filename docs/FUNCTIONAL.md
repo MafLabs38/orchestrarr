@@ -369,4 +369,4 @@ At the functional level only. The architecture will say where each piece goes.
 8. **How the notification reaches the maintainer** (through Portarr or directly).
 9. The shape of the **laboratory** and how the staging is restored between runs.
 10. How the product proves that the **staging is the same code** as production.
-11. **How a merge that deploys by itself is handled** (SPEC Q-29), with the release strategy, tags and releases, and the quality gate's tokens versus agent branches (ADR 0035, Open).
+11. The release is **not a fixed rule** (the maintainer, 2026-11-15, ADR 0035): the agent judges the delivery mode of each repository and reports it, the controller reviews; tags and releases, the checks' tokens and the repositories that define the frame stay open.
