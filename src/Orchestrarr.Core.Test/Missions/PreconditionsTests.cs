@@ -5,7 +5,7 @@ namespace Orchestrarr.Core.Test.Missions;
 public sealed class PreconditionsTests
 {
     private static PreconditionFacts Good(World world) => new(world, PlanCovers: true, BudgetAvailable: true, KillSwitchEngaged: false, Staging: StagingVerdict.Usable,
-        PreviousDossierExists: true, DiffIsClean: true, CiGreenOnExactCommit: true, ArtifactIsTheOneProvedInStaging: true, WorkerClaimMatchesFacts: true, Loop: LoopVerdict.Allowed, WayBackKnown: true, MergeMayDeploy: false, ExecutedFilesTouched: false, TagCreationBlocked: true, BranchCannotReachWriteCredentials: true, IdentityConfinedToItsBranches: true);
+        PreviousDossierExists: true, DiffIsClean: true, CiGreenOnExactCommit: true, ArtifactIsTheOneProvedInStaging: true, WorkerClaimMatchesFacts: true, Loop: LoopVerdict.Allowed, WayBackKnown: true, MergeMayDeploy: false, ExecutedFilesTouched: false, TagCreationBlocked: true, BranchCannotReachWriteCredentials: true, IdentityConfinedToItsBranches: true, RevertCanLandWithoutReview: true);
 
     [Theory]
     [InlineData(World.Staging)]
@@ -34,7 +34,7 @@ public sealed class PreconditionsTests
             WayBackKnown = null,
         };
 
-        MandatePreconditions.Check(facts, requiresStagingProof: true).Should().BeEquivalentTo(Enum.GetValues<PreconditionFailure>().Where(failure => failure is not (PreconditionFailure.MergeMayDeployUnderGitMandate or PreconditionFailure.ExecutedFilesTouchedWhereMergeDeploys or PreconditionFailure.AgentCouldCreateTags or PreconditionFailure.AgentBranchCouldReachWriteCredentials or PreconditionFailure.AgentIdentityNotConfined or PreconditionFailure.ApprovalBacksNoMoreMandates)), "the checks about a merge are for the Git world, and the count of a certificate is the conductor's");
+        MandatePreconditions.Check(facts, requiresStagingProof: true).Should().BeEquivalentTo(Enum.GetValues<PreconditionFailure>().Where(failure => failure is not (PreconditionFailure.MergeMayDeployUnderGitMandate or PreconditionFailure.ExecutedFilesTouchedWhereMergeDeploys or PreconditionFailure.AgentCouldCreateTags or PreconditionFailure.AgentBranchCouldReachWriteCredentials or PreconditionFailure.AgentIdentityNotConfined or PreconditionFailure.ApprovalBacksNoMoreMandates or PreconditionFailure.RevertCouldNotLand)), "the checks about a merge are for the Git world, and the count of a certificate is the conductor's");
     }
 
     [Fact]
@@ -116,5 +116,16 @@ public sealed class PreconditionsTests
         MandatePreconditions.Check(Good(World.Git) with { IdentityConfinedToItsBranches = null }, false).Should().Equal(PreconditionFailure.AgentIdentityNotConfined);
         MandatePreconditions.Check(Good(World.Git) with { IdentityConfinedToItsBranches = false }, false).Should().Equal(PreconditionFailure.AgentIdentityNotConfined);
         MandatePreconditions.Check(Good(World.Release) with { IdentityConfinedToItsBranches = null }, false).Should().BeEmpty("the check is for the Git world");
+    }
+
+    [Fact]
+    public void A_release_by_merge_is_admitted_only_if_the_revert_can_land_by_itself_and_unknown_counts_as_unable()
+    {
+        var release = Good(World.Release) with { MergeMayDeploy = true, ExecutedFilesTouched = false };
+
+        MandatePreconditions.Check(release with { RevertCanLandWithoutReview = null }, false).Should().Equal(PreconditionFailure.RevertCouldNotLand);
+        MandatePreconditions.Check(release with { RevertCanLandWithoutReview = false }, false).Should().Equal(PreconditionFailure.RevertCouldNotLand);
+        MandatePreconditions.Check(release, false).Should().BeEmpty();
+        MandatePreconditions.Check(Good(World.Release) with { MergeMayDeploy = false, RevertCanLandWithoutReview = null }, false).Should().BeEmpty("a release that is not a merge has no revert to land");
     }
 }

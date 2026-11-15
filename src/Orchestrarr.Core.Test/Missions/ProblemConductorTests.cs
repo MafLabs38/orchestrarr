@@ -69,6 +69,8 @@ public sealed class ProblemConductorTests : IDisposable
 
         public bool? Confined { get; set; } = true;
 
+        public bool? RevertCanLand { get; set; } = true;
+
         /// <summary>What the forge says the head is; null: the head is the commit that was asked about.</summary>
         public string? HeadCommit { get; set; }
 
@@ -77,7 +79,7 @@ public sealed class ProblemConductorTests : IDisposable
         public ObservedFacts Facts(FactsQuery query)
         {
             Last = query;
-            return new(true, DiffSaysClean, CiGreen, ArtifactProved, WayBack, ClaimMatches, MergeMayDeploy, ExecutedFiles, TagsBlocked, BranchSafe, HeadCommit ?? query.Commit, Confined, Paths(), query.Repository, BaseCommit ?? query.BaseCommit);
+            return new(true, DiffSaysClean, CiGreen, ArtifactProved, WayBack, ClaimMatches, MergeMayDeploy, ExecutedFiles, TagsBlocked, BranchSafe, HeadCommit ?? query.Commit, Confined, Paths(), query.Repository, BaseCommit ?? query.BaseCommit, RevertCanLand);
         }
     }
 

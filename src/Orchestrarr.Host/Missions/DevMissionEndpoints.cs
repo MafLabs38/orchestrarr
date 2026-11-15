@@ -130,6 +130,6 @@ internal static class DevMissionEndpoints
     {
         public bool Ci { get; set; } = true;
 
-        public ObservedFacts Facts(FactsQuery query) => new(true, true, Ci, true, true, true, MergeMayDeploy: false, ExecutedFilesTouched: false, TagCreationBlocked: true, BranchCannotReachWriteCredentials: true, HeadCommit: query.Commit, IdentityConfinedToItsBranches: true, ChangedPaths: ["src/Orders.cs", "tests/OrdersTests.cs"]);
+        public ObservedFacts Facts(FactsQuery query) => new(true, true, Ci, true, true, true, MergeMayDeploy: false, ExecutedFilesTouched: false, TagCreationBlocked: true, BranchCannotReachWriteCredentials: true, HeadCommit: query.Commit, IdentityConfinedToItsBranches: true, ChangedPaths: ["src/Orders.cs", "tests/OrdersTests.cs"], RevertCanLandWithoutReview: true);
     }
 }

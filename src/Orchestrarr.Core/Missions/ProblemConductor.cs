@@ -419,7 +419,7 @@ public sealed class ProblemConductor(
             world, PlanCovers: true, observed.BudgetAvailable, stop.Engaged, run.UsesStaging ? StagingVerdict.Usable : StagingVerdict.UsableWithNoNet, previousDossierExists,
             diffClean, observed.CiGreenOnExactCommit, observed.ArtifactIsTheOneProvedInStaging, claimMatches,
             issuing ? options.Loop.Check(mandates.CountForRun(run.ProblemId, run.Approval.Certificate.Id), time.GetUtcNow() - run.StartedAt) : LoopVerdict.Allowed, observed.WayBackKnown,
-            observed.MergeMayDeploy, observed.ExecutedFilesTouched, observed.TagCreationBlocked, observed.BranchCannotReachWriteCredentials, observed.IdentityConfinedToItsBranches);
+            observed.MergeMayDeploy, observed.ExecutedFilesTouched, observed.TagCreationBlocked, observed.BranchCannotReachWriteCredentials, observed.IdentityConfinedToItsBranches, observed.RevertCanLandWithoutReview);
         // The release of an application with a staging needs the artifact that was proved there (FR-WLD-14)
         return [.. MandatePreconditions.Check(checks, requiresStagingProof: run.UsesStaging && world == World.Release)];
     }
