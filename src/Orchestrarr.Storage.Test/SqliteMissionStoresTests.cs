@@ -220,7 +220,7 @@ public sealed class SqliteMissionStoresTests : IDisposable
 
     private sealed class GoodFacts : IFactsSource
     {
-        public ObservedFacts Facts(string problemId, World world, Dossier? dossier, string? commit) => new(true, true, true, true, true, true, MergeMayDeploy: false, ExecutedFilesTouched: false, TagCreationBlocked: true, BranchCannotReachWriteCredentials: true, HeadCommit: commit, IdentityConfinedToItsBranches: true, ChangedPaths: ["src/Orders.cs"]);
+        public ObservedFacts Facts(FactsQuery query) => new(true, true, true, true, true, true, MergeMayDeploy: false, ExecutedFilesTouched: false, TagCreationBlocked: true, BranchCannotReachWriteCredentials: true, HeadCommit: query.Commit, IdentityConfinedToItsBranches: true, ChangedPaths: ["src/Orders.cs"]);
     }
 
     private sealed class Grants : IGrantSource

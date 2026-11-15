@@ -40,6 +40,8 @@ public sealed class InMemoryMandateLedger : IMandateLedger
 
     public int CountForProblem(string problemId) => _mandates.Values.Count(mandate => mandate.Mandate.ProblemId == problemId);
 
+    public int CountForRun(string problemId, string approvalId) => _mandates.Values.Count(mandate => mandate.Mandate.ProblemId == problemId && mandate.Mandate.ApprovalId == approvalId);
+
     public int CountForApproval(string approvalId) => _mandates.Values.Count(mandate => mandate.Mandate.ApprovalId == approvalId);
 
     public void Revoke(string id)

@@ -61,6 +61,9 @@ public interface IMandateLedger
 
     int CountForProblem(string problemId);
 
+    /// <summary>How many mandates one run of a problem was given: the mandates of the problem under the approval of that run (a problem started again on a new approval starts a new count).</summary>
+    int CountForRun(string problemId, string approvalId);
+
     /// <summary>How many mandates were issued under one certificate of the authority.</summary>
     int CountForApproval(string approvalId);
 
@@ -104,8 +107,13 @@ public sealed record ObservedFacts(
 /// </summary>
 public interface IFactsSource
 {
-    ObservedFacts Facts(string problemId, World world, Dossier? dossier, string? commit);
+    ObservedFacts Facts(FactsQuery query);
 }
+
+/// <summary>
+/// What a source of facts is asked: the problem and the mission (none yet at the start of a problem), the world, the **frame of the mission** (its repositories, so that the source reads the right one), the dossier and the commit the worker claims.
+/// </summary>
+public sealed record FactsQuery(string ProblemId, string? MissionId, World World, MissionFrame Frame, Dossier? Dossier, string? Commit);
 
 /// <summary>Which runner serves a world for an application (a runner profile on a host).</summary>
 public interface IRunnerDirectory

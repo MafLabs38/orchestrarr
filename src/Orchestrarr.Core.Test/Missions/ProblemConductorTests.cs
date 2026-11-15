@@ -69,7 +69,13 @@ public sealed class ProblemConductorTests : IDisposable
         /// <summary>What the forge says the head is; null: the head is the commit that was asked about.</summary>
         public string? HeadCommit { get; set; }
 
-        public ObservedFacts Facts(string problemId, World world, Dossier? dossier, string? commit) => new(true, DiffSaysClean, CiGreen, ArtifactProved, WayBack, ClaimMatches, MergeMayDeploy, ExecutedFiles, TagsBlocked, BranchSafe, HeadCommit ?? commit, Confined, Paths());
+        public FactsQuery? Last { get; private set; }
+
+        public ObservedFacts Facts(FactsQuery query)
+        {
+            Last = query;
+            return new(true, DiffSaysClean, CiGreen, ArtifactProved, WayBack, ClaimMatches, MergeMayDeploy, ExecutedFiles, TagsBlocked, BranchSafe, HeadCommit ?? query.Commit, Confined, Paths());
+        }
     }
 
     private sealed class FakeStop : IStopSignal
@@ -81,7 +87,20 @@ public sealed class ProblemConductorTests : IDisposable
     {
         public World? Max { get; set; } = World.Release;
 
-        public World? MaxWorldFor(string applicationId) => Max;
+        /// <summary>Applications whose grant was withdrawn.</summary>
+        public HashSet<string> Withdrawn { get; } = [];
+
+        /// <summary>An application whose grant cannot be read (the store is unavailable).</summary>
+        public string? ThrowFor { get; set; }
+
+        public World? MaxWorldFor(string applicationId)
+        {
+            if (string.Equals(applicationId, ThrowFor, StringComparison.Ordinal))
+            {
+                throw new Orchestrarr.Core.Approvals.StorageUnavailableException();
+            }
+            return Withdrawn.Contains(applicationId) ? null : Max;
+        }
     }
 
     private sealed class FakeWithdrawals : IApprovalWithdrawals
@@ -1208,5 +1227,74 @@ public sealed class ProblemConductorTests : IDisposable
         _facts.UnknownPaths = true;
 
         conductor.Decide(id, Grant()).Failures.Should().Contain(PreconditionFailure.DiffTouchesForbiddenPath);
+    }
+
+    [Fact]
+    public void One_run_that_cannot_be_read_never_keeps_the_others_from_being_stopped()
+    {
+        var conductor = Conductor();
+        StartStaged(conductor).Ok.Should().BeTrue();
+        StartStaged(conductor, Entry() with { ProblemId = "problem-2", ApplicationId = "blog" }).Ok.Should().BeTrue();
+        _grants.ThrowFor = "shop";
+        _grants.Withdrawn.Add("blog");
+
+        conductor.Sweep().Should().Be(1, "the second problem is stopped although the first cannot be read");
+
+        _problems.Get("problem-2")!.State.Should().Be(ProblemState.Failed);
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.InProgress);
+        _audit.Events.Should().Contain(entry => entry.StartsWith("sweep.failed problem-1", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_problem_started_again_on_a_new_approval_starts_a_new_count_of_mandates()
+    {
+        var conductor = Conductor(ConductorOptions.Default with { Loop = new LoopPolicy(3, 3, TimeSpan.FromHours(6)) });
+        var git = Through(conductor, StartStaged(conductor));
+        var id = git.Mission!.Id;
+        conductor.Started(id);
+        conductor.HandOver(id, DossierFor(id));
+        conductor.Decide(id, new ControllerDecision(ControllerDecisionKind.Escalate, ["a person decides"], null));
+        _mandates.CountForProblem("problem-1").Should().Be(2);
+
+        var again = StartStaged(conductor);
+
+        again.Ok.Should().BeTrue("the loop bound belongs to the run, and a new approval starts a new run");
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.InProgress);
+    }
+
+    [Fact]
+    public void The_gateway_reads_the_dossier_of_this_run_and_not_the_one_of_an_earlier_run_of_the_problem()
+    {
+        var conductor = Conductor();
+        var first = StartStaged(conductor).Mission!.Id;
+        conductor.Started(first);
+        conductor.HandOver(first, DossierFor(first) with { Claim = "run-1" });
+        var git1 = conductor.Decide(first, Grant()).Mission!.Id;
+        conductor.Started(git1);
+        conductor.HandOver(git1, DossierFor(git1));
+        conductor.Decide(git1, new ControllerDecision(ControllerDecisionKind.Escalate, ["a person decides"], null));
+        var second = StartStaged(conductor).Mission!.Id;
+        conductor.Started(second);
+        conductor.HandOver(second, DossierFor(second) with { Claim = "run-2" });
+        var git2 = conductor.Decide(second, Grant()).Mission!.Id;
+
+        conductor.AuthoriseAct(git2, GatedAct.MergePullRequest, "abc123").Allowed.Should().BeTrue();
+
+        _facts.Last!.Dossier!.Claim.Should().Be("run-2");
+    }
+
+    [Fact]
+    public void The_source_of_the_facts_is_asked_about_the_mission_its_frame_and_its_repositories()
+    {
+        var conductor = Conductor();
+        var id = StartStaged(conductor).Mission!.Id;
+        conductor.Started(id);
+        conductor.HandOver(id, DossierFor(id));
+
+        conductor.Decide(id, Grant());
+
+        _facts.Last!.MissionId.Should().Be(id);
+        _facts.Last.Frame.Repositories.Should().Equal("example/shop");
+        _facts.Last.ProblemId.Should().Be("problem-1");
     }
 }

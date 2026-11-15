@@ -79,7 +79,7 @@ public sealed class MissionsWiringTests : IDisposable
         factory.Services.GetRequiredService<IApprovalWithdrawals>().IsWithdrawn("anything").Should().BeTrue("the list that cannot be read counts as everything withdrawn");
         factory.Services.GetRequiredService<IApprovalSource>().For(new PlanEntry("p1", "shop", "class", "Replace", ["example/shop"], World.Release, new MissionBudget(20, 3, 50), new Validation("alice", null), DateTimeOffset.UnixEpoch)).Should().BeNull();
 
-        var facts = factory.Services.GetRequiredService<IFactsSource>().Facts("p1", World.Git, null, "abc");
+        var facts = factory.Services.GetRequiredService<IFactsSource>().Facts(new FactsQuery("p1", null, World.Git, new MissionFrame(["example/shop"], [], "Git:shop"), null, "abc"));
 
         facts.DiffIsClean.Should().BeNull();
         facts.CiGreenOnExactCommit.Should().BeNull();

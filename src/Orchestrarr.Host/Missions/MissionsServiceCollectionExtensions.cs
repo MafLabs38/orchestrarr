@@ -112,7 +112,7 @@ internal sealed class ConfiguredRunners(MissionsOptions options) : IRunnerDirect
 /// </summary>
 internal sealed class ConservativeFacts : IFactsSource
 {
-    public ObservedFacts Facts(string problemId, World world, Dossier? dossier, string? commit) => new(
+    public ObservedFacts Facts(FactsQuery query) => new(
         BudgetAvailable: false, DiffIsClean: null, CiGreenOnExactCommit: null, ArtifactIsTheOneProvedInStaging: null, WayBackKnown: null, WorkerClaimMatchesFacts: false);
 }
 

@@ -113,6 +113,16 @@ public sealed class SqliteMandateLedger(SqliteDatabase database) : IMandateLedge
 
     public int CountForProblem(string problemId) => SqliteDatabase.Guard(() => Convert.ToInt32(SqliteMissionStore.Scalar(database, "SELECT COUNT(*) FROM mandates WHERE problem_id = $key;", problemId), System.Globalization.CultureInfo.InvariantCulture));
 
+    public int CountForRun(string problemId, string approvalId) => SqliteDatabase.Guard(() =>
+    {
+        using var connection = database.Connect();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM mandates WHERE problem_id = $problem AND approval_id = $approval;";
+        command.Parameters.AddWithValue("$problem", problemId);
+        command.Parameters.AddWithValue("$approval", approvalId);
+        return Convert.ToInt32(command.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture);
+    });
+
     public int CountForApproval(string approvalId) => SqliteDatabase.Guard(() => Convert.ToInt32(SqliteMissionStore.Scalar(database, "SELECT COUNT(*) FROM mandates WHERE approval_id = $key;", approvalId), System.Globalization.CultureInfo.InvariantCulture));
 
     public void Revoke(string id) => SqliteDatabase.Guard(() =>
