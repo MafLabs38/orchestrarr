@@ -82,6 +82,8 @@ Unit tests do not see what a person sees. Before a vertical goes to the maintain
 - A bug found this way gets a test in the suite (Vitest or the API tests) in the same change, so that it stays found.
 
 
+The restructured design is tried in the sandbox with `POST /api/v1/dev/missions/demo` (`scenario=happy|red|escalate`), which uses fake agents and facts, and with `POST /api/v1/dev/controller/decide`, which needs `Agents:Enabled=true` and a `claude` login or `Agents:TokenFile` (README). Both are mapped in Development and Testing only.
+
 ## 7. Seeing the code smells in the editor
 
 The SonarQube rules can run in the editor (SonarLint) and be read by assistants, bound to the project of the SonarQube server.
