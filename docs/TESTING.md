@@ -81,7 +81,6 @@ Unit tests do not see what a person sees. Before a vertical goes to the maintain
 - Print what matters as **text** (the rows, the badges, the states, the console errors) and take **one screenshot only when the look is the question**: read it, fix what it shows, then **delete it at once** (an image read stays in the context of every later turn).
 - A bug found this way gets a test in the suite (Vitest or the API tests) in the same change, so that it stays found.
 
-The restructured design is tried in the sandbox with `POST /api/v1/dev/missions/demo` (`scenario=happy|red|escalate`), which uses fake agents and facts, and with `POST /api/v1/dev/controller/decide`, which needs `Agents:Enabled=true` and a `claude` login or `Agents:TokenFile` (README).
 
 ## 7. Seeing the code smells in the editor
 
