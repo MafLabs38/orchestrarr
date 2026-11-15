@@ -31,6 +31,16 @@ internal sealed class CanonicalWriter
         _stream.Write(buffer);
     }
 
+    /// <summary>A list of texts, sorted so that the order of the list cannot change what is signed, with its count first.</summary>
+    public void Strings(IReadOnlyList<string> values)
+    {
+        Int(values.Count);
+        foreach (var value in values.Order(StringComparer.Ordinal))
+        {
+            Text(value);
+        }
+    }
+
     public void Seconds(DateTimeOffset value)
     {
         Span<byte> buffer = stackalloc byte[8];

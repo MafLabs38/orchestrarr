@@ -6,8 +6,8 @@ namespace Orchestrarr.Core.Missions;
 /// <summary>Whether a certificate is for one problem, or for a standing rule that covers a class of problems (FR-PLAN-4, FR-SAF-12).</summary>
 public enum CertificateKind
 {
-    Problem,
-    Rule,
+    Problem = 0,
+    Rule = 1,
 }
 
 /// <summary>
@@ -37,11 +37,7 @@ public sealed record ApprovalCertificate(
         writer.Int((int)Kind);
         writer.Text(Subject);
         writer.Text(ApplicationId);
-        writer.Int(Repositories.Count);
-        foreach (var repository in Repositories.Order(StringComparer.Ordinal))
-        {
-            writer.Text(repository);
-        }
+        writer.Strings(Repositories);
         writer.Int((int)MaxWorld);
         writer.Int(Budget.MaxMinutes);
         writer.Int(Budget.MaxAttempts);
@@ -50,11 +46,7 @@ public sealed record ApprovalCertificate(
         writer.Seconds(ExpiresAt);
         writer.Text(Approver);
         writer.Text(Nonce);
-        writer.Int(ForbiddenPaths.Count);
-        foreach (var path in ForbiddenPaths.Order(StringComparer.Ordinal))
-        {
-            writer.Text(path);
-        }
+        writer.Strings(ForbiddenPaths);
         writer.Int(MaxMandates);
         return writer.ToArray();
     }
@@ -65,10 +57,10 @@ public sealed record SignedApproval(ApprovalCertificate Certificate, byte[] Sign
 /// <summary>What the maintainer asks the authority to certify. <c>MaxMandates</c> is how many mandates the whole certificate may back, counted by the runners: a certificate for a standing rule would otherwise back any number of problems.</summary>
 public sealed record ApprovalRequest(CertificateKind Kind, string Subject, string ApplicationId, IReadOnlyList<string> Repositories, World MaxWorld, MissionBudget Budget, TimeSpan Lifetime, IReadOnlyList<string>? ForbiddenPaths = null, int MaxMandates = 8);
 
-/// <summary>The bounds that the authority puts on what it signs, whoever asks: a certificate lives for a limited time and backs a limited number of mandates (a standing rule lives longer than a problem, but reaches only the Git world: the release world needs a certificate for the problem itself).</summary>
-public sealed record ApprovalPolicy(TimeSpan MaxProblemLifetime, TimeSpan MaxRuleLifetime, int MaxMandates, TimeSpan ProposalLifetime, World MaxRuleWorld)
+/// <summary>The bounds that the authority puts on what it signs, whoever asks (and a **floor of forbidden paths** that is in every certificate, so that a request that lists none still protects the pipelines): a certificate lives for a limited time and backs a limited number of mandates (a standing rule lives longer than a problem, but reaches only the Git world: the release world needs a certificate for the problem itself).</summary>
+public sealed record ApprovalPolicy(TimeSpan MaxProblemLifetime, TimeSpan MaxRuleLifetime, int MaxMandates, TimeSpan ProposalLifetime, World MaxRuleWorld, IReadOnlyList<string> ForbiddenPathsFloor)
 {
-    public static ApprovalPolicy Default { get; } = new(TimeSpan.FromDays(7), TimeSpan.FromDays(30), 50, TimeSpan.FromMinutes(10), World.Git);
+    public static ApprovalPolicy Default { get; } = new(TimeSpan.FromDays(7), TimeSpan.FromDays(30), 50, TimeSpan.FromMinutes(10), World.Git, [".github/**", "**/*.enc.*", "**/.env*"]);
 }
 
 /// <summary>
@@ -210,7 +202,9 @@ public sealed class ApprovalAuthority : IDisposable
         ArgumentNullException.ThrowIfNull(request);
         ArgumentException.ThrowIfNullOrWhiteSpace(approver);
         var longest = request.Kind == CertificateKind.Rule ? _policy.MaxRuleLifetime : _policy.MaxProblemLifetime;
-        var forbidden = request.ForbiddenPaths ?? [];
+        // The floor of forbidden paths is part of every certificate, whatever the request lists, and the maintainer reads it in the summary
+        var forbidden = (IReadOnlyList<string>)[.. (request.ForbiddenPaths ?? []).Union(_policy.ForbiddenPathsFloor, StringComparer.Ordinal)];
+        request = request with { ForbiddenPaths = forbidden };
         // Every identifier is plain text on one line: nothing a requester writes can pass for a line, a separator or a quote of what the maintainer reads
         if (request.Repositories.Count == 0 || !request.Budget.IsValid || request.Lifetime <= TimeSpan.Zero || request.Lifetime > longest || request.MaxMandates < 1 || request.MaxMandates > _policy.MaxMandates
             || (request.Kind == CertificateKind.Rule && request.MaxWorld > _policy.MaxRuleWorld)
@@ -261,21 +255,13 @@ public sealed class ApprovalAuthority : IDisposable
         writer.Int((int)request.Kind);
         writer.Text(request.Subject);
         writer.Text(request.ApplicationId);
-        writer.Int(request.Repositories.Count);
-        foreach (var repository in request.Repositories.Order(StringComparer.Ordinal))
-        {
-            writer.Text(repository);
-        }
+        writer.Strings(request.Repositories);
         writer.Int((int)request.MaxWorld);
         writer.Int(request.Budget.MaxMinutes);
         writer.Int(request.Budget.MaxAttempts);
         writer.Int(request.Budget.MaxTurns);
         writer.Int((int)request.Lifetime.TotalSeconds);
-        writer.Int(forbidden.Count);
-        foreach (var path in forbidden.Order(StringComparer.Ordinal))
-        {
-            writer.Text(path);
-        }
+        writer.Strings(forbidden);
         writer.Int(request.MaxMandates);
         return writer.ToArray();
     }

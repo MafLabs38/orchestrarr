@@ -17,11 +17,12 @@ public sealed record PreconditionFacts(
     bool WorkerClaimMatchesFacts,
     LoopVerdict Loop,
     bool? WayBackKnown = null,
-    World ApprovedMaxWorld = World.Release,
+    World ApprovedMaxWorld = World.Staging,
     bool? MergeMayDeploy = null,
     bool? ExecutedFilesTouched = null,
     bool? TagCreationBlocked = null,
-    bool? BranchCannotReachWriteCredentials = null);
+    bool? BranchCannotReachWriteCredentials = null,
+    bool? IdentityConfinedToItsBranches = null);
 
 public enum PreconditionFailure
 {
@@ -45,6 +46,12 @@ public enum PreconditionFailure
 
     /// <summary>The forge does not block the agent's identity from creating tags and releases (a ruleset), or it is not known: a tag could deploy without the release-world mandate.</summary>
     AgentCouldCreateTags,
+
+    /// <summary>The certificate of the approval already backed as many mandates as it says: no mandate can be issued under it (this is not the loop bound of the problem).</summary>
+    ApprovalBacksNoMoreMandates,
+
+    /// <summary>The agent's identity on the forge can write to branches other than its own prefix (no ruleset confines it), or it is not known: a push to a human's or a bot's branch could be merged with no mandate. Not known counts as unconfined.</summary>
+    AgentIdentityNotConfined,
 
     /// <summary>
     /// A job that runs on the agent's branch could obtain a **write credential**, not only a secret: a workflow of the base branch's context (<c>pull_request_target</c>, <c>workflow_run</c>) that runs what the agent pushed, a secret outside an environment that needs
@@ -83,6 +90,8 @@ public static class MandatePreconditions
         Add(failures, facts.World == World.Git && facts.TagCreationBlocked != true, PreconditionFailure.AgentCouldCreateTags);
         // What the agent pushes must not run with a write credential of any kind (see the failure): read from the repository and the forge, unknown counts as reachable
         Add(failures, facts.World == World.Git && facts.BranchCannotReachWriteCredentials != true, PreconditionFailure.AgentBranchCouldReachWriteCredentials);
+        // The agent writes only to its own prefix, by a ruleset of the forge: read from the repository, unknown counts as unconfined
+        Add(failures, facts.World == World.Git && facts.IdentityConfinedToItsBranches != true, PreconditionFailure.AgentIdentityNotConfined);
         // A deployment needs a way back known before it starts (FR-WLD-13, rule 5 of CLAUDE.md): unknown counts as failing
         Add(failures, facts.World == World.Release && facts.WayBackKnown != true, PreconditionFailure.NoWayBackKnown);
         return failures;

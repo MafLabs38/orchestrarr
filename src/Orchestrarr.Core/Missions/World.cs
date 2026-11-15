@@ -19,11 +19,11 @@ public enum World
 /// </summary>
 public enum GatedAct
 {
-    OpenPullRequest,
-    MergePullRequest,
-    Deploy,
-    Rollback,
-    ReserveStaging,
-    RestoreStaging,
-    ReleaseStaging,
+    OpenPullRequest = 0,
+    MergePullRequest = 1,
+    Deploy = 2,
+    Rollback = 3,
+    ReserveStaging = 4,
+    RestoreStaging = 5,
+    ReleaseStaging = 6,
 }

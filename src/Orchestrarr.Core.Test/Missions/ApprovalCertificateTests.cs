@@ -17,7 +17,7 @@ public sealed class ApprovalCertificateTests : IDisposable
 
     private static Mandate MandateFor(SignedApproval approval, World world = World.Git, Func<Mandate, Mandate>? change = null)
     {
-        var mandate = new Mandate("m-1", "mission-1", "problem-1", world, "runner-git", [GatedAct.OpenPullRequest], new MissionFrame(["example/shop"], [".github/**"], "Git:shop"), new MissionBudget(10, 2, 20),
+        var mandate = new Mandate("m-1", "mission-1", "problem-1", world, "runner-git", [GatedAct.OpenPullRequest], new MissionFrame(["example/shop"], [".github/**", "**/*.enc.*", "**/.env*"], "Git:shop"), new MissionBudget(10, 2, 20),
             approval.Certificate.IssuedAt, approval.Certificate.IssuedAt.AddMinutes(30), MandateSource.PlanValidation, "nonce-1", approval.Certificate.Id, "shop", "deprecated-dependency");
         return change?.Invoke(mandate) ?? mandate;
     }
@@ -249,6 +249,16 @@ public sealed class ApprovalCertificateTests : IDisposable
         restarted.Use("c9", "n1", 5).Should().Be(MandateUse.Replayed, "a nonce is used once");
     }
 
+    [Fact]
+    public void Every_certificate_carries_the_floor_of_forbidden_paths_even_when_the_request_lists_none()
+    {
+        var proposal = _authority.Authority.Propose(Request(World.Release) with { ForbiddenPaths = null }, "erin")!;
+
+        proposal.Summary.Split('\n').Should().Contain(["forbidden path: \".github/**\"", "forbidden path: \"**/*.enc.*\"", "forbidden path: \"**/.env*\""], "the maintainer reads them, and an absence cannot hide");
+        var approval = _authority.Approve(Request(World.Release) with { ForbiddenPaths = ["infra/**"] }).Approval!;
+        approval.Certificate.ForbiddenPaths.Should().BeEquivalentTo(".github/**", "**/*.enc.*", "**/.env*", "infra/**");
+    }
+
     private sealed class FixedSecrets : ISecondFactorSecrets
     {
         public static readonly byte[] Secret = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
@@ -260,13 +270,13 @@ public sealed class ApprovalCertificateTests : IDisposable
     public void A_mandate_that_lists_an_act_of_another_world_that_names_another_application_or_class_or_drops_a_forbidden_path_is_refused_whoever_signed_it()
     {
         var approval = _authority.Approve(Request(World.Release) with { ForbiddenPaths = [".github/**", "secrets/**"] }).Approval!;
-        var good = MandateFor(approval, World.Git, m => m with { Frame = m.Frame with { ForbiddenPaths = [".github/**", "secrets/**", "extra/**"] } });
+        var good = MandateFor(approval, World.Git, m => m with { Frame = m.Frame with { ForbiddenPaths = [".github/**", "**/*.enc.*", "**/.env*", "secrets/**", "extra/**"] } });
 
         _authority.Verifier.Check(approval, good).Should().Be(ApprovalRefusal.None);
         _authority.Verifier.Check(approval, good with { Acts = [GatedAct.MergePullRequest, GatedAct.Deploy] }).Should().Be(ApprovalRefusal.ActsOfAnotherWorld, "a Git-world mandate cannot list a deployment");
         _authority.Verifier.Check(approval, good with { ApplicationId = "other-app" }).Should().Be(ApprovalRefusal.WrongApplication);
         _authority.Verifier.Check(approval, good with { Frame = good.Frame with { ForbiddenPaths = [] } }).Should().Be(ApprovalRefusal.ForbiddenPathsDropped);
-        _authority.Verifier.Check(approval, good with { Frame = good.Frame with { ForbiddenPaths = [".github/**"] } }).Should().Be(ApprovalRefusal.ForbiddenPathsDropped);
+        _authority.Verifier.Check(approval, good with { Frame = good.Frame with { ForbiddenPaths = [".github/**", "**/*.enc.*", "**/.env*"] } }).Should().Be(ApprovalRefusal.ForbiddenPathsDropped, "secrets/** was asked for and dropped");
     }
 
     [Fact]

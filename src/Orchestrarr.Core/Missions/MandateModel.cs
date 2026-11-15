@@ -3,10 +3,10 @@ namespace Orchestrarr.Core.Missions;
 /// <summary>Who issued a mandate: the first one of a problem comes from the plan; the next ones only from the controller's decision (ADR 0031). A system rule issues the baseline mission of a staging.</summary>
 public enum MandateSource
 {
-    PlanValidation,
-    StandingRule,
-    Controller,
-    SystemRule,
+    PlanValidation = 0,
+    StandingRule = 1,
+    Controller = 2,
+    SystemRule = 3,
 }
 
 /// <summary>
@@ -44,8 +44,8 @@ public sealed record Mandate(
         {
             writer.Int((int)act);
         }
-        Strings(writer, Frame.Repositories);
-        Strings(writer, Frame.ForbiddenPaths);
+        writer.Strings(Frame.Repositories);
+        writer.Strings(Frame.ForbiddenPaths);
         writer.Text(Frame.Place);
         writer.Int(Budget.MaxMinutes);
         writer.Int(Budget.MaxAttempts);
@@ -58,15 +58,6 @@ public sealed record Mandate(
         writer.Text(ApplicationId);
         writer.Text(ProblemClass);
         return writer.ToArray();
-    }
-
-    private static void Strings(CanonicalWriter writer, IReadOnlyList<string> values)
-    {
-        writer.Int(values.Count);
-        foreach (var value in values.Order(StringComparer.Ordinal))
-        {
-            writer.Text(value);
-        }
     }
 }
 

@@ -130,6 +130,6 @@ internal static class DevMissionEndpoints
     {
         public bool Ci { get; set; } = true;
 
-        public ObservedFacts Facts(string problemId, World world, Dossier? dossier, string? commit) => new(true, true, Ci, true, true, true, MergeMayDeploy: false, ExecutedFilesTouched: false, TagCreationBlocked: true, BranchCannotReachWriteCredentials: true, HeadCommit: commit);
+        public ObservedFacts Facts(string problemId, World world, Dossier? dossier, string? commit) => new(true, true, Ci, true, true, true, MergeMayDeploy: false, ExecutedFilesTouched: false, TagCreationBlocked: true, BranchCannotReachWriteCredentials: true, HeadCommit: commit, IdentityConfinedToItsBranches: true);
     }
 }

@@ -81,7 +81,15 @@ public sealed class ClaudeCliGateway(AgentsOptions options) : IAgentGateway
             {
                 return new AgentReply(false, string.Empty, "the token file named in Agents:TokenFile does not exist");
             }
-            start.Environment["CLAUDE_CODE_OAUTH_TOKEN"] = (await File.ReadAllTextAsync(file, cancellationToken)).Trim();
+            try
+            {
+                start.Environment["CLAUDE_CODE_OAUTH_TOKEN"] = (await File.ReadAllTextAsync(file, cancellationToken)).Trim();
+            }
+            catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+            {
+                // A token file that cannot be read is no answer either, and the reason never carries the path's content
+                return new AgentReply(false, string.Empty, "the token file named in Agents:TokenFile cannot be read");
+            }
         }
         using var process = new Process { StartInfo = start };
         try

@@ -17,7 +17,7 @@ internal static class MissionsServiceCollectionExtensions
         services.AddSingleton(options);
         var agents = configuration.GetSection(AgentsOptions.SectionName).Get<AgentsOptions>() ?? new AgentsOptions();
         services.AddSingleton(agents).AddSingleton<IAgentGateway>(agents.Enabled ? new ClaudeCliGateway(agents) : new DisabledGateway())
-            .AddSingleton(provider => new ControllerAgent(provider.GetRequiredService<IAgentGateway>(), agents.ControllerModel, TimeSpan.FromSeconds(Math.Max(10, agents.ControllerTimeoutSeconds))));
+            .AddSingleton(provider => new ControllerAgent(provider.GetRequiredService<IAgentGateway>(), agents.ControllerModel, TimeSpan.FromSeconds(agents.ControllerTimeoutSeconds >= 10 ? agents.ControllerTimeoutSeconds : throw new InvalidOperationException($"Agents:ControllerTimeoutSeconds must be at least 10 seconds, not {agents.ControllerTimeoutSeconds}."))));
         if (storage is SqliteStorage)
         {
             services
@@ -65,18 +65,31 @@ internal static class SigningKey
             return MandateSigner.FromPrivateKey(File.ReadAllBytes(file));
         }
         var signer = MandateSigner.Create();
-        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(file)) ?? ".");
-        // Created for its owner only from the first byte: a file written first and restricted after would be readable for a moment
+        var folder = Path.GetDirectoryName(Path.GetFullPath(file)) ?? ".";
+        Directory.CreateDirectory(folder);
+        // Written whole under a name of its own, for its owner only from the first byte, then moved into place without replacing: a start that comes second, or one over a half-written file, never reads a truncated key
+        var pending = Path.Combine(folder, $".{Path.GetFileName(file)}.{Guid.NewGuid():N}.pending");
         var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.None };
         if (!OperatingSystem.IsWindows())
         {
             options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
         }
-        using (var stream = new FileStream(file, options))
+        using (var stream = new FileStream(pending, options))
         {
             stream.Write(signer.PrivateKey());
         }
-        return signer;
+        try
+        {
+            File.Move(pending, file, overwrite: false);
+            return signer;
+        }
+        catch (IOException)
+        {
+            // Another start put its key there first: the one in place is the key of the control plane
+            File.Delete(pending);
+            signer.Dispose();
+            return MandateSigner.FromPrivateKey(File.ReadAllBytes(file));
+        }
     }
 }
 

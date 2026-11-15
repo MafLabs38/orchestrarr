@@ -47,10 +47,12 @@ public sealed class ProblemConductorTests : IDisposable
 
         public bool? BranchSafe { get; set; } = true;
 
+        public bool? Confined { get; set; } = true;
+
         /// <summary>What the forge says the head is; null: the head is the commit that was asked about.</summary>
         public string? HeadCommit { get; set; }
 
-        public ObservedFacts Facts(string problemId, World world, Dossier? dossier, string? commit) => new(true, !DiffTouchesForbidden, CiGreen, ArtifactProved, WayBack, ClaimMatches, MergeMayDeploy, ExecutedFiles, TagsBlocked, BranchSafe, HeadCommit ?? commit);
+        public ObservedFacts Facts(string problemId, World world, Dossier? dossier, string? commit) => new(true, !DiffTouchesForbidden, CiGreen, ArtifactProved, WayBack, ClaimMatches, MergeMayDeploy, ExecutedFiles, TagsBlocked, BranchSafe, HeadCommit ?? commit, Confined);
     }
 
     private sealed class FakeStop : IStopSignal
@@ -101,7 +103,7 @@ public sealed class ProblemConductorTests : IDisposable
     private static PlanEntry Entry(World max = World.Release, string rule = "") => new("problem-1", "shop", "deprecated-dependency", "Replace the removed method", ["example/shop"], max, new MissionBudget(20, 3, 50),
         new Validation("alice", rule.Length == 0 ? null : rule), new DateTimeOffset(2026, 11, 13, 11, 0, 0, TimeSpan.Zero));
 
-    private static Dossier DossierFor(string missionId, bool complex = false) => new(missionId, "done", "replaced the method and adapted the tests", ["sha256:aa"], [], complex, complex ? "a refactor" : null);
+    private static Dossier DossierFor(string missionId, bool complex = false) => new(missionId, "done", "replaced the method and adapted the tests", ["sha256:aa"], [], complex, complex ? "a refactor" : null, Commit: "abc123");
 
     private static ControllerDecision Grant() => new(ControllerDecisionKind.Grant, ["the evidence supports the claim"], null);
 
@@ -1095,5 +1097,65 @@ public sealed class ProblemConductorTests : IDisposable
 
         again.Ok.Should().BeFalse();
         again.Refusal.Should().Contain("already used");
+    }
+
+    [Fact]
+    public void A_merge_or_a_deployment_is_authorised_on_a_named_commit_and_the_answer_names_it()
+    {
+        var conductor = Conductor();
+        var git = Through(conductor, StartStaged(conductor));
+
+        conductor.AuthoriseAct(git.Mission!.Id, GatedAct.MergePullRequest, null).Refusal.Should().Contain("named commit");
+        conductor.AuthoriseAct(git.Mission.Id, GatedAct.MergePullRequest, " ").Allowed.Should().BeFalse();
+        var allowed = conductor.AuthoriseAct(git.Mission.Id, GatedAct.MergePullRequest, "abc123");
+
+        allowed.Allowed.Should().BeTrue();
+        allowed.Commit.Should().Be("abc123", "the gateway merges that commit and no other");
+        _facts.HeadCommit = "pushed-after-the-check";
+        conductor.AuthoriseAct(git.Mission.Id, GatedAct.MergePullRequest, "abc123").Failures.Should().Contain(PreconditionFailure.ClaimDoesNotMatchFacts, "the head moved since the commit that is named");
+    }
+
+    [Fact]
+    public void A_dossier_with_no_commit_gives_no_mandate_past_the_staging_world_because_unknown_counts_as_failing()
+    {
+        var conductor = Conductor();
+        var staging = StartStaged(conductor);
+        var id = staging.Mission!.Id;
+        conductor.Started(id);
+        conductor.HandOver(id, DossierFor(id) with { Commit = null });
+
+        var decided = conductor.Decide(id, Grant());
+
+        decided.Ok.Should().BeFalse();
+        decided.Failures.Should().Contain(PreconditionFailure.ClaimDoesNotMatchFacts);
+    }
+
+    [Fact]
+    public void A_certificate_that_backs_no_more_mandates_says_so_and_is_not_the_loop_bound()
+    {
+        _authority.Adjust = request => request with { MaxMandates = 1 };
+        var conductor = Conductor();
+        var id = StartStaged(conductor).Mission!.Id;
+        conductor.Started(id);
+        conductor.HandOver(id, DossierFor(id));
+
+        var next = conductor.Decide(id, Grant());
+
+        next.Failures.Should().Equal(PreconditionFailure.ApprovalBacksNoMoreMandates);
+    }
+
+    [Fact]
+    public void A_branch_the_identity_of_which_is_not_confined_gives_no_git_mandate_at_the_crossing()
+    {
+        _facts.Confined = null;
+        var conductor = Conductor();
+        var id = StartStaged(conductor).Mission!.Id;
+        conductor.Started(id);
+        conductor.HandOver(id, DossierFor(id));
+
+        var decided = conductor.Decide(id, Grant());
+
+        decided.Ok.Should().BeFalse();
+        decided.Failures.Should().Contain(PreconditionFailure.AgentIdentityNotConfined);
     }
 }

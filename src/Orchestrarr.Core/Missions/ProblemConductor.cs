@@ -117,7 +117,7 @@ public sealed class ProblemConductor(
             {
                 // An application with no staging starts in the Git world: the frame of the merge is checked here too, since no crossing will do it (the diff, the CI and the executed files are checked at the merge itself)
                 var frame = CheckFacts(run, World.Git, previousDossierExists: true, dossier: null, commit: null, issuing: false)
-                    .Where(failure => failure is PreconditionFailure.MergeMayDeployBeyondApproval or PreconditionFailure.AgentCouldCreateTags or PreconditionFailure.AgentBranchCouldReachWriteCredentials).ToList();
+                    .Where(failure => failure is PreconditionFailure.MergeMayDeployBeyondApproval or PreconditionFailure.AgentCouldCreateTags or PreconditionFailure.AgentBranchCouldReachWriteCredentials or PreconditionFailure.AgentIdentityNotConfined).ToList();
                 if (frame.Count > 0)
                 {
                     return ConductResult.Fail("the merge could deploy beyond the approval, or the agent could create tags or reach a write credential", frame);
@@ -347,7 +347,11 @@ public sealed class ProblemConductor(
             {
                 return ActAuthorisation.Refused("the mandate or its certificate does not verify");
             }
-            // The acts that change what runs (a merge, a deployment) need the facts of this moment; the other acts only need the mandate
+            // The acts that change what runs (a merge, a deployment) need the facts of this moment **on a named commit**: the gateway performs the act on that commit and no other
+            if (act is GatedAct.MergePullRequest or GatedAct.Deploy && string.IsNullOrWhiteSpace(commit))
+            {
+                return ActAuthorisation.Refused("a merge or a deployment is authorised on a named commit");
+            }
             var failures = act is GatedAct.MergePullRequest or GatedAct.Deploy
                 ? CheckFacts(run, mission.World, previousDossierExists: PreviousDossierExists(run, mission), LatestDossier(run, mission), commit, issuing: false)
                 : [];
@@ -361,7 +365,7 @@ public sealed class ProblemConductor(
                 return ActAuthorisation.Refused("a check of the code failed", failures);
             }
             return Required(MissionAuditEvents.ActAuthorised, mission.Id, Text($"{act} on {commit ?? "no commit"}"))
-                ? new ActAuthorisation(true, null, [])
+                ? new ActAuthorisation(true, null, [], commit)
                 : ActAuthorisation.Refused("the audit trail cannot be written: no power is granted");
         });
     }
@@ -379,14 +383,16 @@ public sealed class ProblemConductor(
     {
         var observed = facts.Facts(run.ProblemId, world, dossier, commit);
         // The commit the facts are about is the head that the source read itself; the worker's pointer is only a claim, and a claim that does not match (or that cannot be matched) fails the check
-        var claimMatches = observed.WorkerClaimMatchesFacts && (commit is null || (observed.HeadCommit is not null && string.Equals(observed.HeadCommit, commit, StringComparison.Ordinal)));
+        // Past the staging world, no commit named is no claim that can match: unknown counts as failing
+        var claimMatches = observed.WorkerClaimMatchesFacts
+            && (commit is null ? world == World.Staging : observed.HeadCommit is not null && string.Equals(observed.HeadCommit, commit, StringComparison.Ordinal));
         // The ceiling of the merge is the power in effect now (the lowest of the entry, the certificate and the grant read at this moment), never the certificate alone; no power at all is the lowest world
         var ceiling = HighestNow(run.Entry, run.Approval) ?? World.Staging;
         var checks = new PreconditionFacts(
             world, PlanCovers: true, observed.BudgetAvailable, stop.Engaged, run.UsesStaging ? StagingVerdict.Usable : StagingVerdict.UsableWithNoNet, previousDossierExists,
             observed.DiffIsClean, observed.CiGreenOnExactCommit, observed.ArtifactIsTheOneProvedInStaging, claimMatches,
             issuing ? options.Loop.Check(mandates.CountForProblem(run.ProblemId), time.GetUtcNow() - run.StartedAt) : LoopVerdict.Allowed, observed.WayBackKnown,
-            ApprovedMaxWorld: ceiling, observed.MergeMayDeploy, observed.ExecutedFilesTouched, observed.TagCreationBlocked, observed.BranchCannotReachWriteCredentials);
+            ApprovedMaxWorld: ceiling, observed.MergeMayDeploy, observed.ExecutedFilesTouched, observed.TagCreationBlocked, observed.BranchCannotReachWriteCredentials, observed.IdentityConfinedToItsBranches);
         // The release of an application with a staging needs the artifact that was proved there (FR-WLD-14)
         return [.. MandatePreconditions.Check(checks, requiresStagingProof: run.UsesStaging && world == World.Release)];
     }
@@ -494,7 +500,7 @@ public sealed class ProblemConductor(
         }
         if (mandates.CountForApproval(run.Approval.Certificate.Id) >= run.Approval.Certificate.MaxMandates)
         {
-            return Failed(run, "the certificate of the approval backs no more mandates", [PreconditionFailure.LoopLimitReached]);
+            return Failed(run, "the certificate of the approval backs no more mandates", [PreconditionFailure.ApprovalBacksNoMoreMandates]);
         }
         var frame = new MissionFrame(entry.Repositories, [.. options.ForbiddenPaths.Union(run.Approval.Certificate.ForbiddenPaths, StringComparer.Ordinal)], $"{world}:{entry.ApplicationId}");
         var mission = new Mission(newId(), run.ProblemId, run.ApplicationId, world, ObjectiveOf(world, entry), frame, entry.Budget, MissionState.Proposed);
