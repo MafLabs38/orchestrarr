@@ -958,6 +958,20 @@ public sealed class ProblemConductorTests : IDisposable
     }
 
     [Fact]
+    public void Once_the_worker_has_handed_over_no_act_is_authorised_on_the_mandate_so_a_commit_pushed_after_the_claim_cannot_be_merged()
+    {
+        var conductor = Conductor();
+        var git = Through(conductor, StartStaged(conductor));
+        var id = git.Mission!.Id;
+        conductor.Started(id);
+        conductor.AuthoriseAct(id, GatedAct.MergePullRequest, "abc", "example/shop", "base-1").Allowed.Should().BeTrue("the mission is running");
+
+        conductor.HandOver(id, DossierFor(id));
+
+        conductor.AuthoriseAct(id, GatedAct.MergePullRequest, "other", "example/shop", "base-1").Refusal.Should().Contain("no mandate in force", "the dossier is the frozen claim that the controller judges");
+    }
+
+    [Fact]
     public void A_deployment_is_on_the_commit_that_the_controller_accepted_and_no_other()
     {
         var conductor = Conductor();
@@ -999,7 +1013,9 @@ public sealed class ProblemConductorTests : IDisposable
         var git = Through(conductor, StartStaged(conductor));
         _facts.CiGreen = false;
 
-        conductor.AuthoriseAct(git.Mission!.Id, GatedAct.OpenPullRequest, null).Allowed.Should().BeTrue("opening a pull request changes nothing that runs");
+        conductor.AuthoriseAct(git.Mission!.Id, GatedAct.OpenPullRequest, null, "example/shop").Allowed.Should().BeTrue("opening a pull request changes nothing that runs");
+        conductor.AuthoriseAct(git.Mission.Id, GatedAct.OpenPullRequest, null, "example/other").Refusal.Should().Contain("not in the frame", "the gateway opens it where it is told, so the repository is checked too");
+        conductor.AuthoriseAct(git.Mission.Id, GatedAct.OpenPullRequest, null).Refusal.Should().Contain("named repository");
 
         _audit.Writable = false;
         _facts.CiGreen = true;

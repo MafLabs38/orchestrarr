@@ -15,7 +15,7 @@ public sealed partial class ProblemConductor
         }
         return Locked(first.ProblemId, () =>
         {
-            if (missions.Get(missionId) is not { State: MissionState.Mandated or MissionState.Running or MissionState.HandingOver } mission || mission.MandateId is not { } mandateId
+            if (missions.Get(missionId) is not { State: MissionState.Mandated or MissionState.Running } mission || mission.MandateId is not { } mandateId
                 || mandates.Get(mandateId) is not { } signed || mandates.IsRevoked(mandateId))
             {
                 return ActAuthorisation.Refused("the mission has no mandate in force");
@@ -43,9 +43,17 @@ public sealed partial class ProblemConductor
             {
                 return ActAuthorisation.Refused("a merge or a deployment is authorised on a named repository, commit and base");
             }
-            if (changes && !mission.Frame.Repositories.Contains(repository!, StringComparer.Ordinal))
+            // Every act on a repository is on a named repository of the frame, opening a pull request included: the gateway acts where it is told, so what it is told is checked
+            if (act is GatedAct.OpenPullRequest or GatedAct.MergePullRequest or GatedAct.Deploy)
             {
-                return ActAuthorisation.Refused("the repository is not in the frame of the mission");
+                if (string.IsNullOrWhiteSpace(repository))
+                {
+                    return ActAuthorisation.Refused("an act on a repository is authorised on a named repository");
+                }
+                if (!mission.Frame.Repositories.Contains(repository, StringComparer.Ordinal))
+                {
+                    return ActAuthorisation.Refused("the repository is not in the frame of the mission");
+                }
             }
             // A deployment is on the commit that the dossier of the world before named and that the controller accepted at the crossing: a commit pushed after it was read by nobody (a new crossing is needed). A dossier with no commit counts as failing.
             // A merge in the Git world is not bound this way: the pull request's commits are made in that world, and what ties a release to what was proved is the staging proof (FR-WLD-14), checked at the release
