@@ -41,6 +41,11 @@ public sealed partial class ProblemConductor
         {
             return (Route.Stop, "the loop reached its limit");
         }
+        // A loop never goes on past a budget (D-89): wherever the budget is said to be used up, the work stops
+        if (failures.Contains(PreconditionFailure.BudgetUnavailable))
+        {
+            return (Route.Stop, "the budget is used up");
+        }
         if (world == World.Release)
         {
             if (failures.Contains(PreconditionFailure.ArtifactNotProvedInStaging))
@@ -51,7 +56,7 @@ public sealed partial class ProblemConductor
             // stops with its own reason (ADR 0040 point 2), or the problem goes back to the first world, whose Open reads the same facts again. A pipeline result that is not known keeps its answer.
             if (!failures.Contains(PreconditionFailure.CiResultNotKnown))
             {
-                if (controllerJudgedFailed && failures.Any(failure => failure is PreconditionFailure.BudgetUnavailable or PreconditionFailure.ApprovalBacksNoMoreMandates or PreconditionFailure.PlanDoesNotCover))
+                if (controllerJudgedFailed && failures.Any(failure => failure is PreconditionFailure.ApprovalBacksNoMoreMandates or PreconditionFailure.PlanDoesNotCover))
                 {
                     return (Route.Stop, "a rule that is kept refuses the way back for this release");
                 }
