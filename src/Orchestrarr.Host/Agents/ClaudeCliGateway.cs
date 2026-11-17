@@ -97,16 +97,19 @@ public sealed class ClaudeCliGateway(AgentsOptions options) : IAgentGateway
         {
             process.Start();
         }
-        catch (Exception failure) when (failure is System.ComponentModel.Win32Exception or InvalidOperationException)
+        catch (Exception failure) when (failure is not OperationCanceledException)
         {
+            // Whatever the platform says (a program that is not executable, a wrapper that is not there), the answer is one: it could not be started, and the reason never carries the text of the failure
             return new AgentReply(false, string.Empty, "the agent program could not be started");
         }
         using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         limit.CancelAfter(request.Timeout);
+        Task<string>? output = null;
+        Task<string>? errors = null;
         try
         {
-            var output = Read(process.StandardOutput, limit.Token);
-            var errors = Read(process.StandardError, limit.Token);
+            output = Read(process.StandardOutput, limit.Token);
+            errors = Read(process.StandardError, limit.Token);
             await Feed(process.StandardInput, request.UserPrompt, limit.Token);
             await process.WaitForExitAsync(limit.Token);
             var text = await output;
@@ -116,7 +119,24 @@ public sealed class ClaudeCliGateway(AgentsOptions options) : IAgentGateway
         catch (OperationCanceledException)
         {
             await Stop(process);
+            await Observe(output, errors);
             return new AgentReply(false, string.Empty, cancellationToken.IsCancellationRequested ? "stopped" : "the agent did not answer in time");
+        }
+    }
+
+    // The readers are cancelled with the limit: they are waited for, so that none faults unobserved once the process and the limit are disposed
+    private static async Task Observe(params Task<string>?[] reads)
+    {
+        foreach (var read in reads.OfType<Task<string>>())
+        {
+            try
+            {
+                await read;
+            }
+            catch (Exception failure) when (failure is OperationCanceledException or ObjectDisposedException or IOException)
+            {
+                // The program was stopped: what it said is not wanted
+            }
         }
     }
 
