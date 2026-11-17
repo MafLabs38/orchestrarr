@@ -50,8 +50,9 @@ public sealed partial class ProblemConductor
         {
             return (Route.Escalate, "a release that was approved by a standing rule did not verify: nobody approved this problem, a person decides");
         }
-        // A release that the controller judged failed while the commit that runs is not the one that was checked (the claim, the diff) is an anomaly of the delivery, not a defect that a restart repairs
-        if (world == World.Release && controllerJudgedFailed && failures.Any(failure => failure is PreconditionFailure.ClaimDoesNotMatchFacts or PreconditionFailure.DiffTouchesForbiddenPath))
+        // In the release world a commit that runs and is not the one that was checked (the claim, the diff) is an anomaly of the delivery, not a defect that a restart repairs: the facts say it, whatever the
+        // controller decided, so a verdict cannot steer it
+        if (world == World.Release && failures.Any(failure => failure is PreconditionFailure.ClaimDoesNotMatchFacts or PreconditionFailure.DiffTouchesForbiddenPath))
         {
             return (Route.Escalate, "the commit that runs is not the one that was checked: a person decides");
         }
@@ -64,13 +65,11 @@ public sealed partial class ProblemConductor
         {
             return (Route.Stop, "the budget is used up");
         }
-        // A release that the controller judged failed never stays in the release world (its mandate could only deploy the same commit again): either a rule that is kept refuses the way back and the work
-        // stops with its own reason (ADR 0040 point 2), or the problem goes back to the first world. A pipeline result that is not known keeps its answer.
+        // A release that the controller judged failed never stays in the release world (its mandate could only deploy the same commit again): the problem goes back to the first world, whose mandate is issued
+        // like the first one of a problem, so a certificate that backs no more mandates or a loop at its bound refuse there with their own reason. A pipeline result that is not known keeps its answer.
         if (repairsByRestart)
         {
-            return controllerJudgedFailed && failures.Any(failure => failure is PreconditionFailure.ApprovalBacksNoMoreMandates or PreconditionFailure.PlanDoesNotCover)
-                ? (Route.Stop, "a rule that is kept refuses the way back for this release")
-                : (Route.BackToFirstWorld, "the release did not verify: the problem goes back to the first world");
+            return (Route.BackToFirstWorld, "the release did not verify: the problem goes back to the first world");
         }
         return (Route.SendBackInPlace, "a check of the code failed: the mission is sent back");
     }

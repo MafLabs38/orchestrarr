@@ -838,13 +838,13 @@ public sealed class ProblemConductorTests : IDisposable
     }
 
     [Fact]
-    public async Task Only_a_pipeline_that_is_not_green_or_an_artifact_that_is_not_the_one_proved_sends_the_problem_back_to_the_first_world()
+    public async Task A_commit_that_runs_and_is_not_the_one_checked_goes_to_the_maintainer_whatever_the_controller_decided()
     {
         var result = await ReleaseThatFails(Conductor(), staged: true, before: () => _facts.ClaimMatches = false);
 
         result.Failures.Should().Contain(PreconditionFailure.ClaimDoesNotMatchFacts);
-        result.Mission!.World.Should().Be(World.Release, "restarting does not change a claim that does not match the facts: the mission is sent back where it is");
-        _problems.Get("problem-1")!.State.Should().Be(ProblemState.InProgress);
+        result.Mandate.Should().BeNull();
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.Escalated, "a commit that runs and is not the one that was checked is an anomaly of the delivery, whatever the controller decided");
     }
 
     [Fact]
