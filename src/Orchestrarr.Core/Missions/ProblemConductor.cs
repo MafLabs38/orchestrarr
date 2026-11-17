@@ -224,7 +224,7 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
                 ? await RouteFailuresAsync(mission, run, checks, cancellationToken)
                 : await CloseAsync(run, mission, complex, $"done up to the {highest} world, the highest that its powers allow", Text($"highest world reached: {highest}"), "done up to the highest world its powers allow");
         }
-        var failures = await CheckFactsAsync(run, next, mission.Frame, mission.Id, previousDossierExists: dossier is not null, dossier, commit: dossier?.Commit, issuing: true, cancellationToken);
+        var failures = await CheckFactsAsync(run, next, mission.Frame, mission.Id, previousDossierExists: dossier is not null, dossier, commit: dossier?.Commit, issuing: true, new FactsScope(), cancellationToken);
         if (!ControllerLimits.MayGrant(decision, next, highest, failures))
         {
             return failures.Count > 0 ? await RouteFailuresAsync(mission, run, failures, cancellationToken) : ConductResult.Fail("the controller may not grant a world that the plan does not allow");
@@ -250,7 +250,7 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
     // starts in the Git world, and a problem that goes back to it is in the same case), the conductor makes them before it issues the mandate
     private async Task<List<PreconditionFailure>> GitFrameFailuresAsync(ProblemRun run, CancellationToken cancellationToken)
     {
-        var failures = await CheckFactsAsync(run, World.Git, FrameFor(run, "start"), missionId: null, previousDossierExists: true, dossier: null, commit: null, issuing: false, cancellationToken: cancellationToken);
+        var failures = await CheckFactsAsync(run, World.Git, FrameFor(run, "start"), missionId: null, previousDossierExists: true, dossier: null, commit: null, issuing: false, new FactsScope(), cancellationToken);
         return [.. failures.Where(failure => failure is PreconditionFailure.MergeMayDeployUnderGitMandate or PreconditionFailure.AgentCouldCreateTags or PreconditionFailure.AgentBranchCouldReachWriteCredentials or PreconditionFailure.AgentIdentityNotConfined)];
     }
 

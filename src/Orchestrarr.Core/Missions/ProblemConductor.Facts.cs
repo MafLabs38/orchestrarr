@@ -5,21 +5,21 @@ public sealed partial class ProblemConductor
 {
     // The checks to close a problem in the world of the mission: the facts of that world on the commit the worker claims, with no new mandate to issue
     private async Task<List<PreconditionFailure>> ClosingChecksAsync(ProblemRun run, Mission mission, Dossier? dossier, CancellationToken cancellationToken) =>
-        await CheckFactsAsync(run, mission.World, mission.Frame, mission.Id, previousDossierExists: dossier is not null, dossier, commit: dossier?.Commit, issuing: false, cancellationToken,
-            acceptedCommit: mission.World == World.Release ? LatestDossier(run, mission)?.Commit : null);
+        await CheckFactsAsync(run, mission.World, mission.Frame, mission.Id, previousDossierExists: dossier is not null, dossier, commit: dossier?.Commit, issuing: false,
+            new FactsScope(CompareAccepted: mission.World == World.Release, AcceptedCommit: mission.World == World.Release ? LatestDossier(run, mission)?.Commit : null), cancellationToken);
 
     // The facts come from the control plane's own source; the plan, the stop, the loop and the staging are the conductor's own: none is taken from the worker
     // `issuing` is true only where a new mandate is about to be issued: the bound of the loop guards a new mandate, not the acts of one that is already in force nor the closing of the problem
-    private async Task<List<PreconditionFailure>> CheckFactsAsync(ProblemRun run, World world, MissionFrame frame, string? missionId, bool previousDossierExists, Dossier? dossier, string? commit, bool issuing, CancellationToken cancellationToken, string? repository = null, string? baseCommit = null, string? acceptedCommit = null)
+    private async Task<List<PreconditionFailure>> CheckFactsAsync(ProblemRun run, World world, MissionFrame frame, string? missionId, bool previousDossierExists, Dossier? dossier, string? commit, bool issuing, FactsScope scope, CancellationToken cancellationToken)
     {
-        var observed = await facts.FactsAsync(new FactsQuery(run.ProblemId, missionId, world, frame, dossier, commit, repository, baseCommit), cancellationToken);
+        var observed = await facts.FactsAsync(new FactsQuery(run.ProblemId, missionId, world, frame, dossier, commit, scope.Repository, scope.BaseCommit), cancellationToken);
         // The commit the facts are about is the head that the source read itself; the worker's pointer is only a claim, and a claim that does not match (or that cannot be matched) fails the check
         // Past the staging world, no commit named is no claim that can match: unknown counts as failing
         var claimMatches = observed.WorkerClaimMatchesFacts
             && (commit is null ? world == World.Staging : observed.HeadCommit is not null && string.Equals(observed.HeadCommit, commit, StringComparison.Ordinal))
             // For an act, the source read the repository and the base that the act names, and says so: nothing else is the commit that was checked
-            && (repository is null || string.Equals(observed.Repository, repository, StringComparison.Ordinal))
-            && (baseCommit is null || string.Equals(observed.BaseCommit, baseCommit, StringComparison.Ordinal));
+            && (scope.Repository is null || string.Equals(observed.Repository, scope.Repository, StringComparison.Ordinal))
+            && (scope.BaseCommit is null || string.Equals(observed.BaseCommit, scope.BaseCommit, StringComparison.Ordinal));
         // The diff is clean when the source says so **and** the paths it changed are known and none is forbidden by the frame of this mission (the options' list and the certificate's floor)
         var diffClean = observed.DiffIsClean == true && observed.ChangedPaths is not null && !PathPatterns.AnyMatches(frame.ForbiddenPaths, observed.ChangedPaths);
         var loop = issuing ? options.Loop.Check(mandates.CountForRun(run.ProblemId, run.Approval.Certificate.Id), time.GetUtcNow() - run.StartedAt) : LoopVerdict.Allowed;
@@ -48,10 +48,13 @@ public sealed partial class ProblemConductor
         var failures = MandatePreconditions.Check(checks, requiresStagingProof: run.UsesStaging && world == World.Release).ToList();
         // In the release world the commit that the source read is the commit that the controller accepted at the crossing into it, the one the act gateway deploys: the comparison is on what the source read,
         // never on the worker's claim; a release that is not that commit is an anomaly of the delivery
-        if (acceptedCommit is not null && !string.Equals(observed.HeadCommit, acceptedCommit, StringComparison.Ordinal))
+        if (scope.CompareAccepted && (scope.AcceptedCommit is null || !string.Equals(observed.HeadCommit, scope.AcceptedCommit, StringComparison.Ordinal)))
         {
             failures.Add(PreconditionFailure.ReleaseCommitIsNotTheAcceptedOne);
         }
         return failures;
     }
+
+    /// <summary>What a check of the facts is scoped to beyond the mission: for an act, the repository and the base it is about; in the release world, the commit that was accepted and that the one read must be (no accepted commit counts as failing).</summary>
+    private sealed record FactsScope(string? Repository = null, string? BaseCommit = null, string? AcceptedCommit = null, bool CompareAccepted = false);
 }
