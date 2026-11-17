@@ -81,7 +81,6 @@ Unit tests do not see what a person sees. Before a vertical goes to the maintain
 - Print what matters as **text** (the rows, the badges, the states, the console errors) and take **one screenshot only when the look is the question**: read it, fix what it shows, then **delete it at once** (an image read stays in the context of every later turn).
 - A bug found this way gets a test in the suite (Vitest or the API tests) in the same change, so that it stays found.
 
-
 ## 7. Seeing the code smells in the editor
 
 The SonarQube rules can run in the editor (SonarLint) and be read by assistants, bound to the project of the SonarQube server.
