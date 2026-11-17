@@ -89,17 +89,17 @@ public sealed class MissionsApiTests
     }
 
     [Fact]
-    public async Task A_pipeline_that_is_not_green_sends_the_release_back_instead_of_closing_the_problem()
+    public async Task A_pipeline_that_is_not_green_after_the_release_is_a_failed_push_that_goes_back_to_the_first_world_until_the_loop_is_bounded()
     {
         using var factory = new AccountsApiFactory();
         using var client = await SignedIn(factory);
 
         var missions = await Demo(client, "?scenario=red");
 
-        var release = missions.EnumerateArray().Single(mission => mission.GetProperty("world").GetString() == "Release");
-        release.GetProperty("state").GetString().Should().Be("Running");
-        release.GetProperty("sendBacks").GetInt32().Should().Be(1);
-        release.GetProperty("problemState").GetString().Should().Be("InProgress");
+        var all = missions.EnumerateArray().ToList();
+        all.Count(mission => mission.GetProperty("world").GetString() == "Staging").Should().BeGreaterThan(1, "a release that does not verify sends the problem back to the first world, again and again, until the loop's bound");
+        all.Where(mission => mission.GetProperty("world").GetString() == "Release").Should().OnlyContain(mission => mission.GetProperty("state").GetString() == "Ended");
+        all[0].GetProperty("problemState").GetString().Should().Be("Failed", "the loop ends at its bound and the maintainer is told");
     }
 
     [Fact]

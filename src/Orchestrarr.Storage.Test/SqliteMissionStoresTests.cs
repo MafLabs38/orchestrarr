@@ -15,10 +15,10 @@ public sealed class SqliteMissionStoresTests : IDisposable
         _file.Dispose();
     }
 
-    private static Mission Mission(string id = "m1", string problem = "p1") => new(id, problem, "shop", World.Git, "Merge the change", new MissionFrame(["example/shop"], [".github/**", "**/*.enc.*", "**/.env*"], "Git:shop"), new MissionBudget(20, 3, 50), MissionState.Mandated, "mandate-1", 1);
+    private static Mission Mission(string id = "m1", string problem = "p1") => new(id, problem, "shop", World.Git, "Merge the change", new MissionFrame(["example/shop"], ForbiddenPathsDefaults.Floor, "Git:shop"), new MissionBudget(20, 3, 50), MissionState.Mandated, "mandate-1", 1);
 
     private SignedMandate Mandate(string id = "mandate-1", string problem = "p1") => _signer.Sign(new Mandate(
-        id, "m1", problem, World.Git, "runner-git", [GatedAct.OpenPullRequest, GatedAct.MergePullRequest], new MissionFrame(["example/shop"], [".github/**", "**/*.enc.*", "**/.env*"], "Git:shop"), new MissionBudget(20, 3, 50),
+        id, "m1", problem, World.Git, "runner-git", [GatedAct.OpenPullRequest, GatedAct.MergePullRequest], new MissionFrame(["example/shop"], ForbiddenPathsDefaults.Floor, "Git:shop"), new MissionBudget(20, 3, 50),
         new DateTimeOffset(2026, 11, 13, 12, 0, 0, TimeSpan.Zero), new DateTimeOffset(2026, 11, 13, 13, 0, 0, TimeSpan.Zero), MandateSource.Controller, "nonce-" + id, "approval-1", "shop", "deprecated"));
 
     [Fact]

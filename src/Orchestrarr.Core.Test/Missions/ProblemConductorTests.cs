@@ -760,6 +760,28 @@ public sealed class ProblemConductorTests : IDisposable
     }
 
     [Fact]
+    public void A_release_that_does_not_verify_is_a_failed_push_the_mission_ends_and_the_problem_starts_again_in_the_first_world_under_the_same_approval()
+    {
+        var conductor = Conductor();
+        var release = Through(conductor, Through(conductor, StartStaged(conductor))).Mission!;
+        release.World.Should().Be(World.Release);
+        _facts.CiGreen = false;
+        conductor.Started(release.Id);
+        conductor.HandOver(release.Id, DossierFor(release.Id)).Ok.Should().BeTrue();
+
+        var result = conductor.Decide(release.Id, Grant());
+
+        result.Moved.Should().BeTrue("a check failed and the problem moved");
+        result.Failures.Should().Contain(PreconditionFailure.CiNotGreenOnExactCommit);
+        result.Mission!.World.Should().Be(World.Staging, "the repair goes back through the worlds, a staging first");
+        result.Mandate.Should().NotBeNull();
+        _missions.Get(release.Id)!.State.Should().Be(MissionState.Ended);
+        _mandates.IsRevoked(release.MandateId!).Should().BeTrue("the power never outlives the work");
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.InProgress);
+        _mandates.CountForProblem("problem-1").Should().Be(4, "the new mandate counts against the loop's bound and the certificate's count");
+    }
+
+    [Fact]
     public void A_problem_on_two_repositories_is_refused_because_it_is_as_many_problems_as_repositories()
     {
         var result = StartStaged(Conductor(), Entry() with { Repositories = ["example/shop", "example/api"] });

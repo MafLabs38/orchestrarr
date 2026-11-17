@@ -42,20 +42,18 @@ internal sealed class DemoRun(MissionStores stores, ProblemLocks locks, IRunnerD
         await approvals.PrepareAsync(entry, cancellationToken);
         var started = conductor.Start(entry, staging ? StagingDeclaration.DeclaredStaging : StagingDeclaration.DeclaredNoStaging, StagingRequirement.BlankMachine, StagingState.NotDefined);
         var current = started.Ok ? started.Mission : null;
-        // One mission per world and a few send-backs at most: the loop of the demo is bounded by the same limit as the loop of a problem
-        for (var round = 0; current is not null && round <= options.MaxMandatesPerProblem; round++)
+        // The loop of the demo ends by the limit of the loop of a problem (the conductor refuses the mandate that goes past it); the count here only guarantees that the demo ends
+        for (var round = 0; current is not null && round <= options.MaxMandatesPerProblem + 2; round++)
         {
             conductor.Started(current.Id);
-            if (scenario == DemoScenario.Red && current.World == World.Release)
-            {
-                facts.Ci = false;
-            }
+            // In the red scenario the pipelines are red only after the release, so that every return to the first world goes through the worlds again
+            facts.Ci = !(scenario == DemoScenario.Red && current.World == World.Release);
             conductor.HandOver(current.Id, new Dossier(current.Id, "done", $"worked in the {current.World} world", ["sha256:demo"], [], current.World == World.Staging, current.World == World.Staging ? "a refactor" : null, Commit: "demo-commit"));
             var decision = scenario == DemoScenario.Escalate && current.World == World.Git
                 ? new ControllerDecision(ControllerDecisionKind.Escalate, ["no fixed version exists"], null)
                 : new ControllerDecision(ControllerDecisionKind.Grant, ["the evidence supports the claim"], null);
             var result = conductor.Decide(current.Id, decision);
-            current = result.Ok && result.Mandate is not null ? result.Mission : null;
+            current = result.Mandate is not null ? result.Mission : null;
         }
         if (!started.Ok)
         {

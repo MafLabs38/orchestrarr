@@ -1,9 +1,10 @@
 namespace Orchestrarr.Core.Missions;
 
-/// <summary>The paths that no mission may touch whatever the settings say (the pipelines of the forge, the encrypted files, the environment files): one list, for the conductor's options and for the authority's floor.</summary>
+/// <summary>The paths that no mission may touch whatever the settings say: the pipelines of the forges the product supports (GitHub, GitLab, Gitea and Forgejo, Woodpecker, Drone), the files that decide who must review (<c>CODEOWNERS</c>), the submodule list that CI checks out, the encrypted files and the environment files. One list, for the conductor's options and for the authority's floor.</summary>
 public static class ForbiddenPathsDefaults
 {
-    public static IReadOnlyList<string> Floor { get; } = [".github/**", "**/*.enc.*", "**/.env*"];
+    public static IReadOnlyList<string> Floor { get; } =
+    [".github/**", ".gitlab-ci.yml", ".gitlab/**", ".gitea/**", ".forgejo/**", ".woodpecker/**", ".woodpecker.yml", ".drone.yml", "CODEOWNERS", "docs/CODEOWNERS", ".gitmodules", "**/*.enc.*", "**/.env*"];
 }
 
 /// <summary>The rule that a problem is on exactly one repository (D-95, ADR 0041), under one name: the authority, the verifier and the conductor all make this same check.</summary>

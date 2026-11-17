@@ -23,6 +23,25 @@ public sealed class PathPatternsTests
         PathPatterns.Matches(pattern, path).Should().Be(expected);
     }
 
+    [Theory]
+    [InlineData(".github/workflows/ci.yml")]
+    [InlineData(".gitlab-ci.yml")]
+    [InlineData(".gitea/workflows/build.yml")]
+    [InlineData(".forgejo/workflows/build.yml")]
+    [InlineData(".woodpecker/build.yml")]
+    [InlineData(".woodpecker.yml")]
+    [InlineData(".drone.yml")]
+    [InlineData("CODEOWNERS")]
+    [InlineData("docs/CODEOWNERS")]
+    [InlineData(".github/CODEOWNERS")]
+    [InlineData(".gitmodules")]
+    [InlineData("deploy/secrets.enc.yaml")]
+    [InlineData("app/.env.production")]
+    public void The_floor_of_forbidden_paths_covers_the_pipelines_of_every_supported_forge_the_code_owners_and_the_submodules(string path)
+    {
+        PathPatterns.AnyMatches(ForbiddenPathsDefaults.Floor, [path]).Should().BeTrue();
+    }
+
     [Fact]
     public void A_path_written_with_back_slashes_or_a_leading_slash_is_the_same_path()
     {

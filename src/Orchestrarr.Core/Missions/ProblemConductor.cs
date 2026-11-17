@@ -208,7 +208,7 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
         {
             // The last world: the controller closes the problem on facts (FR-CTL-9), after the same checks
             var closing = ClosingChecks(run, mission, dossier);
-            return closing.Count > 0 ? SendBackWithFailures(mission, run, closing) : Close(run, mission, complex, null, "release verified", null);
+            return closing.Count > 0 ? ReleaseDidNotVerify(mission, run, closing) : Close(run, mission, complex, null, "release verified", null);
         }
         // The power is read again here, at every crossing: a grant withdrawn since the start stops the problem (the grant of an application is the maintainer's to give and to take back)
         if (HighestNow(run.Entry, run.Approval) is not { } highest)
@@ -244,6 +244,29 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
         Settle(mission, closed, run with { State = ProblemState.Closed, CurrentWorld = null, Note = problemNote },
             new AuditLine(MissionAuditEvents.MissionAccepted, mission.Id, acceptedDetail), new AuditLine(MissionAuditEvents.ProblemClosed, run.ProblemId, closedDetail));
         return ConductResult.Success(closed);
+    }
+
+    // A release that does not verify is a failed push (D-93, ADR 0040): the mission ends, the problem stays in progress and the loop starts again in the first world (a new staging, then the Git world, then the
+    // release), under the same approval, with the same budgets and without another validation. What cannot be repaired by going back (the stop, the limit of the loop, a change to what the pipeline executes)
+    // keeps the answer it always had.
+    private ConductResult ReleaseDidNotVerify(Mission mission, ProblemRun run, IReadOnlyList<PreconditionFailure> failures)
+    {
+        if (failures.Contains(PreconditionFailure.ExecutedFilesTouchedWhereMergeDeploys) || failures.Contains(PreconditionFailure.LoopLimitReached) || failures.Contains(PreconditionFailure.KillSwitchEngaged))
+        {
+            return SendBackWithFailures(mission, run, failures);
+        }
+        var transition = MissionMachine.Apply(mission, MissionEvent.EndedByController, options.Loop, reason: "the release did not verify: the problem goes back to the first world");
+        if (transition.Mission is not { } ended)
+        {
+            return ConductResult.Fail(transition.Refusal ?? "refused");
+        }
+        missions.Save(ended);
+        Revoke(mission);
+        BestEffort(MissionAuditEvents.MissionEnded, mission.Id, Text($"the release did not verify ({string.Join(", ", failures)}): back to the first world"));
+        var first = run.UsesStaging ? World.Staging : World.Git;
+        var opened = Open(run with { CurrentWorld = first }, first, MandateSource.Controller);
+        // Like every answer where a check failed and the mission moved: not Ok, the new mission and its mandate, the failures that sent the problem back
+        return opened.Ok ? new ConductResult(false, "the release did not verify: the problem goes back to the first world", failures, opened.Mission, opened.Mandate) : opened;
     }
 
     private ConductResult SendBackWithFailures(Mission mission, ProblemRun run, IReadOnlyList<PreconditionFailure> failures)
