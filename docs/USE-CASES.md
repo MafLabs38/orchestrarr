@@ -71,7 +71,7 @@ Each sheet says what is known. **Open** marks what is not.
 - **Trigger**: a bot's pull request on a repository of the perimeter.
 - **Expected outcome**: the pull request is checked on its own pipeline, merged into develop, and follows the repository's normal path to production. The maintainer did nothing but validate the plan once.
 - **Frame**: the agent never modifies a pipeline. It does not merge a pull request that fails its pipeline, and it does not bypass the review rules of the repository by anything but the rights it was given.
-- **Done when**: in production, after staging is verified (decided 2026-11-13). The maintainer looks at nothing in between.
+- **Done when**: in production, after staging is verified (decided 2026-11-13). The maintainer looks at nothing in between. (A standing rule reaches production only once its safeguards exist, D-94: until then the cap of the authority keeps it at the Git world.)
 - **Complexity**: S. No email unless something unexpected happened.
 - **Fault in the laboratory**: a green bump; a bump whose version is a minor or a patch of a library with a good changelog; a bump that is subtly wrong (CASE-06).
 
