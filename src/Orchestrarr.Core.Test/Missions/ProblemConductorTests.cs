@@ -1264,6 +1264,19 @@ public sealed class ProblemConductorTests : IDisposable
     }
 
     [Fact]
+    public void A_rename_out_of_a_forbidden_path_counts_by_its_old_path_so_a_pipeline_cannot_be_moved_out_of_the_floor()
+    {
+        var conductor = Conductor();
+        var id = StartStaged(conductor).Mission!.Id;
+        conductor.Started(id);
+        conductor.HandOver(id, DossierFor(id));
+        _facts.DiffSaysClean = true;
+        _facts.ChangedPaths = [".github/workflows/codeql.yml", "src/codeql.yml"];
+
+        conductor.Decide(id, Grant()).Failures.Should().Contain(PreconditionFailure.DiffTouchesForbiddenPath, "the source lists both sides of the rename, and the old path is in the floor");
+    }
+
+    [Fact]
     public void A_diff_whose_paths_are_not_known_is_not_clean()
     {
         var conductor = Conductor();
