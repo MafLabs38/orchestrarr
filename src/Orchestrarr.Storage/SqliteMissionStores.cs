@@ -77,6 +77,20 @@ public sealed class SqliteMissionStore(SqliteDatabase database) : IMissionStore
         return command.ExecuteScalar();
     }
 
+    /// <summary>The documents of a query that takes its keys as one JSON array (<c>json_each($keys)</c>): one read for a page of a screen, the SQL a constant and the keys a bound value.</summary>
+    internal static IReadOnlyList<T> BodiesIn<T>(SqliteDatabase database, string sql, IReadOnlyCollection<string> keys) where T : class
+    {
+        if (keys.Count == 0)
+        {
+            return [];
+        }
+        using var connection = database.Connect();
+        using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        command.Parameters.AddWithValue("$keys", MissionJson.Write(keys));
+        return Bodies<T>(command);
+    }
+
     internal static IReadOnlyList<T> Bodies<T>(SqliteCommand command) where T : class
     {
         var list = new List<T>();
@@ -111,6 +125,28 @@ public sealed class SqliteMandateLedger(SqliteDatabase database) : IMandateLedge
 
     public SignedMandate? Get(string id) => SqliteDatabase.Guard(() => MissionJson.Read<SignedMandate>(SqliteMissionStore.Scalar(database, "SELECT body FROM mandates WHERE id = $key;", id)));
 
+    public IReadOnlyDictionary<string, SignedMandate> GetMany(IReadOnlyCollection<string> ids) =>
+        SqliteDatabase.Guard(() => SqliteMissionStore.BodiesIn<SignedMandate>(database, "SELECT body FROM mandates WHERE id IN (SELECT value FROM json_each($keys));", ids).ToDictionary(signed => signed.Mandate.Id, StringComparer.Ordinal));
+
+    public IReadOnlySet<string> RevokedAmong(IReadOnlyCollection<string> ids) => SqliteDatabase.Guard(() =>
+    {
+        var revoked = new HashSet<string>(StringComparer.Ordinal);
+        if (ids.Count == 0)
+        {
+            return revoked;
+        }
+        using var connection = database.Connect();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT id FROM mandates WHERE revoked = 1 AND id IN (SELECT value FROM json_each($keys));";
+        command.Parameters.AddWithValue("$keys", MissionJson.Write(ids));
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            revoked.Add(reader.GetString(0));
+        }
+        return revoked;
+    });
+
     public int CountForProblem(string problemId) => SqliteDatabase.Guard(() => Convert.ToInt32(SqliteMissionStore.Scalar(database, "SELECT COUNT(*) FROM mandates WHERE problem_id = $key;", problemId), System.Globalization.CultureInfo.InvariantCulture));
 
     public int CountForRun(string problemId, string approvalId) => SqliteDatabase.Guard(() =>
@@ -142,6 +178,9 @@ public sealed class SqliteProblemStore(SqliteDatabase database) : IProblemStore
 {
     public ProblemRun? Get(string problemId) => SqliteDatabase.Guard(() => MissionJson.Read<ProblemRun>(SqliteMissionStore.Scalar(database, "SELECT body FROM problems WHERE problem_id = $key;", problemId)));
 
+    public IReadOnlyDictionary<string, ProblemRun> GetMany(IReadOnlyCollection<string> problemIds) =>
+        SqliteDatabase.Guard(() => SqliteMissionStore.BodiesIn<ProblemRun>(database, "SELECT body FROM problems WHERE problem_id IN (SELECT value FROM json_each($keys));", problemIds).ToDictionary(run => run.ProblemId, StringComparer.Ordinal));
+
     public IReadOnlyList<ProblemRun> InProgress() => SqliteDatabase.Guard(() =>
     {
         using var connection = database.Connect();
@@ -171,6 +210,9 @@ public sealed class SqliteProblemStore(SqliteDatabase database) : IProblemStore
 public sealed class SqliteDossierStore(SqliteDatabase database) : IDossierStore
 {
     public Dossier? Get(string missionId) => SqliteDatabase.Guard(() => MissionJson.Read<Dossier>(SqliteMissionStore.Scalar(database, "SELECT body FROM dossiers WHERE mission_id = $key;", missionId)));
+
+    public IReadOnlyDictionary<string, Dossier> GetMany(IReadOnlyCollection<string> missionIds) =>
+        SqliteDatabase.Guard(() => SqliteMissionStore.BodiesIn<Dossier>(database, "SELECT body FROM dossiers WHERE mission_id IN (SELECT value FROM json_each($keys));", missionIds).ToDictionary(dossier => dossier.MissionId, StringComparer.Ordinal));
 
     public void Save(Dossier dossier)
     {

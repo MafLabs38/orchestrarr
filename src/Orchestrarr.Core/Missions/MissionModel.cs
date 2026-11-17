@@ -6,7 +6,7 @@ public static class ForbiddenPathsDefaults
     public static IReadOnlyList<string> Floor { get; } = [".github/**", "**/*.enc.*", "**/.env*"];
 }
 
-/// <summary>What bounds a mission: the repositories it may touch, the paths it may never touch (pipelines, secrets) and the place it works in (a staging slot, an environment, a branch prefix).</summary>
+/// <summary>What bounds a mission: the repository it may touch (**exactly one**, ADR 0041; a list so that the wire format does not change), the paths it may never touch (pipelines, secrets) and the place it works in (a staging slot, an environment, a branch prefix).</summary>
 public sealed record MissionFrame(IReadOnlyList<string> Repositories, IReadOnlyList<string> ForbiddenPaths, string Place);
 
 /// <summary>Time, attempts and turns, never money: the model is the maintainer's subscription (ADR 0036).</summary>

@@ -38,6 +38,10 @@ public sealed class InMemoryMandateLedger : IMandateLedger
 
     public SignedMandate? Get(string id) => _mandates.GetValueOrDefault(id);
 
+    public IReadOnlyDictionary<string, SignedMandate> GetMany(IReadOnlyCollection<string> ids) => ids.Distinct(StringComparer.Ordinal).Where(_mandates.ContainsKey).ToDictionary(id => id, id => _mandates[id], StringComparer.Ordinal);
+
+    public IReadOnlySet<string> RevokedAmong(IReadOnlyCollection<string> ids) => ids.Where(_revoked.ContainsKey).ToHashSet(StringComparer.Ordinal);
+
     public int CountForProblem(string problemId) => _mandates.Values.Count(mandate => mandate.Mandate.ProblemId == problemId);
 
     public int CountForRun(string problemId, string approvalId) => _mandates.Values.Count(mandate => mandate.Mandate.ProblemId == problemId && mandate.Mandate.ApprovalId == approvalId);
@@ -61,6 +65,9 @@ public sealed class InMemoryProblemStore : IProblemStore
 
     public ProblemRun? Get(string problemId) => _runs.GetValueOrDefault(problemId);
 
+    public IReadOnlyDictionary<string, ProblemRun> GetMany(IReadOnlyCollection<string> problemIds) =>
+        problemIds.Distinct(StringComparer.Ordinal).Where(_runs.ContainsKey).ToDictionary(id => id, id => _runs[id], StringComparer.Ordinal);
+
     public void Save(ProblemRun run)
     {
         ArgumentNullException.ThrowIfNull(run);
@@ -81,4 +88,7 @@ public sealed class InMemoryDossierStore : IDossierStore
     }
 
     public Dossier? Get(string missionId) => _dossiers.GetValueOrDefault(missionId);
+
+    public IReadOnlyDictionary<string, Dossier> GetMany(IReadOnlyCollection<string> missionIds) =>
+        missionIds.Distinct(StringComparer.Ordinal).Where(_dossiers.ContainsKey).ToDictionary(id => id, id => _dossiers[id], StringComparer.Ordinal);
 }

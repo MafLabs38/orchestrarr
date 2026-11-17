@@ -16,6 +16,17 @@ public sealed class PreconditionsTests
         MandatePreconditions.Check(Good(world), requiresStagingProof: true).Should().BeEmpty();
     }
 
+    [Theory]
+    [InlineData(World.Staging, true)]
+    [InlineData(World.Git, false)]
+    [InlineData(World.Release, false)]
+    public void The_staging_is_asked_for_by_the_staging_world_only_because_the_problem_releases_it_when_the_change_leaves(World world, bool refused)
+    {
+        var failures = MandatePreconditions.Check(Good(world) with { Staging = StagingVerdict.RefusedBrokenOrStale }, requiresStagingProof: true);
+
+        failures.Contains(PreconditionFailure.StagingNotUsable).Should().Be(refused);
+    }
+
     [Fact]
     public void Each_check_of_the_code_names_what_failed()
     {
@@ -34,7 +45,7 @@ public sealed class PreconditionsTests
             WayBackKnown = null,
         };
 
-        MandatePreconditions.Check(facts, requiresStagingProof: true).Should().BeEquivalentTo(Enum.GetValues<PreconditionFailure>().Where(failure => failure is not (PreconditionFailure.MergeMayDeployUnderGitMandate or PreconditionFailure.ExecutedFilesTouchedWhereMergeDeploys or PreconditionFailure.AgentCouldCreateTags or PreconditionFailure.AgentBranchCouldReachWriteCredentials or PreconditionFailure.AgentIdentityNotConfined or PreconditionFailure.ApprovalBacksNoMoreMandates)), "the checks about a merge are for the Git world, and the count of a certificate is the conductor's");
+        MandatePreconditions.Check(facts, requiresStagingProof: true).Should().BeEquivalentTo(Enum.GetValues<PreconditionFailure>().Where(failure => failure is not (PreconditionFailure.MergeMayDeployUnderGitMandate or PreconditionFailure.ExecutedFilesTouchedWhereMergeDeploys or PreconditionFailure.AgentCouldCreateTags or PreconditionFailure.AgentBranchCouldReachWriteCredentials or PreconditionFailure.AgentIdentityNotConfined or PreconditionFailure.ApprovalBacksNoMoreMandates or PreconditionFailure.StagingNotUsable)), "the checks about a merge are for the Git world, the staging is held by the staging world only, and the count of a certificate is the conductor's");
     }
 
     [Fact]

@@ -28,7 +28,8 @@ public sealed partial class ProblemConductor
             PlanCovers: true,
             BudgetAvailable: observed.BudgetAvailable,
             KillSwitchEngaged: stop.Engaged,
-            // The verdict of the staging is the one that Start decided on the state it was given; reading the state again at each crossing needs the source of the staging runner, which is not built (FR-STG-4, R-58-183)
+            // The verdict of the staging is the one that Start decided on the state it was given: the problem holds that staging while it works in the staging world, and releases it when the change leaves for
+            // the Git world, so only the staging world asks for it (FR-STG-4); the later worlds ask for the proof made there instead
             Staging: run.UsesStaging ? StagingVerdict.Usable : StagingVerdict.UsableWithNoNet,
             PreviousDossierExists: previousDossierExists,
             DiffIsClean: diffClean,

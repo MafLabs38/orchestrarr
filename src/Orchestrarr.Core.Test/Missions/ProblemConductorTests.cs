@@ -138,7 +138,7 @@ public sealed class ProblemConductorTests : IDisposable
     private ProblemConductor Conductor(ConductorOptions? options = null) => Build(_authority, options, "id", locks: null);
 
     private ProblemConductor Build(IApprovalSource approvals, ConductorOptions? options, string idPrefix, ProblemLocks? locks) =>
-        new(_signer, new MissionStores(_missions, _mandates, _problems, _dossiers), new PowerSources(approvals, _authority.Verifier, _withdrawals, _grants, _stop), _facts, new Runners(), _audit, _time, options ?? ConductorOptions.Default, () => $"{idPrefix}-{Interlocked.Increment(ref _ids)}", locks);
+        new(_signer, new MissionStores(_missions, _mandates, _problems, _dossiers), new PowerSources(approvals, _authority.Verifier, _withdrawals, _grants, _stop), new ConductorServices(_facts, new Runners(), _audit, _time, () => $"{idPrefix}-{Interlocked.Increment(ref _ids)}"), options ?? ConductorOptions.Default, locks);
 
     private static PlanEntry Entry(World max = World.Release, string rule = "") => new("problem-1", "shop", "deprecated-dependency", "Replace the removed method", ["example/shop"], max, new MissionBudget(20, 3, 50),
         new Validation("alice", rule.Length == 0 ? null : rule), new DateTimeOffset(2026, 11, 13, 11, 0, 0, TimeSpan.Zero));
@@ -757,6 +757,15 @@ public sealed class ProblemConductorTests : IDisposable
 
         _audit.Writable = true;
         StartStaged(conductor).Ok.Should().BeTrue("the retry is not refused as already in progress");
+    }
+
+    [Fact]
+    public void A_problem_on_two_repositories_is_refused_because_it_is_as_many_problems_as_repositories()
+    {
+        var result = StartStaged(Conductor(), Entry() with { Repositories = ["example/shop", "example/api"] });
+
+        result.Ok.Should().BeFalse();
+        _problems.Get("problem-1").Should().BeNull("nothing is left in progress");
     }
 
     [Fact]

@@ -17,7 +17,7 @@ public enum ProblemState
 public sealed record Validation(string By, string? RuleId);
 
 /// <summary>
-/// A problem in the plan with the limits it may be solved within (FR-PLAN-2): how far it may go, the budget, the repositories. The plan entry is the first source of power; the
+/// A problem in the plan with the limits it may be solved within (FR-PLAN-2): how far it may go, the budget, the repository (**exactly one**: a problem is on one codebase, and a problem on several repositories is as many problems, ADR 0041). The plan entry is the first source of power; the
 /// grant of the application and the certificate are the others (see <see cref="EffectivePower"/>).
 /// </summary>
 public sealed record PlanEntry(
@@ -59,6 +59,12 @@ public interface IMandateLedger
 
     SignedMandate? Get(string id);
 
+    /// <summary>Several mandates in one read, by identifier (the list of the missions reads a page at a time): the ones that exist, keyed by identifier.</summary>
+    IReadOnlyDictionary<string, SignedMandate> GetMany(IReadOnlyCollection<string> ids);
+
+    /// <summary>Which of these mandates were revoked, in one read.</summary>
+    IReadOnlySet<string> RevokedAmong(IReadOnlyCollection<string> ids);
+
     int CountForProblem(string problemId);
 
     /// <summary>How many mandates one run of a problem was given: the mandates of the problem under the approval of that run (a problem started again on a new approval starts a new count).</summary>
@@ -75,6 +81,9 @@ public interface IMandateLedger
 public interface IProblemStore
 {
     ProblemRun? Get(string problemId);
+
+    /// <summary>Several problems in one read, by identifier: the ones that exist, keyed by identifier.</summary>
+    IReadOnlyDictionary<string, ProblemRun> GetMany(IReadOnlyCollection<string> problemIds);
 
     void Save(ProblemRun run);
 
@@ -94,6 +103,9 @@ public interface IDossierStore
     void Save(Dossier dossier);
 
     Dossier? Get(string missionId);
+
+    /// <summary>Several dossiers in one read, by mission identifier: the ones that exist, keyed by mission identifier.</summary>
+    IReadOnlyDictionary<string, Dossier> GetMany(IReadOnlyCollection<string> missionIds);
 }
 
 /// <summary>What the control plane fetched itself (FR-MAN-7; <c>ChangedPaths</c> are **the whole change from the merge base with the target branch to the head commit the source read, with both sides of a rename or a copy and every deleted path**, or null when they are not known: the conductor matches them against the frame of the mission, which holds the certificate's floor, so a source never decides what is forbidden): the diff and the CI status from the forge on the exact commit, the health from Portarr. A fact that is not known is null, and counts as failing.</summary>

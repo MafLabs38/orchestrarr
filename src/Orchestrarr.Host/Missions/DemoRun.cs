@@ -34,7 +34,7 @@ internal sealed class DemoRun(MissionStores stores, ProblemLocks locks, IRunnerD
         // A real approval authority with a real second factor of its own (a demo secret and the code of the moment), so that the certificates the demo mandates fall inside are real ones
         using var authority = DemoApprovals.NewAuthority(time, out var approvals);
         using var verifier = new ApprovalVerifier(authority.PublicKey(), time);
-        var conductor = new ProblemConductor(demoKey, stores, new PowerSources(approvals, verifier, new DemoWithdrawals(), new DemoGrants(), new DemoStop()), facts, runners, audit, time, options.Conductor(), () => Guid.NewGuid().ToString("N"), locks);
+        var conductor = new ProblemConductor(demoKey, stores, new PowerSources(approvals, verifier, new DemoWithdrawals(), new DemoGrants(), new DemoStop()), new ConductorServices(facts, runners, audit, time, () => Guid.NewGuid().ToString("N")), options.Conductor(), locks);
         var name = string.IsNullOrWhiteSpace(application) ? "demo-shop" : application.Trim();
         var problemId = $"demo-{Guid.NewGuid():N}"[..13];
         var entry = new PlanEntry(problemId, name, "deprecated-dependency", "Replace the call to the removed method", [$"example/{name}"], World.Release, new MissionBudget(20, 3, 50), new Validation("demo", null), time.GetUtcNow());

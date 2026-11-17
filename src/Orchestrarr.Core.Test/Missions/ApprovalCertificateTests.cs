@@ -135,7 +135,7 @@ public sealed class ApprovalCertificateTests : IDisposable
         _authority.Approve(Request() with { Lifetime = TimeSpan.FromDays(8) }).Approval.Should().BeNull("a problem is approved for a week at most");
         _authority.Approve(Request() with { Kind = CertificateKind.Rule, Subject = "deprecated-dependency", Lifetime = TimeSpan.FromDays(29) }).Approval.Should().NotBeNull("a rule lives longer than a problem");
         _authority.Approve(Request() with { Kind = CertificateKind.Rule, Subject = "deprecated-dependency", Lifetime = TimeSpan.FromDays(31) }).Approval.Should().BeNull();
-        _authority.Approve(Request(World.Release) with { Kind = CertificateKind.Rule, Subject = "deprecated-dependency" }).Approval.Should().BeNull("a standing rule reaches the Git world at most: the release world needs a certificate for the problem itself");
+        _authority.Approve(Request(World.Release) with { Kind = CertificateKind.Rule, Subject = "deprecated-dependency" }).Approval.Should().NotBeNull("a standing rule may go as far as production, bounded by its class, its count and its expiry (D-94)");
         _authority.Approve(Request(World.Git) with { Kind = CertificateKind.Rule, Subject = "deprecated-dependency" }).Approval.Should().NotBeNull();
         _authority.Approve(Request() with { MaxMandates = 0 }).Approval.Should().BeNull();
         _authority.Approve(Request() with { MaxMandates = 51 }).Approval.Should().BeNull();
@@ -179,9 +179,9 @@ public sealed class ApprovalCertificateTests : IDisposable
     [Fact]
     public void The_summary_the_maintainer_reads_has_one_line_per_field_and_a_requester_cannot_make_it_say_something_else()
     {
-        var proposal = _authority.Authority.Propose(Request(World.Release) with { Repositories = ["example/shop", "example/api"] }, "erin")!;
+        var proposal = _authority.Authority.Propose(Request(World.Release) with { Repositories = ["example/shop"] }, "erin")!;
 
-        proposal.Summary.Split('\n').Should().Contain(["kind: Problem", "subject: \"problem-1\"", "application: \"shop\"", "repository: \"example/api\"", "repository: \"example/shop\"", "highest world: Release"]);
+        proposal.Summary.Split('\n').Should().Contain(["kind: Problem", "subject: \"problem-1\"", "application: \"shop\"", "repository: \"example/shop\"", "highest world: Release"]);
         // A value that holds a line break, a control character or nothing is refused, so it cannot start a line of its own
         _authority.Authority.Propose(Request() with { ApplicationId = "shop\nhighest world: Staging" }, "erin").Should().BeNull();
         _authority.Authority.Propose(Request() with { Subject = "problem-1\u0007" }, "erin").Should().BeNull();
@@ -190,11 +190,19 @@ public sealed class ApprovalCertificateTests : IDisposable
     }
 
     [Fact]
+    public void A_certificate_names_exactly_one_repository_because_a_problem_is_on_one_codebase()
+    {
+        _authority.Authority.Propose(Request() with { Repositories = ["example/shop", "example/api"] }, "erin").Should().BeNull();
+        _authority.Authority.Propose(Request() with { Repositories = [] }, "erin").Should().BeNull();
+        _authority.Authority.Propose(Request() with { Repositories = ["example/shop"] }, "erin").Should().NotBeNull();
+    }
+
+    [Fact]
     public void Two_requests_that_read_alike_do_not_share_a_digest_because_it_is_over_the_canonical_encoding()
     {
-        var one = _authority.Authority.Propose(Request() with { Repositories = ["a, b"] }, "erin")!;
-        var two = _authority.Authority.Propose(Request() with { Repositories = ["a", "b"] }, "erin")!;
-        var same = _authority.Authority.Propose(Request() with { Repositories = ["a", "b"] }, "erin")!;
+        var one = _authority.Authority.Propose(Request() with { ForbiddenPaths = ["a, b"] }, "erin")!;
+        var two = _authority.Authority.Propose(Request() with { ForbiddenPaths = ["a", "b"] }, "erin")!;
+        var same = _authority.Authority.Propose(Request() with { ForbiddenPaths = ["a", "b"] }, "erin")!;
 
         one.Digest.Should().NotBe(two.Digest);
         two.Digest.Should().Be(same.Digest, "the same request has the same digest");

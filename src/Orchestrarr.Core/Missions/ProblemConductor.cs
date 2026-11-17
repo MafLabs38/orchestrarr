@@ -22,15 +22,22 @@ public sealed record ConductResult(bool Ok, string? Refusal, IReadOnlyList<Preco
     public static ConductResult Success(Mission mission, SignedMandate? mandate = null) => new(true, null, [], mission, mandate);
 }
 
+/// <summary>What the conductor reaches outside itself: the facts it reads, the runners it names, the audit trail, the clock and the source of identifiers.</summary>
+public sealed record ConductorServices(IFactsSource Facts, IRunnerDirectory Runners, IMissionAudit Audit, TimeProvider Time, Func<string> NewId);
+
 /// <summary>
 /// Conducts a problem through the worlds (FUNCTIONAL 4, ADR 0030 to 0032, 0036): it issues the first mandate from the plan **on a proved approval**, applies what the controller decides, issues
 /// the next mandate only after the checks of the code, bounds the loop, and ends everything cleanly on a stop, an expiry or a budget. It holds no agent and starts nothing: runners and agents
 /// are reached through mandates. Every refusal says why, nothing the controller says can waive a check of the code, **every operation on a problem is serialised**, and **every mandate, decision and
 /// end is written to the audit trail**.
 /// </summary>
-public sealed partial class ProblemConductor(
-    MandateSigner signer, MissionStores stores, PowerSources powers, IFactsSource facts, IRunnerDirectory runners, IMissionAudit audit, TimeProvider time, ConductorOptions options, Func<string> newId, ProblemLocks? problemLocks = null)
+public sealed partial class ProblemConductor(MandateSigner signer, MissionStores stores, PowerSources powers, ConductorServices services, ConductorOptions options, ProblemLocks? problemLocks = null)
 {
+    private readonly IFactsSource facts = services.Facts;
+    private readonly IRunnerDirectory runners = services.Runners;
+    private readonly IMissionAudit audit = services.Audit;
+    private readonly TimeProvider time = services.Time;
+    private readonly Func<string> newId = services.NewId;
     private readonly IMissionStore missions = stores.Missions;
     private readonly IMandateLedger mandates = stores.Mandates;
     private readonly IProblemStore problems = stores.Problems;
@@ -63,6 +70,7 @@ public sealed partial class ProblemConductor(
     private static bool Covers(SignedApproval approval, PlanEntry entry) =>
         string.Equals(approval.Certificate.ApplicationId, entry.ApplicationId, StringComparison.Ordinal)
         && (approval.Certificate.Kind == CertificateKind.Problem ? string.Equals(approval.Certificate.Subject, entry.ProblemId, StringComparison.Ordinal) : string.Equals(approval.Certificate.Subject, entry.ProblemClass, StringComparison.Ordinal))
+        && entry.Repositories.Count == 1
         && entry.Repositories.All(repository => approval.Certificate.Repositories.Contains(repository, StringComparer.Ordinal))
         && entry.Budget.MaxMinutes <= approval.Certificate.Budget.MaxMinutes && entry.Budget.MaxAttempts <= approval.Certificate.Budget.MaxAttempts && entry.Budget.MaxTurns <= approval.Certificate.Budget.MaxTurns;
 
@@ -230,11 +238,8 @@ public sealed partial class ProblemConductor(
     private ConductResult Close(ProblemRun run, Mission mission, bool complex, string? problemNote, string acceptedDetail, string? closedDetail)
     {
         var closed = MissionMachine.Apply(mission, MissionEvent.Granted, options.Loop, complex: complex).Mission ?? mission;
-        missions.Save(closed);
-        Revoke(mission);
-        problems.Save(run with { State = ProblemState.Closed, CurrentWorld = null, Note = problemNote });
-        BestEffort(MissionAuditEvents.MissionAccepted, mission.Id, acceptedDetail);
-        BestEffort(MissionAuditEvents.ProblemClosed, run.ProblemId, closedDetail);
+        Settle(mission, closed, run with { State = ProblemState.Closed, CurrentWorld = null, Note = problemNote },
+            new AuditLine(MissionAuditEvents.MissionAccepted, mission.Id, acceptedDetail), new AuditLine(MissionAuditEvents.ProblemClosed, run.ProblemId, closedDetail));
         return ConductResult.Success(closed);
     }
 
@@ -264,13 +269,15 @@ public sealed partial class ProblemConductor(
         {
             return ConductResult.Fail(transition.Refusal ?? "refused");
         }
-        missions.Save(sent);
-        BestEffort(MissionAuditEvents.MissionSentBack, mission.Id, Text($"send-back {sent.SendBacks}"));
+        var sentBack = new AuditLine(MissionAuditEvents.MissionSentBack, mission.Id, Text($"send-back {sent.SendBacks}"));
         if (sent.State == MissionState.Ended)
         {
-            Revoke(mission);
-            problems.Save(run with { State = ProblemState.Failed, Note = sent.EndReason });
-            BestEffort(MissionAuditEvents.ProblemFailed, run.ProblemId, sent.EndReason);
+            Settle(mission, sent, run with { State = ProblemState.Failed, Note = sent.EndReason }, sentBack, new AuditLine(MissionAuditEvents.ProblemFailed, run.ProblemId, sent.EndReason));
+        }
+        else
+        {
+            missions.Save(sent);
+            BestEffort(sentBack);
         }
         return ConductResult.Success(sent);
     }
@@ -283,11 +290,8 @@ public sealed partial class ProblemConductor(
         {
             return ConductResult.Fail(transition.Refusal ?? "refused");
         }
-        missions.Save(ended);
-        Revoke(mission);
-        problems.Save(run with { State = ProblemState.Escalated, Note = reason });
-        BestEffort(MissionAuditEvents.MissionEnded, mission.Id, Text($"escalated: {reason}"));
-        BestEffort(MissionAuditEvents.ProblemEscalated, run.ProblemId, reason);
+        Settle(mission, ended, run with { State = ProblemState.Escalated, Note = reason },
+            new AuditLine(MissionAuditEvents.MissionEnded, mission.Id, Text($"escalated: {reason}")), new AuditLine(MissionAuditEvents.ProblemEscalated, run.ProblemId, reason));
         return ConductResult.Success(ended);
     }
 
@@ -298,11 +302,8 @@ public sealed partial class ProblemConductor(
         {
             return ConductResult.Fail(transition.Refusal ?? "refused");
         }
-        missions.Save(ended);
-        Revoke(mission);
-        problems.Save(run with { State = ProblemState.Failed, Note = reason });
-        BestEffort(MissionAuditEvents.MissionEnded, mission.Id, Text($"{ended.End}: {reason}"));
-        BestEffort(MissionAuditEvents.ProblemFailed, run.ProblemId, reason);
+        Settle(mission, ended, run with { State = ProblemState.Failed, Note = reason },
+            new AuditLine(MissionAuditEvents.MissionEnded, mission.Id, Text($"{ended.End}: {reason}")), new AuditLine(MissionAuditEvents.ProblemFailed, run.ProblemId, reason));
         return ConductResult.Success(ended);
     }
 
@@ -315,6 +316,19 @@ public sealed partial class ProblemConductor(
         }
         missions.Save(moved);
         return ConductResult.Success(moved);
+    }
+
+    // The end of a mission and the new state of its problem, written once and always in this order: the mission, then the revoke of its mandate, then the problem (a mandate is never left in
+    // force under a problem that says it is over), then the trail
+    private void Settle(Mission before, Mission after, ProblemRun problem, params AuditLine[] trail)
+    {
+        missions.Save(after);
+        Revoke(before);
+        problems.Save(problem);
+        foreach (var line in trail)
+        {
+            BestEffort(line);
+        }
     }
 
     private void Revoke(Mission mission)
@@ -401,6 +415,11 @@ public sealed partial class ProblemConductor(
     private bool Required(string eventName, string subject, string? detail) => audit.Record(eventName, subject, detail);
 
     private void BestEffort(string eventName, string subject, string? detail) => _ = audit.Record(eventName, subject, detail);
+
+    private void BestEffort(AuditLine line) => BestEffort(line.Event, line.Subject, line.Detail);
+
+    // One line of the audit trail, kept to be written after the state is saved
+    private readonly record struct AuditLine(string Event, string Subject, string? Detail);
 
     private static string Text(FormattableString text) => text.ToString(CultureInfo.InvariantCulture);
 

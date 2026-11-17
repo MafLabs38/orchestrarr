@@ -105,7 +105,7 @@ public sealed class ApprovalAuthority : IDisposable
         var forbidden = (IReadOnlyList<string>)[.. (request.ForbiddenPaths ?? []).Union(_policy.ForbiddenPathsFloor, StringComparer.Ordinal)];
         request = request with { ForbiddenPaths = forbidden };
         // Every identifier is plain text on one line: nothing a requester writes can pass for a line, a separator or a quote of what the maintainer reads
-        if (request.Repositories.Count == 0 || !request.Budget.IsValid || request.Lifetime <= TimeSpan.Zero || request.Lifetime > longest || request.MaxMandates < 1 || request.MaxMandates > _policy.MaxMandates
+        if (request.Repositories.Count != 1 || !request.Budget.IsValid || request.Lifetime <= TimeSpan.Zero || request.Lifetime > longest || request.MaxMandates < 1 || request.MaxMandates > _policy.MaxMandates
             || (request.Kind == CertificateKind.Rule && request.MaxWorld > _policy.MaxRuleWorld)
             || !Plain(request.Subject) || !Plain(request.ApplicationId) || !request.Repositories.All(Plain) || !forbidden.All(Plain))
         {

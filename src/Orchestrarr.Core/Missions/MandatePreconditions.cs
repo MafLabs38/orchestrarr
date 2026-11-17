@@ -74,7 +74,9 @@ public static class MandatePreconditions
         Add(failures, !facts.PlanCovers, PreconditionFailure.PlanDoesNotCover);
         Add(failures, !facts.BudgetAvailable, PreconditionFailure.BudgetUnavailable);
         Add(failures, facts.KillSwitchEngaged, PreconditionFailure.KillSwitchEngaged);
-        Add(failures, facts.Staging is not (StagingVerdict.Usable or StagingVerdict.UsableWithNoNet), PreconditionFailure.StagingNotUsable);
+        // The staging is a condition to start the job and to work in the staging world, where the problem holds it: it is released when the change leaves for the Git world (the pull request is
+        // opened), so the later worlds do not ask for it (they ask for the proof that was made there, below)
+        Add(failures, facts.World == World.Staging && facts.Staging is not (StagingVerdict.Usable or StagingVerdict.UsableWithNoNet), PreconditionFailure.StagingNotUsable);
         Add(failures, facts.Loop != LoopVerdict.Allowed, PreconditionFailure.LoopLimitReached);
         // The first mission of a problem has no dossier before it; the next worlds do
         Add(failures, facts.World != World.Staging && !facts.PreviousDossierExists, PreconditionFailure.NoPreviousDossier);

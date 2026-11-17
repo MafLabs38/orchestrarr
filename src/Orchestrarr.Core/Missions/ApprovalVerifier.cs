@@ -87,7 +87,7 @@ public sealed class ApprovalVerifier : IDisposable
         {
             return ApprovalRefusal.WorldAboveApproval;
         }
-        if (!mandate.Frame.Repositories.All(repository => certificate.Repositories.Contains(repository, StringComparer.Ordinal)))
+        if (mandate.Frame.Repositories.Count != 1 || certificate.Repositories.Count != 1 || !mandate.Frame.Repositories.All(repository => certificate.Repositories.Contains(repository, StringComparer.Ordinal)))
         {
             return ApprovalRefusal.RepositoryNotApproved;
         }

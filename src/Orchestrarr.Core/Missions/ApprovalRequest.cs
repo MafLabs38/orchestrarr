@@ -3,10 +3,10 @@ namespace Orchestrarr.Core.Missions;
 /// <summary>What the maintainer asks the authority to certify. <c>MaxMandates</c> is how many mandates the whole certificate may back, counted by the runners: a certificate for a standing rule would otherwise back any number of problems.</summary>
 public sealed record ApprovalRequest(CertificateKind Kind, string Subject, string ApplicationId, IReadOnlyList<string> Repositories, World MaxWorld, MissionBudget Budget, TimeSpan Lifetime, IReadOnlyList<string>? ForbiddenPaths = null, int MaxMandates = 8);
 
-/// <summary>The bounds that the authority puts on what it signs, whoever asks (and a **floor of forbidden paths** that is in every certificate, so that a request that lists none still protects the pipelines): a certificate lives for a limited time and backs a limited number of mandates (a standing rule lives longer than a problem, but reaches only the Git world: the release world needs a certificate for the problem itself).</summary>
+/// <summary>The bounds that the authority puts on what it signs, whoever asks (and a **floor of forbidden paths** that is in every certificate, so that a request that lists none still protects the pipelines): a certificate lives for a limited time and backs a limited number of mandates (a standing rule lives longer than a problem and may reach the release world: it is bounded by its class, its count and its expiry, ADR 0031 point 7 and D-94).</summary>
 public sealed record ApprovalPolicy(TimeSpan MaxProblemLifetime, TimeSpan MaxRuleLifetime, int MaxMandates, TimeSpan ProposalLifetime, World MaxRuleWorld, IReadOnlyList<string> ForbiddenPathsFloor)
 {
-    public static ApprovalPolicy Default { get; } = new(TimeSpan.FromDays(7), TimeSpan.FromDays(30), 50, TimeSpan.FromMinutes(10), World.Git, ForbiddenPathsDefaults.Floor);
+    public static ApprovalPolicy Default { get; } = new(TimeSpan.FromDays(7), TimeSpan.FromDays(30), 50, TimeSpan.FromMinutes(10), World.Release, ForbiddenPathsDefaults.Floor);
 }
 
 /// <summary>

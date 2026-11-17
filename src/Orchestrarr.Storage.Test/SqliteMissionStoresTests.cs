@@ -163,6 +163,27 @@ public sealed class SqliteMissionStoresTests : IDisposable
     }
 
     [Fact]
+    public void A_page_of_mandates_problems_and_dossiers_is_read_in_one_read_each_and_what_does_not_exist_is_left_out()
+    {
+        var entry = new PlanEntry("p1", "shop", "deprecated", "Replace the call", ["example/shop"], World.Release, new MissionBudget(20, 3, 50), new Validation("alice", null), new DateTimeOffset(2026, 11, 13, 11, 0, 0, TimeSpan.Zero));
+        using var authority = new Authority(new FakeTimeProvider(new DateTimeOffset(2026, 11, 13, 12, 0, 0, TimeSpan.Zero)));
+        var database = _file.Open();
+        var mandates = new SqliteMandateLedger(database);
+        mandates.Record(Mandate("mandate-1"));
+        mandates.Record(Mandate("mandate-2"));
+        mandates.Revoke("mandate-2");
+        new SqliteProblemStore(database).Save(new ProblemRun("p1", "shop", ProblemState.InProgress, new DateTimeOffset(2026, 11, 13, 12, 0, 0, TimeSpan.Zero), entry, World.Git, UsesStaging: true, authority.For(entry)!, World.Staging));
+        new SqliteDossierStore(database).Save(new Dossier("m1", "done", "replaced the call", ["sha256:aa"], [], false, null));
+
+        mandates.GetMany(["mandate-1", "mandate-2", "none"]).Keys.Should().BeEquivalentTo("mandate-1", "mandate-2");
+        mandates.RevokedAmong(["mandate-1", "mandate-2", "none"]).Should().BeEquivalentTo("mandate-2");
+        new SqliteProblemStore(database).GetMany(["p1", "p1", "none"]).Keys.Should().BeEquivalentTo("p1");
+        new SqliteDossierStore(database).GetMany(["m1", "m2"]).Keys.Should().BeEquivalentTo("m1");
+        mandates.GetMany([]).Should().BeEmpty();
+        mandates.RevokedAmong([]).Should().BeEmpty();
+    }
+
+    [Fact]
     public void A_problem_and_a_dossier_are_kept()
     {
         var entry = new PlanEntry("p1", "shop", "deprecated", "Replace the call", ["example/shop"], World.Release, new MissionBudget(20, 3, 50), new Validation("alice", null), new DateTimeOffset(2026, 11, 13, 11, 0, 0, TimeSpan.Zero));
@@ -188,7 +209,7 @@ public sealed class SqliteMissionStoresTests : IDisposable
         using var authority = new Authority(time);
         ProblemConductor Conductor(SqliteDatabase database) => new(_signer,
             new MissionStores(new SqliteMissionStore(database), new SqliteMandateLedger(database), new SqliteProblemStore(database), new SqliteDossierStore(database)),
-            new PowerSources(authority, authority.Verifier, new Withdrawals(), new Grants(), new NoStop()), new GoodFacts(), new Runners(), new Silent(), time, ConductorOptions.Default, () => $"id-{++ids}");
+            new PowerSources(authority, authority.Verifier, new Withdrawals(), new Grants(), new NoStop()), new ConductorServices(new GoodFacts(), new Runners(), new Silent(), time, () => $"id-{++ids}"), ConductorOptions.Default);
         var entry = new PlanEntry("p1", "shop", "deprecated", "Replace the call", ["example/shop"], World.Release, new MissionBudget(20, 3, 50), new Validation("alice", null), time.GetUtcNow());
         var first = Conductor(_file.Open());
         var staging = first.Start(entry, StagingDeclaration.DeclaredStaging, StagingRequirement.BlankMachine, StagingState.NotDefined);
