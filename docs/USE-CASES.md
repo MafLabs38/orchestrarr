@@ -139,7 +139,7 @@ What defines a mission is **where it happens, not what it contains.** The mainta
 
 1. **The staging world**: a workspace in the staging virtual machine, where the application is deployed from the branch and where the agent changes the code, rebuilds, redeploys and tests, the way a preview environment is used for a front end.
 2. **The Git world**: branch, pull request, CI/CD, merge into develop, the quality pipelines.
-3. **The release world**: deployment in production and verification; a failure opens a repair, a revert first when it is the quickest way, through the same process (ADR 0040).
+3. **The release world**: deployment in production and verification; a failure is a failed push: the loop goes on with the same problem, through the same process and without another validation (ADR 0040).
 
 To move from one world to the next, the agent **asks the control plane for a mandate.** The control plane is itself an agent: it reads what the first one did and the evidence it brought, checks **without bias** that the contract was respected, and grants or refuses the mandate. This is a **cross-check** between two agents. The agent chooses how to work inside a mandate; it shows what it did before it gets the next one.
 
