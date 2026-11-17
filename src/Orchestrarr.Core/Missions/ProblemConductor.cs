@@ -10,7 +10,8 @@ public sealed record ConductorOptions(TimeSpan MandateLifetime, IReadOnlyList<st
 
 /// <summary>
 /// What an operation of the conductor gives back: the new state of the mission, the mandate issued if any, or why it was refused. **Ok false with no mission: nothing happened. Ok false with a mission:
-/// a check of the code failed and the mission moved (it was sent back, escalated or ended), the stores were written.**
+/// a check of the code failed and the mission moved (it was sent back, escalated or ended), the stores were written; when the release did not verify the problem goes back to the first world and the
+/// result carries the new mission **and its mandate**: a caller that dispatches on the mandate, not only on Ok, runs it.**
 /// </summary>
 public sealed record ConductResult(bool Ok, string? Refusal, IReadOnlyList<PreconditionFailure> Failures, Mission? Mission, SignedMandate? Mandate)
 {
@@ -128,8 +129,7 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
             if (first == World.Git)
             {
                 // An application with no staging starts in the Git world: the frame of the merge is checked here too, since no crossing will do it (the diff, the CI and the executed files are checked at the merge itself)
-                var frame = CheckFacts(run, World.Git, FrameFor(run, "start"), missionId: null, previousDossierExists: true, dossier: null, commit: null, issuing: false)
-                    .Where(failure => failure is PreconditionFailure.MergeMayDeployUnderGitMandate or PreconditionFailure.AgentCouldCreateTags or PreconditionFailure.AgentBranchCouldReachWriteCredentials or PreconditionFailure.AgentIdentityNotConfined).ToList();
+                var frame = GitFrameFailures(run);
                 if (frame.Count > 0)
                 {
                     return ConductResult.Fail("the merge could deploy beyond the approval, or the agent could create tags or reach a write credential", frame);
@@ -246,14 +246,33 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
         return ConductResult.Success(closed);
     }
 
+    // The frame of the merge in the Git world, read now: the merge that may deploy, the tags, a write credential, the identity of the agent. Where no crossing makes these checks (an application with no staging
+    // starts in the Git world, and a problem that goes back to it is in the same case), the conductor makes them before it issues the mandate
+    private List<PreconditionFailure> GitFrameFailures(ProblemRun run) =>
+        CheckFacts(run, World.Git, FrameFor(run, "start"), missionId: null, previousDossierExists: true, dossier: null, commit: null, issuing: false)
+            .Where(failure => failure is PreconditionFailure.MergeMayDeployUnderGitMandate or PreconditionFailure.AgentCouldCreateTags or PreconditionFailure.AgentBranchCouldReachWriteCredentials or PreconditionFailure.AgentIdentityNotConfined).ToList();
+
     // A release that does not verify is a failed push (D-93, ADR 0040): the mission ends, the problem stays in progress and the loop starts again in the first world (a new staging, then the Git world, then the
     // release), under the same approval, with the same budgets and without another validation. What cannot be repaired by going back (the stop, the limit of the loop, a change to what the pipeline executes)
     // keeps the answer it always had.
     private ConductResult ReleaseDidNotVerify(Mission mission, ProblemRun run, IReadOnlyList<PreconditionFailure> failures)
     {
-        if (failures.Contains(PreconditionFailure.ExecutedFilesTouchedWhereMergeDeploys) || failures.Contains(PreconditionFailure.LoopLimitReached) || failures.Contains(PreconditionFailure.KillSwitchEngaged))
+        // Only what going back can repair sends the problem back: the pipelines that are not green and the artifact that is not the one proved. The other failures (the budget, the claim that does not match the
+        // facts, the diff, the frame, the stop, the loop, the executed files) keep the answer they always had, because restarting would not change them
+        if (!failures.All(failure => failure is PreconditionFailure.CiNotGreenOnExactCommit or PreconditionFailure.ArtifactNotProvedInStaging))
         {
             return SendBackWithFailures(mission, run, failures);
+        }
+        // The power is read again here, as at every crossing: a grant or a certificate withdrawn while the release ran stops the problem, and the first world must be within what the powers allow
+        var first = run.UsesStaging ? World.Staging : World.Git;
+        if (HighestNow(run.Entry, run.Approval) is not { } highest || first > highest)
+        {
+            return End(run, mission, MissionEvent.EndedByController, "the powers of the problem no longer reach the first world, or the grant was withdrawn");
+        }
+        if (first == World.Git && GitFrameFailures(run) is { Count: > 0 } frame)
+        {
+            var refused = End(run, mission, MissionEvent.EndedByController, "the merge could deploy beyond the approval, or the agent could create tags or reach a write credential");
+            return refused.Ok ? new ConductResult(false, "the frame of the Git world no longer holds: the work stops", frame, refused.Mission, null) : refused;
         }
         var transition = MissionMachine.Apply(mission, MissionEvent.EndedByController, options.Loop, reason: "the release did not verify: the problem goes back to the first world");
         if (transition.Mission is not { } ended)
@@ -263,7 +282,6 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
         missions.Save(ended);
         Revoke(mission);
         BestEffort(MissionAuditEvents.MissionEnded, mission.Id, Text($"the release did not verify ({string.Join(", ", failures)}): back to the first world"));
-        var first = run.UsesStaging ? World.Staging : World.Git;
         var opened = Open(run with { CurrentWorld = first }, first, MandateSource.Controller);
         // Like every answer where a check failed and the mission moved: not Ok, the new mission and its mandate, the failures that sent the problem back
         return opened.Ok ? new ConductResult(false, "the release did not verify: the problem goes back to the first world", failures, opened.Mission, opened.Mandate) : opened;

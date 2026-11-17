@@ -781,6 +781,55 @@ public sealed class ProblemConductorTests : IDisposable
         _mandates.CountForProblem("problem-1").Should().Be(4, "the new mandate counts against the loop's bound and the certificate's count");
     }
 
+    private ConductResult ReleaseThatFails(ProblemConductor conductor, bool staged, Action? before = null)
+    {
+        var step = staged ? StartStaged(conductor) : conductor.Start(Entry(), StagingDeclaration.DeclaredNoStaging, StagingRequirement.BlankMachine, StagingState.NotDefined);
+        var release = Through(conductor, staged ? Through(conductor, step) : step).Mission!;
+        _facts.CiGreen = false;
+        before?.Invoke();
+        conductor.Started(release.Id);
+        conductor.HandOver(release.Id, DossierFor(release.Id));
+        return conductor.Decide(release.Id, Grant());
+    }
+
+    [Fact]
+    public void An_application_with_no_staging_goes_back_to_the_git_world()
+    {
+        var back = ReleaseThatFails(Conductor(), staged: false);
+
+        back.Mission!.World.Should().Be(World.Git);
+        back.Mandate.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void The_frame_of_the_merge_is_checked_again_before_the_mandate_of_the_way_back_to_the_git_world()
+    {
+        var frame = ReleaseThatFails(Conductor(), staged: false, before: () => _facts.TagsBlocked = false);
+
+        frame.Mandate.Should().BeNull("the agent could create tags: no mandate is issued where no crossing checks the frame");
+        frame.Failures.Should().Contain(PreconditionFailure.AgentCouldCreateTags);
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.Failed);
+    }
+
+    [Fact]
+    public void A_grant_withdrawn_while_the_release_ran_stops_the_problem_instead_of_issuing_a_mandate_for_the_way_back()
+    {
+        var result = ReleaseThatFails(Conductor(), staged: true, before: () => _grants.Withdrawn.Add("shop"));
+
+        result.Mandate.Should().BeNull();
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.Failed);
+    }
+
+    [Fact]
+    public void Only_a_pipeline_that_is_not_green_or_an_artifact_that_is_not_the_one_proved_sends_the_problem_back_to_the_first_world()
+    {
+        var result = ReleaseThatFails(Conductor(), staged: true, before: () => _facts.ClaimMatches = false);
+
+        result.Failures.Should().Contain(PreconditionFailure.ClaimDoesNotMatchFacts);
+        result.Mission!.World.Should().Be(World.Release, "restarting does not change a claim that does not match the facts: the mission is sent back where it is");
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.InProgress);
+    }
+
     [Fact]
     public void A_problem_on_two_repositories_is_refused_because_it_is_as_many_problems_as_repositories()
     {
