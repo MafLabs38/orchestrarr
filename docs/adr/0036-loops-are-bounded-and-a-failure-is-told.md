@@ -11,9 +11,9 @@ The maintainer wants the system to iterate (a defect found after a world opens a
 ## Decision
 
 1. A problem found **after** a world (a test in staging, the pipelines, production) opens a **new mandate** to repair it, in the world where it can be repaired.
-2. In production, a failing verification **rolls back first**, then repairs.
+2. In production, a failing verification opens a repair: **the change is reverted first when that is the quickest way, then fixed**, through the same process as any change ([ADR 0040](0040-the-way-back-is-a-change-the-loop-makes.md)).
 3. The loop is **bounded per problem**: a maximum number of mandates and a maximum time; on reaching it the work stops and the maintainer is told.
-4. A mission that cannot finish in its budget **stops cleanly**: nothing half-merged or half-deployed, the branch and notes kept, a report of what was tried. **What the global stop and an outage of the control plane do to a release in flight is open (Q-35)**: today a stop revokes every mandate and every act is refused, rollback included, and a runner that cannot ask the control plane refuses every act, rollback included.
+4. A mission that cannot finish in its budget **stops cleanly**: nothing half-merged or half-deployed, the branch and notes kept, a report of what was tried. **A stop is a stop and an outage changes nothing** ([ADR 0040](0040-the-way-back-is-a-change-the-loop-makes.md) point 3): every mandate is revoked and every act is refused, and what is wrong in production afterwards is a problem to open again.
 5. A failure is never hidden: it is in the history and the report, and in a notification when it matters. The maintainer may take a failed problem again with a new validation; it is not retried forever.
 
 ## Consequences
