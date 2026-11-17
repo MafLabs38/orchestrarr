@@ -3,6 +3,8 @@ using System.Net.Http.Json;
 using System.Security.Cryptography;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using NSubstitute;
 using Orchestrarr.Core.Missions;
 using Orchestrarr.Host.Missions;
 
@@ -24,6 +26,37 @@ public sealed class MissionsWiringTests : IDisposable
         }
 
         protected override string CookieSecurity => "SameAsRequest";
+    }
+
+    private sealed class ListLogger<T> : ILogger<T>
+    {
+        public List<string> Warnings { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel == LogLevel.Warning)
+            {
+                Warnings.Add(formatter(state, exception));
+            }
+        }
+    }
+
+    [Fact]
+    public async Task The_host_says_at_start_which_sources_are_not_wired_and_says_nothing_when_they_all_are()
+    {
+        var inert = new ListLogger<MissionsNotWiredNotice>();
+        await new MissionsNotWiredNotice(new ConservativeFacts(), new NoApprovals(), new UnreadableWithdrawals(), inert).StartAsync(TestContext.Current.CancellationToken);
+
+        inert.Warnings.Should().ContainSingle().Which.Should().Contain("facts").And.Contain("approval").And.Contain("withdrawn");
+
+        var wired = new ListLogger<MissionsNotWiredNotice>();
+        await new MissionsNotWiredNotice(Substitute.For<IFactsSource>(), Substitute.For<IApprovalSource>(), Substitute.For<IApprovalWithdrawals>(), wired).StartAsync(TestContext.Current.CancellationToken);
+
+        wired.Warnings.Should().BeEmpty();
     }
 
     [Fact]

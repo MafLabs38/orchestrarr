@@ -49,6 +49,13 @@ public sealed partial class ProblemConductor
             {
                 return ActAuthorisation.Refused("the repository is not in the frame of the mission");
             }
+            // A deployment is on the commit that the dossier of the world before named and that the controller accepted at the crossing: a commit pushed after it was read by nobody (a new crossing is needed). A dossier with no commit counts as failing.
+            // A merge in the Git world is not bound this way: the pull request's commits are made in that world, and what ties a release to what was proved is the staging proof (FR-WLD-14), checked at the release
+            if (act == GatedAct.Deploy && !string.Equals(LatestDossier(run, mission)?.Commit, commit, StringComparison.Ordinal))
+            {
+                BestEffort(MissionAuditEvents.ActRefused, mission.Id, Text($"{act} on {commit}: not the commit that the controller accepted"));
+                return ActAuthorisation.Refused("the commit is not the one that the controller accepted at the crossing");
+            }
             var failures = changes
                 ? CheckFacts(run, mission.World, mission.Frame, mission.Id, previousDossierExists: PreviousDossierExists(run, mission), LatestDossier(run, mission), commit, issuing: false, repository, baseCommit)
                 : [];

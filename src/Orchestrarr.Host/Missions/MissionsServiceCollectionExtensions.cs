@@ -44,6 +44,8 @@ internal static class MissionsServiceCollectionExtensions
             .AddSingleton<IStopSignal>(provider => new KillSwitchSignal(provider.GetRequiredService<IKillSwitchControl>()))
             .AddSingleton<IMissionAudit>(provider => new AuditTrailMissions(provider.GetRequiredService<IAuditSink>(), provider.GetRequiredService<TimeProvider>()))
             .AddHostedService<MissionSweeper>()
+            .AddSingleton<DemoRun>()
+            .AddHostedService<MissionsNotWiredNotice>()
             .AddSingleton<IApprovalWithdrawals, UnreadableWithdrawals>()
             .AddSingleton(provider => new MissionStores(provider.GetRequiredService<IMissionStore>(), provider.GetRequiredService<IMandateLedger>(), provider.GetRequiredService<IProblemStore>(), provider.GetRequiredService<IDossierStore>()))
             .AddSingleton(provider => new PowerSources(provider.GetRequiredService<IApprovalSource>(), provider.GetRequiredService<ApprovalVerifier>(), provider.GetRequiredService<IApprovalWithdrawals>(), provider.GetRequiredService<IGrantSource>(), provider.GetRequiredService<IStopSignal>()))
@@ -169,6 +171,27 @@ internal sealed class AuditTrailMissions(IAuditSink sink, TimeProvider time) : I
     // The sinks of the trail are synchronous behind this signature (ADR 0013): the wait is the file's, no longer than its busy timeout
     public bool Record(string eventName, string subject, string? detail) =>
         sink.TryRecordAsync(new AuditEntry(time.GetUtcNow(), eventName, subject.Length > 120 ? subject[..120] : subject, null, detail is { Length: > 400 } ? detail[..400] : detail), CancellationToken.None).AsTask().GetAwaiter().GetResult();
+}
+
+/// <summary>Says once, at start, which sources of the missions are not wired yet, so that "no mandate is ever issued" is not mistaken for a bug: every act is refused until they exist (ADR 0031 point 7).</summary>
+internal sealed class MissionsNotWiredNotice(IFactsSource facts, IApprovalSource approvals, IApprovalWithdrawals withdrawals, ILogger<MissionsNotWiredNotice> logger) : IHostedService
+{
+    public Task StartAsync(CancellationToken cancellationToken)
+    {
+        var missing = new[]
+        {
+            facts is ConservativeFacts ? "the source of the facts (forge, Portarr)" : null,
+            approvals is NoApprovals ? "the plan service that gives an approval" : null,
+            withdrawals is UnreadableWithdrawals ? "the list of the withdrawn certificates" : null,
+        }.OfType<string>().ToList();
+        if (missing.Count > 0)
+        {
+            logger.LogWarning("The missions are inert: {Missing} not wired yet, so every act is refused and no real mandate can be issued", string.Join(", ", missing));
+        }
+        return Task.CompletedTask;
+    }
+
+    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }
 
 /// <summary>

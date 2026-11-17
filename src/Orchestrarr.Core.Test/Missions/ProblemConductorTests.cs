@@ -932,7 +932,7 @@ public sealed class ProblemConductorTests : IDisposable
         _facts.MergeMayDeploy = true;
         _facts.ExecutedFiles = true;
 
-        var executed = conductor.AuthoriseAct(release.Mission!.Id, GatedAct.Deploy, "abc", "example/shop", "base-1");
+        var executed = conductor.AuthoriseAct(release.Mission!.Id, GatedAct.Deploy, "abc123", "example/shop", "base-1");
 
         executed.Allowed.Should().BeFalse();
         executed.Failures.Should().Contain(PreconditionFailure.ExecutedFilesTouchedWhereMergeDeploys);
@@ -955,6 +955,20 @@ public sealed class ProblemConductorTests : IDisposable
         (allowed.Repository, allowed.Commit, allowed.BaseCommit).Should().Be(("example/shop", "abc", "base-1"));
         _facts.BaseCommit = "the-base-moved";
         conductor.AuthoriseAct(id, GatedAct.MergePullRequest, "abc", "example/shop", "base-1").Failures.Should().Contain(PreconditionFailure.ClaimDoesNotMatchFacts, "the base the source read is not the base that was named");
+    }
+
+    [Fact]
+    public void A_deployment_is_on_the_commit_that_the_controller_accepted_and_no_other()
+    {
+        var conductor = Conductor();
+        var release = Through(conductor, Through(conductor, StartStaged(conductor)));
+
+        var other = conductor.AuthoriseAct(release.Mission!.Id, GatedAct.Deploy, "abc", "example/shop", "base-1");
+
+        other.Allowed.Should().BeFalse();
+        other.Refusal.Should().Contain("not the one that the controller accepted", "the dossier of the Git world names abc123, and a commit pushed after the crossing was read by nobody");
+        _audit.Events.Should().Contain(entry => entry.StartsWith("act.refused") && entry.Contains("not the commit that the controller accepted"));
+        conductor.AuthoriseAct(release.Mission.Id, GatedAct.Deploy, "abc123", "example/shop", "base-1").Allowed.Should().BeTrue();
     }
 
     [Fact]
@@ -1150,7 +1164,7 @@ public sealed class ProblemConductorTests : IDisposable
         var release = Through(conductor, Through(conductor, StartStaged(conductor)));
         release.Mandate!.Mandate.World.Should().Be(World.Release);
 
-        conductor.AuthoriseAct(release.Mission!.Id, GatedAct.Deploy, "abc", "example/shop", "base-1").Allowed.Should().BeTrue("the release mandate is the third and last one allowed, and it may deploy");
+        conductor.AuthoriseAct(release.Mission!.Id, GatedAct.Deploy, "abc123", "example/shop", "base-1").Allowed.Should().BeTrue("the release mandate is the third and last one allowed, and it may deploy");
         var closed = Through(conductor, release);
 
         closed.Ok.Should().BeTrue();

@@ -35,6 +35,8 @@ public enum PreconditionFailure
     ArtifactNotProvedInStaging,
     ClaimDoesNotMatchFacts,
     LoopLimitReached,
+
+    /// <summary>The previous version is not known, or cannot be restored through the process (FR-WLD-13, D-93): it does not mean that an automatic rollback exists, there is none (ADR 0040). Unknown counts as failing.</summary>
     NoWayBackKnown,
 
     /// <summary>The merge of the Git world may deploy (or is not known not to): a merge that deploys is a release-world act, never performed under a Git-world mandate whatever the approval reaches; it goes through the release checks (the way back, the proof of the staging, the files the pipeline executes).</summary>
@@ -92,7 +94,7 @@ public static class MandatePreconditions
         Add(failures, facts.World == World.Git && facts.BranchCannotReachWriteCredentials != true, PreconditionFailure.AgentBranchCouldReachWriteCredentials);
         // The agent writes only to its own prefix, by a ruleset of the forge: read from the repository, unknown counts as unconfined
         Add(failures, facts.World == World.Git && facts.IdentityConfinedToItsBranches != true, PreconditionFailure.AgentIdentityNotConfined);
-        // A deployment needs a way back known before it starts (FR-WLD-13, rule 5 of CLAUDE.md): unknown counts as failing
+        // A deployment needs a way back known before it starts (FR-WLD-13, D-93): the previous version is known and can be restored through the process; unknown counts as failing
         Add(failures, facts.World == World.Release && facts.WayBackKnown != true, PreconditionFailure.NoWayBackKnown);
         return failures;
     }

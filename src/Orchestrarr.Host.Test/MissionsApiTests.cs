@@ -78,6 +78,17 @@ public sealed class MissionsApiTests
     }
 
     [Fact]
+    public async Task A_scenario_that_does_not_exist_is_refused_and_never_played_as_the_straight_path()
+    {
+        using var factory = new AccountsApiFactory();
+        using var client = await SignedIn(factory);
+
+        var response = await client.PostAsync("/api/v1/dev/missions/demo?scenario=nonsense", null, Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task A_pipeline_that_is_not_green_sends_the_release_back_instead_of_closing_the_problem()
     {
         using var factory = new AccountsApiFactory();

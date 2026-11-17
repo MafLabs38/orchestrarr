@@ -9,7 +9,7 @@ public enum World
     /// <summary>The forge: branch, pull request, CI/CD, merge into the integration branch.</summary>
     Git = 1,
 
-    /// <summary>Production: deployment, verification, rollback.</summary>
+    /// <summary>Production: deployment through the repository's declared delivery, and verification after it. The way back is a new change made through the process, never an act (ADR 0040).</summary>
     Release = 2,
 }
 
@@ -22,6 +22,8 @@ public enum GatedAct
     OpenPullRequest = 0,
     MergePullRequest = 1,
     Deploy = 2,
+
+    // 3 is retired (it was the rollback, ADR 0040): never reuse it, an old signed mandate or a stored row could read it as the new act
     ReserveStaging = 4,
     RestoreStaging = 5,
     ReleaseStaging = 6,
