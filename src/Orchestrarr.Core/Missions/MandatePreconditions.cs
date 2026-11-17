@@ -60,6 +60,9 @@ public enum PreconditionFailure
     /// approve pull requests. Not known counts as reachable.
     /// </summary>
     AgentBranchCouldReachWriteCredentials,
+
+    /// <summary>The pipeline's result for the exact commit is not known (still running, or the source could not read it): added to <see cref="CiNotGreenOnExactCommit"/>, so that a result that is not there is told apart from a pipeline that failed.</summary>
+    CiResultNotKnown,
 }
 
 /// <summary>What the code checks and never leaves to a judgement (FR-MAN-7). The controller judges the rest. <c>DiffTouchesForbiddenPath</c> also covers a diff that is not known: unknown counts as failing.</summary>
@@ -83,6 +86,7 @@ public static class MandatePreconditions
         // A diff that is not known to be clean is not clean: unknown counts as failing
         Add(failures, facts.DiffIsClean != true, PreconditionFailure.DiffTouchesForbiddenPath);
         Add(failures, facts.World != World.Staging && facts.CiGreenOnExactCommit != true, PreconditionFailure.CiNotGreenOnExactCommit);
+        Add(failures, facts.World != World.Staging && facts.CiGreenOnExactCommit is null, PreconditionFailure.CiResultNotKnown);
         Add(failures, facts.World == World.Release && requiresStagingProof && facts.ArtifactIsTheOneProvedInStaging != true, PreconditionFailure.ArtifactNotProvedInStaging);
         Add(failures, !facts.WorkerClaimMatchesFacts, PreconditionFailure.ClaimDoesNotMatchFacts);
         // A merge that may deploy is a release act (ADR 0035 point 7): refused under an approval that stops before the release world, unknown counts as deploying

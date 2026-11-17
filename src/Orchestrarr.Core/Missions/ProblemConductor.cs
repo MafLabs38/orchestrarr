@@ -257,9 +257,15 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
     // keeps the answer it always had.
     private ConductResult ReleaseDidNotVerify(Mission mission, ProblemRun run, IReadOnlyList<PreconditionFailure> failures)
     {
-        // Only what going back can repair sends the problem back: the pipelines that are not green and the artifact that is not the one proved. The other failures (the budget, the claim that does not match the
-        // facts, the diff, the frame, the stop, the loop, the executed files) keep the answer they always had, because restarting would not change them
-        if (!failures.All(failure => failure is PreconditionFailure.CiNotGreenOnExactCommit or PreconditionFailure.ArtifactNotProvedInStaging))
+        // Only a pipeline that failed sends the problem back (restarting repairs it), and a result that is not known yet does not (the worker may wait and hand over again, the mission is sent back where it is).
+        // The other failures (the budget, the claim that does not match the facts, the diff, the frame, the stop, the loop, the executed files) keep the answer they always had, because restarting would not change
+        // them. **A release that is not the artifact proved in staging is not a failure that code repairs** (a pipeline or a supply-chain anomaly): it is escalated to the maintainer at once (D-90).
+        if (failures.Contains(PreconditionFailure.ArtifactNotProvedInStaging))
+        {
+            var escalated = Escalate(run, mission, "the artifact that runs is not the one proved in staging: a person decides");
+            return escalated.Ok ? new ConductResult(false, "escalated to the maintainer", failures, escalated.Mission, null) : escalated;
+        }
+        if (failures.Contains(PreconditionFailure.CiResultNotKnown) || !failures.All(failure => failure is PreconditionFailure.CiNotGreenOnExactCommit))
         {
             return SendBackWithFailures(mission, run, failures);
         }

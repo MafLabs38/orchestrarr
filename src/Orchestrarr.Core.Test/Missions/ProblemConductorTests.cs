@@ -29,7 +29,7 @@ public sealed class ProblemConductorTests : IDisposable
 
     private sealed class FakeFacts : IFactsSource
     {
-        public bool CiGreen { get; set; } = true;
+        public bool? CiGreen { get; set; } = true;
 
         public bool ArtifactProved { get; set; } = true;
 
@@ -341,7 +341,7 @@ public sealed class ProblemConductorTests : IDisposable
         var result = conductor.Decide(id, Grant());
 
         result.Failures.Should().Contain(PreconditionFailure.ArtifactNotProvedInStaging);
-        _problems.Get("problem-1")!.State.Should().Be(ProblemState.InProgress);
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.Escalated, "an artifact that is not the one proved is for a person to decide");
     }
 
     [Fact]
@@ -818,6 +818,24 @@ public sealed class ProblemConductorTests : IDisposable
 
         result.Mandate.Should().BeNull();
         _problems.Get("problem-1")!.State.Should().Be(ProblemState.Failed);
+    }
+
+    [Fact]
+    public void A_pipeline_result_that_is_not_known_yet_does_not_restart_the_problem_and_an_artifact_that_is_not_the_one_proved_is_escalated()
+    {
+        var unknown = ReleaseThatFails(Conductor(), staged: true, before: () => _facts.CiGreen = null);
+        unknown.Failures.Should().Contain(PreconditionFailure.CiResultNotKnown);
+        unknown.Mission!.World.Should().Be(World.Release, "the worker may wait and hand over again");
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.InProgress);
+    }
+
+    [Fact]
+    public void An_artifact_that_is_not_the_one_proved_in_staging_after_the_release_is_escalated_to_the_maintainer()
+    {
+        var result = ReleaseThatFails(Conductor(), staged: true, before: () => { _facts.CiGreen = true; _facts.ArtifactProved = false; });
+
+        result.Mandate.Should().BeNull();
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.Escalated);
     }
 
     [Fact]
