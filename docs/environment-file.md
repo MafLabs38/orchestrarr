@@ -70,7 +70,7 @@ Powers are **not** in this file. What Orchestrarr is allowed to do per applicati
 
 What it does follows from the **runtime** of the workload and the `deployment.tool`. Nothing is declared by the application.
 
-| Runtime / tool | Deploy | Roll back | Smoke test |
+| Runtime / tool | Deploy | Roll back *(2026-11-17, D-93: how the previous version is restored, through the process, not an act of its own)* | Smoke test |
 |---|---|---|---|
 | `kubernetes` | Change the image in the deployment definition (or `kubectl set image`), wait for the rollout | Roll the workload back to the previous revision | Rollout complete, then the app's `check` |
 | `docker`, `compose` | Pull the new image, recreate the container | Recreate with the previous image, which is kept | Container healthy, then the app's `check` |
