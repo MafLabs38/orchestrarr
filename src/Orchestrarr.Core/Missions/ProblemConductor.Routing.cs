@@ -47,11 +47,18 @@ public sealed partial class ProblemConductor
             {
                 return (Route.Escalate, "the artifact that runs is not the one proved in staging: a person decides");
             }
-            // Only a pipeline that failed is repaired by a restart: the controller's judgement cannot send back to the first world a failure that a restart does not change (the budget, a claim that does not match
-            // the facts, the diff, a way back that is not known): those keep the answer the facts give
-            if (!failures.Contains(PreconditionFailure.CiResultNotKnown) && failures.All(failure => failure is PreconditionFailure.CiNotGreenOnExactCommit) && (controllerJudgedFailed || failures.Count > 0))
+            // A release that the controller judged failed never stays in the release world (its mandate could only deploy the same commit again): either a rule that is kept refuses the way back and the work
+            // stops with its own reason (ADR 0040 point 2), or the problem goes back to the first world, whose Open reads the same facts again. A pipeline result that is not known keeps its answer.
+            if (!failures.Contains(PreconditionFailure.CiResultNotKnown))
             {
-                return (Route.BackToFirstWorld, "the release did not verify: the problem goes back to the first world");
+                if (controllerJudgedFailed && failures.Any(failure => failure is PreconditionFailure.BudgetUnavailable or PreconditionFailure.ApprovalBacksNoMoreMandates or PreconditionFailure.PlanDoesNotCover))
+                {
+                    return (Route.Stop, "a rule that is kept refuses the way back for this release");
+                }
+                if (controllerJudgedFailed || (failures.Count > 0 && failures.All(failure => failure is PreconditionFailure.CiNotGreenOnExactCommit)))
+                {
+                    return (Route.BackToFirstWorld, "the release did not verify: the problem goes back to the first world");
+                }
             }
         }
         return (Route.SendBackInPlace, "a check of the code failed: the mission is sent back");

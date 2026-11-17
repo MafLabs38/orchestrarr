@@ -894,7 +894,7 @@ public sealed class ProblemConductorTests : IDisposable
     }
 
     [Fact]
-    public async Task A_send_back_of_the_controller_does_not_restart_a_failure_that_a_restart_does_not_change()
+    public async Task A_release_that_the_controller_judged_failed_goes_back_to_the_first_world_even_when_the_claim_does_not_match_the_facts()
     {
         var conductor = Conductor();
         var release = (await Through(conductor, await Through(conductor, await StartStaged(conductor)))).Mission!;
@@ -904,7 +904,7 @@ public sealed class ProblemConductorTests : IDisposable
 
         var result = await conductor.DecideAsync(release.Id, new ControllerDecision(ControllerDecisionKind.SendBack, ["the release does not verify"], "fix the claim"), Ct);
 
-        result.Mission!.World.Should().Be(World.Release, "a claim that does not match the facts is not repaired by a restart");
+        result.Mission!.World.Should().Be(World.Staging, "the release failed whatever the dossier claimed, and a send-back in the release world could only deploy the same commit again");
         _problems.Get("problem-1")!.State.Should().Be(ProblemState.InProgress);
     }
 
