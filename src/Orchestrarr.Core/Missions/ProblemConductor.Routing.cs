@@ -22,10 +22,10 @@ public sealed partial class ProblemConductor
         BackToFirstWorld,
     }
 
-    // The precedence: what a person must decide first, then what stops the work, then (in the release world) what a restart repairs, else the mission goes back where it is.
-    // A pipeline that failed is repaired by a restart; a result that is not known yet is not (the worker may wait and hand over again); an artifact that is not the one proved in staging is an anomaly of the
-    // pipeline or of the supply chain, that code does not repair (D-90).
-    private static (Route Route, string Why) RouteOf(World world, IReadOnlyList<PreconditionFailure> failures)
+    // The precedence: what a person must decide first, then what stops the work, then a pipeline result that is not known yet (a verdict cannot be taken on a fact that is not there: the mission goes back
+    // where it is), then, in the release world, what a restart repairs: a pipeline that failed, or a release that the controller judged failed on facts that are known. An artifact that is not the one proved in
+    // staging is an anomaly of the pipeline or of the supply chain, that code does not repair (D-90).
+    private static (Route Route, string Why) RouteOf(World world, IReadOnlyList<PreconditionFailure> failures, bool controllerJudgedFailed = false)
     {
         if (failures.Contains(PreconditionFailure.ExecutedFilesTouchedWhereMergeDeploys))
         {
@@ -45,7 +45,7 @@ public sealed partial class ProblemConductor
             {
                 return (Route.Escalate, "the artifact that runs is not the one proved in staging: a person decides");
             }
-            if (failures.Count > 0 && !failures.Contains(PreconditionFailure.CiResultNotKnown) && failures.All(failure => failure is PreconditionFailure.CiNotGreenOnExactCommit))
+            if (!failures.Contains(PreconditionFailure.CiResultNotKnown) && (controllerJudgedFailed || (failures.Count > 0 && failures.All(failure => failure is PreconditionFailure.CiNotGreenOnExactCommit))))
             {
                 return (Route.BackToFirstWorld, "the release did not verify: the problem goes back to the first world");
             }
@@ -53,9 +53,9 @@ public sealed partial class ProblemConductor
         return (Route.SendBackInPlace, "a check of the code failed: the mission is sent back");
     }
 
-    private async Task<ConductResult> RouteFailuresAsync(Mission mission, ProblemRun run, IReadOnlyList<PreconditionFailure> failures, CancellationToken cancellationToken)
+    private async Task<ConductResult> RouteFailuresAsync(Mission mission, ProblemRun run, IReadOnlyList<PreconditionFailure> failures, CancellationToken cancellationToken, bool controllerJudgedFailed = false)
     {
-        var (route, why) = RouteOf(mission.World, failures);
+        var (route, why) = RouteOf(mission.World, failures, controllerJudgedFailed);
         return route switch
         {
             Route.Escalate => Moved(await EscalateAsync(run, mission, why), "escalated to the maintainer", failures),
@@ -69,18 +69,9 @@ public sealed partial class ProblemConductor
     private static ConductResult Moved(ConductResult inner, string refusal, IReadOnlyList<PreconditionFailure> failures) =>
         inner.Ok ? new ConductResult(false, refusal, failures, inner.Mission, inner.Mandate) : inner;
 
-    // The controller judged that the release does not verify (a send-back in the release world): the facts of the control plane are read all the same, so that what a person must decide (an artifact that is
-    // not the one proved, a change to what the pipeline executes) and what stops the work (the stop, the loop) keep their route, and only the rest goes back to the first world
-    private async Task<ConductResult> ReleaseJudgedFailedAsync(Mission mission, ProblemRun run, CancellationToken cancellationToken)
-    {
-        var failures = await ClosingChecksAsync(run, mission, dossiers.Get(mission.Id), cancellationToken);
-        // What a person decides or what stops the work keeps its route, and so does a pipeline result that is not known yet (the mission is sent back where it is, whatever the controller said: a verdict
-        // cannot be taken on a fact that is not there); the rest, a release judged failed on facts that are known, goes back to the first world
-        var route = RouteOf(mission.World, failures).Route;
-        return route is Route.Escalate or Route.Stop || failures.Contains(PreconditionFailure.CiResultNotKnown)
-            ? await RouteFailuresAsync(mission, run, failures, cancellationToken)
-            : await BackToFirstWorldAsync(mission, run, failures, cancellationToken);
-    }
+    // The controller judged that the release does not verify (a send-back in the release world): the facts of the control plane are read all the same and the one table routes them with that judgement
+    private async Task<ConductResult> ReleaseJudgedFailedAsync(Mission mission, ProblemRun run, CancellationToken cancellationToken) =>
+        await RouteFailuresAsync(mission, run, await ClosingChecksAsync(run, mission, dossiers.Get(mission.Id), cancellationToken), cancellationToken, controllerJudgedFailed: true);
 
     // The release did not verify, said by the facts of the control plane (a pipeline that failed) or by the controller's judgement of the dossier (the verification of the release does not hold): the mission
     // ends and the problem goes back to the first world (a staging if the application has one, else the Git world). A release that failed under a standing rule is a person's: nobody approved this problem
