@@ -21,7 +21,8 @@ public sealed class ProblemConductorTests : IDisposable
     private readonly FakeAudit _audit = new();
     private int _ids;
 
-    public ProblemConductorTests() => _authority = new TestAuthority(_time);
+    // The authority of these tests lets a standing rule reach the release world (the default of the product caps it at the Git world until its mandates are bound to their findings)
+    public ProblemConductorTests() => _authority = new TestAuthority(_time, ApprovalPolicy.Default with { MaxRuleWorld = World.Release });
 
     public void Dispose()
     {
@@ -844,6 +845,65 @@ public sealed class ProblemConductorTests : IDisposable
         result.Failures.Should().Contain(PreconditionFailure.ClaimDoesNotMatchFacts);
         result.Mission!.World.Should().Be(World.Release, "restarting does not change a claim that does not match the facts: the mission is sent back where it is");
         _problems.Get("problem-1")!.State.Should().Be(ProblemState.InProgress);
+    }
+
+    [Fact]
+    public async Task The_controller_that_judges_the_release_failed_sends_the_problem_back_to_the_first_world_where_a_send_back_in_the_release_world_could_only_deploy_the_same_commit_again()
+    {
+        var conductor = Conductor();
+        var release = (await Through(conductor, await Through(conductor, await StartStaged(conductor)))).Mission!;
+        await conductor.StartedAsync(release.Id, Ct);
+        await conductor.HandOverAsync(release.Id, DossierFor(release.Id), Ct);
+
+        var result = await conductor.DecideAsync(release.Id, new ControllerDecision(ControllerDecisionKind.SendBack, ["the verification of the release does not hold"], "the health check fails"), Ct);
+
+        result.Mission!.World.Should().Be(World.Staging);
+        result.Mandate.Should().NotBeNull();
+        _missions.Get(release.Id)!.State.Should().Be(MissionState.Ended);
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.InProgress);
+    }
+
+    [Fact]
+    public async Task A_release_that_failed_under_a_standing_rule_is_escalated_because_nobody_approved_that_problem()
+    {
+        _authority.Kind = CertificateKind.Rule;
+        var conductor = Conductor();
+        var release = (await Through(conductor, await Through(conductor, await StartStaged(conductor, Entry(rule: "rule-1"))))).Mission!;
+        release.World.Should().Be(World.Release);
+        _facts.CiGreen = false;
+        await conductor.StartedAsync(release.Id, Ct);
+        await conductor.HandOverAsync(release.Id, DossierFor(release.Id), Ct);
+
+        var result = await conductor.DecideAsync(release.Id, Grant(), Ct);
+
+        result.Mandate.Should().BeNull();
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.Escalated);
+    }
+
+    [Fact]
+    public async Task When_the_loop_is_over_its_bound_the_way_back_ends_the_problem_and_the_answer_still_carries_the_mission_that_ended()
+    {
+        var conductor = Conductor(new ConductorOptions(TimeSpan.FromMinutes(60), ForbiddenPathsDefaults.Floor, new LoopPolicy(3, 3, TimeSpan.FromHours(6))));
+
+        var result = await ReleaseThatFails(conductor, staged: true);
+
+        result.Mandate.Should().BeNull("the third mandate was the last the loop allowed");
+        result.Moved.Should().BeTrue("the release mission ended whatever Open said");
+        result.Mission!.World.Should().Be(World.Release);
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.Failed);
+    }
+
+    [Fact]
+    public async Task The_sweep_stops_a_problem_that_a_crash_left_in_progress_with_every_mission_over()
+    {
+        var conductor = Conductor();
+        var id = (await StartStaged(conductor)).Mission!.Id;
+        _missions.Save(_missions.Get(id)! with { State = MissionState.Ended, End = MissionEnd.Stopped, EndReason = "crashed" });
+
+        (await conductor.SweepAsync(Ct)).Should().Be(1);
+
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.Failed);
+        _problems.Get("problem-1")!.Note.Should().Contain("half done");
     }
 
     [Fact]

@@ -17,20 +17,24 @@ public sealed partial class ProblemConductor
     public async Task<int> SweepAsync(CancellationToken cancellationToken)
     {
         var ended = 0;
-        foreach (var run in problems.InProgress())
+        foreach (var problemId in problems.InProgress().Select(run => run.ProblemId))
         {
             // One run that cannot be read or stopped never keeps the others from being stopped: the failure is written down and the pass goes on
             try
             {
-                var reason = SweepReason(run);
-                if (reason is not null && (await StopAsync(run.ProblemId, reason, cancellationToken)).Ok)
+                // The reason is found **under the lock of the problem**, on the problem as it is then: an operation that is moving the problem between two worlds has the lock, so a problem is never stopped on
+                // a state that is only half way through a move, and the reason written in the trail is the true one
+                var stopped = await LockedAsync(problemId, async () => problems.Get(problemId) is { State: ProblemState.InProgress } current && SweepReason(current) is { } reason
+                    ? await StopLockedAsync(problemId, reason)
+                    : ConductResult.Fail("nothing to stop"), cancellationToken);
+                if (stopped.Ok)
                 {
                     ended++;
                 }
             }
             catch (Exception failure) when (failure is not OperationCanceledException)
             {
-                await BestEffortAsync(MissionAuditEvents.SweepFailed, run.ProblemId, Text($"{failure.GetType().Name}: the next pass tries again"));
+                await BestEffortAsync(MissionAuditEvents.SweepFailed, problemId, Text($"{failure.GetType().Name}: the next pass tries again"));
             }
         }
         return ended;
@@ -57,7 +61,13 @@ public sealed partial class ProblemConductor
         }
         var expired = missions.ForProblem(run.ProblemId).Any(mission => mission.State is MissionState.Mandated or MissionState.Running
             && mission.MandateId is { } id && mandates.Get(id) is { } signed && now >= signed.Mandate.ExpiresAt);
-        return expired ? "the mandate expired" : null;
+        if (expired)
+        {
+            return "the mandate expired";
+        }
+        // A crash between two writes (the mission ended, the problem not yet moved) leaves a problem in progress with nothing running: no other mission follows, so the work stopped half done
+        var all = missions.ForProblem(run.ProblemId);
+        return all.Count > 0 && all.All(mission => mission.IsOver) ? "the work stopped half done: no mission is running and none follows" : null;
     }
 
     private async Task<ConductResult> StopLockedAsync(string problemId, string reason)

@@ -193,7 +193,7 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
             return decision.Kind switch
             {
                 ControllerDecisionKind.Grant => await GrantAsync(run, mission, decision, cancellationToken),
-                ControllerDecisionKind.SendBack => await SendBackAsync(mission, run),
+                ControllerDecisionKind.SendBack => mission.World == World.Release ? await BackToFirstWorldAsync(mission, run, [], cancellationToken) : await SendBackAsync(mission, run),
                 ControllerDecisionKind.End => await EndAsync(run, mission, MissionEvent.EndedByController, decision.Reasons[0]),
                 _ => await EscalateAsync(run, mission, decision.Reasons[0]),
             };
@@ -208,7 +208,7 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
         {
             // The last world: the controller closes the problem on facts (FR-CTL-9), after the same checks
             var closing = await ClosingChecksAsync(run, mission, dossier, cancellationToken);
-            return closing.Count > 0 ? await ReleaseDidNotVerifyAsync(mission, run, closing, cancellationToken) : await CloseAsync(run, mission, complex, null, "release verified", null);
+            return closing.Count > 0 ? await RouteFailuresAsync(mission, run, closing, cancellationToken) : await CloseAsync(run, mission, complex, null, "release verified", null);
         }
         // The power is read again here, at every crossing: a grant withdrawn since the start stops the problem (the grant of an application is the maintainer's to give and to take back)
         if (HighestNow(run.Entry, run.Approval) is not { } highest)
@@ -221,13 +221,13 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
             // The powers given stop here: the problem is done up to the world its powers allow, and says so (a plan validated up to the Git world ends there)
             var checks = await ClosingChecksAsync(run, mission, dossier, cancellationToken);
             return checks.Count > 0
-                ? await SendBackWithFailuresAsync(mission, run, checks)
+                ? await RouteFailuresAsync(mission, run, checks, cancellationToken)
                 : await CloseAsync(run, mission, complex, $"done up to the {highest} world, the highest that its powers allow", Text($"highest world reached: {highest}"), "done up to the highest world its powers allow");
         }
         var failures = await CheckFactsAsync(run, next, mission.Frame, mission.Id, previousDossierExists: dossier is not null, dossier, commit: dossier?.Commit, issuing: true, cancellationToken);
         if (!ControllerLimits.MayGrant(decision, next, highest, failures))
         {
-            return failures.Count > 0 ? await SendBackWithFailuresAsync(mission, run, failures) : ConductResult.Fail("the controller may not grant a world that the plan does not allow");
+            return failures.Count > 0 ? await RouteFailuresAsync(mission, run, failures, cancellationToken) : ConductResult.Fail("the controller may not grant a world that the plan does not allow");
         }
         var accepted = MissionMachine.Apply(mission, MissionEvent.Granted, options.Loop, complex: complex).Mission ?? mission;
         missions.Save(accepted);
@@ -252,66 +252,6 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
     {
         var failures = await CheckFactsAsync(run, World.Git, FrameFor(run, "start"), missionId: null, previousDossierExists: true, dossier: null, commit: null, issuing: false, cancellationToken: cancellationToken);
         return [.. failures.Where(failure => failure is PreconditionFailure.MergeMayDeployUnderGitMandate or PreconditionFailure.AgentCouldCreateTags or PreconditionFailure.AgentBranchCouldReachWriteCredentials or PreconditionFailure.AgentIdentityNotConfined)];
-    }
-
-    // A release that does not verify is a failed push (D-93, ADR 0040): the mission ends, the problem stays in progress and the loop starts again in the first world (a new staging, then the Git world, then the
-    // release), under the same approval, with the same budgets and without another validation. What cannot be repaired by going back (the stop, the limit of the loop, a change to what the pipeline executes)
-    // keeps the answer it always had.
-    private async Task<ConductResult> ReleaseDidNotVerifyAsync(Mission mission, ProblemRun run, IReadOnlyList<PreconditionFailure> failures, CancellationToken cancellationToken)
-    {
-        // Only a pipeline that failed sends the problem back (restarting repairs it), and a result that is not known yet does not (the worker may wait and hand over again, the mission is sent back where it is).
-        // The other failures (the budget, the claim that does not match the facts, the diff, the frame, the stop, the loop, the executed files) keep the answer they always had, because restarting would not change
-        // them. **A release that is not the artifact proved in staging is not a failure that code repairs** (a pipeline or a supply-chain anomaly): it is escalated to the maintainer at once (D-90).
-        if (failures.Contains(PreconditionFailure.ArtifactNotProvedInStaging))
-        {
-            var escalated = await EscalateAsync(run, mission, "the artifact that runs is not the one proved in staging: a person decides");
-            return escalated.Ok ? new ConductResult(false, "escalated to the maintainer", failures, escalated.Mission, null) : escalated;
-        }
-        if (failures.Contains(PreconditionFailure.CiResultNotKnown) || !failures.All(failure => failure is PreconditionFailure.CiNotGreenOnExactCommit))
-        {
-            return await SendBackWithFailuresAsync(mission, run, failures);
-        }
-        // The power is read again here, as at every crossing: a grant or a certificate withdrawn while the release ran stops the problem, and the first world must be within what the powers allow
-        var first = run.UsesStaging ? World.Staging : World.Git;
-        if (HighestNow(run.Entry, run.Approval) is not { } highest || first > highest)
-        {
-            return await EndAsync(run, mission, MissionEvent.EndedByController, "the powers of the problem no longer reach the first world, or the grant was withdrawn");
-        }
-        if (first == World.Git && await GitFrameFailuresAsync(run, cancellationToken) is { Count: > 0 } frame)
-        {
-            var refused = await EndAsync(run, mission, MissionEvent.EndedByController, "the merge could deploy beyond the approval, or the agent could create tags or reach a write credential");
-            return refused.Ok ? new ConductResult(false, "the frame of the Git world no longer holds: the work stops", frame, refused.Mission, null) : refused;
-        }
-        var transition = MissionMachine.Apply(mission, MissionEvent.EndedByController, options.Loop, reason: "the release did not verify: the problem goes back to the first world");
-        if (transition.Mission is not { } ended)
-        {
-            return ConductResult.Fail(transition.Refusal ?? "refused");
-        }
-        missions.Save(ended);
-        await RevokeAsync(mission);
-        await BestEffortAsync(MissionAuditEvents.MissionEnded, mission.Id, Text($"the release did not verify ({string.Join(", ", failures)}): back to the first world"));
-        var opened = await OpenAsync(run with { CurrentWorld = first }, first, MandateSource.Controller, cancellationToken);
-        // Like every answer where a check failed and the mission moved: not Ok, the new mission and its mandate, the failures that sent the problem back
-        return opened.Ok ? new ConductResult(false, "the release did not verify: the problem goes back to the first world", failures, opened.Mission, opened.Mandate) : opened;
-    }
-
-    private async Task<ConductResult> SendBackWithFailuresAsync(Mission mission, ProblemRun run, IReadOnlyList<PreconditionFailure> failures)
-    {
-        // A change that touches what the pipeline executes where a merge may deploy is for a person to decide: it is escalated, not sent back
-        if (failures.Contains(PreconditionFailure.ExecutedFilesTouchedWhereMergeDeploys))
-        {
-            var escalated = await EscalateAsync(run, mission, "the change touches files that the pipeline executes, and the merge may deploy: a person decides");
-            return escalated.Ok ? new ConductResult(false, "escalated to the maintainer", failures, escalated.Mission, null) : escalated;
-        }
-        // A limit of the loop or the global stop cannot be repaired by sending the mission back: the work stops
-        if (failures.Contains(PreconditionFailure.LoopLimitReached) || failures.Contains(PreconditionFailure.KillSwitchEngaged))
-        {
-            var why = failures.Contains(PreconditionFailure.KillSwitchEngaged) ? "the global stop is engaged" : "the loop reached its limit";
-            var ended = await EndAsync(run, mission, MissionEvent.EndedByController, why);
-            return ended.Ok ? new ConductResult(false, $"{why}: the work stops", failures, ended.Mission, null) : ended;
-        }
-        var sent = await SendBackAsync(mission, run);
-        return sent.Ok ? new ConductResult(false, "a check of the code failed: the mission is sent back", failures, sent.Mission, null) : sent;
     }
 
     private async Task<ConductResult> SendBackAsync(Mission mission, ProblemRun run)
