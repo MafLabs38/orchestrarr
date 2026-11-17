@@ -168,7 +168,7 @@ flowchart LR
   trigger --> kill --> net --> lease --> cert
 ```
 
-An SSH certificate is checked **when a connection opens**, not afterwards: it is not a clock by itself, and Vault cannot revoke it, so it is kept to a few minutes. The clock is the launcher's. Cutting a connection does **not** undo a command already started on the target; a deployment that fails its checks is rolled back (SPEC D-08), and an action must be safe to repeat.
+An SSH certificate is checked **when a connection opens**, not afterwards: it is not a clock by itself, and Vault cannot revoke it, so it is kept to a few minutes. The clock is the launcher's. Cutting a connection does **not** undo a command already started on the target; a deployment that fails its checks is a failed push that the loop repairs through the same process (SPEC D-08, D-93, ADR 0040; there is no rollback act), and an action must be safe to repeat.
 
 Time limits are meant to be **generous and configurable** (SPEC D-27 sets budgets and says that a run that hits its quota is paused and retried; ceilings per day and month are SPEC Q-09; extending a budget while a run is going is a new question 🟣). Running out of time should be a state of its own ("budget exhausted"), not a failure of the work. The limit bounds the window of risk; it does not prove that what was done is correct.
 
