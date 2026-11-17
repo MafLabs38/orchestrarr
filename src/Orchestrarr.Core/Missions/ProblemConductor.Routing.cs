@@ -69,6 +69,16 @@ public sealed partial class ProblemConductor
     private static ConductResult Moved(ConductResult inner, string refusal, IReadOnlyList<PreconditionFailure> failures) =>
         inner.Ok ? new ConductResult(false, refusal, failures, inner.Mission, inner.Mandate) : inner;
 
+    // The controller judged that the release does not verify (a send-back in the release world): the facts of the control plane are read all the same, so that what a person must decide (an artifact that is
+    // not the one proved, a change to what the pipeline executes) and what stops the work (the stop, the loop) keep their route, and only the rest goes back to the first world
+    private async Task<ConductResult> ReleaseJudgedFailedAsync(Mission mission, ProblemRun run, CancellationToken cancellationToken)
+    {
+        var failures = await ClosingChecksAsync(run, mission, dossiers.Get(mission.Id), cancellationToken);
+        return RouteOf(mission.World, failures).Route is Route.Escalate or Route.Stop
+            ? await RouteFailuresAsync(mission, run, failures, cancellationToken)
+            : await BackToFirstWorldAsync(mission, run, failures, cancellationToken);
+    }
+
     // The release did not verify, said by the facts of the control plane (a pipeline that failed) or by the controller's judgement of the dossier (the verification of the release does not hold): the mission
     // ends and the problem goes back to the first world (a staging if the application has one, else the Git world). A release that failed under a standing rule is a person's: nobody approved this problem
     private async Task<ConductResult> BackToFirstWorldAsync(Mission mission, ProblemRun run, IReadOnlyList<PreconditionFailure> failures, CancellationToken cancellationToken)
@@ -95,7 +105,7 @@ public sealed partial class ProblemConductor
         missions.Save(ended);
         await RevokeAsync(mission);
         await BestEffortAsync(MissionAuditEvents.MissionEnded, mission.Id, Text($"the release did not verify ({string.Join(", ", failures)}): back to the first world"));
-        var opened = await OpenAsync(run with { CurrentWorld = first }, first, MandateSource.Controller, cancellationToken);
+        var opened = await OpenAsync(run with { CurrentWorld = first }, first, MandateSource.Controller);
         // The mission ended whatever Open says: when no mandate can be issued the problem failed, and the answer still carries the mission that moved
         return opened.Ok ? Moved(opened, "the release did not verify: the problem goes back to the first world", failures) : new ConductResult(false, opened.Refusal, opened.Failures, ended, null);
     }

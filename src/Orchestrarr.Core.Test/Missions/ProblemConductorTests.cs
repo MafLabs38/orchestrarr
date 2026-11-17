@@ -864,6 +864,21 @@ public sealed class ProblemConductorTests : IDisposable
     }
 
     [Fact]
+    public async Task A_send_back_of_the_controller_in_the_release_world_still_reads_the_facts_so_an_artifact_that_is_not_the_one_proved_goes_to_the_maintainer()
+    {
+        var conductor = Conductor();
+        var release = (await Through(conductor, await Through(conductor, await StartStaged(conductor)))).Mission!;
+        await conductor.StartedAsync(release.Id, Ct);
+        await conductor.HandOverAsync(release.Id, DossierFor(release.Id), Ct);
+        _facts.ArtifactProved = false;
+
+        var result = await conductor.DecideAsync(release.Id, new ControllerDecision(ControllerDecisionKind.SendBack, ["the release does not verify"], "the health check fails"), Ct);
+
+        result.Mandate.Should().BeNull();
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.Escalated);
+    }
+
+    [Fact]
     public async Task A_release_that_failed_under_a_standing_rule_is_escalated_because_nobody_approved_that_problem()
     {
         _authority.Kind = CertificateKind.Rule;

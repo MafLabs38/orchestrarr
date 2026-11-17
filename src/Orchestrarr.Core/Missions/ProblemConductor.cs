@@ -135,7 +135,7 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
                     return ConductResult.Fail("the merge could deploy beyond the approval, or the agent could create tags or reach a write credential", frame);
                 }
             }
-            return await OpenAsync(run, first, byRule ? MandateSource.StandingRule : MandateSource.PlanValidation, cancellationToken);
+            return await OpenAsync(run, first, byRule ? MandateSource.StandingRule : MandateSource.PlanValidation);
         }, cancellationToken);
     }
 
@@ -193,7 +193,7 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
             return decision.Kind switch
             {
                 ControllerDecisionKind.Grant => await GrantAsync(run, mission, decision, cancellationToken),
-                ControllerDecisionKind.SendBack => mission.World == World.Release ? await BackToFirstWorldAsync(mission, run, [], cancellationToken) : await SendBackAsync(mission, run),
+                ControllerDecisionKind.SendBack => mission.World == World.Release ? await ReleaseJudgedFailedAsync(mission, run, cancellationToken) : await SendBackAsync(mission, run),
                 ControllerDecisionKind.End => await EndAsync(run, mission, MissionEvent.EndedByController, decision.Reasons[0]),
                 _ => await EscalateAsync(run, mission, decision.Reasons[0]),
             };
@@ -234,7 +234,7 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
         // The mandate of an accepted mission is withdrawn at once: the power never outlives the work
         await RevokeAsync(mission);
         await BestEffortAsync(MissionAuditEvents.MissionAccepted, mission.Id, Text($"next world {next}"));
-        return await OpenAsync(run with { CurrentWorld = next }, next, MandateSource.Controller, cancellationToken);
+        return await OpenAsync(run with { CurrentWorld = next }, next, MandateSource.Controller);
     }
 
     // The mission is accepted and the problem is closed: the mandate is revoked, the problem says how far it went
@@ -336,8 +336,10 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
     private MissionFrame FrameFor(ProblemRun run, string place) =>
         new(run.Entry.Repositories, [.. options.ForbiddenPaths.Union(run.Approval.Certificate.ForbiddenPaths, StringComparer.Ordinal)], place);
 
+    // **Not cancellable**: it runs where the state has already moved (the mission before is accepted or ended and its mandate revoked), so a cancellation here would leave a problem with no mission to follow; the token is
+    // read before the first write, never after.
     // A new mission in a world, and the mandate for it: signed, recorded, counted, audited. The stop and the loop are checked here too, not only at a grant.
-    private async Task<ConductResult> OpenAsync(ProblemRun run, World world, MandateSource source, CancellationToken cancellationToken)
+    private async Task<ConductResult> OpenAsync(ProblemRun run, World world, MandateSource source)
     {
         if (stop.Engaged)
         {
@@ -365,7 +367,7 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
             return await FailedAsync(run, $"the mandate does not fall inside the approval: {covered}");
         }
         // The mandate is written to the audit trail before it exists: a power is never granted on an entry that cannot be written
-        if (!await RequiredAsync(MissionAuditEvents.MandateIssued, mandate.Id, Text($"{world} for {mandate.RunnerId}, {source}, until {mandate.ExpiresAt:u}, acts {string.Join(",", mandate.Acts)}"), cancellationToken))
+        if (!await RequiredAsync(MissionAuditEvents.MandateIssued, mandate.Id, Text($"{world} for {mandate.RunnerId}, {source}, until {mandate.ExpiresAt:u}, acts {string.Join(",", mandate.Acts)}"), CancellationToken.None))
         {
             return await FailedAsync(run, "the audit trail cannot be written: no power is granted");
         }

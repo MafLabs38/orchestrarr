@@ -38,7 +38,7 @@ public sealed class ControllerAgent(IAgentGateway gateway, string model, TimeSpa
         The FACTS section was fetched by the control plane itself, not by the worker. If the worker's claim and the facts disagree, the facts win.
         Decide:
         - grant: the objective is met, the evidence supports the claim, the frame was kept, nothing unexpected changed, and the facts agree.
-        - send_back: something is missing or wrong that the worker can fix in the same world; give precise remarks.
+        - send_back: something is missing or wrong that the worker can fix in the same world; give precise remarks. In the release world it means that the release does not verify: the whole problem starts again in the first world (and goes to the maintainer when it was approved by a standing rule), so use it only when the release is really wrong; a verification that has not finished is not a handover.
         - end: the mission cannot succeed or broke the frame.
         - escalate: a decision that belongs to the maintainer (a risk, a choice, a missing fix).
         Answer with one JSON object and nothing else: {"decision":"grant|send_back|end|escalate","reasons":["..."],"remarks":"..."}. Give at least one reason. Give remarks when you send back.
