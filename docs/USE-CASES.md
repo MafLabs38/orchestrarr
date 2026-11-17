@@ -20,7 +20,7 @@ A case describes an **outcome and its limits, never the steps**. The path (what 
 4. **Quality is the pipelines' verdict.** A change is good when it respects the pipelines, and, where there is one, when it is verified on staging.
 5. **Small and large are one mechanism.** Merging a bot's bump and refactoring a service for a removed method are the same kind of mission with a different weight.
 6. **A complex case is marked complex.** The maintainer is warned (by email) so that they test the application. A complex case is not treated as more dangerous, only as more worth looking at afterwards.
-7. **Safety stays**: a kill switch, bounded budgets, a full audit trail, no direct push to a protected branch, a rollback for what is deployed (the principles of [VISION.md](VISION.md) and rule 5 of [CLAUDE.md](../CLAUDE.md)).
+7. **Safety stays**: a kill switch, bounded budgets, a full audit trail, no direct push to a protected branch, a way back for what is deployed, a revert or a fix through the same process (ADR 0040) (the principles of [VISION.md](VISION.md) and rule 5 of [CLAUDE.md](../CLAUDE.md)).
 
 ## 3. The cases
 
@@ -33,7 +33,7 @@ Weight: **S** simple (an agent reads, changes a line or two, the pipelines decid
 | CASE-03 | A security advisory on a dependency (Log4j-like) | An alert on a dependency in use (Dependabot alert, scanner) | The vulnerable version is replaced (or the exposure removed if there is no fixed version), shipped faster than a routine bump, maintainer told at once | S or C | A project that depends on a version with a known advisory, with and without a fixed version |
 | CASE-04 | A container image has a newer version | The fleet reports an image behind (a monitoring stack, for example) | The version is changed where it is written, the change goes through its repository's pipelines, is deployed, and the service is checked and restored if it does not answer | M | A compose stack and a cluster manifest whose images are behind |
 | CASE-05 | A floating tag is pinned | An image uses `latest` or no tag | Pinned to the version that runs, so that what is deployed is reproducible and nothing changes at runtime | S | Images with no tag or `latest` in a compose file and in a Terraform file |
-| CASE-06 | A change passes the tests and breaks at runtime | The bump is green in CI and the application fails to start or to answer | Caught on staging (or, if it got to production, after the deploy): not promoted, rolled back, the cause reported | M | An application whose update starts but crashes on a real route, only a smoke test sees it |
+| CASE-06 | A change passes the tests and breaks at runtime | The bump is green in CI and the application fails to start or to answer | Caught on staging (or, if it got to production, after the deploy): not promoted, or reverted or fixed through the process if it got to production, the cause reported | M | An application whose update starts but crashes on a real route, only a smoke test sees it |
 | CASE-07 | Many dependency pull requests at once | Ten or more bot pull requests on one repository | Handled in a sensible order and grouping, conflicts between them resolved, no ten separate deployments if one will do | M | A repository with a backlog of overlapping bumps |
 | CASE-08 | The CI is broken and there is no pull request | A pipeline fails on its own (an obsolete runtime or action version) | The agent finds the cause and gives the maintainer **a patch or an issue** with the fix, and **never pushes or merges it**: the pipeline is the maintainer's (decided 2026-11-13; the forge identity of the agent cannot push workflow files) | M | A workflow pinned to an end-of-life runtime |
 | CASE-09 | An obsolete base image | A Dockerfile builds on an image that is out of support | Rebuilt on a supported base, tests pass, redeployed | M | A Dockerfile on an old base |
@@ -139,7 +139,7 @@ What defines a mission is **where it happens, not what it contains.** The mainta
 
 1. **The staging world**: a workspace in the staging virtual machine, where the application is deployed from the branch and where the agent changes the code, rebuilds, redeploys and tests, the way a preview environment is used for a front end.
 2. **The Git world**: branch, pull request, CI/CD, merge into develop, the quality pipelines.
-3. **The release world**: deployment in production, verification, rollback.
+3. **The release world**: deployment in production and verification; a failure opens a repair, a revert first when it is the quickest way, through the same process (ADR 0040).
 
 To move from one world to the next, the agent **asks the control plane for a mandate.** The control plane is itself an agent: it reads what the first one did and the evidence it brought, checks **without bias** that the contract was respected, and grants or refuses the mandate. This is a **cross-check** between two agents. The agent chooses how to work inside a mandate; it shows what it did before it gets the next one.
 

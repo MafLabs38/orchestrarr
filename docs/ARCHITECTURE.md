@@ -247,7 +247,7 @@ The worker agent is **free** inside its workspace: it runs commands, edits, test
 | Free (inside the workspace) | Gated (outside, by mandate) |
 |---|---|
 | Read, edit, build, test, container tooling inside staging, requests and browser runs | Open a pull request, merge into the integration branch |
-| Write the dossier and evidence | Deploy a version to an environment, roll back |
+| Write the dossier and evidence | Deploy a version to an environment |
 | Propose a further mission | Create a staging, restore a snapshot, release a slot |
 
 ```mermaid
@@ -270,7 +270,7 @@ A mandate is a **signed statement of the control plane** that the runner checks 
 |---|---|
 | World and place | Staging slot, repository and branches, or environment |
 | Mission and problem | What it is for |
-| Acts | The gated acts allowed (open PR, merge, deploy, roll back, verify) |
+| Acts | The gated acts allowed (open PR, merge, deploy, verify) |
 | Frame | Repositories and paths allowed and forbidden (pipelines, secrets), network |
 | Budget | Time, attempts, turns |
 | Expiry | After which the runner stops the mission |
@@ -379,7 +379,7 @@ The principle of the maintainer: **the frame is enforced by the environment, nev
 | **Approval** | What the maintainer validated: the problem or rule, the repositories, the highest world, the budget, the expiry | The approval authority signs the certificate; the runner verifies it with every mandate |
 | **Mandate** | Which acts, which place, which budget, which expiry; signed | The control plane signs; the runner verifies |
 | **The runner** | Isolation of the workspace (a container with no capability, not root, bounded resources), forbidden paths refused, network limited, a stop that kills the sandbox | The runner |
-| **The act gateway** | Gated acts only if the mandate lists them, the certificate covers them and the preconditions hold **at the moment of the act, on the exact commit**; the **only holder of the merge identity**, which for a repository that deploys by merge also performs the merge that deploys and its rollback (a revert), **asked for by the release runner** under the same certificate and authorised at each act | The act gateway of the Git world (**a host apart from every agent sandbox**) verifies the mandate and the certificate, the signature of the mission runner and the authority's count; the control plane authorises (power read now, stop, audit written first) |
+| **The act gateway** | Gated acts only if the mandate lists them, the certificate covers them and the preconditions hold **at the moment of the act, on the exact commit**; the **only holder of the merge identity**, which for a repository that deploys by merge also performs the merge that deploys, **asked for by the release runner** under the same certificate and authorised at each act (a revert is a pull request like any other, ADR 0040) | The act gateway of the Git world (**a host apart from every agent sandbox**) verifies the mandate and the certificate, the signature of the mission runner and the authority's count; the control plane authorises (power read now, stop, audit written first) |
 | **Checks by code** | The preconditions of section 6 | Control plane |
 | **The controller** | A second look, independent | Control plane |
 | **The kill switch** | Stops every mission, revokes every mandate; unknown counts as stopped | Control plane, polled by every runner |
@@ -430,10 +430,9 @@ sequenceDiagram
     participant C as Controller
     participant M as Maintainer
     R->>R: verification fails
-    R->>R: roll back (the way back was known)
-    R-->>CP: dossier: failed, rolled back
+    R-->>CP: dossier: verification failed
     CP->>C: dossier
-    C-->>CP: decision: repair, new mandate in the staging world
+    C-->>CP: decision: repair, a new mandate (a revert first when it is the quickest way, then a fix), through the same worlds as any change
     CP->>CP: loop count + 1, within the limit?
     alt limit reached
         CP->>M: notify, work stops
