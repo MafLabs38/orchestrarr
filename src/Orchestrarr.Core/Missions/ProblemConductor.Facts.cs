@@ -4,8 +4,16 @@ namespace Orchestrarr.Core.Missions;
 public sealed partial class ProblemConductor
 {
     // The checks to close a problem in the world of the mission: the facts of that world on the commit the worker claims, with no new mandate to issue
-    private async Task<List<PreconditionFailure>> ClosingChecksAsync(ProblemRun run, Mission mission, Dossier? dossier, CancellationToken cancellationToken) =>
-        await CheckFactsAsync(run, mission.World, mission.Frame, mission.Id, previousDossierExists: dossier is not null, dossier, commit: dossier?.Commit, issuing: false, cancellationToken);
+    private async Task<List<PreconditionFailure>> ClosingChecksAsync(ProblemRun run, Mission mission, Dossier? dossier, CancellationToken cancellationToken)
+    {
+        var failures = await CheckFactsAsync(run, mission.World, mission.Frame, mission.Id, previousDossierExists: dossier is not null, dossier, commit: dossier?.Commit, issuing: false, cancellationToken);
+        // In the release world the commit that runs is the one that the controller accepted at the crossing into it, the one the act gateway deploys: a release that names another commit is an anomaly of the delivery
+        if (mission.World == World.Release && LatestDossier(run, mission)?.Commit is { } accepted && !string.Equals(dossier?.Commit, accepted, StringComparison.Ordinal))
+        {
+            failures.Add(PreconditionFailure.ReleaseCommitIsNotTheAcceptedOne);
+        }
+        return failures;
+    }
 
     // The facts come from the control plane's own source; the plan, the stop, the loop and the staging are the conductor's own: none is taken from the worker
     // `issuing` is true only where a new mandate is about to be issued: the bound of the loop guards a new mandate, not the acts of one that is already in force nor the closing of the problem

@@ -45,7 +45,7 @@ public sealed class PreconditionsTests
             WayBackKnown = null,
         };
 
-        MandatePreconditions.Check(facts, requiresStagingProof: true).Should().BeEquivalentTo(Enum.GetValues<PreconditionFailure>().Where(failure => failure is not (PreconditionFailure.MergeMayDeployUnderGitMandate or PreconditionFailure.ExecutedFilesTouchedWhereMergeDeploys or PreconditionFailure.AgentCouldCreateTags or PreconditionFailure.AgentBranchCouldReachWriteCredentials or PreconditionFailure.AgentIdentityNotConfined or PreconditionFailure.ApprovalBacksNoMoreMandates or PreconditionFailure.StagingNotUsable or PreconditionFailure.CiResultNotKnown)), "the checks about a merge are for the Git world, the staging is held by the staging world only, and the count of a certificate is the conductor's");
+        MandatePreconditions.Check(facts, requiresStagingProof: true).Should().BeEquivalentTo(Enum.GetValues<PreconditionFailure>().Where(failure => failure is not (PreconditionFailure.MergeMayDeployUnderGitMandate or PreconditionFailure.ExecutedFilesTouchedWhereMergeDeploys or PreconditionFailure.AgentCouldCreateTags or PreconditionFailure.AgentBranchCouldReachWriteCredentials or PreconditionFailure.AgentIdentityNotConfined or PreconditionFailure.ApprovalBacksNoMoreMandates or PreconditionFailure.StagingNotUsable or PreconditionFailure.CiResultNotKnown or PreconditionFailure.ReleaseCommitIsNotTheAcceptedOne)), "the checks about a merge are for the Git world, the staging is held by the staging world only, and the count of a certificate is the conductor's");
     }
 
     [Fact]

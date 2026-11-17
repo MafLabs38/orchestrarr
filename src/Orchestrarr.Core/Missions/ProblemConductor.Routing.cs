@@ -50,11 +50,11 @@ public sealed partial class ProblemConductor
         {
             return (Route.Escalate, "a release that was approved by a standing rule did not verify: nobody approved this problem, a person decides");
         }
-        // In the release world a commit that runs and is not the one that was checked (the claim, the diff) is an anomaly of the delivery, not a defect that a restart repairs: the facts say it, whatever the
-        // controller decided, so a verdict cannot steer it
-        if (world == World.Release && failures.Any(failure => failure is PreconditionFailure.ClaimDoesNotMatchFacts or PreconditionFailure.DiffTouchesForbiddenPath))
+        // In the release world a commit that is not the one the controller accepted at the crossing is an anomaly of the delivery, not a defect that a restart repairs: the conductor compares the two commits it
+        // holds, whatever the controller decided, so a verdict cannot steer it
+        if (world == World.Release && failures.Contains(PreconditionFailure.ReleaseCommitIsNotTheAcceptedOne))
         {
-            return (Route.Escalate, "the commit that runs is not the one that was checked: a person decides");
+            return (Route.Escalate, "the commit that is released is not the one that was accepted: a person decides");
         }
         if (failures.Contains(PreconditionFailure.LoopLimitReached))
         {

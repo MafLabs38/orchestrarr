@@ -838,13 +838,18 @@ public sealed class ProblemConductorTests : IDisposable
     }
 
     [Fact]
-    public async Task A_commit_that_runs_and_is_not_the_one_checked_goes_to_the_maintainer_whatever_the_controller_decided()
+    public async Task A_release_that_names_another_commit_than_the_one_accepted_goes_to_the_maintainer_whatever_the_controller_decided()
     {
-        var result = await ReleaseThatFails(Conductor(), staged: true, before: () => _facts.ClaimMatches = false);
+        var conductor = Conductor();
+        var release = (await Through(conductor, await Through(conductor, await StartStaged(conductor)))).Mission!;
+        await conductor.StartedAsync(release.Id, Ct);
+        await conductor.HandOverAsync(release.Id, DossierFor(release.Id) with { Commit = "another-commit" }, Ct);
 
-        result.Failures.Should().Contain(PreconditionFailure.ClaimDoesNotMatchFacts);
+        var result = await conductor.DecideAsync(release.Id, new ControllerDecision(ControllerDecisionKind.SendBack, ["the release does not verify"], "fix"), Ct);
+
+        result.Failures.Should().Contain(PreconditionFailure.ReleaseCommitIsNotTheAcceptedOne);
         result.Mandate.Should().BeNull();
-        _problems.Get("problem-1")!.State.Should().Be(ProblemState.Escalated, "a commit that runs and is not the one that was checked is an anomaly of the delivery, whatever the controller decided");
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.Escalated);
     }
 
     [Fact]
@@ -894,7 +899,7 @@ public sealed class ProblemConductorTests : IDisposable
     }
 
     [Fact]
-    public async Task A_release_that_the_controller_judged_failed_while_the_commit_that_runs_is_not_the_one_checked_goes_to_the_maintainer()
+    public async Task A_release_that_the_controller_judged_failed_with_a_claim_that_does_not_match_the_facts_goes_back_to_the_first_world()
     {
         var conductor = Conductor();
         var release = (await Through(conductor, await Through(conductor, await StartStaged(conductor)))).Mission!;
@@ -904,8 +909,8 @@ public sealed class ProblemConductorTests : IDisposable
 
         var result = await conductor.DecideAsync(release.Id, new ControllerDecision(ControllerDecisionKind.SendBack, ["the release does not verify"], "fix the claim"), Ct);
 
-        result.Mandate.Should().BeNull();
-        _problems.Get("problem-1")!.State.Should().Be(ProblemState.Escalated, "an anomaly of the delivery is not repaired by a restart");
+        result.Mission!.World.Should().Be(World.Staging, "the release failed whatever the dossier claimed, and a send-back in the release world could only deploy the same commit again");
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.InProgress);
     }
 
     [Fact]

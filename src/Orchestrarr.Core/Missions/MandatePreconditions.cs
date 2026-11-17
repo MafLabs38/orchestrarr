@@ -63,6 +63,9 @@ public enum PreconditionFailure
 
     /// <summary>The pipeline's result for the exact commit is not known (still running, or the source could not read it): added to <see cref="CiNotGreenOnExactCommit"/>, so that a result that is not there is told apart from a pipeline that failed.</summary>
     CiResultNotKnown,
+
+    /// <summary>In the release world: the commit that the release names is not the one that the controller accepted at the crossing into it. Added by the conductor, which holds both, not by the source of the facts.</summary>
+    ReleaseCommitIsNotTheAcceptedOne,
 }
 
 /// <summary>What the code checks and never leaves to a judgement (FR-MAN-7). The controller judges the rest. <c>DiffTouchesForbiddenPath</c> also covers a diff that is not known: unknown counts as failing.</summary>
