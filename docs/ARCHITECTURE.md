@@ -432,15 +432,12 @@ sequenceDiagram
     R->>R: verification fails
     R-->>CP: dossier: verification failed
     CP->>C: dossier
-    C-->>CP: decision: repair, a new mandate (a revert first when it is the quickest way, then a fix), through the same worlds as any change
+    C-->>CP: decision: go on with the same problem, a new mandate through the same worlds as any change
     CP->>CP: loop count + 1, within the limit?
     alt limit reached
         CP->>M: notify, work stops
     else within the limit
-        CP->>CP: new mandate, repair, through the same checks as any mandate
-        alt the baseline, the count or the budget refuses it (Q-37)
-            CP->>M: escalate with the reason
-        end
+        CP->>CP: new mandate for the same problem, through the same checks as any mandate
     end
 ```
 
