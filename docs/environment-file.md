@@ -76,7 +76,7 @@ What it does follows from the **runtime** of the workload and the `deployment.to
 | `docker`, `compose` | Change the image in the definition, through the repository's delivery, which recreates the container | A new change that puts the previous image back, through the same delivery | Container healthy, then the app's `check` |
 | `release` (desktop client) | Run the release workflow | **None once clients updated** (SPEC D-13): every check happens before; fixing means a new release | Build and launch checks in CI, before publishing |
 
-An application with no `check` has no smoke test: its deployment step is not offered on the card (SPEC D-10), only the merge. *(CASE-17 and FR-WLD-13 propose that such a release be allowed, marked **unverified**, with the maintainer told; that mark is a proposal (P), and until the maintainer confirms it, D-10 holds.)*
+An application with no `check` has no smoke test: its deployment step is not offered on the card (SPEC D-10), only the merge. *(FR-WLD-13 proposes (P) that such a release be allowed, marked **unverified**, with the maintainer told; until the maintainer confirms it, D-10 holds. CASE-17, decided, is about an application with no **staging**, not about one with no check.)*
 
 ## Rules
 
