@@ -184,6 +184,30 @@ public sealed class SqliteMissionStoresTests : IDisposable
     }
 
     [Fact]
+    public void What_is_written_inside_a_unit_of_work_goes_in_together_or_not_at_all()
+    {
+        var database = _file.Open();
+        var missions = new SqliteMissionStore(database);
+        var unit = new SqliteMissionUnit(database);
+
+        var failing = () => unit.Atomically(() =>
+        {
+            missions.Save(Mission("m-unit"));
+            throw new InvalidOperationException("the second write fails");
+        });
+        failing.Should().Throw<InvalidOperationException>();
+        missions.Get("m-unit").Should().BeNull("the first write was rolled back with the failure of the second");
+
+        unit.Atomically(() =>
+        {
+            missions.Save(Mission("m-unit"));
+            new SqliteMandateLedger(database).Record(Mandate("mandate-unit", "p1"));
+        });
+        missions.Get("m-unit").Should().NotBeNull();
+        new SqliteMandateLedger(database).Get("mandate-unit").Should().NotBeNull();
+    }
+
+    [Fact]
     public void A_problem_and_a_dossier_are_kept()
     {
         var entry = new PlanEntry("p1", "shop", "deprecated", "Replace the call", ["example/shop"], World.Release, new MissionBudget(20, 3, 50), new Validation("alice", null), new DateTimeOffset(2026, 11, 13, 11, 0, 0, TimeSpan.Zero));
@@ -208,7 +232,7 @@ public sealed class SqliteMissionStoresTests : IDisposable
         var ids = 0;
         using var authority = new Authority(time);
         ProblemConductor Conductor(SqliteDatabase database) => new(_signer,
-            new MissionStores(new SqliteMissionStore(database), new SqliteMandateLedger(database), new SqliteProblemStore(database), new SqliteDossierStore(database)),
+            new MissionStores(new SqliteMissionStore(database), new SqliteMandateLedger(database), new SqliteProblemStore(database), new SqliteDossierStore(database), new SqliteMissionUnit(database)),
             new PowerSources(authority, authority.Verifier, new Withdrawals(), new Grants(), new NoStop()), new ConductorServices(new GoodFacts(), new Runners(), new Silent(), time, () => $"id-{++ids}"), ConductorOptions.Default);
         var entry = new PlanEntry("p1", "shop", "deprecated", "Replace the call", ["example/shop"], World.Release, new MissionBudget(20, 3, 50), new Validation("alice", null), time.GetUtcNow());
         var first = Conductor(_file.Open());

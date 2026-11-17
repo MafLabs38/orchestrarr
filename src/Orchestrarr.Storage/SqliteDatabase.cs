@@ -116,7 +116,57 @@ public sealed class SqliteDatabase : IDisposable
     }
 
     /// <summary>Lets go of the lock of the one writer, when this database holds one.</summary>
-    public void Dispose() => _writerLock?.Dispose();
+    public void Dispose()
+    {
+        _shared.Dispose();
+        _writerLock?.Dispose();
+    }
+
+    // The connection that the unit of work of this thread holds, for the stores of the missions: what they write inside it goes in one transaction
+    private readonly ThreadLocal<SqliteConnection?> _shared = new();
+
+    /// <summary>A connection for the stores of the missions: the one of the unit of work of this thread when there is one (and it is left open), else a connection of its own.</summary>
+    internal Lease ConnectShared() => _shared.Value is { } shared ? new Lease(shared, owned: false) : new Lease(Connect(), owned: true);
+
+    /// <summary>Runs synchronous work as one write transaction over the stores of the missions: all of it or none of it. A unit inside a unit is the outer one.</summary>
+    internal void Atomically(Action work)
+    {
+        if (_shared.Value is not null)
+        {
+            work();
+            return;
+        }
+        using var connection = Connect();
+        Run(connection, "BEGIN IMMEDIATE;");
+        _shared.Value = connection;
+        try
+        {
+            work();
+            Run(connection, "COMMIT;");
+        }
+        catch
+        {
+            TryRollback(connection);
+            throw;
+        }
+        finally
+        {
+            _shared.Value = null;
+        }
+    }
+
+    internal sealed class Lease(SqliteConnection connection, bool owned) : IDisposable
+    {
+        public SqliteCommand CreateCommand() => connection.CreateCommand();
+
+        public void Dispose()
+        {
+            if (owned)
+            {
+                connection.Dispose();
+            }
+        }
+    }
 
     internal SqliteConnection Connect()
     {

@@ -26,12 +26,13 @@ internal static class MissionsServiceCollectionExtensions
                 .AddSingleton<IMissionStore>(provider => new SqliteMissionStore(provider.GetRequiredService<SqliteDatabase>()))
                 .AddSingleton<IMandateLedger>(provider => new SqliteMandateLedger(provider.GetRequiredService<SqliteDatabase>()))
                 .AddSingleton<IProblemStore>(provider => new SqliteProblemStore(provider.GetRequiredService<SqliteDatabase>()))
-                .AddSingleton<IDossierStore>(provider => new SqliteDossierStore(provider.GetRequiredService<SqliteDatabase>()));
+                .AddSingleton<IDossierStore>(provider => new SqliteDossierStore(provider.GetRequiredService<SqliteDatabase>()))
+                .AddSingleton<IMissionUnit>(provider => new SqliteMissionUnit(provider.GetRequiredService<SqliteDatabase>()));
         }
         else
         {
             services.AddSingleton<IMissionStore, InMemoryMissionStore>().AddSingleton<IMandateLedger, InMemoryMandateLedger>()
-                .AddSingleton<IProblemStore, InMemoryProblemStore>().AddSingleton<IDossierStore, InMemoryDossierStore>();
+                .AddSingleton<IProblemStore, InMemoryProblemStore>().AddSingleton<IDossierStore, InMemoryDossierStore>().AddSingleton<IMissionUnit, InMemoryMissionUnit>();
         }
         return services
             .AddSingleton<ProblemLocks>()
@@ -47,7 +48,7 @@ internal static class MissionsServiceCollectionExtensions
             .AddSingleton<DemoRun>()
             .AddHostedService<MissionsNotWiredNotice>()
             .AddSingleton<IApprovalWithdrawals, UnreadableWithdrawals>()
-            .AddSingleton(provider => new MissionStores(provider.GetRequiredService<IMissionStore>(), provider.GetRequiredService<IMandateLedger>(), provider.GetRequiredService<IProblemStore>(), provider.GetRequiredService<IDossierStore>()))
+            .AddSingleton(provider => new MissionStores(provider.GetRequiredService<IMissionStore>(), provider.GetRequiredService<IMandateLedger>(), provider.GetRequiredService<IProblemStore>(), provider.GetRequiredService<IDossierStore>(), provider.GetRequiredService<IMissionUnit>()))
             .AddSingleton(provider => new PowerSources(provider.GetRequiredService<IApprovalSource>(), provider.GetRequiredService<ApprovalVerifier>(), provider.GetRequiredService<IApprovalWithdrawals>(), provider.GetRequiredService<IGrantSource>(), provider.GetRequiredService<IStopSignal>()))
             .AddSingleton(provider => new ConductorServices(provider.GetRequiredService<IFactsSource>(), provider.GetRequiredService<IRunnerDirectory>(), provider.GetRequiredService<IMissionAudit>(), provider.GetRequiredService<TimeProvider>(), () => Guid.NewGuid().ToString("N")))
             .AddSingleton(provider => new ProblemConductor(

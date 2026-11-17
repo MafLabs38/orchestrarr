@@ -113,8 +113,13 @@ public sealed partial class ProblemConductor
         {
             return ConductResult.Fail(transition.Refusal ?? "refused");
         }
-        missions.Save(ended);
-        await RevokeAsync(mission);
+        string? revoked = null;
+        unit.Atomically(() =>
+        {
+            missions.Save(ended);
+            revoked = RevokeStore(mission);
+        });
+        await TellRevokedAsync(mission, revoked);
         await BestEffortAsync(MissionAuditEvents.MissionEnded, mission.Id, Text($"the release did not verify ({string.Join(", ", failures)}): back to the first world"));
         var opened = await OpenAsync(run with { CurrentWorld = first }, first, MandateSource.Controller);
         // The mission ended whatever Open says: when no mandate can be issued the problem failed, and the answer still carries the mission that moved

@@ -43,6 +43,7 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
     private readonly IMandateLedger mandates = stores.Mandates;
     private readonly IProblemStore problems = stores.Problems;
     private readonly IDossierStore dossiers = stores.Dossiers;
+    private readonly IMissionUnit unit = stores.Unit;
     private readonly IApprovalSource approvals = powers.Approvals;
     private readonly ApprovalVerifier approvalVerifier = powers.Verifier;
     private readonly IApprovalWithdrawals withdrawals = powers.Withdrawals;
@@ -230,9 +231,14 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
             return failures.Count > 0 ? await RouteFailuresAsync(mission, run, failures, cancellationToken) : ConductResult.Fail("the controller may not grant a world that the plan does not allow");
         }
         var accepted = MissionMachine.Apply(mission, MissionEvent.Granted, options.Loop, complex: complex).Mission ?? mission;
-        missions.Save(accepted);
-        // The mandate of an accepted mission is withdrawn at once: the power never outlives the work
-        await RevokeAsync(mission);
+        // The mandate of an accepted mission is withdrawn at once: the power never outlives the work, and the two writes go in together
+        string? revoked = null;
+        unit.Atomically(() =>
+        {
+            missions.Save(accepted);
+            revoked = RevokeStore(mission);
+        });
+        await TellRevokedAsync(mission, revoked);
         await BestEffortAsync(MissionAuditEvents.MissionAccepted, mission.Id, Text($"next world {next}"));
         return await OpenAsync(run with { CurrentWorld = next }, next, MandateSource.Controller);
     }
@@ -314,21 +320,39 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
     // force under a problem that says it is over), then the trail
     private async Task SettleAsync(Mission before, Mission after, ProblemRun problem, params AuditLine[] trail)
     {
-        missions.Save(after);
-        await RevokeAsync(before);
-        problems.Save(problem);
+        // The three writes go in together or not at all: a mission that is over, its mandate revoked and the problem that follows
+        string? revoked = null;
+        unit.Atomically(() =>
+        {
+            missions.Save(after);
+            revoked = RevokeStore(before);
+            problems.Save(problem);
+        });
+        await TellRevokedAsync(before, revoked);
         foreach (var line in trail)
         {
             await BestEffortAsync(line);
         }
     }
 
-    private async Task RevokeAsync(Mission mission)
+    private async Task RevokeAsync(Mission mission) => await TellRevokedAsync(mission, RevokeStore(mission));
+
+    // The write of a revoke: the identifier of the mandate that was revoked now, or null when there was none to revoke
+    private string? RevokeStore(Mission mission)
     {
-        if (mission.MandateId is { } id && !mandates.IsRevoked(id))
+        if (mission.MandateId is not { } id || mandates.IsRevoked(id))
         {
-            mandates.Revoke(id);
-            await BestEffortAsync(MissionAuditEvents.MandateRevoked, id, Text($"mission {mission.Id}"));
+            return null;
+        }
+        mandates.Revoke(id);
+        return id;
+    }
+
+    private async Task TellRevokedAsync(Mission mission, string? revoked)
+    {
+        if (revoked is not null)
+        {
+            await BestEffortAsync(MissionAuditEvents.MandateRevoked, revoked, Text($"mission {mission.Id}"));
         }
     }
 
@@ -372,10 +396,14 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
             return await FailedAsync(run, "the audit trail cannot be written: no power is granted");
         }
         var signed = signer.Sign(mandate, run.Approval);
-        mandates.Record(signed);
         var mandated = MissionMachine.Apply(mission, MissionEvent.MandateIssued, options.Loop, mandateId: mandate.Id).Mission ?? mission;
-        missions.Save(mandated);
-        problems.Save(run with { CurrentWorld = world });
+        // The mandate, the mission it is for and the problem that moves to this world are written together or not at all: no mandate without a mission, no mission without the problem that follows it
+        unit.Atomically(() =>
+        {
+            mandates.Record(signed);
+            missions.Save(mandated);
+            problems.Save(run with { CurrentWorld = world });
+        });
         return ConductResult.Success(mandated, signed);
     }
 

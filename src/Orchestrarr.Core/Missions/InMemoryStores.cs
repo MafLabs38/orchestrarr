@@ -25,6 +25,21 @@ public sealed class InMemoryMissionStore : IMissionStore
     public IReadOnlyList<Mission> ForProblem(string problemId) => [.. _order.Select(id => _missions[id]).Where(mission => mission.ProblemId == problemId)];
 }
 
+/// <summary>The unit of work of the in-memory stores: the writes of one unit are not interleaved with another's (nothing here can fail half way).</summary>
+public sealed class InMemoryMissionUnit : IMissionUnit
+{
+    private readonly object _gate = new();
+
+    public void Atomically(Action work)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        lock (_gate)
+        {
+            work();
+        }
+    }
+}
+
 public sealed class InMemoryMandateLedger : IMandateLedger
 {
     private readonly ConcurrentDictionary<string, SignedMandate> _mandates = new(StringComparer.Ordinal);

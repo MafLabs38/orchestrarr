@@ -39,7 +39,7 @@ public sealed class SqliteMissionStore(SqliteDatabase database) : IMissionStore
         ArgumentNullException.ThrowIfNull(mission);
         SqliteDatabase.Guard(() =>
         {
-            using var connection = database.Connect();
+            using var connection = database.ConnectShared();
             using var command = connection.CreateCommand();
             command.CommandText = "INSERT INTO missions (id, problem_id, body) VALUES ($id, $problem, $body) ON CONFLICT(id) DO UPDATE SET body = excluded.body;";
             command.Parameters.AddWithValue("$id", mission.Id);
@@ -52,7 +52,7 @@ public sealed class SqliteMissionStore(SqliteDatabase database) : IMissionStore
 
     public IReadOnlyList<Mission> ForProblem(string problemId) => SqliteDatabase.Guard(() =>
     {
-        using var connection = database.Connect();
+        using var connection = database.ConnectShared();
         using var command = connection.CreateCommand();
         command.CommandText = "SELECT body FROM missions WHERE problem_id = $problem ORDER BY rowid;";
         command.Parameters.AddWithValue("$problem", problemId);
@@ -61,7 +61,7 @@ public sealed class SqliteMissionStore(SqliteDatabase database) : IMissionStore
 
     public IReadOnlyList<Mission> Recent(int limit) => SqliteDatabase.Guard(() =>
     {
-        using var connection = database.Connect();
+        using var connection = database.ConnectShared();
         using var command = connection.CreateCommand();
         command.CommandText = "SELECT body FROM missions ORDER BY rowid DESC LIMIT $limit;";
         command.Parameters.AddWithValue("$limit", Math.Max(limit, 0));
@@ -70,7 +70,7 @@ public sealed class SqliteMissionStore(SqliteDatabase database) : IMissionStore
 
     internal static object? Scalar(SqliteDatabase database, string sql, string key)
     {
-        using var connection = database.Connect();
+        using var connection = database.ConnectShared();
         using var command = connection.CreateCommand();
         command.CommandText = sql;
         command.Parameters.AddWithValue("$key", key);
@@ -84,7 +84,7 @@ public sealed class SqliteMissionStore(SqliteDatabase database) : IMissionStore
         {
             return [];
         }
-        using var connection = database.Connect();
+        using var connection = database.ConnectShared();
         using var command = connection.CreateCommand();
         command.CommandText = sql;
         command.Parameters.AddWithValue("$keys", MissionJson.Write(keys));
@@ -111,7 +111,7 @@ public sealed class SqliteMandateLedger(SqliteDatabase database) : IMandateLedge
         ArgumentNullException.ThrowIfNull(mandate);
         SqliteDatabase.Guard(() =>
         {
-            using var connection = database.Connect();
+            using var connection = database.ConnectShared();
             using var command = connection.CreateCommand();
             command.CommandText = "INSERT INTO mandates (id, problem_id, approval_id, body) VALUES ($id, $problem, $approval, $body) ON CONFLICT(id) DO NOTHING;";
             command.Parameters.AddWithValue("$id", mandate.Mandate.Id);
@@ -135,7 +135,7 @@ public sealed class SqliteMandateLedger(SqliteDatabase database) : IMandateLedge
         {
             return revoked;
         }
-        using var connection = database.Connect();
+        using var connection = database.ConnectShared();
         using var command = connection.CreateCommand();
         command.CommandText = "SELECT id FROM mandates WHERE revoked = 1 AND id IN (SELECT value FROM json_each($keys));";
         command.Parameters.AddWithValue("$keys", MissionJson.Write(ids));
@@ -151,7 +151,7 @@ public sealed class SqliteMandateLedger(SqliteDatabase database) : IMandateLedge
 
     public int CountForRun(string problemId, string approvalId) => SqliteDatabase.Guard(() =>
     {
-        using var connection = database.Connect();
+        using var connection = database.ConnectShared();
         using var command = connection.CreateCommand();
         command.CommandText = "SELECT COUNT(*) FROM mandates WHERE problem_id = $problem AND approval_id = $approval;";
         command.Parameters.AddWithValue("$problem", problemId);
@@ -163,7 +163,7 @@ public sealed class SqliteMandateLedger(SqliteDatabase database) : IMandateLedge
 
     public void Revoke(string id) => SqliteDatabase.Guard(() =>
     {
-        using var connection = database.Connect();
+        using var connection = database.ConnectShared();
         using var command = connection.CreateCommand();
         command.CommandText = "UPDATE mandates SET revoked = 1 WHERE id = $id;";
         command.Parameters.AddWithValue("$id", id);
@@ -183,7 +183,7 @@ public sealed class SqliteProblemStore(SqliteDatabase database) : IProblemStore
 
     public IReadOnlyList<ProblemRun> InProgress() => SqliteDatabase.Guard(() =>
     {
-        using var connection = database.Connect();
+        using var connection = database.ConnectShared();
         using var command = connection.CreateCommand();
         command.CommandText = "SELECT body FROM problems WHERE state = $state;";
         command.Parameters.AddWithValue("$state", nameof(ProblemState.InProgress));
@@ -195,7 +195,7 @@ public sealed class SqliteProblemStore(SqliteDatabase database) : IProblemStore
         ArgumentNullException.ThrowIfNull(run);
         SqliteDatabase.Guard(() =>
         {
-            using var connection = database.Connect();
+            using var connection = database.ConnectShared();
             using var command = connection.CreateCommand();
             command.CommandText = "INSERT INTO problems (problem_id, state, body) VALUES ($id, $state, $body) ON CONFLICT(problem_id) DO UPDATE SET state = excluded.state, body = excluded.body;";
             command.Parameters.AddWithValue("$id", run.ProblemId);
@@ -219,12 +219,26 @@ public sealed class SqliteDossierStore(SqliteDatabase database) : IDossierStore
         ArgumentNullException.ThrowIfNull(dossier);
         SqliteDatabase.Guard(() =>
         {
-            using var connection = database.Connect();
+            using var connection = database.ConnectShared();
             using var command = connection.CreateCommand();
             command.CommandText = "INSERT INTO dossiers (mission_id, body) VALUES ($id, $body) ON CONFLICT(mission_id) DO UPDATE SET body = excluded.body;";
             command.Parameters.AddWithValue("$id", dossier.MissionId);
             command.Parameters.AddWithValue("$body", MissionJson.Write(dossier));
             command.ExecuteNonQuery();
+            return true;
+        });
+    }
+}
+
+/// <summary>The unit of work of the SQLite stores of the missions: one write transaction for everything written inside it.</summary>
+public sealed class SqliteMissionUnit(SqliteDatabase database) : IMissionUnit
+{
+    public void Atomically(Action work)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        SqliteDatabase.Guard(() =>
+        {
+            database.Atomically(work);
             return true;
         });
     }

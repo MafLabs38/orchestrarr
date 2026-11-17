@@ -141,7 +141,7 @@ public sealed class ProblemConductorTests : IDisposable
     private ProblemConductor Conductor(ConductorOptions? options = null) => Build(_authority, options, "id", locks: null);
 
     private ProblemConductor Build(IApprovalSource approvals, ConductorOptions? options, string idPrefix, ProblemLocks? locks) =>
-        new(_signer, new MissionStores(_missions, _mandates, _problems, _dossiers), new PowerSources(approvals, _authority.Verifier, _withdrawals, _grants, _stop), new ConductorServices(_facts, new Runners(), _audit, _time, () => $"{idPrefix}-{Interlocked.Increment(ref _ids)}"), options ?? ConductorOptions.Default, locks);
+        new(_signer, new MissionStores(_missions, _mandates, _problems, _dossiers, new InMemoryMissionUnit()), new PowerSources(approvals, _authority.Verifier, _withdrawals, _grants, _stop), new ConductorServices(_facts, new Runners(), _audit, _time, () => $"{idPrefix}-{Interlocked.Increment(ref _ids)}"), options ?? ConductorOptions.Default, locks);
 
     private static PlanEntry Entry(World max = World.Release, string rule = "") => new("problem-1", "shop", "deprecated-dependency", "Replace the removed method", ["example/shop"], max, new MissionBudget(20, 3, 50),
         new Validation("alice", rule.Length == 0 ? null : rule), new DateTimeOffset(2026, 11, 13, 11, 0, 0, TimeSpan.Zero));

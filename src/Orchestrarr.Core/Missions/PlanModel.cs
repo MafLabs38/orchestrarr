@@ -35,7 +35,16 @@ public sealed record PlanEntry(
 public sealed record ProblemRun(string ProblemId, string ApplicationId, ProblemState State, DateTimeOffset StartedAt, PlanEntry Entry, World HighestAllowed, bool UsesStaging, SignedApproval Approval, World? CurrentWorld = null, string? Note = null);
 
 /// <summary>The four stores of the missions, together: the missions, the mandates, the problems and the dossiers.</summary>
-public sealed record MissionStores(IMissionStore Missions, IMandateLedger Mandates, IProblemStore Problems, IDossierStore Dossiers);
+public sealed record MissionStores(IMissionStore Missions, IMandateLedger Mandates, IProblemStore Problems, IDossierStore Dossiers, IMissionUnit Unit);
+
+/// <summary>
+/// A unit of work over the four stores: what is written inside it is written **all or not at all** (a crash or a storage failure between two writes leaves none of them). The work is synchronous and short
+/// (the stores are), and it never awaits: the audit trail is written before or after it, never inside.
+/// </summary>
+public interface IMissionUnit
+{
+    void Atomically(Action work);
+}
 
 /// <summary>What the power of a problem is read from, at every crossing and every act: the approval source, the verifier of its certificates, the withdrawals the authority published, the grants and the global stop.</summary>
 public sealed record PowerSources(IApprovalSource Approvals, ApprovalVerifier Verifier, IApprovalWithdrawals Withdrawals, IGrantSource Grants, IStopSignal Stop);
