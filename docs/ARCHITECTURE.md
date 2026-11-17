@@ -171,7 +171,7 @@ erDiagram
 | **Evidence** | An artifact of verification | Requests and answers, captures, browser trace, test results, logs |
 | **Controller decision** | The controller's verdict on a dossier | Grant, send back, end, escalate; reasons; what it read |
 | **Staging profile** | What the application needs in staging | Requirement, dependencies, how it is brought up, safe configuration |
-| **Baseline** | A proof that the unchanged application passes in staging | Revision, date, the evidence, result |
+| **Baseline** | A proof that the staging comes up and that its dependencies and the components it needs answer (the application under change is not part of it) | Revision, date, the evidence, result |
 | **Staging slot** | A staging virtual machine of the platform | Free, reserved, in use, restoring |
 
 **States**
@@ -210,9 +210,9 @@ stateDiagram-v2
     NotDefined --> Defined: how to bring it up is written
     Defined --> Provisioned: it exists and starts
     Provisioned --> BaselineProven: baseline mission passed
-    BaselineProven --> Stale: code or production configuration moved
+    BaselineProven --> Stale: the description, the dependencies or the components it needs moved
     Stale --> BaselineProven: baseline mission passed again
-    BaselineProven --> Broken: a mission finds it failing on unchanged code
+    BaselineProven --> Broken: a baseline mission finds its dependencies failing
     Broken --> Provisioned: repaired
 ```
 
@@ -288,7 +288,7 @@ It reuses what exists: the approvals, the second factor on the maintainer's vali
 |---|---|
 | The plan covers the problem | Whether the objective is met |
 | The budget is available, the kill switch is not engaged | Whether the evidence supports the claim |
-| The staging requirement is met (the baseline is proven and not stale, or the requirement is a blank machine, where the first step of the mission is the baseline, or the application is declared by the maintainer as having no staging: CASE-17) | Whether the change is what the mission asked for, with nothing unexpected |
+| The staging requirement is met (the baseline is proven and not stale, or the requirement is a blank machine, where no baseline is needed beforehand, or the application is declared by the maintainer as having no staging: CASE-17) | Whether the change is what the mission asked for, with nothing unexpected |
 | The previous dossier exists | Whether the case is as complex as it says, and whether the maintainer should be involved |
 | The diff touches no forbidden file | Whether to send back, end or escalate |
 | CI is green on the exact commit (release) | |
@@ -356,7 +356,7 @@ sequenceDiagram
     SCH->>SCH: state is "baseline proven" and not stale?
     alt not proven
         SCH->>PC: reserve a slot, restore snapshot
-        SCH->>RS: baseline mission (unchanged code)
+        SCH->>RS: baseline mission (the staging and its dependencies)
         RS-->>CP: dossier, evidence
         CP->>CP: state becomes baseline proven or broken
     end
