@@ -31,7 +31,7 @@ public interface IAuthorityLedger
 
     IReadOnlyCollection<string> Revoked();
 
-    /// <summary>Counts one mandate, once per nonce (asking again for the same nonce answers the same), against <paramref name="maxMandates"/>.</summary>
+    /// <summary>Counts one mandate, once per nonce, against <paramref name="maxMandates"/>: **asking again for a nonce that was counted answers <c>Replayed</c>, whatever the certificate** (a runner accepts a mandate only on <c>Used</c>, so a mandate is single-use even after a restart or on a second runner of the same name).</summary>
     MandateUse Use(string certificateId, string nonce, int maxMandates);
 }
 

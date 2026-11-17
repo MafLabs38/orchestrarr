@@ -8,7 +8,8 @@ public static class WorldActs
 {
     public static IReadOnlyList<GatedAct> Of(World world) => world switch
     {
-        World.Staging => [GatedAct.ReserveStaging, GatedAct.RestoreStaging, GatedAct.ReleaseStaging],
+        // The platform reserves, restores and gives back the staging slots, not the worker (ADR 0041 point 3): the staging world lists no act of a mandate
+        World.Staging => [],
         World.Git => [GatedAct.OpenPullRequest, GatedAct.MergePullRequest],
         World.Release => [GatedAct.Deploy],
         _ => [],

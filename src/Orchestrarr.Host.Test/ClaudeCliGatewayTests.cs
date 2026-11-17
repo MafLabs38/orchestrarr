@@ -1,4 +1,5 @@
 using System.Runtime.Versioning;
+using Microsoft.Extensions.Logging;
 using Orchestrarr.Core.Missions;
 using Orchestrarr.Host.Agents;
 
@@ -85,6 +86,36 @@ public sealed class ClaudeCliGatewayTests : IDisposable
 
         reply.Text.Trim().Should().Be("token-present");
         (await File.ReadAllTextAsync(Path.Combine(_folder, "seen"), TestContext.Current.CancellationToken)).Should().NotContain("secret-token-value");
+    }
+
+    [Fact]
+    public async Task The_operator_reads_in_the_log_why_the_program_failed_and_the_token_is_never_in_it()
+    {
+        var tokenFile = Path.Combine(_folder, "token");
+        await File.WriteAllTextAsync(tokenFile, "secret-token-value\n", TestContext.Current.CancellationToken);
+        var log = new RecordingLogger();
+
+        var failed = await new ClaudeCliGateway(new AgentsOptions { Command = Script("echo \"login expired for $CLAUDE_CODE_OAUTH_TOKEN\" >&2\nexit 3\n"), TokenFile = tokenFile }, log).RunAsync(Request(), TestContext.Current.CancellationToken);
+        var missing = await new ClaudeCliGateway(new AgentsOptions { Command = Path.Combine(_folder, "nothing") }, log).RunAsync(Request(), TestContext.Current.CancellationToken);
+
+        failed.Failure.Should().NotContain("login expired", "the reply keeps only the code");
+        log.Lines.Should().Contain(line => line.Contains("ended with code 3", StringComparison.Ordinal));
+        log.Lines.Should().Contain(line => line.Contains("login expired for ***", StringComparison.Ordinal));
+        log.Lines.Should().NotContain(line => line.Contains("secret-token-value", StringComparison.Ordinal));
+        log.Lines.Should().Contain(line => line.Contains("could not be started", StringComparison.Ordinal));
+        missing.Failure.Should().Contain("could not be started");
+    }
+
+    private sealed class RecordingLogger : ILogger<ClaudeCliGateway>
+    {
+        public List<string> Lines { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+            Lines.Add($"{formatter(state, exception)} {exception?.Message}");
     }
 
     [Fact]

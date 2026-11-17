@@ -24,6 +24,7 @@ public enum GatedAct
     Deploy = 2,
 
     // 3 is retired (it was the rollback, ADR 0040): never reuse it, an old signed mandate or a stored row could read it as the new act
+    // 4 to 6 are retired too (ADR 0041 point 3): the platform owns the slots of the staging and no mandate lists them; the values are never reused
     ReserveStaging = 4,
     RestoreStaging = 5,
     ReleaseStaging = 6,

@@ -63,7 +63,7 @@ public sealed class MissionsApiTests
         staging.GetProperty("mandate").GetProperty("source").GetString().Should().Be("PlanValidation");
         staging.GetProperty("dossier").GetProperty("complex").GetBoolean().Should().BeTrue();
         missions.EnumerateArray().Where(mission => mission.GetProperty("world").GetString() != "Staging").Should().OnlyContain(mission => mission.GetProperty("mandate").GetProperty("source").GetString() == "Controller");
-        staging.GetProperty("mandate").GetProperty("acts").EnumerateArray().Select(act => act.GetString()).Should().Contain("ReserveStaging");
+        staging.GetProperty("mandate").GetProperty("acts").EnumerateArray().Should().BeEmpty("the platform owns the staging slots, no act of a mandate reserves, restores or releases one (ADR 0041)");
     }
 
     [Fact]

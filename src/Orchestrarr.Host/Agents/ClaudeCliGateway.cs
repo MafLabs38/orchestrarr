@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.Text;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Orchestrarr.Core.Missions;
 
 namespace Orchestrarr.Host.Agents;
@@ -40,8 +42,11 @@ public sealed class DisabledGateway : IAgentGateway
 /// Runs the model through the Claude Code program with **no tools** (ADR 0032, 0033): the arguments are a list, never a shell line; the standard input is closed; the process is killed at the
 /// time limit; the token goes in the environment, never in an argument or in the output. What it returns is the text of the answer and nothing the caller can mistake for a command.
 /// </summary>
-public sealed class ClaudeCliGateway(AgentsOptions options) : IAgentGateway
+public sealed class ClaudeCliGateway(AgentsOptions options, ILogger<ClaudeCliGateway>? logger = null) : IAgentGateway
 {
+    private const int MaxLoggedStderr = 500;
+    private readonly ILogger<ClaudeCliGateway> _logger = logger ?? NullLogger<ClaudeCliGateway>.Instance;
+
     private const int MaxOutputCharacters = 64 * 1024;
 
     /// <summary>The program and its arguments for a request: no tools, no MCP server, no session kept, no skill, the system prompt replaced.</summary>
@@ -99,7 +104,9 @@ public sealed class ClaudeCliGateway(AgentsOptions options) : IAgentGateway
         }
         catch (Exception failure) when (failure is not OperationCanceledException)
         {
-            // Whatever the platform says (a program that is not executable, a wrapper that is not there), the answer is one: it could not be started, and the reason never carries the text of the failure
+            // Whatever the platform says (a program that is not executable, a wrapper that is not there), the answer is one: it could not be started, and the reason never carries the text of the failure;
+            // the operator reads why in the log (the token travels in the environment and is never part of an exception)
+            _logger.LogWarning(failure, "The agent program could not be started");
             return new AgentReply(false, string.Empty, "the agent program could not be started");
         }
         using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -113,8 +120,15 @@ public sealed class ClaudeCliGateway(AgentsOptions options) : IAgentGateway
             await Feed(process.StandardInput, request.UserPrompt, limit.Token);
             await process.WaitForExitAsync(limit.Token);
             var text = await output;
-            _ = await errors;
-            return process.ExitCode == 0 ? new AgentReply(true, text, null) : new AgentReply(false, string.Empty, $"the agent program ended with code {process.ExitCode}");
+            var diagnostics = await errors;
+            if (process.ExitCode == 0)
+            {
+                return new AgentReply(true, text, null);
+            }
+            // The reply keeps only the code; the log keeps the end of what the program wrote on its error output, with the token taken out and bounded, so that an expired token or a wrong wrapper can be found
+            _logger.LogWarning("The agent program ended with code {ExitCode}", process.ExitCode);
+            _logger.LogDebug("The end of the agent program's error output: {Tail}", Tail(diagnostics, start.Environment.TryGetValue("CLAUDE_CODE_OAUTH_TOKEN", out var token) ? token : null));
+            return new AgentReply(false, string.Empty, $"the agent program ended with code {process.ExitCode}");
         }
         catch (OperationCanceledException)
         {
@@ -129,6 +143,13 @@ public sealed class ClaudeCliGateway(AgentsOptions options) : IAgentGateway
             await Observe(output, errors);
             return new AgentReply(false, string.Empty, "the agent program failed while it ran");
         }
+    }
+
+    // The last characters of a text, with the secret taken out whatever it is
+    private static string Tail(string? text, string? secret)
+    {
+        var clean = string.IsNullOrEmpty(secret) || text is null ? text ?? string.Empty : text.Replace(secret, "***", StringComparison.Ordinal);
+        return clean.Length <= MaxLoggedStderr ? clean : clean[^MaxLoggedStderr..];
     }
 
     // The readers are cancelled with the limit: they are waited for, so that none faults unobserved once the process and the limit are disposed
