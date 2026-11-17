@@ -103,7 +103,8 @@ internal sealed class ConfiguredRunners(MissionsOptions options) : IRunnerDirect
     {
         World.Staging => options.StagingRunner,
         World.Git => options.GitRunner,
-        _ => options.ReleaseRunner,
+        World.Release => options.ReleaseRunner,
+        _ => throw new ArgumentOutOfRangeException(nameof(world), world, "a world that does not exist has no runner"),
     };
 }
 

@@ -10,6 +10,7 @@ public static class WorldActs
     {
         World.Staging => [GatedAct.ReserveStaging, GatedAct.RestoreStaging, GatedAct.ReleaseStaging],
         World.Git => [GatedAct.OpenPullRequest, GatedAct.MergePullRequest],
-        _ => [GatedAct.Deploy],
+        World.Release => [GatedAct.Deploy],
+        _ => [],
     };
 }

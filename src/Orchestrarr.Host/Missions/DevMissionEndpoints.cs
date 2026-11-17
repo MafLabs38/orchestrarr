@@ -1,6 +1,5 @@
 using Orchestrarr.Core.Accounts;
 using Orchestrarr.Core.Missions;
-using Orchestrarr.Core.SecondFactor;
 using Orchestrarr.Host.Approvals;
 
 namespace Orchestrarr.Host.Missions;

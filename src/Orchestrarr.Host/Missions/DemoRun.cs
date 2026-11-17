@@ -122,6 +122,6 @@ internal sealed class DemoRun(MissionStores stores, ProblemLocks locks, IRunnerD
     {
         public bool Ci { get; set; } = true;
 
-        public ObservedFacts Facts(FactsQuery query) => new(true, true, Ci, true, true, true, MergeMayDeploy: false, ExecutedFilesTouched: false, TagCreationBlocked: true, BranchCannotReachWriteCredentials: true, HeadCommit: query.Commit, IdentityConfinedToItsBranches: true, ChangedPaths: ["src/Orders.cs", "tests/OrdersTests.cs"]);
+        public ObservedFacts Facts(FactsQuery query) => new(BudgetAvailable: true, DiffIsClean: true, CiGreenOnExactCommit: Ci, ArtifactIsTheOneProvedInStaging: true, WayBackKnown: true, WorkerClaimMatchesFacts: true, MergeMayDeploy: false, ExecutedFilesTouched: false, TagCreationBlocked: true, BranchCannotReachWriteCredentials: true, HeadCommit: query.Commit, IdentityConfinedToItsBranches: true, ChangedPaths: ["src/Orders.cs", "tests/OrdersTests.cs"]);
     }
 }

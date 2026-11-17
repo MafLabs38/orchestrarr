@@ -12,7 +12,7 @@ public sealed class AgentsOptions
     /// <summary>The program: Claude Code, run non-interactively under the maintainer's subscription.</summary>
     public string Command { get; set; } = "claude";
 
-    /// <summary>A prefix of arguments, for a host where the program refuses to start inside another session (for example <c>systemd-run --user --wait --pipe --quiet</c>). Empty: none.</summary>
+    /// <summary>A prefix of arguments, for a host where the program refuses to start inside another session (for example <c>systemd-run --user --wait --pipe --quiet --collect --same-dir --setenv=PATH --setenv=HOME --setenv=LANG --setenv=CLAUDE_CODE_OAUTH_TOKEN</c>). **A wrapper that starts the program somewhere else (a unit of the user manager) must carry what the gateway sets: the working directory (<c>--same-dir</c>) and each variable by name (<c>--setenv=NAME</c>, the value stays out of the command line)**; otherwise the program runs in a home folder with the manager's environment and not under the token it was given. A time limit or a stop kills the wrapper, so bound the unit too (<c>--property=RuntimeMaxSec</c>). Empty: none.</summary>
     public string[] Wrapper { get; set; } = [];
 
     /// <summary>The model of the controller. A setting, never a constant of the code (the model of each role is configuration).</summary>
@@ -185,7 +185,7 @@ internal sealed class TemporaryFolder : IDisposable
         {
             Directory.Delete(Path, recursive: true);
         }
-        catch (IOException)
+        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
         {
             // A program that has not let go of its folder yet: it is a temporary folder, the system removes it later
         }
