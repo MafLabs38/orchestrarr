@@ -123,7 +123,7 @@ public sealed record ObservedFacts(
 
 /// <summary>
 /// The source of the facts. It says only what it observed: the plan, the stop, the loop and the staging are the conductor's own. **The commit it is given is the worker's claim, not the commit to look at**: the source reads
-/// the head of the mission's branch from the forge itself and says it in <c>HeadCommit</c> (**in the release world, the commit that is released: the one the deployment, or the merge that deploys, carries, read from the forge or the delivery itself, never the worker's pointer**); a claim that differs, or a head it cannot read, fails the check.
+/// the head of the mission's branch from the forge itself and says it in <c>HeadCommit</c> (**in the release world, the commit that the release carries or is to carry, whether it is asked at the crossing into the release world or when it closes: the one the deployment, or the merge that deploys, names, read from the forge or the delivery itself, never the worker's pointer**); a claim that differs, or a head it cannot read, fails the check.
 /// **It is called while the lock of the problem is held**: it is asynchronous and takes a token, and it answers within a time limit of its own, never from a call that can hang (a slow forge must not hold the stop and the sweep).
 /// </summary>
 public interface IFactsSource
