@@ -116,7 +116,7 @@ A problem goes through the same path whatever its weight; the path is a sequence
 9. **Closed, or looped.** If the verification is good, the problem is closed and a report is written. If a defect shows up later, **a new mandate** is asked to repair (P8); the loop is bounded (section 5.11). **(M)**
 10. **Told.** The maintainer gets what is useful: nothing for a simple success, a notification for a complex case, a failure, an exposed secret, a loop that hit its limit. **(M)**
 
-An application with **no staging** skips steps 3 to 5; it goes from the plan straight to the Git world, then the release world, with no net (decided for CASE-17). **(M)**
+An application with **no staging** skips steps 3 to 5; it goes from the plan straight to the Git world, then the release world, with no net (decided for CASE-17); **an application with no check at all is the open question Q-38**, and D-10 holds until it is answered. **(M)**
 
 ---
 
