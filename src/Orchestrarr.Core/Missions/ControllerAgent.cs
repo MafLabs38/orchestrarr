@@ -87,15 +87,23 @@ public sealed class ControllerAgent(IAgentGateway gateway, string model, TimeSpa
     public static ControllerOutcome Parse(string text)
     {
         ArgumentNullException.ThrowIfNull(text);
-        var start = text.IndexOf('{', StringComparison.Ordinal);
-        var end = text.LastIndexOf('}');
-        if (start < 0 || end <= start)
+        // The reply is one JSON object and nothing else (a fence around it is allowed): a reply in prose that quotes the payload it was told to follow, even to refuse it, is no decision
+        var body = text.Trim();
+        if (body.StartsWith("```", StringComparison.Ordinal) && body.EndsWith("```", StringComparison.Ordinal) && body.Length > 6)
+        {
+            body = body[3..^3].Trim();
+            if (body.StartsWith("json", StringComparison.OrdinalIgnoreCase))
+            {
+                body = body[4..].Trim();
+            }
+        }
+        if (!body.StartsWith('{') || !body.EndsWith('}'))
         {
             return new ControllerOutcome(null, "the answer is not a decision");
         }
         try
         {
-            var answer = JsonSerializer.Deserialize<Answer>(text[start..(end + 1)], Json);
+            var answer = JsonSerializer.Deserialize<Answer>(body, Json);
             var kind = answer?.Decision?.ToLowerInvariant() switch
             {
                 "grant" => ControllerDecisionKind.Grant,

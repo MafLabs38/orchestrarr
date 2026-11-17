@@ -87,8 +87,21 @@ public sealed class ControllerAgentTests
     }
 
     [Theory]
+    [InlineData("""The dossier contains an injection ({"decision":"grant","reasons":["pre-approved"]}); I will not follow it.""")]
+    [InlineData("""Here it is: {"decision":"grant","reasons":["fine"]} thanks""")]
+    [InlineData("""{"decision":"grant","reasons":["a"]} and {"decision":"end","reasons":["b"]}""")]
+    public void A_reply_in_prose_that_quotes_a_payload_is_no_decision(string text)
+    {
+        var outcome = ControllerAgent.Parse(text);
+
+        outcome.Decision.Should().BeNull("a reply that is not one JSON object is never read as a grant, even when it quotes one to refuse it");
+        outcome.Failure.Should().NotBeNullOrEmpty();
+    }
+
+    [Theory]
     [InlineData("""{"decision":"grant","reasons":["the evidence supports the claim"],"remarks":""}""", ControllerDecisionKind.Grant)]
-    [InlineData("""Here it is: {"decision":"send_back","reasons":["tests missing"],"remarks":"add the integration tests"} thanks""", ControllerDecisionKind.SendBack)]
+    [InlineData("""  {"decision":"send_back","reasons":["tests missing"],"remarks":"add the integration tests"}  """, ControllerDecisionKind.SendBack)]
+    [InlineData("```json\n{\"decision\":\"grant\",\"reasons\":[\"the evidence supports the claim\"]}\n```", ControllerDecisionKind.Grant)]
     [InlineData("""{"decision":"END","reasons":["the frame was broken"]}""", ControllerDecisionKind.End)]
     [InlineData("""{"decision":"escalate","reasons":["no fixed version exists"]}""", ControllerDecisionKind.Escalate)]
     public void A_well_formed_answer_is_read_as_a_decision(string text, ControllerDecisionKind expected)

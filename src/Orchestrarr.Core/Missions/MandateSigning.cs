@@ -152,7 +152,7 @@ public sealed class MandateVerifier : IDisposable
         }
     }
 
-    /// <summary>Before a gated act: the mandate is still good and lists the act. The nonce is not used again here.</summary>
+    /// <summary>Before a gated act: the mandate is still good and lists the act. The nonce is not used again here. **This is the check of the mission runner that the mandate names, and only that one**: the binding of an act gateway of its own (named in the mandate with its acts, a request signed by the mission runner, the authority's count, the act recorded under the nonce and an act id: ADR 0031 point 2) comes with the runner v2 and changes the signed format, so it is a launch contract change.</summary>
     public MandateRefusal MayAct(SignedMandate signed, GatedAct act)
     {
         var refusal = Check(signed);
