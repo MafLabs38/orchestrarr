@@ -22,7 +22,6 @@ public enum GatedAct
     OpenPullRequest = 0,
     MergePullRequest = 1,
     Deploy = 2,
-    Rollback = 3,
     ReserveStaging = 4,
     RestoreStaging = 5,
     ReleaseStaging = 6,

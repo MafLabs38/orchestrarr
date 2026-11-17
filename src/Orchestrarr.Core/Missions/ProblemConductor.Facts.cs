@@ -42,8 +42,7 @@ public sealed partial class ProblemConductor
             ExecutedFilesTouched: observed.ExecutedFilesTouched,
             TagCreationBlocked: observed.TagCreationBlocked,
             BranchCannotReachWriteCredentials: observed.BranchCannotReachWriteCredentials,
-            IdentityConfinedToItsBranches: observed.IdentityConfinedToItsBranches,
-            RevertCanLandWithoutReview: observed.RevertCanLandWithoutReview);
+            IdentityConfinedToItsBranches: observed.IdentityConfinedToItsBranches);
         // The release of an application with a staging needs the artifact that was proved there (FR-WLD-14)
         return [.. MandatePreconditions.Check(checks, requiresStagingProof: run.UsesStaging && world == World.Release)];
     }

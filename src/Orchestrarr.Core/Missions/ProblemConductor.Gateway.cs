@@ -49,11 +49,6 @@ public sealed partial class ProblemConductor
             {
                 return ActAuthorisation.Refused("the repository is not in the frame of the mission");
             }
-            // The revert of a deploying merge is checked against the base tree recorded before the deploy: until the gateway that records it exists, no rollback is authorised on the mandate alone
-            if (act == GatedAct.Rollback)
-            {
-                return ActAuthorisation.Refused("the check of a rollback (the base tree recorded before the deploy) is not built: a person rolls back until the release runner exists");
-            }
             var failures = changes
                 ? CheckFacts(run, mission.World, mission.Frame, mission.Id, previousDossierExists: PreviousDossierExists(run, mission), LatestDossier(run, mission), commit, issuing: false, repository, baseCommit)
                 : [];

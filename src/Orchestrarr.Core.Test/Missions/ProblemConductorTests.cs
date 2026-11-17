@@ -69,7 +69,6 @@ public sealed class ProblemConductorTests : IDisposable
 
         public bool? Confined { get; set; } = true;
 
-        public bool? RevertCanLand { get; set; } = true;
 
         /// <summary>What the forge says the head is; null: the head is the commit that was asked about.</summary>
         public string? HeadCommit { get; set; }
@@ -79,7 +78,7 @@ public sealed class ProblemConductorTests : IDisposable
         public ObservedFacts Facts(FactsQuery query)
         {
             Last = query;
-            return new(true, DiffSaysClean, CiGreen, ArtifactProved, WayBack, ClaimMatches, MergeMayDeploy, ExecutedFiles, TagsBlocked, BranchSafe, HeadCommit ?? query.Commit, Confined, Paths(), query.Repository, BaseCommit ?? query.BaseCommit, RevertCanLand);
+            return new(true, DiffSaysClean, CiGreen, ArtifactProved, WayBack, ClaimMatches, MergeMayDeploy, ExecutedFiles, TagsBlocked, BranchSafe, HeadCommit ?? query.Commit, Confined, Paths(), query.Repository, BaseCommit ?? query.BaseCommit);
         }
     }
 
@@ -175,7 +174,8 @@ public sealed class ProblemConductorTests : IDisposable
 
         var release = Through(conductor, git);
         release.Mandate!.Mandate.World.Should().Be(World.Release);
-        release.Mandate.Mandate.Acts.Should().BeEquivalentTo([GatedAct.Deploy, GatedAct.Rollback]);
+        release.Mandate.Mandate.Acts.Should().BeEquivalentTo([GatedAct.Deploy]);
+        Enum.GetNames<GatedAct>().Should().NotContain("Rollback", "the way back is a change made through the process, never an act of its own (ADR 0040)");
 
         var closed = Through(conductor, release);
 
@@ -941,7 +941,7 @@ public sealed class ProblemConductorTests : IDisposable
     }
 
     [Fact]
-    public void A_merge_or_a_deployment_names_its_repository_commit_and_base_and_a_rollback_is_not_authorised_on_the_mandate_alone()
+    public void A_merge_or_a_deployment_names_its_repository_commit_and_base()
     {
         var conductor = Conductor();
         var git = Through(conductor, StartStaged(conductor));
@@ -955,9 +955,6 @@ public sealed class ProblemConductorTests : IDisposable
         (allowed.Repository, allowed.Commit, allowed.BaseCommit).Should().Be(("example/shop", "abc", "base-1"));
         _facts.BaseCommit = "the-base-moved";
         conductor.AuthoriseAct(id, GatedAct.MergePullRequest, "abc", "example/shop", "base-1").Failures.Should().Contain(PreconditionFailure.ClaimDoesNotMatchFacts, "the base the source read is not the base that was named");
-
-        var release = Through(conductor, git);
-        conductor.AuthoriseAct(release.Mission!.Id, GatedAct.Rollback, null).Refusal.Should().Contain("not built");
     }
 
     [Fact]

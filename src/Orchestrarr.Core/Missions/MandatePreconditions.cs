@@ -21,8 +21,7 @@ public sealed record PreconditionFacts(
     bool? ExecutedFilesTouched = null,
     bool? TagCreationBlocked = null,
     bool? BranchCannotReachWriteCredentials = null,
-    bool? IdentityConfinedToItsBranches = null,
-    bool? RevertCanLandWithoutReview = null);
+    bool? IdentityConfinedToItsBranches = null);
 
 public enum PreconditionFailure
 {
@@ -49,13 +48,6 @@ public enum PreconditionFailure
 
     /// <summary>The certificate of the approval already backed as many mandates as it says: no mandate can be issued under it (this is not the loop bound of the problem).</summary>
     ApprovalBacksNoMoreMandates,
-
-    /// <summary>
-    /// The release of a repository that deploys by merge needs a revert that can land by itself. The fact is a property of **the rules of the base branch**, not of the identity: the revert lands through the normal rules (the required checks,
-    /// **no required human review for anyone**), and **an identity that can bypass the rules (a bypass actor of a ruleset, an administrator) counts as unable**: a bypass would also skip the rules for every other merge of that identity, and it is the maintainer's
-    /// to give or not (Q-35). Not known counts as unable. Until he answers, a repository whose protected branch needs a human review is refused a release.
-    /// </summary>
-    RevertCouldNotLand,
 
     /// <summary>The agent's identity on the forge can write to branches other than its own prefix (no ruleset confines it), or it is not known: a push to a human's or a bot's branch could be merged with no mandate. Not known counts as unconfined.</summary>
     AgentIdentityNotConfined,
@@ -100,8 +92,6 @@ public static class MandatePreconditions
         Add(failures, facts.World == World.Git && facts.BranchCannotReachWriteCredentials != true, PreconditionFailure.AgentBranchCouldReachWriteCredentials);
         // The agent writes only to its own prefix, by a ruleset of the forge: read from the repository, unknown counts as unconfined
         Add(failures, facts.World == World.Git && facts.IdentityConfinedToItsBranches != true, PreconditionFailure.AgentIdentityNotConfined);
-        // A release by merge needs a revert that can land by itself: read from the forge, unknown counts as unable
-        Add(failures, facts.World == World.Release && mayDeploy && facts.RevertCanLandWithoutReview != true, PreconditionFailure.RevertCouldNotLand);
         // A deployment needs a way back known before it starts (FR-WLD-13, rule 5 of CLAUDE.md): unknown counts as failing
         Add(failures, facts.World == World.Release && facts.WayBackKnown != true, PreconditionFailure.NoWayBackKnown);
         return failures;
