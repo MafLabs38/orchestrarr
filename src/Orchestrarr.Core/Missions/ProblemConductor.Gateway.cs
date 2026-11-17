@@ -5,7 +5,7 @@ public sealed partial class ProblemConductor
 {
     /// <summary>
     /// The **act gateway** (ARCHITECTURE section 5): before a merge or a deployment is performed, the checks of the code are made again **now, on the exact commit that is about to be merged or deployed**, with the
-    /// power read at this moment. A mandate says which acts may be asked for; this says whether the act may be done now. Nothing is performed here: the control plane's gateway does the act when this allows it.
+    /// power read at this moment. A mandate says which acts may be asked for; this says whether the act may be done now. No act is performed here: the control plane's gateway does the act when this allows it. **One thing is done here, on purpose**: a change to files that the pipeline executes, where the merge may deploy, ends the mission and escalates the problem to the maintainer, so that it cannot be asked again.
     /// </summary>
     public ActAuthorisation AuthoriseAct(string missionId, GatedAct act, string? commit, string? repository = null, string? baseCommit = null)
     {

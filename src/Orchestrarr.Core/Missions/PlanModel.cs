@@ -104,6 +104,7 @@ public sealed record ObservedFacts(
 /// <summary>
 /// The source of the facts. It says only what it observed: the plan, the stop, the loop and the staging are the conductor's own. **The commit it is given is the worker's claim, not the commit to look at**: the source reads
 /// the head of the mission's branch from the forge itself and says it in <c>HeadCommit</c>; a claim that differs, or a head it cannot read, fails the check.
+/// **It is called while the lock of the problem is held, so it must not block**: it answers from what it has fetched, with a time limit of its own, and never from a call that can hang (a slow forge must not hold the stop and the sweep).
 /// </summary>
 public interface IFactsSource
 {
