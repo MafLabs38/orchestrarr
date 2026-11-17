@@ -33,6 +33,11 @@ public sealed partial class ProblemConductor
         {
             return (Route.Escalate, ExecutedFilesReason);
         }
+        // An artifact that is not the one proved is a person's before anything else, a used-up budget included: an anomaly of the pipeline must reach a person and leave its trace
+        if (world == World.Release && failures.Contains(PreconditionFailure.ArtifactNotProvedInStaging))
+        {
+            return (Route.Escalate, "the artifact that runs is not the one proved in staging: a person decides");
+        }
         if (failures.Contains(PreconditionFailure.KillSwitchEngaged))
         {
             return (Route.Stop, "the global stop is engaged");
@@ -46,24 +51,17 @@ public sealed partial class ProblemConductor
         {
             return (Route.Stop, "the budget is used up");
         }
-        if (world == World.Release)
+        // A release that the controller judged failed never stays in the release world (its mandate could only deploy the same commit again): either a rule that is kept refuses the way back and the work
+        // stops with its own reason (ADR 0040 point 2), or the problem goes back to the first world. A pipeline result that is not known keeps its answer.
+        if (world == World.Release && !failures.Contains(PreconditionFailure.CiResultNotKnown))
         {
-            if (failures.Contains(PreconditionFailure.ArtifactNotProvedInStaging))
+            if (controllerJudgedFailed && failures.Any(failure => failure is PreconditionFailure.ApprovalBacksNoMoreMandates or PreconditionFailure.PlanDoesNotCover))
             {
-                return (Route.Escalate, "the artifact that runs is not the one proved in staging: a person decides");
+                return (Route.Stop, "a rule that is kept refuses the way back for this release");
             }
-            // A release that the controller judged failed never stays in the release world (its mandate could only deploy the same commit again): either a rule that is kept refuses the way back and the work
-            // stops with its own reason (ADR 0040 point 2), or the problem goes back to the first world, whose Open reads the same facts again. A pipeline result that is not known keeps its answer.
-            if (!failures.Contains(PreconditionFailure.CiResultNotKnown))
+            if (controllerJudgedFailed || (failures.Count > 0 && failures.All(failure => failure is PreconditionFailure.CiNotGreenOnExactCommit)))
             {
-                if (controllerJudgedFailed && failures.Any(failure => failure is PreconditionFailure.ApprovalBacksNoMoreMandates or PreconditionFailure.PlanDoesNotCover))
-                {
-                    return (Route.Stop, "a rule that is kept refuses the way back for this release");
-                }
-                if (controllerJudgedFailed || (failures.Count > 0 && failures.All(failure => failure is PreconditionFailure.CiNotGreenOnExactCommit)))
-                {
-                    return (Route.BackToFirstWorld, "the release did not verify: the problem goes back to the first world");
-                }
+                return (Route.BackToFirstWorld, "the release did not verify: the problem goes back to the first world");
             }
         }
         return (Route.SendBackInPlace, "a check of the code failed: the mission is sent back");
