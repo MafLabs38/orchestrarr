@@ -7,6 +7,8 @@ namespace Orchestrarr.Core.Missions;
 /// </summary>
 public sealed partial class ProblemConductor
 {
+    private const string ExecutedFilesReason = "the change touches files that the pipeline executes, and the merge may deploy: a person decides";
+
     private enum Route
     {
         /// <summary>The mission goes back to its worker where it is (the number of send-backs is bounded).</summary>
@@ -29,7 +31,7 @@ public sealed partial class ProblemConductor
     {
         if (failures.Contains(PreconditionFailure.ExecutedFilesTouchedWhereMergeDeploys))
         {
-            return (Route.Escalate, "the change touches files that the pipeline executes, and the merge may deploy: a person decides");
+            return (Route.Escalate, ExecutedFilesReason);
         }
         if (failures.Contains(PreconditionFailure.KillSwitchEngaged))
         {
@@ -45,7 +47,9 @@ public sealed partial class ProblemConductor
             {
                 return (Route.Escalate, "the artifact that runs is not the one proved in staging: a person decides");
             }
-            if (!failures.Contains(PreconditionFailure.CiResultNotKnown) && (controllerJudgedFailed || (failures.Count > 0 && failures.All(failure => failure is PreconditionFailure.CiNotGreenOnExactCommit))))
+            // Only a pipeline that failed is repaired by a restart: the controller's judgement cannot send back to the first world a failure that a restart does not change (the budget, a claim that does not match
+            // the facts, the diff, a way back that is not known): those keep the answer the facts give
+            if (!failures.Contains(PreconditionFailure.CiResultNotKnown) && failures.All(failure => failure is PreconditionFailure.CiNotGreenOnExactCommit) && (controllerJudgedFailed || failures.Count > 0))
             {
                 return (Route.BackToFirstWorld, "the release did not verify: the problem goes back to the first world");
             }

@@ -72,7 +72,8 @@ public sealed partial class ProblemConductor
                 await BestEffortAsync(MissionAuditEvents.ActRefused, mission.Id, Text($"{act} on {commit ?? "an unknown commit"}: {string.Join(", ", failures)}"));
                 if (failures.Contains(PreconditionFailure.ExecutedFilesTouchedWhereMergeDeploys))
                 {
-                    _ = await EscalateAsync(run, mission, "the change touches files that the pipeline executes, and the merge may deploy: a person decides", MissionEvent.Stopped);
+                    // The act is refused at the gateway, not decided by the controller: the mission ends as stopped (the same reason, the same person decides)
+                    _ = await EscalateAsync(run, mission, ExecutedFilesReason, MissionEvent.Stopped);
                 }
                 return ActAuthorisation.Refused("a check of the code failed", failures);
             }

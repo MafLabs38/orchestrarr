@@ -894,6 +894,21 @@ public sealed class ProblemConductorTests : IDisposable
     }
 
     [Fact]
+    public async Task A_send_back_of_the_controller_does_not_restart_a_failure_that_a_restart_does_not_change()
+    {
+        var conductor = Conductor();
+        var release = (await Through(conductor, await Through(conductor, await StartStaged(conductor)))).Mission!;
+        await conductor.StartedAsync(release.Id, Ct);
+        await conductor.HandOverAsync(release.Id, DossierFor(release.Id), Ct);
+        _facts.ClaimMatches = false;
+
+        var result = await conductor.DecideAsync(release.Id, new ControllerDecision(ControllerDecisionKind.SendBack, ["the release does not verify"], "fix the claim"), Ct);
+
+        result.Mission!.World.Should().Be(World.Release, "a claim that does not match the facts is not repaired by a restart");
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.InProgress);
+    }
+
+    [Fact]
     public async Task A_release_that_failed_under_a_standing_rule_is_escalated_because_nobody_approved_that_problem()
     {
         _authority.Kind = CertificateKind.Rule;
