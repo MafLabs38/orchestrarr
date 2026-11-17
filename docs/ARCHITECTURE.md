@@ -288,7 +288,7 @@ It reuses what exists: the approvals, the second factor on the maintainer's vali
 |---|---|
 | The plan covers the problem | Whether the objective is met |
 | The budget is available, the kill switch is not engaged | Whether the evidence supports the claim |
-| The staging requirement is met (the baseline is proven and not stale, or the requirement is a blank machine, where the first step of the mission is the baseline, or the application is declared by the maintainer as having no staging: CASE-17) | Whether the change is what the mission asked for, with nothing unexpected |
+| The staging requirement is met (the baseline is proven and not stale, or it is stale only because this problem's own release moved it, or the requirement is a blank machine, where the first step of the mission is the baseline, or the application is declared by the maintainer as having no staging: CASE-17) | Whether the change is what the mission asked for, with nothing unexpected |
 | The previous dossier exists | Whether the case is as complex as it says, and whether the maintainer should be involved |
 | The diff touches no forbidden file | Whether to send back, end or escalate |
 | CI is green on the exact commit (release) | |
@@ -353,7 +353,7 @@ sequenceDiagram
     participant RS as Staging runner
     participant CP as Control plane
     PL->>SCH: problem ready, application has a staging
-    SCH->>SCH: state is "baseline proven" and not stale?
+    SCH->>SCH: state is "baseline proven" and not stale (or stale only by this problem's own release)?
     alt not proven
         SCH->>PC: reserve a slot, restore snapshot
         SCH->>RS: baseline mission (unchanged code)
