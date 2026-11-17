@@ -28,6 +28,7 @@ public sealed partial class ProblemConductor
             PlanCovers: true,
             BudgetAvailable: observed.BudgetAvailable,
             KillSwitchEngaged: stop.Engaged,
+            // The verdict of the staging is the one that Start decided on the state it was given; reading the state again at each crossing needs the source of the staging runner, which is not built (FR-STG-4, R-58-183)
             Staging: run.UsesStaging ? StagingVerdict.Usable : StagingVerdict.UsableWithNoNet,
             PreviousDossierExists: previousDossierExists,
             DiffIsClean: diffClean,

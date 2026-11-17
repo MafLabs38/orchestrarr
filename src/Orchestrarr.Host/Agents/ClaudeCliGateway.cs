@@ -122,6 +122,13 @@ public sealed class ClaudeCliGateway(AgentsOptions options) : IAgentGateway
             await Observe(output, errors);
             return new AgentReply(false, string.Empty, cancellationToken.IsCancellationRequested ? "stopped" : "the agent did not answer in time");
         }
+        catch (Exception failure) when (failure is IOException or ObjectDisposedException or InvalidOperationException)
+        {
+            // Whatever breaks while the program runs, the program is stopped (a handle that is disposed does not kill it) and the answer is one reply, with no text of the failure
+            await Stop(process);
+            await Observe(output, errors);
+            return new AgentReply(false, string.Empty, "the agent program failed while it ran");
+        }
     }
 
     // The readers are cancelled with the limit: they are waited for, so that none faults unobserved once the process and the limit are disposed

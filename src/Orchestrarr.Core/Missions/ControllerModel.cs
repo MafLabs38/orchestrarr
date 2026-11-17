@@ -1,6 +1,6 @@
 namespace Orchestrarr.Core.Missions;
 
-/// <summary>What a mission hands over (FR-MIS-1): the claim, what changed and why, the evidence by digest, and the complexity mark with its reason. The controller reads it as **untrusted data**. **The commit is the one that the world before produced and that the next world acts on**, and the source reads the same one from the forge: for a merge that deploys, the head of the pull request's branch that the controller read (a deployment of what is already merged would name the commit that the merge produced on the base branch, and that case is not built); a dossier names one commit, so a mission acts on one repository until the maintainer decides otherwise (R-58-163).</summary>
+/// <summary>What a mission hands over (FR-MIS-1): the claim, what changed and why, the evidence by digest, and the complexity mark with its reason. The controller reads it as **untrusted data**. **The commit is the one that the world before produced and that the next world acts on**, and the source reads the same one from the forge: for a merge that deploys, the head of the pull request's branch that the controller read (a deployment of what is already merged would name the commit that the merge produced on the base branch, and that case is not built); a dossier names one commit, so a deployment on a second repository of the same problem is refused today; whether a mission has one repository or several is R-58-163, for the maintainer.</summary>
 public sealed record Dossier(
     string MissionId,
     string Claim,
