@@ -115,8 +115,8 @@ internal sealed class ConfiguredRunners(MissionsOptions options) : IRunnerDirect
 /// </summary>
 internal sealed class ConservativeFacts : IFactsSource
 {
-    public ObservedFacts Facts(FactsQuery query) => new(
-        BudgetAvailable: false, DiffIsClean: null, CiGreenOnExactCommit: null, ArtifactIsTheOneProvedInStaging: null, WayBackKnown: null, WorkerClaimMatchesFacts: false);
+    public ValueTask<ObservedFacts> FactsAsync(FactsQuery query, CancellationToken cancellationToken) => ValueTask.FromResult(new ObservedFacts(
+        BudgetAvailable: false, DiffIsClean: null, CiGreenOnExactCommit: null, ArtifactIsTheOneProvedInStaging: null, WayBackKnown: null, WorkerClaimMatchesFacts: false));
 }
 
 /// <summary>The list of the certificates that the authority withdrew cannot be read yet (the authority is not deployed): **every certificate counts as withdrawn**, the same direction as a stop that cannot be read.</summary>
@@ -169,9 +169,8 @@ internal sealed class KillSwitchSignal(IKillSwitchControl killSwitch) : IStopSig
 /// <summary>Writes the events of the missions to the audit trail, in order, with the others (ADR 0013).</summary>
 internal sealed class AuditTrailMissions(IAuditSink sink, TimeProvider time) : IMissionAudit
 {
-    // The sinks of the trail are synchronous behind this signature (ADR 0013): the wait is the file's, no longer than its busy timeout
-    public bool Record(string eventName, string subject, string? detail) =>
-        sink.TryRecordAsync(new AuditEntry(time.GetUtcNow(), eventName, subject.Length > 120 ? subject[..120] : subject, null, detail is { Length: > 400 } ? detail[..400] : detail), CancellationToken.None).AsTask().GetAwaiter().GetResult();
+    public ValueTask<bool> RecordAsync(string eventName, string subject, string? detail, CancellationToken cancellationToken) =>
+        sink.TryRecordAsync(new AuditEntry(time.GetUtcNow(), eventName, subject.Length > 120 ? subject[..120] : subject, null, detail is { Length: > 400 } ? detail[..400] : detail), cancellationToken);
 }
 
 /// <summary>Says once, at start, which sources of the missions are not wired yet, so that "no mandate is ever issued" is not mistaken for a bug: every act is refused until they exist (ADR 0031 point 7).</summary>
@@ -211,7 +210,7 @@ internal sealed class MissionSweeper(ProblemConductor conductor, ILogger<Mission
             {
                 try
                 {
-                    conductor.Sweep();
+                    _ = await conductor.SweepAsync(stoppingToken);
                 }
                 catch (Exception failure) when (failure is not OperationCanceledException)
                 {

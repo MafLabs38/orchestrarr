@@ -40,19 +40,19 @@ internal sealed class DemoRun(MissionStores stores, ProblemLocks locks, IRunnerD
         var entry = new PlanEntry(problemId, name, "deprecated-dependency", "Replace the call to the removed method", [$"example/{name}"], World.Release, new MissionBudget(20, 3, 50), new Validation("demo", null), time.GetUtcNow());
         // The approval is made before the conductor asks for it: the conductor reads it under its lock and never waits for the authority there
         await approvals.PrepareAsync(entry, cancellationToken);
-        var started = conductor.Start(entry, staging ? StagingDeclaration.DeclaredStaging : StagingDeclaration.DeclaredNoStaging, StagingRequirement.BlankMachine, StagingState.NotDefined);
+        var started = await conductor.StartAsync(entry, staging ? StagingDeclaration.DeclaredStaging : StagingDeclaration.DeclaredNoStaging, StagingRequirement.BlankMachine, StagingState.NotDefined, cancellationToken);
         var current = started.Ok ? started.Mission : null;
         // The loop of the demo ends by the limit of the loop of a problem (the conductor refuses the mandate that goes past it); the count here only guarantees that the demo ends
         for (var round = 0; current is not null && round <= options.MaxMandatesPerProblem + 2; round++)
         {
-            conductor.Started(current.Id);
+            _ = await conductor.StartedAsync(current.Id, cancellationToken);
             // In the red scenario the pipelines are red only after the release, so that every return to the first world goes through the worlds again
             facts.Ci = !(scenario == DemoScenario.Red && current.World == World.Release);
-            conductor.HandOver(current.Id, new Dossier(current.Id, "done", $"worked in the {current.World} world", ["sha256:demo"], [], current.World == World.Staging, current.World == World.Staging ? "a refactor" : null, Commit: "demo-commit"));
+            _ = await conductor.HandOverAsync(current.Id, new Dossier(current.Id, "done", $"worked in the {current.World} world", ["sha256:demo"], [], current.World == World.Staging, current.World == World.Staging ? "a refactor" : null, Commit: "demo-commit"), cancellationToken);
             var decision = scenario == DemoScenario.Escalate && current.World == World.Git
                 ? new ControllerDecision(ControllerDecisionKind.Escalate, ["no fixed version exists"], null)
                 : new ControllerDecision(ControllerDecisionKind.Grant, ["the evidence supports the claim"], null);
-            var result = conductor.Decide(current.Id, decision);
+            var result = await conductor.DecideAsync(current.Id, decision, cancellationToken);
             current = result.Mandate is not null ? result.Mission : null;
         }
         if (!started.Ok)
@@ -120,6 +120,6 @@ internal sealed class DemoRun(MissionStores stores, ProblemLocks locks, IRunnerD
     {
         public bool Ci { get; set; } = true;
 
-        public ObservedFacts Facts(FactsQuery query) => new(BudgetAvailable: true, DiffIsClean: true, CiGreenOnExactCommit: Ci, ArtifactIsTheOneProvedInStaging: true, WayBackKnown: true, WorkerClaimMatchesFacts: true, MergeMayDeploy: false, ExecutedFilesTouched: false, TagCreationBlocked: true, BranchCannotReachWriteCredentials: true, HeadCommit: query.Commit, IdentityConfinedToItsBranches: true, ChangedPaths: ["src/Orders.cs", "tests/OrdersTests.cs"]);
+        public ValueTask<ObservedFacts> FactsAsync(FactsQuery query, CancellationToken cancellationToken) => ValueTask.FromResult(new ObservedFacts(BudgetAvailable: true, DiffIsClean: true, CiGreenOnExactCommit: Ci, ArtifactIsTheOneProvedInStaging: true, WayBackKnown: true, WorkerClaimMatchesFacts: true, MergeMayDeploy: false, ExecutedFilesTouched: false, TagCreationBlocked: true, BranchCannotReachWriteCredentials: true, HeadCommit: query.Commit, IdentityConfinedToItsBranches: true, ChangedPaths: ["src/Orders.cs", "tests/OrdersTests.cs"]));
     }
 }

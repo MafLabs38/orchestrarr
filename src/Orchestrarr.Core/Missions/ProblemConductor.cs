@@ -75,10 +75,10 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
         && entry.Budget.MaxMinutes <= approval.Certificate.Budget.MaxMinutes && entry.Budget.MaxAttempts <= approval.Certificate.Budget.MaxAttempts && entry.Budget.MaxTurns <= approval.Certificate.Budget.MaxTurns;
 
     /// <summary>Starts a problem that is in the plan: the stop, the proved approval, the staging gate, the powers, then the first mandate in the first world.</summary>
-    public ConductResult Start(PlanEntry entry, StagingDeclaration declaration, StagingRequirement requirement, StagingState state)
+    public async Task<ConductResult> StartAsync(PlanEntry entry, StagingDeclaration declaration, StagingRequirement requirement, StagingState state, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(entry);
-        return Locked(entry.ProblemId, () =>
+        return await LockedAsync(entry.ProblemId, async () =>
         {
             if (stop.Engaged)
             {
@@ -120,7 +120,7 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
             {
                 return ConductResult.Fail("the powers given do not reach the first world: the grant is off until the maintainer enables it");
             }
-            if (!Required(MissionAuditEvents.ProblemStarted, entry.ProblemId, Text($"application {entry.ApplicationId}, validated by {entry.Validation.By}, up to {highest}, staging {(usesStaging ? "used" : "declared none")}")))
+            if (!await RequiredAsync(MissionAuditEvents.ProblemStarted, entry.ProblemId, Text($"application {entry.ApplicationId}, validated by {entry.Validation.By}, up to {highest}, staging {(usesStaging ? "used" : "declared none")}"), cancellationToken))
             {
                 return ConductResult.Fail("the audit trail cannot be written: no power is granted");
             }
@@ -129,28 +129,28 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
             if (first == World.Git)
             {
                 // An application with no staging starts in the Git world: the frame of the merge is checked here too, since no crossing will do it (the diff, the CI and the executed files are checked at the merge itself)
-                var frame = GitFrameFailures(run);
+                var frame = await GitFrameFailuresAsync(run, cancellationToken);
                 if (frame.Count > 0)
                 {
                     return ConductResult.Fail("the merge could deploy beyond the approval, or the agent could create tags or reach a write credential", frame);
                 }
             }
-            return Open(run, first, byRule ? MandateSource.StandingRule : MandateSource.PlanValidation);
-        });
+            return await OpenAsync(run, first, byRule ? MandateSource.StandingRule : MandateSource.PlanValidation, cancellationToken);
+        }, cancellationToken);
     }
 
     /// <summary>The runner accepted the mandate and the worker started.</summary>
-    public ConductResult Started(string missionId) => OnMission(missionId, mission => Move(mission, MissionEvent.Started));
+    public async Task<ConductResult> StartedAsync(string missionId, CancellationToken cancellationToken) => await OnMissionAsync(missionId, mission => Task.FromResult(Move(mission, MissionEvent.Started)), cancellationToken);
 
     /// <summary>The worker claims it is done: the dossier is kept as an untrusted claim and the mission waits for the controller.</summary>
-    public ConductResult HandOver(string missionId, Dossier dossier)
+    public async Task<ConductResult> HandOverAsync(string missionId, Dossier dossier, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(dossier);
         if (!string.Equals(dossier.MissionId, missionId, StringComparison.Ordinal))
         {
             return ConductResult.Fail("the dossier is for another mission");
         }
-        return OnMission(missionId, mission =>
+        return await OnMissionAsync(missionId, async mission =>
         {
             // The dossier is kept first: a mission never waits for a decision with no dossier
             if (!MissionMachine.Apply(mission, MissionEvent.HandedOver, options.Loop).Allowed)
@@ -161,17 +161,17 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
             var result = Move(mission, MissionEvent.HandedOver);
             if (result.Ok)
             {
-                BestEffort(MissionAuditEvents.MissionHandedOver, missionId, Text($"complex: {dossier.Complex}"));
+                await BestEffortAsync(MissionAuditEvents.MissionHandedOver, missionId, Text($"complex: {dossier.Complex}"));
             }
             return result;
-        });
+        }, cancellationToken);
     }
 
     /// <summary>Applies the controller's decision on a mission that handed over.</summary>
-    public ConductResult Decide(string missionId, ControllerDecision decision)
+    public async Task<ConductResult> DecideAsync(string missionId, ControllerDecision decision, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(decision);
-        return OnMission(missionId, mission =>
+        return await OnMissionAsync(missionId, async mission =>
         {
             if (mission.State != MissionState.HandingOver)
             {
@@ -185,99 +185,101 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
             {
                 return ConductResult.Fail("the problem of this mission is unknown");
             }
-            var decided = Required(MissionAuditEvents.ControllerDecided, missionId, Text($"{decision.Kind}: {string.Join(" | ", decision.Reasons)}"));
+            var decided = await RequiredAsync(MissionAuditEvents.ControllerDecided, missionId, Text($"{decision.Kind}: {string.Join(" | ", decision.Reasons)}"), cancellationToken);
             if (!decided && decision.Kind == ControllerDecisionKind.Grant)
             {
                 return ConductResult.Fail("the audit trail cannot be written: no power is granted");
             }
             return decision.Kind switch
             {
-                ControllerDecisionKind.Grant => Grant(run, mission, decision),
-                ControllerDecisionKind.SendBack => SendBack(mission, run),
-                ControllerDecisionKind.End => End(run, mission, MissionEvent.EndedByController, decision.Reasons[0]),
-                _ => Escalate(run, mission, decision.Reasons[0]),
+                ControllerDecisionKind.Grant => await GrantAsync(run, mission, decision, cancellationToken),
+                ControllerDecisionKind.SendBack => await SendBackAsync(mission, run),
+                ControllerDecisionKind.End => await EndAsync(run, mission, MissionEvent.EndedByController, decision.Reasons[0]),
+                _ => await EscalateAsync(run, mission, decision.Reasons[0]),
             };
-        });
+        }, cancellationToken);
     }
 
-    private ConductResult Grant(ProblemRun run, Mission mission, ControllerDecision decision)
+    private async Task<ConductResult> GrantAsync(ProblemRun run, Mission mission, ControllerDecision decision, CancellationToken cancellationToken)
     {
         var dossier = dossiers.Get(mission.Id);
         var complex = dossier?.Complex ?? false;
         if (mission.World == World.Release)
         {
             // The last world: the controller closes the problem on facts (FR-CTL-9), after the same checks
-            var closing = ClosingChecks(run, mission, dossier);
-            return closing.Count > 0 ? ReleaseDidNotVerify(mission, run, closing) : Close(run, mission, complex, null, "release verified", null);
+            var closing = await ClosingChecksAsync(run, mission, dossier, cancellationToken);
+            return closing.Count > 0 ? await ReleaseDidNotVerifyAsync(mission, run, closing, cancellationToken) : await CloseAsync(run, mission, complex, null, "release verified", null);
         }
         // The power is read again here, at every crossing: a grant withdrawn since the start stops the problem (the grant of an application is the maintainer's to give and to take back)
         if (HighestNow(run.Entry, run.Approval) is not { } highest)
         {
-            return End(run, mission, MissionEvent.EndedByController, "the grant of the application was withdrawn");
+            return await EndAsync(run, mission, MissionEvent.EndedByController, "the grant of the application was withdrawn");
         }
         var next = mission.World + 1;
         if (next > highest)
         {
             // The powers given stop here: the problem is done up to the world its powers allow, and says so (a plan validated up to the Git world ends there)
-            var checks = ClosingChecks(run, mission, dossier);
+            var checks = await ClosingChecksAsync(run, mission, dossier, cancellationToken);
             return checks.Count > 0
-                ? SendBackWithFailures(mission, run, checks)
-                : Close(run, mission, complex, $"done up to the {highest} world, the highest that its powers allow", Text($"highest world reached: {highest}"), "done up to the highest world its powers allow");
+                ? await SendBackWithFailuresAsync(mission, run, checks)
+                : await CloseAsync(run, mission, complex, $"done up to the {highest} world, the highest that its powers allow", Text($"highest world reached: {highest}"), "done up to the highest world its powers allow");
         }
-        var failures = CheckFacts(run, next, mission.Frame, mission.Id, previousDossierExists: dossier is not null, dossier, commit: dossier?.Commit, issuing: true);
+        var failures = await CheckFactsAsync(run, next, mission.Frame, mission.Id, previousDossierExists: dossier is not null, dossier, commit: dossier?.Commit, issuing: true, cancellationToken);
         if (!ControllerLimits.MayGrant(decision, next, highest, failures))
         {
-            return failures.Count > 0 ? SendBackWithFailures(mission, run, failures) : ConductResult.Fail("the controller may not grant a world that the plan does not allow");
+            return failures.Count > 0 ? await SendBackWithFailuresAsync(mission, run, failures) : ConductResult.Fail("the controller may not grant a world that the plan does not allow");
         }
         var accepted = MissionMachine.Apply(mission, MissionEvent.Granted, options.Loop, complex: complex).Mission ?? mission;
         missions.Save(accepted);
         // The mandate of an accepted mission is withdrawn at once: the power never outlives the work
-        Revoke(mission);
-        BestEffort(MissionAuditEvents.MissionAccepted, mission.Id, Text($"next world {next}"));
-        return Open(run with { CurrentWorld = next }, next, MandateSource.Controller);
+        await RevokeAsync(mission);
+        await BestEffortAsync(MissionAuditEvents.MissionAccepted, mission.Id, Text($"next world {next}"));
+        return await OpenAsync(run with { CurrentWorld = next }, next, MandateSource.Controller, cancellationToken);
     }
 
     // The mission is accepted and the problem is closed: the mandate is revoked, the problem says how far it went
-    private ConductResult Close(ProblemRun run, Mission mission, bool complex, string? problemNote, string acceptedDetail, string? closedDetail)
+    private async Task<ConductResult> CloseAsync(ProblemRun run, Mission mission, bool complex, string? problemNote, string acceptedDetail, string? closedDetail)
     {
         var closed = MissionMachine.Apply(mission, MissionEvent.Granted, options.Loop, complex: complex).Mission ?? mission;
-        Settle(mission, closed, run with { State = ProblemState.Closed, CurrentWorld = null, Note = problemNote },
+        await SettleAsync(mission, closed, run with { State = ProblemState.Closed, CurrentWorld = null, Note = problemNote },
             new AuditLine(MissionAuditEvents.MissionAccepted, mission.Id, acceptedDetail), new AuditLine(MissionAuditEvents.ProblemClosed, run.ProblemId, closedDetail));
         return ConductResult.Success(closed);
     }
 
     // The frame of the merge in the Git world, read now: the merge that may deploy, the tags, a write credential, the identity of the agent. Where no crossing makes these checks (an application with no staging
     // starts in the Git world, and a problem that goes back to it is in the same case), the conductor makes them before it issues the mandate
-    private List<PreconditionFailure> GitFrameFailures(ProblemRun run) =>
-        CheckFacts(run, World.Git, FrameFor(run, "start"), missionId: null, previousDossierExists: true, dossier: null, commit: null, issuing: false)
-            .Where(failure => failure is PreconditionFailure.MergeMayDeployUnderGitMandate or PreconditionFailure.AgentCouldCreateTags or PreconditionFailure.AgentBranchCouldReachWriteCredentials or PreconditionFailure.AgentIdentityNotConfined).ToList();
+    private async Task<List<PreconditionFailure>> GitFrameFailuresAsync(ProblemRun run, CancellationToken cancellationToken)
+    {
+        var failures = await CheckFactsAsync(run, World.Git, FrameFor(run, "start"), missionId: null, previousDossierExists: true, dossier: null, commit: null, issuing: false, cancellationToken: cancellationToken);
+        return [.. failures.Where(failure => failure is PreconditionFailure.MergeMayDeployUnderGitMandate or PreconditionFailure.AgentCouldCreateTags or PreconditionFailure.AgentBranchCouldReachWriteCredentials or PreconditionFailure.AgentIdentityNotConfined)];
+    }
 
     // A release that does not verify is a failed push (D-93, ADR 0040): the mission ends, the problem stays in progress and the loop starts again in the first world (a new staging, then the Git world, then the
     // release), under the same approval, with the same budgets and without another validation. What cannot be repaired by going back (the stop, the limit of the loop, a change to what the pipeline executes)
     // keeps the answer it always had.
-    private ConductResult ReleaseDidNotVerify(Mission mission, ProblemRun run, IReadOnlyList<PreconditionFailure> failures)
+    private async Task<ConductResult> ReleaseDidNotVerifyAsync(Mission mission, ProblemRun run, IReadOnlyList<PreconditionFailure> failures, CancellationToken cancellationToken)
     {
         // Only a pipeline that failed sends the problem back (restarting repairs it), and a result that is not known yet does not (the worker may wait and hand over again, the mission is sent back where it is).
         // The other failures (the budget, the claim that does not match the facts, the diff, the frame, the stop, the loop, the executed files) keep the answer they always had, because restarting would not change
         // them. **A release that is not the artifact proved in staging is not a failure that code repairs** (a pipeline or a supply-chain anomaly): it is escalated to the maintainer at once (D-90).
         if (failures.Contains(PreconditionFailure.ArtifactNotProvedInStaging))
         {
-            var escalated = Escalate(run, mission, "the artifact that runs is not the one proved in staging: a person decides");
+            var escalated = await EscalateAsync(run, mission, "the artifact that runs is not the one proved in staging: a person decides");
             return escalated.Ok ? new ConductResult(false, "escalated to the maintainer", failures, escalated.Mission, null) : escalated;
         }
         if (failures.Contains(PreconditionFailure.CiResultNotKnown) || !failures.All(failure => failure is PreconditionFailure.CiNotGreenOnExactCommit))
         {
-            return SendBackWithFailures(mission, run, failures);
+            return await SendBackWithFailuresAsync(mission, run, failures);
         }
         // The power is read again here, as at every crossing: a grant or a certificate withdrawn while the release ran stops the problem, and the first world must be within what the powers allow
         var first = run.UsesStaging ? World.Staging : World.Git;
         if (HighestNow(run.Entry, run.Approval) is not { } highest || first > highest)
         {
-            return End(run, mission, MissionEvent.EndedByController, "the powers of the problem no longer reach the first world, or the grant was withdrawn");
+            return await EndAsync(run, mission, MissionEvent.EndedByController, "the powers of the problem no longer reach the first world, or the grant was withdrawn");
         }
-        if (first == World.Git && GitFrameFailures(run) is { Count: > 0 } frame)
+        if (first == World.Git && await GitFrameFailuresAsync(run, cancellationToken) is { Count: > 0 } frame)
         {
-            var refused = End(run, mission, MissionEvent.EndedByController, "the merge could deploy beyond the approval, or the agent could create tags or reach a write credential");
+            var refused = await EndAsync(run, mission, MissionEvent.EndedByController, "the merge could deploy beyond the approval, or the agent could create tags or reach a write credential");
             return refused.Ok ? new ConductResult(false, "the frame of the Git world no longer holds: the work stops", frame, refused.Mission, null) : refused;
         }
         var transition = MissionMachine.Apply(mission, MissionEvent.EndedByController, options.Loop, reason: "the release did not verify: the problem goes back to the first world");
@@ -286,33 +288,33 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
             return ConductResult.Fail(transition.Refusal ?? "refused");
         }
         missions.Save(ended);
-        Revoke(mission);
-        BestEffort(MissionAuditEvents.MissionEnded, mission.Id, Text($"the release did not verify ({string.Join(", ", failures)}): back to the first world"));
-        var opened = Open(run with { CurrentWorld = first }, first, MandateSource.Controller);
+        await RevokeAsync(mission);
+        await BestEffortAsync(MissionAuditEvents.MissionEnded, mission.Id, Text($"the release did not verify ({string.Join(", ", failures)}): back to the first world"));
+        var opened = await OpenAsync(run with { CurrentWorld = first }, first, MandateSource.Controller, cancellationToken);
         // Like every answer where a check failed and the mission moved: not Ok, the new mission and its mandate, the failures that sent the problem back
         return opened.Ok ? new ConductResult(false, "the release did not verify: the problem goes back to the first world", failures, opened.Mission, opened.Mandate) : opened;
     }
 
-    private ConductResult SendBackWithFailures(Mission mission, ProblemRun run, IReadOnlyList<PreconditionFailure> failures)
+    private async Task<ConductResult> SendBackWithFailuresAsync(Mission mission, ProblemRun run, IReadOnlyList<PreconditionFailure> failures)
     {
         // A change that touches what the pipeline executes where a merge may deploy is for a person to decide: it is escalated, not sent back
         if (failures.Contains(PreconditionFailure.ExecutedFilesTouchedWhereMergeDeploys))
         {
-            var escalated = Escalate(run, mission, "the change touches files that the pipeline executes, and the merge may deploy: a person decides");
+            var escalated = await EscalateAsync(run, mission, "the change touches files that the pipeline executes, and the merge may deploy: a person decides");
             return escalated.Ok ? new ConductResult(false, "escalated to the maintainer", failures, escalated.Mission, null) : escalated;
         }
         // A limit of the loop or the global stop cannot be repaired by sending the mission back: the work stops
         if (failures.Contains(PreconditionFailure.LoopLimitReached) || failures.Contains(PreconditionFailure.KillSwitchEngaged))
         {
             var why = failures.Contains(PreconditionFailure.KillSwitchEngaged) ? "the global stop is engaged" : "the loop reached its limit";
-            var ended = End(run, mission, MissionEvent.EndedByController, why);
+            var ended = await EndAsync(run, mission, MissionEvent.EndedByController, why);
             return ended.Ok ? new ConductResult(false, $"{why}: the work stops", failures, ended.Mission, null) : ended;
         }
-        var sent = SendBack(mission, run);
+        var sent = await SendBackAsync(mission, run);
         return sent.Ok ? new ConductResult(false, "a check of the code failed: the mission is sent back", failures, sent.Mission, null) : sent;
     }
 
-    private ConductResult SendBack(Mission mission, ProblemRun run)
+    private async Task<ConductResult> SendBackAsync(Mission mission, ProblemRun run)
     {
         var transition = MissionMachine.Apply(mission, MissionEvent.SentBack, options.Loop);
         if (transition.Mission is not { } sent)
@@ -322,37 +324,37 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
         var sentBack = new AuditLine(MissionAuditEvents.MissionSentBack, mission.Id, Text($"send-back {sent.SendBacks}"));
         if (sent.State == MissionState.Ended)
         {
-            Settle(mission, sent, run with { State = ProblemState.Failed, Note = sent.EndReason }, sentBack, new AuditLine(MissionAuditEvents.ProblemFailed, run.ProblemId, sent.EndReason));
+            await SettleAsync(mission, sent, run with { State = ProblemState.Failed, Note = sent.EndReason }, sentBack, new AuditLine(MissionAuditEvents.ProblemFailed, run.ProblemId, sent.EndReason));
         }
         else
         {
             missions.Save(sent);
-            BestEffort(sentBack);
+            await BestEffortAsync(sentBack);
         }
         return ConductResult.Success(sent);
     }
 
     // The controller escalated: a decision for the maintainer. The mission ends, its mandate is revoked, and the problem waits as Escalated, told, never as a failure.
-    private ConductResult Escalate(ProblemRun run, Mission mission, string reason, MissionEvent ending = MissionEvent.EndedByController)
+    private async Task<ConductResult> EscalateAsync(ProblemRun run, Mission mission, string reason, MissionEvent ending = MissionEvent.EndedByController)
     {
         var transition = MissionMachine.Apply(mission, ending, options.Loop, reason: $"escalated to the maintainer: {reason}");
         if (transition.Mission is not { } ended)
         {
             return ConductResult.Fail(transition.Refusal ?? "refused");
         }
-        Settle(mission, ended, run with { State = ProblemState.Escalated, Note = reason },
+        await SettleAsync(mission, ended, run with { State = ProblemState.Escalated, Note = reason },
             new AuditLine(MissionAuditEvents.MissionEnded, mission.Id, Text($"escalated: {reason}")), new AuditLine(MissionAuditEvents.ProblemEscalated, run.ProblemId, reason));
         return ConductResult.Success(ended);
     }
 
-    private ConductResult End(ProblemRun run, Mission mission, MissionEvent ending, string reason)
+    private async Task<ConductResult> EndAsync(ProblemRun run, Mission mission, MissionEvent ending, string reason)
     {
         var transition = MissionMachine.Apply(mission, ending, options.Loop, reason: reason);
         if (transition.Mission is not { } ended)
         {
             return ConductResult.Fail(transition.Refusal ?? "refused");
         }
-        Settle(mission, ended, run with { State = ProblemState.Failed, Note = reason },
+        await SettleAsync(mission, ended, run with { State = ProblemState.Failed, Note = reason },
             new AuditLine(MissionAuditEvents.MissionEnded, mission.Id, Text($"{ended.End}: {reason}")), new AuditLine(MissionAuditEvents.ProblemFailed, run.ProblemId, reason));
         return ConductResult.Success(ended);
     }
@@ -370,23 +372,23 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
 
     // The end of a mission and the new state of its problem, written once and always in this order: the mission, then the revoke of its mandate, then the problem (a mandate is never left in
     // force under a problem that says it is over), then the trail
-    private void Settle(Mission before, Mission after, ProblemRun problem, params AuditLine[] trail)
+    private async Task SettleAsync(Mission before, Mission after, ProblemRun problem, params AuditLine[] trail)
     {
         missions.Save(after);
-        Revoke(before);
+        await RevokeAsync(before);
         problems.Save(problem);
         foreach (var line in trail)
         {
-            BestEffort(line);
+            await BestEffortAsync(line);
         }
     }
 
-    private void Revoke(Mission mission)
+    private async Task RevokeAsync(Mission mission)
     {
         if (mission.MandateId is { } id && !mandates.IsRevoked(id))
         {
             mandates.Revoke(id);
-            BestEffort(MissionAuditEvents.MandateRevoked, id, Text($"mission {mission.Id}"));
+            await BestEffortAsync(MissionAuditEvents.MandateRevoked, id, Text($"mission {mission.Id}"));
         }
     }
 
@@ -395,21 +397,21 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
         new(run.Entry.Repositories, [.. options.ForbiddenPaths.Union(run.Approval.Certificate.ForbiddenPaths, StringComparer.Ordinal)], place);
 
     // A new mission in a world, and the mandate for it: signed, recorded, counted, audited. The stop and the loop are checked here too, not only at a grant.
-    private ConductResult Open(ProblemRun run, World world, MandateSource source)
+    private async Task<ConductResult> OpenAsync(ProblemRun run, World world, MandateSource source, CancellationToken cancellationToken)
     {
         if (stop.Engaged)
         {
-            return Failed(run, "the global stop is engaged", [PreconditionFailure.KillSwitchEngaged]);
+            return await FailedAsync(run, "the global stop is engaged", [PreconditionFailure.KillSwitchEngaged]);
         }
         var entry = run.Entry;
         var loop = options.Loop.Check(mandates.CountForRun(run.ProblemId, run.Approval.Certificate.Id), time.GetUtcNow() - run.StartedAt);
         if (loop != LoopVerdict.Allowed)
         {
-            return Failed(run, $"the loop reached its limit: {loop}", [PreconditionFailure.LoopLimitReached]);
+            return await FailedAsync(run, $"the loop reached its limit: {loop}", [PreconditionFailure.LoopLimitReached]);
         }
         if (mandates.CountForApproval(run.Approval.Certificate.Id) >= run.Approval.Certificate.MaxMandates)
         {
-            return Failed(run, "the certificate of the approval backs no more mandates", [PreconditionFailure.ApprovalBacksNoMoreMandates]);
+            return await FailedAsync(run, "the certificate of the approval backs no more mandates", [PreconditionFailure.ApprovalBacksNoMoreMandates]);
         }
         var frame = FrameFor(run, $"{world}:{entry.ApplicationId}");
         var mission = new Mission(newId(), run.ProblemId, run.ApplicationId, world, ObjectiveOf(world, entry), frame, entry.Budget, MissionState.Proposed);
@@ -420,12 +422,12 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
         var covered = approvalVerifier.Check(run.Approval, mandate);
         if (covered != ApprovalRefusal.None)
         {
-            return Failed(run, $"the mandate does not fall inside the approval: {covered}");
+            return await FailedAsync(run, $"the mandate does not fall inside the approval: {covered}");
         }
         // The mandate is written to the audit trail before it exists: a power is never granted on an entry that cannot be written
-        if (!Required(MissionAuditEvents.MandateIssued, mandate.Id, Text($"{world} for {mandate.RunnerId}, {source}, until {mandate.ExpiresAt:u}, acts {string.Join(",", mandate.Acts)}")))
+        if (!await RequiredAsync(MissionAuditEvents.MandateIssued, mandate.Id, Text($"{world} for {mandate.RunnerId}, {source}, until {mandate.ExpiresAt:u}, acts {string.Join(",", mandate.Acts)}"), cancellationToken))
         {
-            return Failed(run, "the audit trail cannot be written: no power is granted");
+            return await FailedAsync(run, "the audit trail cannot be written: no power is granted");
         }
         var signed = signer.Sign(mandate, run.Approval);
         mandates.Record(signed);
@@ -436,37 +438,44 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
     }
 
     // A mandate that cannot be issued ends the problem as failed, with the reason and an entry in the trail: nothing is left in progress with no mission and no way forward
-    private ConductResult Failed(ProblemRun run, string reason, IReadOnlyList<PreconditionFailure>? failures = null)
+    private async Task<ConductResult> FailedAsync(ProblemRun run, string reason, IReadOnlyList<PreconditionFailure>? failures = null)
     {
         problems.Save(run with { State = ProblemState.Failed, Note = reason });
-        BestEffort(MissionAuditEvents.ProblemFailed, run.ProblemId, reason);
+        await BestEffortAsync(MissionAuditEvents.ProblemFailed, run.ProblemId, reason);
         return ConductResult.Fail(reason, failures);
     }
 
     // Every operation on a problem runs alone: two calls that overlap cannot both pass the same check of the state and issue two mandates
-    private ConductResult OnMission(string missionId, Func<Mission, ConductResult> work)
+    private async Task<ConductResult> OnMissionAsync(string missionId, Func<Mission, Task<ConductResult>> work, CancellationToken cancellationToken)
     {
         if (missions.Get(missionId) is not { } first)
         {
             return ConductResult.Fail("unknown mission");
         }
-        return Locked(first.ProblemId, () => missions.Get(missionId) is { } mission ? work(mission) : ConductResult.Fail("unknown mission"));
+        return await LockedAsync(first.ProblemId, async () => missions.Get(missionId) is { } mission ? await work(mission) : ConductResult.Fail("unknown mission"), cancellationToken);
     }
 
-    private T Locked<T>(string problemId, Func<T> work)
+    // Every operation on a problem runs alone, and waits for its turn without holding a thread: the lock is one semaphore per problem
+    private async Task<T> LockedAsync<T>(string problemId, Func<Task<T>> work, CancellationToken cancellationToken)
     {
-        lock (locks.Of(problemId))
+        var gate = locks.Of(problemId);
+        await gate.WaitAsync(cancellationToken);
+        try
         {
-            return work();
+            return await work();
+        }
+        finally
+        {
+            _ = gate.Release();
         }
     }
 
     // Granting a power is written first and refused when it cannot be written; withdrawing a power never waits for the trail
-    private bool Required(string eventName, string subject, string? detail) => audit.Record(eventName, subject, detail);
+    private async Task<bool> RequiredAsync(string eventName, string subject, string? detail, CancellationToken cancellationToken) => await audit.RecordAsync(eventName, subject, detail, cancellationToken);
 
-    private void BestEffort(string eventName, string subject, string? detail) => _ = audit.Record(eventName, subject, detail);
+    private async Task BestEffortAsync(string eventName, string subject, string? detail) => _ = await audit.RecordAsync(eventName, subject, detail, CancellationToken.None);
 
-    private void BestEffort(AuditLine line) => BestEffort(line.Event, line.Subject, line.Detail);
+    private async Task BestEffortAsync(AuditLine line) => await BestEffortAsync(line.Event, line.Subject, line.Detail);
 
     // One line of the audit trail, kept to be written after the state is saved
     private readonly record struct AuditLine(string Event, string Subject, string? Detail);

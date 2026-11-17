@@ -37,7 +37,7 @@ public interface IStopSignal
 public interface IMissionAudit
 {
     /// <summary>False when the entry could not be written. A power is never granted on an entry that cannot be written; a power is always withdrawn, whatever the trail says.</summary>
-    bool Record(string eventName, string subject, string? detail);
+    ValueTask<bool> RecordAsync(string eventName, string subject, string? detail, CancellationToken cancellationToken);
 }
 
 public static class MissionAuditEvents

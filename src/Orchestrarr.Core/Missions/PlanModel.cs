@@ -90,12 +90,20 @@ public interface IProblemStore
     IReadOnlyList<ProblemRun> InProgress();
 }
 
-/// <summary>Where the locks of the problems live: one object per problem, shared by every conductor that works on the same stores (the sweep and the demo included).</summary>
-public sealed class ProblemLocks
+/// <summary>Where the locks of the problems live: one semaphore per problem, shared by every conductor that works on the same stores (the sweep and the demo included). An operation waits for its turn without holding a thread.</summary>
+public sealed class ProblemLocks : IDisposable
 {
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, object> _locks = new(StringComparer.Ordinal);
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim> _locks = new(StringComparer.Ordinal);
 
-    public object Of(string problemId) => _locks.GetOrAdd(problemId, _ => new object());
+    public SemaphoreSlim Of(string problemId) => _locks.GetOrAdd(problemId, _ => new SemaphoreSlim(1, 1));
+
+    public void Dispose()
+    {
+        foreach (var gate in _locks.Values)
+        {
+            gate.Dispose();
+        }
+    }
 }
 
 public interface IDossierStore
@@ -116,11 +124,11 @@ public sealed record ObservedFacts(
 /// <summary>
 /// The source of the facts. It says only what it observed: the plan, the stop, the loop and the staging are the conductor's own. **The commit it is given is the worker's claim, not the commit to look at**: the source reads
 /// the head of the mission's branch from the forge itself and says it in <c>HeadCommit</c>; a claim that differs, or a head it cannot read, fails the check.
-/// **It is called while the lock of the problem is held, so it must not block**: it answers from what it has fetched, with a time limit of its own, and never from a call that can hang (a slow forge must not hold the stop and the sweep).
+/// **It is called while the lock of the problem is held**: it is asynchronous and takes a token, and it answers within a time limit of its own, never from a call that can hang (a slow forge must not hold the stop and the sweep).
 /// </summary>
 public interface IFactsSource
 {
-    ObservedFacts Facts(FactsQuery query);
+    ValueTask<ObservedFacts> FactsAsync(FactsQuery query, CancellationToken cancellationToken);
 }
 
 /// <summary>

@@ -4,14 +4,14 @@ namespace Orchestrarr.Core.Missions;
 public sealed partial class ProblemConductor
 {
     // The checks to close a problem in the world of the mission: the facts of that world on the commit the worker claims, with no new mandate to issue
-    private List<PreconditionFailure> ClosingChecks(ProblemRun run, Mission mission, Dossier? dossier) =>
-        CheckFacts(run, mission.World, mission.Frame, mission.Id, previousDossierExists: dossier is not null, dossier, commit: dossier?.Commit, issuing: false);
+    private async Task<List<PreconditionFailure>> ClosingChecksAsync(ProblemRun run, Mission mission, Dossier? dossier, CancellationToken cancellationToken) =>
+        await CheckFactsAsync(run, mission.World, mission.Frame, mission.Id, previousDossierExists: dossier is not null, dossier, commit: dossier?.Commit, issuing: false, cancellationToken);
 
     // The facts come from the control plane's own source; the plan, the stop, the loop and the staging are the conductor's own: none is taken from the worker
     // `issuing` is true only where a new mandate is about to be issued: the bound of the loop guards a new mandate, not the acts of one that is already in force nor the closing of the problem
-    private List<PreconditionFailure> CheckFacts(ProblemRun run, World world, MissionFrame frame, string? missionId, bool previousDossierExists, Dossier? dossier, string? commit, bool issuing, string? repository = null, string? baseCommit = null)
+    private async Task<List<PreconditionFailure>> CheckFactsAsync(ProblemRun run, World world, MissionFrame frame, string? missionId, bool previousDossierExists, Dossier? dossier, string? commit, bool issuing, CancellationToken cancellationToken, string? repository = null, string? baseCommit = null)
     {
-        var observed = facts.Facts(new FactsQuery(run.ProblemId, missionId, world, frame, dossier, commit, repository, baseCommit));
+        var observed = await facts.FactsAsync(new FactsQuery(run.ProblemId, missionId, world, frame, dossier, commit, repository, baseCommit), cancellationToken);
         // The commit the facts are about is the head that the source read itself; the worker's pointer is only a claim, and a claim that does not match (or that cannot be matched) fails the check
         // Past the staging world, no commit named is no claim that can match: unknown counts as failing
         var claimMatches = observed.WorkerClaimMatchesFacts

@@ -202,7 +202,7 @@ public sealed class SqliteMissionStoresTests : IDisposable
     }
 
     [Fact]
-    public void A_whole_problem_goes_through_the_three_worlds_on_the_file_and_survives_a_restart_in_the_middle()
+    public async Task A_whole_problem_goes_through_the_three_worlds_on_the_file_and_survives_a_restart_in_the_middle()
     {
         var time = new FakeTimeProvider(new DateTimeOffset(2026, 11, 13, 12, 0, 0, TimeSpan.Zero));
         var ids = 0;
@@ -212,13 +212,13 @@ public sealed class SqliteMissionStoresTests : IDisposable
             new PowerSources(authority, authority.Verifier, new Withdrawals(), new Grants(), new NoStop()), new ConductorServices(new GoodFacts(), new Runners(), new Silent(), time, () => $"id-{++ids}"), ConductorOptions.Default);
         var entry = new PlanEntry("p1", "shop", "deprecated", "Replace the call", ["example/shop"], World.Release, new MissionBudget(20, 3, 50), new Validation("alice", null), time.GetUtcNow());
         var first = Conductor(_file.Open());
-        var staging = first.Start(entry, StagingDeclaration.DeclaredStaging, StagingRequirement.BlankMachine, StagingState.NotDefined);
+        var staging = await first.StartAsync(entry, StagingDeclaration.DeclaredStaging, StagingRequirement.BlankMachine, StagingState.NotDefined, TestContext.Current.CancellationToken);
         staging.Refusal.Should().BeNull();
-        first.Started(staging.Mission!.Id);
-        first.HandOver(staging.Mission.Id, new Dossier(staging.Mission.Id, "done", "changed", [], [], false, null, Commit: "abc123"));
+        await first.StartedAsync(staging.Mission!.Id, TestContext.Current.CancellationToken);
+        await first.HandOverAsync(staging.Mission.Id, new Dossier(staging.Mission.Id, "done", "changed", [], [], false, null, Commit: "abc123"), TestContext.Current.CancellationToken);
 
         var second = Conductor(_file.Reopen());
-        var git = second.Decide(staging.Mission.Id, new ControllerDecision(ControllerDecisionKind.Grant, ["good"], null));
+        var git = await second.DecideAsync(staging.Mission.Id, new ControllerDecision(ControllerDecisionKind.Grant, ["good"], null), TestContext.Current.CancellationToken);
 
         git.Refusal.Should().BeNull(string.Join(",", git.Failures));
         git.Mandate!.Mandate.World.Should().Be(World.Git);
@@ -244,7 +244,7 @@ public sealed class SqliteMissionStoresTests : IDisposable
 
     private sealed class GoodFacts : IFactsSource
     {
-        public ObservedFacts Facts(FactsQuery query) => new(true, true, true, true, true, true, MergeMayDeploy: false, ExecutedFilesTouched: false, TagCreationBlocked: true, BranchCannotReachWriteCredentials: true, HeadCommit: query.Commit, IdentityConfinedToItsBranches: true, ChangedPaths: ["src/Orders.cs"]);
+        public ValueTask<ObservedFacts> FactsAsync(FactsQuery query, CancellationToken cancellationToken) => ValueTask.FromResult(new ObservedFacts(true, true, true, true, true, true, MergeMayDeploy: false, ExecutedFilesTouched: false, TagCreationBlocked: true, BranchCannotReachWriteCredentials: true, HeadCommit: query.Commit, IdentityConfinedToItsBranches: true, ChangedPaths: ["src/Orders.cs"]));
     }
 
     private sealed class Grants : IGrantSource
@@ -296,7 +296,7 @@ public sealed class SqliteMissionStoresTests : IDisposable
 
     private sealed class Silent : IMissionAudit
     {
-        public bool Record(string eventName, string subject, string? detail) => true;
+        public ValueTask<bool> RecordAsync(string eventName, string subject, string? detail, CancellationToken cancellationToken) => ValueTask.FromResult(true);
     }
 
     private sealed class Runners : IRunnerDirectory

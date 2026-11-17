@@ -4,17 +4,17 @@ namespace Orchestrarr.Core.Missions;
 public sealed partial class ProblemConductor
 {
     /// <summary>The global stop, the maintainer or the budget: every mandate of the problem is revoked and the running mission ends cleanly.</summary>
-    public ConductResult Stop(string problemId, string reason) => Locked(problemId, () => StopLocked(problemId, reason));
+    public async Task<ConductResult> StopAsync(string problemId, string reason, CancellationToken cancellationToken) => await LockedAsync(problemId, () => StopLockedAsync(problemId, reason), cancellationToken);
 
     /// <summary>The mission used up its budget: it ends as failed and the problem fails with it; a loop never goes on past a budget.</summary>
-    public ConductResult BudgetExhausted(string missionId) =>
-        OnMission(missionId, mission => problems.Get(mission.ProblemId) is { } run ? End(run, mission, MissionEvent.BudgetExhausted, "the budget is used up") : ConductResult.Fail("the problem of this mission is unknown"));
+    public async Task<ConductResult> BudgetExhaustedAsync(string missionId, CancellationToken cancellationToken) =>
+        await OnMissionAsync(missionId, async mission => problems.Get(mission.ProblemId) is { } run ? await EndAsync(run, mission, MissionEvent.BudgetExhausted, "the budget is used up") : ConductResult.Fail("the problem of this mission is unknown"), cancellationToken);
 
     /// <summary>
     /// What no runner will ever say for itself: with the global stop engaged every problem in progress is stopped; a mandate that expired while its mission had not handed over ends it (a runner
     /// that disappeared would otherwise leave the problem in progress for ever); a problem that has run for longer than its bound is stopped. Returns how many problems were ended.
     /// </summary>
-    public int Sweep()
+    public async Task<int> SweepAsync(CancellationToken cancellationToken)
     {
         var ended = 0;
         foreach (var run in problems.InProgress())
@@ -23,14 +23,14 @@ public sealed partial class ProblemConductor
             try
             {
                 var reason = SweepReason(run);
-                if (reason is not null && Stop(run.ProblemId, reason).Ok)
+                if (reason is not null && (await StopAsync(run.ProblemId, reason, cancellationToken)).Ok)
                 {
                     ended++;
                 }
             }
             catch (Exception failure) when (failure is not OperationCanceledException)
             {
-                BestEffort(MissionAuditEvents.SweepFailed, run.ProblemId, Text($"{failure.GetType().Name}: the next pass tries again"));
+                await BestEffortAsync(MissionAuditEvents.SweepFailed, run.ProblemId, Text($"{failure.GetType().Name}: the next pass tries again"));
             }
         }
         return ended;
@@ -60,7 +60,7 @@ public sealed partial class ProblemConductor
         return expired ? "the mandate expired" : null;
     }
 
-    private ConductResult StopLocked(string problemId, string reason)
+    private async Task<ConductResult> StopLockedAsync(string problemId, string reason)
     {
         if (problems.Get(problemId) is not { State: ProblemState.InProgress } run)
         {
@@ -69,16 +69,16 @@ public sealed partial class ProblemConductor
         Mission? last = null;
         foreach (var mission in missions.ForProblem(problemId))
         {
-            Revoke(mission);
+            await RevokeAsync(mission);
             if (!mission.IsOver && MissionMachine.Apply(mission, MissionEvent.Stopped, options.Loop, reason: reason) is { Mission: { } ended })
             {
                 missions.Save(ended);
-                BestEffort(MissionAuditEvents.MissionEnded, mission.Id, Text($"stopped: {reason}"));
+                await BestEffortAsync(MissionAuditEvents.MissionEnded, mission.Id, Text($"stopped: {reason}"));
                 last = ended;
             }
         }
         problems.Save(run with { State = ProblemState.Failed, Note = reason });
-        BestEffort(MissionAuditEvents.ProblemFailed, problemId, reason);
+        await BestEffortAsync(MissionAuditEvents.ProblemFailed, problemId, reason);
         // The problem moved to Failed even when no mission was running: that is a stop that worked
         return new ConductResult(true, null, [], last, null);
     }

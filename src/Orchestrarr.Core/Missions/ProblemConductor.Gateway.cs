@@ -7,13 +7,13 @@ public sealed partial class ProblemConductor
     /// The **act gateway** (ARCHITECTURE section 5): before a merge or a deployment is performed, the checks of the code are made again **now, on the exact commit that is about to be merged or deployed**, with the
     /// power read at this moment. A mandate says which acts may be asked for; this says whether the act may be done now. No act is performed here: the control plane's gateway does the act when this allows it. **One thing is done here, on purpose**: a change to files that the pipeline executes, where the merge may deploy, ends the mission and escalates the problem to the maintainer, so that it cannot be asked again.
     /// </summary>
-    public ActAuthorisation AuthoriseAct(string missionId, GatedAct act, string? commit, string? repository = null, string? baseCommit = null)
+    public async Task<ActAuthorisation> AuthoriseActAsync(string missionId, GatedAct act, string? commit, CancellationToken cancellationToken, string? repository = null, string? baseCommit = null)
     {
         if (missions.Get(missionId) is not { } first)
         {
             return ActAuthorisation.Refused("unknown mission");
         }
-        return Locked(first.ProblemId, () =>
+        return await LockedAsync(first.ProblemId, async () =>
         {
             if (missions.Get(missionId) is not { State: MissionState.Mandated or MissionState.Running } mission || mission.MandateId is not { } mandateId
                 || mandates.Get(mandateId) is not { } signed || mandates.IsRevoked(mandateId))
@@ -61,25 +61,25 @@ public sealed partial class ProblemConductor
             var accepted = LatestDossier(run, mission);
             if (act == GatedAct.Deploy && !string.Equals(accepted?.Commit, commit, StringComparison.Ordinal))
             {
-                BestEffort(MissionAuditEvents.ActRefused, mission.Id, Text($"{act} on {commit}: not the commit that the controller accepted"));
+                await BestEffortAsync(MissionAuditEvents.ActRefused, mission.Id, Text($"{act} on {commit}: not the commit that the controller accepted"));
                 return ActAuthorisation.Refused("the commit is not the one that the controller accepted at the crossing");
             }
             var failures = changes
-                ? CheckFacts(run, mission.World, mission.Frame, mission.Id, previousDossierExists: PreviousDossierExists(run, mission, accepted), accepted, commit, issuing: false, repository, baseCommit)
+                ? await CheckFactsAsync(run, mission.World, mission.Frame, mission.Id, previousDossierExists: PreviousDossierExists(run, mission, accepted), accepted, commit, issuing: false, cancellationToken: cancellationToken, repository: repository, baseCommit: baseCommit)
                 : [];
             if (failures.Count > 0)
             {
-                BestEffort(MissionAuditEvents.ActRefused, mission.Id, Text($"{act} on {commit ?? "an unknown commit"}: {string.Join(", ", failures)}"));
+                await BestEffortAsync(MissionAuditEvents.ActRefused, mission.Id, Text($"{act} on {commit ?? "an unknown commit"}: {string.Join(", ", failures)}"));
                 if (failures.Contains(PreconditionFailure.ExecutedFilesTouchedWhereMergeDeploys))
                 {
-                    _ = Escalate(run, mission, "the change touches files that the pipeline executes, and the merge may deploy: a person decides", MissionEvent.Stopped);
+                    _ = await EscalateAsync(run, mission, "the change touches files that the pipeline executes, and the merge may deploy: a person decides", MissionEvent.Stopped);
                 }
                 return ActAuthorisation.Refused("a check of the code failed", failures);
             }
-            return Required(MissionAuditEvents.ActAuthorised, mission.Id, Text($"{act} on {commit ?? "no commit"}"))
+            return await RequiredAsync(MissionAuditEvents.ActAuthorised, mission.Id, Text($"{act} on {commit ?? "no commit"}"), cancellationToken)
                 ? new ActAuthorisation(true, null, [], commit, repository, baseCommit)
                 : ActAuthorisation.Refused("the audit trail cannot be written: no power is granted");
-        });
+        }, cancellationToken);
     }
 
     // Whether the world before this one left a dossier, which the mission of a world needs (a problem with no staging has none to show)

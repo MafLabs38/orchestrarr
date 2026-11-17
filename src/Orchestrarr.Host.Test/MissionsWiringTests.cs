@@ -104,7 +104,7 @@ public sealed class MissionsWiringTests : IDisposable
     }
 
     [Fact]
-    public void The_production_wiring_issues_no_mandate_because_no_approval_is_given_and_no_fact_is_known()
+    public async Task The_production_wiring_issues_no_mandate_because_no_approval_is_given_and_no_fact_is_known()
     {
         using var factory = new ProductionFactory();
         factory.Services.GetRequiredService<IApprovalSource>().Should().BeOfType<NoApprovals>();
@@ -113,7 +113,7 @@ public sealed class MissionsWiringTests : IDisposable
         factory.Services.GetRequiredService<IApprovalWithdrawals>().IsWithdrawn("anything").Should().BeTrue("the list that cannot be read counts as everything withdrawn");
         factory.Services.GetRequiredService<IApprovalSource>().For(new PlanEntry("p1", "shop", "class", "Replace", ["example/shop"], World.Release, new MissionBudget(20, 3, 50), new Validation("alice", null), DateTimeOffset.UnixEpoch)).Should().BeNull();
 
-        var facts = factory.Services.GetRequiredService<IFactsSource>().Facts(new FactsQuery("p1", null, World.Git, new MissionFrame(["example/shop"], [], "Git:shop"), null, "abc"));
+        var facts = await factory.Services.GetRequiredService<IFactsSource>().FactsAsync(new FactsQuery("p1", null, World.Git, new MissionFrame(["example/shop"], [], "Git:shop"), null, "abc"), TestContext.Current.CancellationToken);
 
         facts.DiffIsClean.Should().BeNull();
         facts.CiGreenOnExactCommit.Should().BeNull();
