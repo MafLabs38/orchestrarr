@@ -27,7 +27,7 @@ public sealed partial class ProblemConductor
     // The precedence: what a person must decide first, then what stops the work, then a pipeline result that is not known yet (a verdict cannot be taken on a fact that is not there: the mission goes back
     // where it is), then, in the release world, what a restart repairs: a pipeline that failed, or a release that the controller judged failed on facts that are known. An artifact that is not the one proved in
     // staging is an anomaly of the pipeline or of the supply chain, that code does not repair (D-90).
-    private static (Route Route, string Why) RouteOf(World world, IReadOnlyList<PreconditionFailure> failures, bool controllerJudgedFailed = false)
+    private static (Route Route, string Why) RouteOf(World world, IReadOnlyList<PreconditionFailure> failures, bool controllerJudgedFailed = false, bool underStandingRule = false)
     {
         if (failures.Contains(PreconditionFailure.ExecutedFilesTouchedWhereMergeDeploys))
         {
@@ -42,6 +42,19 @@ public sealed partial class ProblemConductor
         {
             return (Route.Stop, "the global stop is engaged");
         }
+        var repairsByRestart = world == World.Release && !failures.Contains(PreconditionFailure.CiResultNotKnown)
+            && (controllerJudgedFailed || (failures.Count > 0 && failures.All(failure => failure is PreconditionFailure.CiNotGreenOnExactCommit)));
+        // A release that failed under a standing rule is a person's: nobody approved that problem. It comes before the stops of the loop and of the budget, so that the maintainer is told what failed (the global stop
+        // above is the only thing that comes first: a stop is a stop)
+        if (underStandingRule && repairsByRestart)
+        {
+            return (Route.Escalate, "a release that was approved by a standing rule did not verify: nobody approved this problem, a person decides");
+        }
+        // A release that the controller judged failed while the commit that runs is not the one that was checked (the claim, the diff) is an anomaly of the delivery, not a defect that a restart repairs
+        if (world == World.Release && controllerJudgedFailed && failures.Any(failure => failure is PreconditionFailure.ClaimDoesNotMatchFacts or PreconditionFailure.DiffTouchesForbiddenPath))
+        {
+            return (Route.Escalate, "the commit that runs is not the one that was checked: a person decides");
+        }
         if (failures.Contains(PreconditionFailure.LoopLimitReached))
         {
             return (Route.Stop, "the loop reached its limit");
@@ -53,23 +66,18 @@ public sealed partial class ProblemConductor
         }
         // A release that the controller judged failed never stays in the release world (its mandate could only deploy the same commit again): either a rule that is kept refuses the way back and the work
         // stops with its own reason (ADR 0040 point 2), or the problem goes back to the first world. A pipeline result that is not known keeps its answer.
-        if (world == World.Release && !failures.Contains(PreconditionFailure.CiResultNotKnown))
+        if (repairsByRestart)
         {
-            if (controllerJudgedFailed && failures.Any(failure => failure is PreconditionFailure.ApprovalBacksNoMoreMandates or PreconditionFailure.PlanDoesNotCover))
-            {
-                return (Route.Stop, "a rule that is kept refuses the way back for this release");
-            }
-            if (controllerJudgedFailed || (failures.Count > 0 && failures.All(failure => failure is PreconditionFailure.CiNotGreenOnExactCommit)))
-            {
-                return (Route.BackToFirstWorld, "the release did not verify: the problem goes back to the first world");
-            }
+            return controllerJudgedFailed && failures.Any(failure => failure is PreconditionFailure.ApprovalBacksNoMoreMandates or PreconditionFailure.PlanDoesNotCover)
+                ? (Route.Stop, "a rule that is kept refuses the way back for this release")
+                : (Route.BackToFirstWorld, "the release did not verify: the problem goes back to the first world");
         }
         return (Route.SendBackInPlace, "a check of the code failed: the mission is sent back");
     }
 
     private async Task<ConductResult> RouteFailuresAsync(Mission mission, ProblemRun run, IReadOnlyList<PreconditionFailure> failures, CancellationToken cancellationToken, bool controllerJudgedFailed = false)
     {
-        var (route, why) = RouteOf(mission.World, failures, controllerJudgedFailed);
+        var (route, why) = RouteOf(mission.World, failures, controllerJudgedFailed, run.Approval.Certificate.Kind == CertificateKind.Rule);
         return route switch
         {
             Route.Escalate => Moved(await EscalateAsync(run, mission, why), "escalated to the maintainer", failures),
@@ -91,10 +99,6 @@ public sealed partial class ProblemConductor
     // ends and the problem goes back to the first world (a staging if the application has one, else the Git world). A release that failed under a standing rule is a person's: nobody approved this problem
     private async Task<ConductResult> BackToFirstWorldAsync(Mission mission, ProblemRun run, IReadOnlyList<PreconditionFailure> failures, CancellationToken cancellationToken)
     {
-        if (run.Approval.Certificate.Kind == CertificateKind.Rule)
-        {
-            return Moved(await EscalateAsync(run, mission, "a release that was approved by a standing rule did not verify: nobody approved this problem, a person decides"), "escalated to the maintainer", failures);
-        }
         // The power is read again here, as at every crossing: a grant or a certificate withdrawn while the release ran stops the problem, and the first world must be within what the powers allow
         var first = run.UsesStaging ? World.Staging : World.Git;
         if (HighestNow(run.Entry, run.Approval) is not { } highest || first > highest)
