@@ -10,10 +10,10 @@ internal sealed class TestAuthority : IApprovalSource, IDisposable
     private readonly TimeProvider _time;
     private int _operators;
 
-    public TestAuthority(TimeProvider time)
+    public TestAuthority(TimeProvider time, ApprovalPolicy? policy = null)
     {
         _time = time;
-        Authority = new ApprovalAuthority(new SecondFactorGuard(new Secrets(_secret), new InMemorySecondFactorUseLedger(), time, new SecondFactorOptions()), time, () => Guid.NewGuid().ToString("N"));
+        Authority = new ApprovalAuthority(new SecondFactorGuard(new Secrets(_secret), new InMemorySecondFactorUseLedger(), time, new SecondFactorOptions()), time, () => Guid.NewGuid().ToString("N"), policy: policy);
         Verifier = new ApprovalVerifier(Authority.PublicKey(), time);
     }
 

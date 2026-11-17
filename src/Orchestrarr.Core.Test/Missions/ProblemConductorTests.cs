@@ -765,6 +765,7 @@ public sealed class ProblemConductorTests : IDisposable
         var result = StartStaged(Conductor(), Entry() with { Repositories = ["example/shop", "example/api"] });
 
         result.Ok.Should().BeFalse();
+        result.Refusal.Should().Contain("exactly one repository");
         _problems.Get("problem-1").Should().BeNull("nothing is left in progress");
     }
 

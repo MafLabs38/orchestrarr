@@ -135,10 +135,18 @@ public sealed class ApprovalCertificateTests : IDisposable
         _authority.Approve(Request() with { Lifetime = TimeSpan.FromDays(8) }).Approval.Should().BeNull("a problem is approved for a week at most");
         _authority.Approve(Request() with { Kind = CertificateKind.Rule, Subject = "deprecated-dependency", Lifetime = TimeSpan.FromDays(29) }).Approval.Should().NotBeNull("a rule lives longer than a problem");
         _authority.Approve(Request() with { Kind = CertificateKind.Rule, Subject = "deprecated-dependency", Lifetime = TimeSpan.FromDays(31) }).Approval.Should().BeNull();
-        _authority.Approve(Request(World.Release) with { Kind = CertificateKind.Rule, Subject = "deprecated-dependency" }).Approval.Should().NotBeNull("a standing rule may go as far as production, bounded by its class, its count and its expiry (D-94)");
+        _authority.Approve(Request(World.Release) with { Kind = CertificateKind.Rule, Subject = "deprecated-dependency" }).Approval.Should().BeNull("a standing rule reaches the Git world at most by default, until each of its mandates is bound to its finding (FR-MAN-1c, D-94)");
         _authority.Approve(Request(World.Git) with { Kind = CertificateKind.Rule, Subject = "deprecated-dependency" }).Approval.Should().NotBeNull();
         _authority.Approve(Request() with { MaxMandates = 0 }).Approval.Should().BeNull();
         _authority.Approve(Request() with { MaxMandates = 51 }).Approval.Should().BeNull();
+    }
+
+    [Fact]
+    public void A_standing_rule_may_reach_the_release_world_only_where_the_policy_of_the_authority_lets_it()
+    {
+        using var raised = new TestAuthority(_time, ApprovalPolicy.Default with { MaxRuleWorld = World.Release });
+
+        raised.Approve(Request(World.Release) with { Kind = CertificateKind.Rule, Subject = "deprecated-dependency" }).Approval.Should().NotBeNull("the cap is the policy's, and D-94 lets a rule reach production once its safeguards exist");
     }
 
     [Fact]

@@ -70,7 +70,6 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
     private static bool Covers(SignedApproval approval, PlanEntry entry) =>
         string.Equals(approval.Certificate.ApplicationId, entry.ApplicationId, StringComparison.Ordinal)
         && (approval.Certificate.Kind == CertificateKind.Problem ? string.Equals(approval.Certificate.Subject, entry.ProblemId, StringComparison.Ordinal) : string.Equals(approval.Certificate.Subject, entry.ProblemClass, StringComparison.Ordinal))
-        && entry.Repositories.Count == 1
         && entry.Repositories.All(repository => approval.Certificate.Repositories.Contains(repository, StringComparer.Ordinal))
         && entry.Budget.MaxMinutes <= approval.Certificate.Budget.MaxMinutes && entry.Budget.MaxAttempts <= approval.Certificate.Budget.MaxAttempts && entry.Budget.MaxTurns <= approval.Certificate.Budget.MaxTurns;
 
@@ -83,6 +82,10 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
             if (stop.Engaged)
             {
                 return ConductResult.Fail("the global stop is engaged");
+            }
+            if (!OneRepository.Is(entry.Repositories))
+            {
+                return ConductResult.Fail("a problem is on exactly one repository: a problem on several is as many problems (ADR 0041)");
             }
             var previous = problems.Get(entry.ProblemId);
             // An escalated problem waits for the maintainer: a new approval is his decision, and starts it again (the same approval does not: see below)

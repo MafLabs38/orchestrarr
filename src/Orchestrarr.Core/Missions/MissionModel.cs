@@ -6,6 +6,16 @@ public static class ForbiddenPathsDefaults
     public static IReadOnlyList<string> Floor { get; } = [".github/**", "**/*.enc.*", "**/.env*"];
 }
 
+/// <summary>The rule that a problem is on exactly one repository (D-95, ADR 0041), under one name: the authority, the verifier and the conductor all make this same check.</summary>
+public static class OneRepository
+{
+    public static bool Is(IReadOnlyList<string> repositories)
+    {
+        ArgumentNullException.ThrowIfNull(repositories);
+        return repositories.Count == 1;
+    }
+}
+
 /// <summary>What bounds a mission: the repository it may touch (**exactly one**, ADR 0041; a list so that the wire format does not change), the paths it may never touch (pipelines, secrets) and the place it works in (a staging slot, an environment, a branch prefix).</summary>
 public sealed record MissionFrame(IReadOnlyList<string> Repositories, IReadOnlyList<string> ForbiddenPaths, string Place);
 
