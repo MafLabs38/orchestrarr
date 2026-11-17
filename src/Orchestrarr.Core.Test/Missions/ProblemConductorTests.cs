@@ -879,6 +879,21 @@ public sealed class ProblemConductorTests : IDisposable
     }
 
     [Fact]
+    public async Task A_send_back_of_the_controller_on_a_pipeline_result_that_is_not_known_yet_stays_in_the_release_world()
+    {
+        var conductor = Conductor();
+        var release = (await Through(conductor, await Through(conductor, await StartStaged(conductor)))).Mission!;
+        await conductor.StartedAsync(release.Id, Ct);
+        await conductor.HandOverAsync(release.Id, DossierFor(release.Id), Ct);
+        _facts.CiGreen = null;
+
+        var result = await conductor.DecideAsync(release.Id, new ControllerDecision(ControllerDecisionKind.SendBack, ["the release does not verify"], "wait for the pipeline"), Ct);
+
+        result.Mission!.World.Should().Be(World.Release);
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.InProgress);
+    }
+
+    [Fact]
     public async Task A_release_that_failed_under_a_standing_rule_is_escalated_because_nobody_approved_that_problem()
     {
         _authority.Kind = CertificateKind.Rule;

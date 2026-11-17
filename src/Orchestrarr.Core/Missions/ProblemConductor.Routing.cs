@@ -74,7 +74,10 @@ public sealed partial class ProblemConductor
     private async Task<ConductResult> ReleaseJudgedFailedAsync(Mission mission, ProblemRun run, CancellationToken cancellationToken)
     {
         var failures = await ClosingChecksAsync(run, mission, dossiers.Get(mission.Id), cancellationToken);
-        return RouteOf(mission.World, failures).Route is Route.Escalate or Route.Stop
+        // What a person decides or what stops the work keeps its route, and so does a pipeline result that is not known yet (the mission is sent back where it is, whatever the controller said: a verdict
+        // cannot be taken on a fact that is not there); the rest, a release judged failed on facts that are known, goes back to the first world
+        var route = RouteOf(mission.World, failures).Route;
+        return route is Route.Escalate or Route.Stop || failures.Contains(PreconditionFailure.CiResultNotKnown)
             ? await RouteFailuresAsync(mission, run, failures, cancellationToken)
             : await BackToFirstWorldAsync(mission, run, failures, cancellationToken);
     }
