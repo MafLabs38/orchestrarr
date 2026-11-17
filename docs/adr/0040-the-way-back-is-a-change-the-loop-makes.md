@@ -21,6 +21,7 @@ The maintainer's answer (2026-11-17): the repositories are delivered through the
 ## Consequences
 
 - Production may stay on a wrong version for as long as a correcting change takes: a pull request, its checks and its approval. The maintainer accepts it, because a failed release is rare: it was proved before (staging, D-69; the Git world's pipelines, FR-WLD-14).
+- **Until Q-37 is answered, a failed release on an application with a staging is expected to be escalated to the maintainer, not repaired automatically**: production stays on the wrong version until the maintainer acts on the escalation. Self-merge (ADR 0001) rests on the proof made before, the verification after and the repair loop, not on a rollback.
 - ADR 0001 point 3 ("on condition that a rollback to the previous version is automatic") is **superseded in part**: what protects production is the proof made before, the verification after and the loop, not an instant automatic undo (SPEC D-08, D-09).
 - The act gateway keeps one job on the forge: the merge, bound to the checked commit. A revert is a pull request like any other: the agent pushes it to its own `orchestrarr/*` branch, and the act gateway of the Git world opens and merges it when the mandate lists those acts (ADR 0033 point 3).
 - A repository whose revert would need a human review is no longer refused a release for that reason: the revert waits for the review, as every change on that repository does.

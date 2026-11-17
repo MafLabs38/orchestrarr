@@ -437,7 +437,10 @@ sequenceDiagram
     alt limit reached
         CP->>M: notify, work stops
     else within the limit
-        CP->>CP: new mission, repair
+        CP->>CP: new mandate, repair, through the same checks as any mandate
+        alt the baseline, the count or the budget refuses it (Q-37)
+            CP->>M: escalate with the reason
+        end
     end
 ```
 
