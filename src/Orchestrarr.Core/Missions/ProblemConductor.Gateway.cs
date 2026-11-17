@@ -57,13 +57,15 @@ public sealed partial class ProblemConductor
             }
             // A deployment is on the commit that the dossier of the world before named and that the controller accepted at the crossing: a commit pushed after it was read by nobody (a new crossing is needed). A dossier with no commit counts as failing.
             // A merge in the Git world is not bound this way: the pull request's commits are made in that world, and what ties a release to what was proved is the staging proof (FR-WLD-14), checked at the release
-            if (act == GatedAct.Deploy && !string.Equals(LatestDossier(run, mission)?.Commit, commit, StringComparison.Ordinal))
+            // The dossier of the world before is read once for the whole authorisation: the lock of the problem is held while it is read
+            var accepted = LatestDossier(run, mission);
+            if (act == GatedAct.Deploy && !string.Equals(accepted?.Commit, commit, StringComparison.Ordinal))
             {
                 BestEffort(MissionAuditEvents.ActRefused, mission.Id, Text($"{act} on {commit}: not the commit that the controller accepted"));
                 return ActAuthorisation.Refused("the commit is not the one that the controller accepted at the crossing");
             }
             var failures = changes
-                ? CheckFacts(run, mission.World, mission.Frame, mission.Id, previousDossierExists: PreviousDossierExists(run, mission), LatestDossier(run, mission), commit, issuing: false, repository, baseCommit)
+                ? CheckFacts(run, mission.World, mission.Frame, mission.Id, previousDossierExists: PreviousDossierExists(run, mission, accepted), accepted, commit, issuing: false, repository, baseCommit)
                 : [];
             if (failures.Count > 0)
             {
@@ -81,8 +83,8 @@ public sealed partial class ProblemConductor
     }
 
     // Whether the world before this one left a dossier, which the mission of a world needs (a problem with no staging has none to show)
-    private bool PreviousDossierExists(ProblemRun run, Mission mission) =>
-        mission.World == World.Staging || (mission.World == World.Git && !run.UsesStaging) || LatestDossier(run, mission) is not null;
+    private static bool PreviousDossierExists(ProblemRun run, Mission mission, Dossier? accepted) =>
+        mission.World == World.Staging || (mission.World == World.Git && !run.UsesStaging) || accepted is not null;
 
     // The dossier of the world before, **of this run**: the missions of an earlier run of the same problem (under an earlier approval) are not looked at, and the newest of a world wins
     private Dossier? LatestDossier(ProblemRun run, Mission mission) =>
