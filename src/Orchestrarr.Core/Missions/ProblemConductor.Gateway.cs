@@ -65,7 +65,7 @@ public sealed partial class ProblemConductor
                 return ActAuthorisation.Refused("the commit is not the one that the controller accepted at the crossing");
             }
             var failures = changes
-                ? await CheckFactsAsync(run, mission.World, mission.Frame, mission.Id, previousDossierExists: PreviousDossierExists(run, mission, accepted), accepted, commit, issuing: false, new FactsScope(Repository: repository, BaseCommit: baseCommit), cancellationToken)
+                ? await CheckFactsAsync(run, new FactsCheck(mission.World, mission.Frame, mission.Id, accepted, HasPreviousDossier: PreviousDossierExists(run, mission, accepted), Commit: commit, Issuing: false, new FactsScope(Repository: repository, BaseCommit: baseCommit)), cancellationToken)
                 : [];
             if (failures.Count > 0)
             {
