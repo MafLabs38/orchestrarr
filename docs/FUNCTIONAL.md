@@ -259,7 +259,7 @@ This section answers the maintainer's question: *is there an environment that is
 
 **FR-FAIL-1.** A mission that cannot be finished within its budget **stops cleanly**: nothing half-merged, nothing half-deployed, the branch and the notes kept, a report of what was tried (CASE-14). **(M)**
 **FR-FAIL-2.** A problem found **after** a world (a staging test fails, the pipelines fail, production misbehaves) opens a **new mandate** to repair it, in the world where it can be repaired. **(M)**
-**FR-FAIL-3.** In production, a failing verification opens a **repair mandate**: the change is **reverted first** when that is the quickest way, then fixed, **through the same process as any change** (FR-WLD-13, ADR 0040). **(M, amended by ADR 0040)**
+**FR-FAIL-3.** In production, a failing verification opens a **repair mandate**: the change is **reverted first** when that is the quickest way, then fixed, **through the same process as any change** (FR-WLD-13, ADR 0040); **until Q-37 is answered, a repair that the mechanical checks refuse ends in an escalation with the reason**. **(M, amended by ADR 0040)**
 **FR-FAIL-4.** The loop is **bounded** per problem: a maximum number of mandates and a maximum time. When reached, the work stops and the maintainer is told. **(M)**
 **FR-FAIL-5.** A mission's failure is **never hidden**: it is in the history, the report and, when it matters, a notification. **(M, rule 5)**
 **FR-FAIL-6.** A failed problem can be **taken again** by the maintainer with a new validation; it is not retried forever by itself. **(P)**

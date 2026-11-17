@@ -15,7 +15,7 @@ An orchestrator that only opens pull requests leaves the expensive part (merge, 
 
 1. **No autonomy of decision.** Orchestrarr never starts a work item on its own. Every work item starts from an explicit operator approval on a decision card.
 2. **Autonomy of execution.** Once approved, Orchestrarr **merges and deploys itself**, up to the steps the operator left ticked on the card. The operator's tick is the human approval.
-3. Deployment goes **directly to the target environment** (no pre-production), on condition that a rollback to the previous version is automatic. *(Superseded in part, 2026-11-17, by [ADR 0040](0040-the-way-back-is-a-change-the-loop-makes.md): the way back is a revert or a fix that the loop makes through the same process.)*
+3. Deployment goes **directly to the target environment** (no pre-production), on condition that a rollback to the previous version is automatic. *(Superseded in part, 2026-11-17, by [ADR 0040](0040-the-way-back-is-a-change-the-loop-makes.md): the way back is a revert or a fix that the loop makes through the same process, and "no pre-production" is superseded where an application has a staging, ADR 0034.)*
 4. The other safety principles stay: isolation, least privilege, verify then report, budgets and kill switch, audit trail, untrusted input.
 
 ## Consequences
