@@ -853,6 +853,21 @@ public sealed class ProblemConductorTests : IDisposable
     }
 
     [Fact]
+    public async Task A_release_whose_dossier_names_the_accepted_commit_while_the_source_reads_another_head_goes_to_the_maintainer()
+    {
+        var conductor = Conductor();
+        var release = (await Through(conductor, await Through(conductor, await StartStaged(conductor)))).Mission!;
+        await conductor.StartedAsync(release.Id, Ct);
+        await conductor.HandOverAsync(release.Id, DossierFor(release.Id), Ct);
+        _facts.HeadCommit = "the-head-the-source-read";
+
+        var result = await conductor.DecideAsync(release.Id, Grant(), Ct);
+
+        result.Failures.Should().Contain(PreconditionFailure.ReleaseCommitIsNotTheAcceptedOne, "the comparison is on what the source read, not on what the worker claimed");
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.Escalated);
+    }
+
+    [Fact]
     public async Task The_controller_that_judges_the_release_failed_sends_the_problem_back_to_the_first_world_where_a_send_back_in_the_release_world_could_only_deploy_the_same_commit_again()
     {
         var conductor = Conductor();

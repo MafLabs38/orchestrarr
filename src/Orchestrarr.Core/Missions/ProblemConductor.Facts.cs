@@ -4,20 +4,13 @@ namespace Orchestrarr.Core.Missions;
 public sealed partial class ProblemConductor
 {
     // The checks to close a problem in the world of the mission: the facts of that world on the commit the worker claims, with no new mandate to issue
-    private async Task<List<PreconditionFailure>> ClosingChecksAsync(ProblemRun run, Mission mission, Dossier? dossier, CancellationToken cancellationToken)
-    {
-        var failures = await CheckFactsAsync(run, mission.World, mission.Frame, mission.Id, previousDossierExists: dossier is not null, dossier, commit: dossier?.Commit, issuing: false, cancellationToken);
-        // In the release world the commit that runs is the one that the controller accepted at the crossing into it, the one the act gateway deploys: a release that names another commit is an anomaly of the delivery
-        if (mission.World == World.Release && LatestDossier(run, mission)?.Commit is { } accepted && !string.Equals(dossier?.Commit, accepted, StringComparison.Ordinal))
-        {
-            failures.Add(PreconditionFailure.ReleaseCommitIsNotTheAcceptedOne);
-        }
-        return failures;
-    }
+    private async Task<List<PreconditionFailure>> ClosingChecksAsync(ProblemRun run, Mission mission, Dossier? dossier, CancellationToken cancellationToken) =>
+        await CheckFactsAsync(run, mission.World, mission.Frame, mission.Id, previousDossierExists: dossier is not null, dossier, commit: dossier?.Commit, issuing: false, cancellationToken,
+            acceptedCommit: mission.World == World.Release ? LatestDossier(run, mission)?.Commit : null);
 
     // The facts come from the control plane's own source; the plan, the stop, the loop and the staging are the conductor's own: none is taken from the worker
     // `issuing` is true only where a new mandate is about to be issued: the bound of the loop guards a new mandate, not the acts of one that is already in force nor the closing of the problem
-    private async Task<List<PreconditionFailure>> CheckFactsAsync(ProblemRun run, World world, MissionFrame frame, string? missionId, bool previousDossierExists, Dossier? dossier, string? commit, bool issuing, CancellationToken cancellationToken, string? repository = null, string? baseCommit = null)
+    private async Task<List<PreconditionFailure>> CheckFactsAsync(ProblemRun run, World world, MissionFrame frame, string? missionId, bool previousDossierExists, Dossier? dossier, string? commit, bool issuing, CancellationToken cancellationToken, string? repository = null, string? baseCommit = null, string? acceptedCommit = null)
     {
         var observed = await facts.FactsAsync(new FactsQuery(run.ProblemId, missionId, world, frame, dossier, commit, repository, baseCommit), cancellationToken);
         // The commit the facts are about is the head that the source read itself; the worker's pointer is only a claim, and a claim that does not match (or that cannot be matched) fails the check
@@ -52,6 +45,13 @@ public sealed partial class ProblemConductor
             BranchCannotReachWriteCredentials: observed.BranchCannotReachWriteCredentials,
             IdentityConfinedToItsBranches: observed.IdentityConfinedToItsBranches);
         // The release of an application with a staging needs the artifact that was proved there (FR-WLD-14)
-        return [.. MandatePreconditions.Check(checks, requiresStagingProof: run.UsesStaging && world == World.Release)];
+        var failures = MandatePreconditions.Check(checks, requiresStagingProof: run.UsesStaging && world == World.Release).ToList();
+        // In the release world the commit that the source read is the commit that the controller accepted at the crossing into it, the one the act gateway deploys: the comparison is on what the source read,
+        // never on the worker's claim; a release that is not that commit is an anomaly of the delivery
+        if (acceptedCommit is not null && !string.Equals(observed.HeadCommit, acceptedCommit, StringComparison.Ordinal))
+        {
+            failures.Add(PreconditionFailure.ReleaseCommitIsNotTheAcceptedOne);
+        }
+        return failures;
     }
 }
