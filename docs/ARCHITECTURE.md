@@ -93,7 +93,7 @@ flowchart TB
 | Container | What it is | Holds | Requirements |
 |---|---|---|---|
 | **Control plane** | One .NET service (API, live hub, background workers), one image | The domain (section 4), the mandate service, the controller, the staging catalogue and scheduler, the audit, the kill switch, the accounts | all |
-| **Approval authority** | A small .NET service **apart from the control plane**, with its own key and the second-factor secret | Holds the request it is given, **shows it to the maintainer on its own channel**, and signs an **approval certificate** (the problem or rule, the repositories, the highest world, the budget, the expiry, how many mandates it may back) only for the code typed there; keeps, in one store for every runner, the count of the mandates each certificate backed and the list of withdrawn certificates; holds no other power | FR-MAN-1b |
+| **Approval authority** | A small .NET service **apart from the control plane**, with its own key and the second-factor secret | Holds the request it is given, **shows it to the maintainer on its own channel**, and signs an **approval certificate** (the problem or rule, the repositories, the highest world, the budget, the expiry, how many mandates it may back) only for the code typed there; keeps, in one store for every runner, the count of the mandates each certificate backed, the list of withdrawn certificates, **the binding recorded at the first mandate of a problem under a standing rule** (FR-MAN-1c) and, when the cap of a rule is lifted, **the deployments recorded by the release runner** (FR-MAN-1b); holds no other power; its policy, with the cap of a standing rule at the Git world by default, is a launch contract file | FR-MAN-1b |
 | **UI** | React, served by the control plane | The plan, missions in progress, history, staging state, the bell | FR-VIEW |
 | **Act gateway of the Git world** | A runner on **a host apart from every agent sandbox**, with its own key | Holds the merge and pull-request identity, verifies the mandate and the certificate, asks the control plane to authorise each act, performs it on the checked commit | FR-WLD-6, FR-WLD-10 |
 | **Runner** | One .NET program, **configured with a world profile** (staging, Git, release), one or more per world | A workspace for a mission, the enforcement of a mandate's frame, the trace, the evidence | FR-WLD, FR-SAF |
@@ -430,14 +430,19 @@ sequenceDiagram
     participant C as Controller
     participant M as Maintainer
     R->>R: verification fails
-    R-->>CP: dossier: verification failed
-    CP->>C: dossier
-    C-->>CP: decision: go on with the same problem, a new mandate through the same worlds as any change
-    CP->>CP: loop count + 1, within the limit?
-    alt limit reached
-        CP->>M: notify, work stops
-    else within the limit
-        CP->>CP: new mandate for the same problem, through the same checks as any mandate
+    R-->>CP: dossier: verification failed (a claim)
+    CP->>CP: failure read from the facts (forge pipelines, health in Portarr)
+    CP->>C: dossier and facts
+    C-->>CP: decision: the release did not verify
+    alt the problem was approved by a standing rule (proposed)
+        CP->>M: escalated, a person decides
+    else the problem was approved by the maintainer
+        CP->>CP: loop count + 1, within the limit?
+        alt limit reached
+            CP->>M: notify, work stops
+        else within the limit
+            CP->>CP: new mandate for the same problem in the first world, through the same checks as any mandate
+        end
     end
 ```
 
