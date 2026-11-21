@@ -6,6 +6,7 @@ import PageContentBody from 'Components/Page/PageContentBody';
 import PageHeading from 'Components/Page/PageHeading';
 import { type Kind, kinds } from 'Helpers/Props/kinds';
 import type { MissionView } from 'typings/api';
+import { describeMissionEnd, describeMissionWorld } from 'Utilities/describe';
 import translate from 'Utilities/translate';
 
 import styles from './Missions.module.css';
@@ -20,7 +21,7 @@ function stateOf(mission: MissionView): { text: string; kind: Kind } {
     };
   }
   if (mission.state === 'Ended') {
-    return { text: mission.endReason ? `${mission.end}` : translate('MissionEnded'), kind: kinds.DANGER };
+    return { text: mission.end ? describeMissionEnd(mission.end) : translate('MissionEnded'), kind: kinds.DANGER };
   }
   if (mission.state === 'HandingOver') {
     return { text: translate('MissionControllerReading'), kind: kinds.INFO };
@@ -49,7 +50,7 @@ export default function Missions() {
               return (
                 <li key={mission.id} className={styles.mission}>
                   <div className={styles.head}>
-                    <Label kind={kinds.DEFAULT}>{mission.world}</Label>
+                    <Label kind={kinds.DEFAULT}>{describeMissionWorld(mission.world)}</Label>
                     <Label kind={state.kind}>{state.text}</Label>
                     <span className={styles.objective}>{mission.objective}</span>
                   </div>

@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Orchestrarr.Core.Forge;
 using Orchestrarr.Core.Missions;
 using Orchestrarr.Host.Missions;
@@ -25,6 +26,9 @@ public sealed class MissionRunnerApiTests
         /// <summary>When set, the controller answers with this text and the forge says that the pull request is green at the head of the mission.</summary>
         public string? ControllerSays { get; init; }
 
+        /// <summary>The runner that the staging mandates name (default: the one whose token the tests hold).</summary>
+        public string StagingRunner { get; init; } = "runner-staging";
+
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             base.ConfigureWebHost(builder);
@@ -38,6 +42,7 @@ public sealed class MissionRunnerApiTests
             }
             builder.UseEnvironment("Development");
             builder.UseSetting("Missions:Sandbox", "true");
+            builder.UseSetting("Missions:StagingRunner", StagingRunner);
             builder.UseSetting("Tasks:Runners:0:Name", "runner-staging");
             builder.UseSetting("Tasks:Runners:0:Token", Token);
         }
@@ -94,7 +99,7 @@ public sealed class MissionRunnerApiTests
         var view = await person.GetFromJsonAsync<JsonElement>($"/api/v1/missions/{missionId}", Ct);
         view.GetProperty("state").GetString().Should().Be("HandingOver");
         view.GetProperty("dossier").GetProperty("claim").GetString().Should().Be("It builds and passes");
-        view.GetProperty("progress").EnumerateArray().Select(line => line.GetString()).Should().ContainSingle().Which.Should().EndWith("Building in a container");
+        view.GetProperty("progress").EnumerateArray().Select(line => line.GetString() ?? string.Empty).Should().Contain(line => line.EndsWith("Building in a container", StringComparison.Ordinal));
         (await (await runner.PostAsJsonAsync("/api/v1/runner/missions/claim", Hello, Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("mission").ValueKind.Should().Be(JsonValueKind.Null, "a mission that is handed over is not offered again");
     }
 
@@ -139,6 +144,75 @@ public sealed class MissionRunnerApiTests
         (await runner.PostAsync("/api/v1/runner/missions/unknown/started", null, Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
         (await runner.PostAsJsonAsync("/api/v1/runner/missions/unknown/progress", new { line = "x" }, Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
         (await runner.PostAsJsonAsync("/api/v1/runner/missions/unknown/handover", new { claim = "x", whatChangedAndWhy = "y" }, Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task A_runner_that_the_mandate_does_not_name_is_offered_nothing_and_cannot_touch_the_mission()
+    {
+        using var factory = new SandboxFactory { StagingRunner = "another-runner" };
+        var missionId = await StartProblemAsync(factory);
+        using var runner = Runner(factory, Token);
+
+        (await (await runner.PostAsJsonAsync("/api/v1/runner/missions/claim", Hello, Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("mission").ValueKind.Should().Be(JsonValueKind.Null);
+        (await runner.PostAsync($"/api/v1/runner/missions/{missionId}/started", null, Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await runner.PostAsJsonAsync($"/api/v1/runner/missions/{missionId}/progress", new { line = "x" }, Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await runner.PostAsJsonAsync($"/api/v1/runner/missions/{missionId}/handover", new { claim = "x", whatChangedAndWhy = "y" }, Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task A_mission_of_another_world_is_not_offered_and_a_line_is_not_taken_after_the_handover()
+    {
+        using var factory = new SandboxFactory();
+        var missionId = await StartProblemAsync(factory);
+        using var runner = Runner(factory, Token);
+
+        (await (await runner.PostAsJsonAsync("/api/v1/runner/missions/claim?world=Git", Hello, Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("mission").ValueKind.Should().Be(JsonValueKind.Null, "the mission is of the staging world");
+        (await runner.PostAsync($"/api/v1/runner/missions/{missionId}/started", null, Ct)).EnsureSuccessStatusCode();
+        var dossier = new { claim = "c", whatChangedAndWhy = "w", evidenceDigests = new[] { "d" }, openPoints = Array.Empty<string>(), complex = false, commit = Head };
+        (await runner.PostAsJsonAsync($"/api/v1/runner/missions/{missionId}/handover", dossier, Ct)).EnsureSuccessStatusCode();
+
+        (await runner.PostAsJsonAsync($"/api/v1/runner/missions/{missionId}/progress", new { line = "late" }, Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task A_dossier_is_kept_within_bounds_whatever_the_runner_sends()
+    {
+        using var factory = new SandboxFactory();
+        var missionId = await StartProblemAsync(factory);
+        using var runner = Runner(factory, Token);
+        (await runner.PostAsync($"/api/v1/runner/missions/{missionId}/started", null, Ct)).EnsureSuccessStatusCode();
+        var dossier = new { claim = "c", whatChangedAndWhy = "w", evidenceDigests = Enumerable.Repeat(new string('x', 5000), 50).ToArray(), openPoints = Array.Empty<string>(), complex = false, commit = Head };
+        (await runner.PostAsJsonAsync($"/api/v1/runner/missions/{missionId}/handover", dossier, Ct)).EnsureSuccessStatusCode();
+
+        using var person = await SignedIn(factory);
+        var view = await person.GetFromJsonAsync<JsonElement>($"/api/v1/missions/{missionId}", Ct);
+
+        view.GetProperty("dossier").GetProperty("claim").GetString().Should().Be("c");
+        factory.Services.GetRequiredService<IDossierStore>().Get(missionId)!.EvidenceDigests.Should().HaveCount(20).And.OnlyContain(digest => digest.Length == 2000);
+    }
+
+    [Fact]
+    public async Task A_controller_that_cannot_answer_is_never_a_grant_and_is_not_asked_again_at_once()
+    {
+        using var factory = new SandboxFactory();
+        var missionId = await StartProblemAsync(factory);
+        using var runner = Runner(factory, Token);
+        (await runner.PostAsync($"/api/v1/runner/missions/{missionId}/started", null, Ct)).EnsureSuccessStatusCode();
+        var dossier = new { claim = "c", whatChangedAndWhy = "w", evidenceDigests = new[] { "d" }, openPoints = Array.Empty<string>(), complex = false, commit = Head };
+        (await runner.PostAsJsonAsync($"/api/v1/runner/missions/{missionId}/handover", dossier, Ct)).EnsureSuccessStatusCode();
+        var driver = factory.Services.GetServices<IHostedService>().OfType<MissionDriver>().Single();
+
+        await driver.PassAsync(Ct);
+        var asked = factory.Services.GetRequiredService<MissionProgress>().Lines(missionId).Count(line => line.Contains("reads the dossier", StringComparison.Ordinal));
+        await driver.PassAsync(Ct);
+
+        asked.Should().Be(1);
+        factory.Services.GetRequiredService<MissionProgress>().Lines(missionId).Count(line => line.Contains("reads the dossier", StringComparison.Ordinal)).Should().Be(1, "it is asked again after a while, not at every pass");
+        factory.Services.GetRequiredService<MissionProgress>().Lines(missionId).Should().Contain(line => line.Contains("gave no decision", StringComparison.Ordinal));
+        using var person = await SignedIn(factory);
+        var missions = await person.GetFromJsonAsync<JsonElement>("/api/v1/missions", Ct);
+        missions.GetArrayLength().Should().Be(1, "no mandate of the next world without an answer");
+        missions[0].GetProperty("state").GetString().Should().Be("HandingOver");
     }
 
     [Fact]

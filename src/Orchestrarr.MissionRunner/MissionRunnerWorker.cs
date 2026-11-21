@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Orchestrarr.Core.Missions;
 
 namespace Orchestrarr.MissionRunner;
 
@@ -45,12 +46,60 @@ public sealed partial class MissionRunnerWorker(IMissionControlPlane controlPlan
         {
             return false;
         }
-        var dossier = await staging.RunAsync(mission, line => controlPlane.ProgressAsync(mission.MissionId, line, cancellationToken), cancellationToken);
-        if (!await controlPlane.HandOverAsync(mission.MissionId, dossier, cancellationToken))
+        // The global stop reaches the work that is going on: it is read while the work runs, and the work is cancelled (the machine is still restored)
+        using var work = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var watcher = WatchStopAsync(work, cancellationToken);
+        try
         {
-            LogRefused(mission.MissionId);
+            var dossier = await staging.RunAsync(mission, line => controlPlane.ProgressAsync(mission.MissionId, line, cancellationToken), work.Token);
+            if (!await controlPlane.HandOverAsync(mission.MissionId, dossier, cancellationToken))
+            {
+                LogRefused(mission.MissionId);
+            }
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            await controlPlane.ProgressAsync(mission.MissionId, "The global stop is engaged: the work was stopped and nothing is handed over.", cancellationToken);
+        }
+        finally
+        {
+            await work.CancelAsync();
+            await watcher;
         }
         return true;
+    }
+
+    private async Task WatchStopAsync(CancellationTokenSource work, CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (!work.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(Math.Max(1, options.StopPollSeconds)), work.Token);
+                if (await ReadStopAsync(cancellationToken))
+                {
+                    await work.CancelAsync();
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // The work ended, or the runner is stopping
+        }
+    }
+
+    // A stop that cannot be read now is read again at the next turn: the work is not stopped for a failed read
+    private async Task<bool> ReadStopAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await controlPlane.StopEngagedAsync(cancellationToken);
+        }
+        catch (HttpRequestException failure)
+        {
+            LogFailure(failure.Message);
+            return false;
+        }
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Mission runner: {Message}")]

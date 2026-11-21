@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using Orchestrarr.Core.Missions;
 
 namespace Orchestrarr.MissionRunner;
 
@@ -18,16 +19,24 @@ public sealed partial class StagingProof(IShell shell, MissionRunnerOptions opti
         {
             return Refused(mission, "This runner proves pull requests only for now: the mission names no pull request or an unreadable repository.");
         }
+        if (mission.HeadSha is not { Length: > 0 })
+        {
+            return Refused(mission, "The mission names no commit for the pull request: nothing is built without knowing which commit was approved.");
+        }
+        if (options.StagingMachine is not { Length: > 0 } machine)
+        {
+            return Refused(mission, "The runner is not told which machine to work on (MissionRunner:StagingMachine).");
+        }
         var timeout = TimeSpan.FromMinutes(options.StepTimeoutMinutes);
         var evidence = new List<string>();
         try
         {
-            await report($"Putting {options.StagingMachine} back to its reference snapshot");
+            await report($"Putting {machine} back to its reference snapshot");
             if (options.LabTool is null)
             {
                 return Refused(mission, "The runner has no tool to restore the staging machine (MissionRunner:LabTool): it does not work on a machine it cannot restore.");
             }
-            var reset = await shell.RunAsync(options.LabTool, ["reset", options.StagingMachine], TimeSpan.FromMinutes(5), cancellationToken);
+            var reset = await shell.RunAsync(options.LabTool, ["reset", machine], TimeSpan.FromMinutes(5), cancellationToken);
             Keep(evidence, "reset", reset);
             if (reset.ExitCode != 0)
             {
@@ -35,8 +44,8 @@ public sealed partial class StagingProof(IShell shell, MissionRunnerOptions opti
             }
 
             await report($"Fetching {mission.Repository} pull request #{number}");
-            var checkout = await OnMachineAsync(
-                $"rm -rf ~/work && mkdir -p ~/work && cd ~/work && git clone --quiet https://github.com/{mission.Repository}.git repo && cd repo && git fetch --quiet origin pull/{number}/head:pr && git checkout --quiet pr && echo \"HEAD $(git rev-parse HEAD)\" && git diff --stat HEAD~1 | tail -8",
+            var checkout = await OnMachineAsync(machine,
+                $"rm -rf ~/work && mkdir -p ~/work && cd ~/work && git clone --quiet https://github.com/{mission.Repository}.git repo && cd repo && git fetch --quiet origin pull/{number}/head:pr && git checkout --quiet pr && echo \"HEAD $(git rev-parse HEAD)\" && git diff --stat origin/HEAD...HEAD | tail -8",
                 timeout, cancellationToken);
             Keep(evidence, "checkout", checkout);
             var head = HeadLine().Match(checkout.Output) is { Success: true } found ? found.Groups[1].Value : null;
@@ -49,7 +58,7 @@ public sealed partial class StagingProof(IShell shell, MissionRunnerOptions opti
                 return Refused(mission, $"The pull request moved since it was approved (approved {Short(expected)}, found {Short(head)}): nothing was built.");
             }
 
-            var recipe = await OnMachineAsync("cd ~/work/repo && ls -1", timeout, cancellationToken);
+            var recipe = await OnMachineAsync(machine, "cd ~/work/repo && ls -1", timeout, cancellationToken);
             var files = recipe.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToHashSet(StringComparer.Ordinal);
             var (kind, command) = Recipe(files);
             if (command is null)
@@ -60,7 +69,7 @@ public sealed partial class StagingProof(IShell shell, MissionRunnerOptions opti
             }
 
             await report($"Building and testing ({kind}) in a container");
-            var build = await OnMachineAsync($"cd ~/work/repo && {command}", timeout, cancellationToken);
+            var build = await OnMachineAsync(machine, $"cd ~/work/repo && {command}", timeout, cancellationToken);
             Keep(evidence, kind, build);
             var passed = build.ExitCode == 0 && !build.TimedOut;
             var outcome = build.TimedOut ? "timed out" : $"exit {build.ExitCode}";
@@ -73,13 +82,31 @@ public sealed partial class StagingProof(IShell shell, MissionRunnerOptions opti
         }
         finally
         {
-            // The machine is given back clean whatever happened; a failure of this step is reported, not hidden
-            await report($"Restoring {options.StagingMachine} to its reference");
-            if (options.LabTool is not null)
-            {
-                var back = await shell.RunAsync(options.LabTool, ["reset", options.StagingMachine], TimeSpan.FromMinutes(5), CancellationToken.None);
-                await report(back.ExitCode == 0 ? $"{options.StagingMachine} restored" : $"Restoring {options.StagingMachine} FAILED: {Tail(back.Output)}");
-            }
+            // The machine is given back clean whatever happened, first; what is said about it comes after and cannot skip it (a stop or a lost connection must not leave the work behind)
+            var restored = await RestoreAsync(machine);
+            await ReportQuietlyAsync(report, restored);
+        }
+    }
+
+    private async Task<string> RestoreAsync(string machine)
+    {
+        if (options.LabTool is null)
+        {
+            return $"{machine} was not restored: the runner has no tool to do it";
+        }
+        var back = await shell.RunAsync(options.LabTool, ["reset", machine], TimeSpan.FromMinutes(5), CancellationToken.None);
+        return back.ExitCode == 0 ? $"{machine} restored" : $"Restoring {machine} FAILED: {Tail(back.Output)}";
+    }
+
+    private static async Task ReportQuietlyAsync(Func<string, Task> report, string line)
+    {
+        try
+        {
+            await report(line);
+        }
+        catch (Exception failure) when (failure is HttpRequestException or OperationCanceledException or InvalidOperationException)
+        {
+            // The machine is restored; a line that cannot be sent is lost, not an error of the work
         }
     }
 
@@ -88,18 +115,18 @@ public sealed partial class StagingProof(IShell shell, MissionRunnerOptions opti
         if (files.Contains("package.json"))
         {
             var install = files.Contains("package-lock.json") ? "npm ci" : "npm install";
-            return ("node", $"docker run --rm -v \"$PWD\":/app -w /app node:22-alpine sh -c \"{install} --no-audit --no-fund && npm test\"");
+            return ("node", $"docker run --rm --cap-drop ALL --security-opt no-new-privileges --pids-limit 512 --memory 2g --cpus 2 -v \"$PWD\":/app -w /app node:22-alpine sh -c \"{install} --no-audit --no-fund && npm test\"");
         }
         if (files.Contains("requirements.txt"))
         {
-            return ("python", "docker run --rm -v \"$PWD\":/app -w /app python:3.12-slim sh -c \"pip install -q -r requirements.txt pytest && python -m pytest -q\"");
+            return ("python", "docker run --rm --cap-drop ALL --security-opt no-new-privileges --pids-limit 512 --memory 2g --cpus 2 -v \"$PWD\":/app -w /app python:3.12-slim sh -c \"pip install -q -r requirements.txt pytest && python -m pytest -q\"");
         }
         var compose = new[] { "docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml" }.FirstOrDefault(files.Contains);
         return compose is null ? ("none", null) : ("compose", $"docker compose -f {compose} config -q");
     }
 
-    private Task<ShellResult> OnMachineAsync(string script, TimeSpan timeout, CancellationToken cancellationToken) =>
-        shell.RunAsync("ssh", ["-o", "BatchMode=yes", "-o", "ConnectTimeout=15", options.StagingMachine, Prelude + script], timeout, cancellationToken);
+    private Task<ShellResult> OnMachineAsync(string machine, string script, TimeSpan timeout, CancellationToken cancellationToken) =>
+        shell.RunAsync("ssh", ["-o", "BatchMode=yes", "-o", "ConnectTimeout=15", machine, Prelude + script], timeout, cancellationToken);
 
     private static MissionHandOver Refused(ClaimedMission mission, string reason) =>
         new($"Nothing was proven for {mission.Repository}: {reason}", reason, [], [reason], Complex: true, reason, mission.HeadSha);

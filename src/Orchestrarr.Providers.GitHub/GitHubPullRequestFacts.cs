@@ -81,28 +81,42 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts
         return (paths, false);
     }
 
-    // Passing: every check run of the head is over and none failed; Pending: one is not over; Failing: one failed; Unknown: none, or unreadable
+    // Passing: every check run of the head is over and none failed; Pending: one is not over; Failing: one failed; Unknown: none, or not all of them could be read
     private async Task<ChecksState> ChecksOfAsync(string repository, string sha, CancellationToken cancellationToken)
     {
-        using var runs = await GetAsync($"repos/{repository}/commits/{sha}/check-runs?per_page=100", cancellationToken);
-        if (runs is null || !runs.RootElement.TryGetProperty("check_runs", out var list) || list.GetArrayLength() == 0)
-        {
-            return ChecksState.Unknown;
-        }
         var pending = false;
-        foreach (var run in list.EnumerateArray())
+        var seen = 0;
+        for (var page = 1; page <= MaxPages; page++)
         {
-            if (run.GetProperty("status").GetString() != "completed")
+            using var runs = await GetAsync($"repos/{repository}/commits/{sha}/check-runs?per_page=100&page={page}", cancellationToken);
+            if (runs is null || !runs.RootElement.TryGetProperty("check_runs", out var list))
             {
-                pending = true;
-                continue;
+                return ChecksState.Unknown;
             }
-            if (run.GetProperty("conclusion").GetString() is not ("success" or "neutral" or "skipped"))
+            foreach (var run in list.EnumerateArray())
             {
-                return ChecksState.Failing;
+                seen++;
+                if (run.GetProperty("status").GetString() != "completed")
+                {
+                    pending = true;
+                }
+                else if (run.GetProperty("conclusion").GetString() is not ("success" or "neutral" or "skipped"))
+                {
+                    return ChecksState.Failing;
+                }
+            }
+            var total = runs.RootElement.TryGetProperty("total_count", out var count) && count.TryGetInt32(out var number) ? number : seen;
+            if (seen >= total || list.GetArrayLength() == 0)
+            {
+                // A green that was read only in part is not a green: unknown counts as failing for whoever asks
+                if (seen == 0 || seen < total)
+                {
+                    return ChecksState.Unknown;
+                }
+                return pending ? ChecksState.Pending : ChecksState.Passing;
             }
         }
-        return pending ? ChecksState.Pending : ChecksState.Passing;
+        return ChecksState.Unknown;
     }
 
     private async Task<JsonDocument?> GetAsync(string path, CancellationToken cancellationToken)

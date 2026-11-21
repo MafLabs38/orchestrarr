@@ -1,3 +1,4 @@
+using Orchestrarr.Core.Missions;
 using Orchestrarr.MissionRunner;
 
 namespace Orchestrarr.MissionRunner.Test;
@@ -18,12 +19,26 @@ public sealed class StagingProofTests
         }
     }
 
-    private static MissionRunnerOptions Options(string? lab = "/lab/lab.sh") => new() { StagingMachine = "leipzig", LabTool = lab };
+    private static MissionRunnerOptions Options(string? lab = "/lab/lab.sh") => new() { StagingMachine = "staging-1", LabTool = lab };
 
-    private static ClaimedMission Mission(string repository = "example/shop", int? pullRequest = 7, string? head = null) =>
-        new("m1", "p1", "example/shop", "Staging", "Prove it", repository, pullRequest, head ?? Head, DateTimeOffset.UtcNow.AddHours(1), []);
+    private static ClaimedMission Mission(string repository = "example/shop", int? pullRequest = 7, string? head = "") =>
+        new("m1", "p1", "example/shop", "Staging", "Prove it", repository, pullRequest, head == "" ? Head : head, DateTimeOffset.UtcNow.AddHours(1), []);
 
     private static ShellResult Ok(string output = "") => new(0, output, TimedOut: false);
+
+    // What the staging machine answers to each step, with the build left to the caller
+    private static ShellResult Step(string script, string files, Func<ShellResult> build)
+    {
+        if (script.Contains("git clone", StringComparison.Ordinal))
+        {
+            return Ok($"HEAD {Head}\n");
+        }
+        if (script.Contains("ls -1", StringComparison.Ordinal))
+        {
+            return Ok(files);
+        }
+        return build();
+    }
 
     // A staging machine that has the pull request at <Head>, the given files, and a build that ends with the given code
     private static ScriptedShell Machine(string files, int buildExit = 0, string head = "")
@@ -60,8 +75,8 @@ public sealed class StagingProofTests
         dossier.Commit.Should().Be(Head);
         dossier.Complex.Should().BeFalse();
         dossier.OpenPoints.Should().BeEmpty();
-        dossier.EvidenceDigests.Should().Contain(digest => digest.StartsWith("node:exit=0:sha256=", StringComparison.Ordinal));
-        shell.Calls.Where(call => call.StartsWith("/lab/lab.sh reset leipzig", StringComparison.Ordinal)).Should().HaveCount(2, "before the work and after it");
+        dossier.EvidenceDigests.Should().NotBeNull().And.Contain(digest => digest.StartsWith("node:exit=0:sha256=", StringComparison.Ordinal));
+        shell.Calls.Where(call => call.StartsWith("/lab/lab.sh reset staging-1", StringComparison.Ordinal)).Should().HaveCount(2, "before the work and after it");
         shell.Calls.Should().Contain(call => call.Contains("npm ci", StringComparison.Ordinal));
         lines.Should().Contain(line => line.Contains("restored", StringComparison.Ordinal));
     }
@@ -69,11 +84,65 @@ public sealed class StagingProofTests
     [Fact]
     public async Task A_build_that_fails_says_so_and_keeps_the_end_of_the_output()
     {
-        var dossier = await new StagingProof(Machine("requirements.txt\n", buildExit: 1), Options()).RunAsync(Mission(), _ => Task.CompletedTask, Ct);
+        var shell = Machine("requirements.txt\n", buildExit: 1);
+
+        var dossier = await new StagingProof(shell, Options()).RunAsync(Mission(), _ => Task.CompletedTask, Ct);
 
         dossier.Claim.Should().Contain("does NOT pass").And.Contain("python");
         dossier.OpenPoints.Should().ContainSingle().Which.Should().Contain("1 failing");
         dossier.Complex.Should().BeFalse("a red build is a result, not a limit of the worker");
+        shell.Calls.Count(call => call.StartsWith("/lab/lab.sh reset", StringComparison.Ordinal)).Should().Be(2, "the machine is restored after a red build too");
+    }
+
+    [Fact]
+    public async Task A_build_that_times_out_is_not_a_pass_and_the_machine_is_still_restored()
+    {
+        var shell = new ScriptedShell((file, arguments) => file != "ssh" ? Ok() : Step(arguments[^1], "package.json\n", () => new ShellResult(-1, "still running", TimedOut: true)));
+
+        var dossier = await new StagingProof(shell, Options()).RunAsync(Mission(), _ => Task.CompletedTask, Ct);
+
+        dossier.Claim.Should().Contain("does NOT pass").And.Contain("timed out");
+        shell.Calls.Count(call => call.StartsWith("/lab/lab.sh reset", StringComparison.Ordinal)).Should().Be(2);
+    }
+
+    [Fact]
+    public async Task A_stop_during_the_build_ends_the_work_and_the_machine_is_still_restored()
+    {
+        var shell = new ScriptedShell((file, arguments) => file != "ssh" ? Ok() : Step(arguments[^1], "package.json\n", () => throw new OperationCanceledException()));
+
+        var work = () => new StagingProof(shell, Options()).RunAsync(Mission(), _ => Task.CompletedTask, Ct);
+
+        await work.Should().ThrowAsync<OperationCanceledException>();
+        shell.Calls[^1].Should().StartWith("/lab/lab.sh reset staging-1");
+    }
+
+    [Fact]
+    public async Task A_restore_that_fails_at_the_end_is_said_and_a_report_that_cannot_be_sent_does_not_hide_the_dossier()
+    {
+        var resets = 0;
+        var shell = new ScriptedShell((file, arguments) =>
+        {
+            if (file == "ssh")
+            {
+                return Step(arguments[^1], "package.json\n", () => Ok("4 passing"));
+            }
+            resets++;
+            return resets == 1 ? Ok() : new ShellResult(1, "hypervisor unreachable", TimedOut: false);
+        });
+        var lines = new List<string>();
+
+        var dossier = await new StagingProof(shell, Options()).RunAsync(Mission(), line =>
+        {
+            lines.Add(line);
+            if (line.Contains("FAILED", StringComparison.Ordinal))
+            {
+                throw new HttpRequestException("gone");
+            }
+            return Task.CompletedTask;
+        }, Ct);
+
+        dossier.Claim.Should().Contain("builds and its tests pass");
+        lines.Should().Contain(line => line.Contains("FAILED", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -86,6 +155,7 @@ public sealed class StagingProofTests
         dossier.Claim.Should().StartWith("Nothing was proven");
         dossier.Complex.Should().BeTrue();
         shell.Calls.Should().NotContain(call => call.Contains("docker run", StringComparison.Ordinal));
+        shell.Calls.Count(call => call.StartsWith("/lab/lab.sh reset", StringComparison.Ordinal)).Should().Be(2);
     }
 
     [Theory]
@@ -103,6 +173,39 @@ public sealed class StagingProofTests
     }
 
     [Fact]
+    public async Task A_mission_that_names_no_commit_is_refused_without_touching_the_machine()
+    {
+        var shell = Machine("package.json\n");
+        var mission = Mission() with { HeadSha = null };
+
+        var dossier = await new StagingProof(shell, Options()).RunAsync(mission, _ => Task.CompletedTask, Ct);
+
+        dossier.Claim.Should().StartWith("Nothing was proven");
+        shell.Calls.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_runner_that_is_not_told_which_machine_to_use_does_not_guess()
+    {
+        var shell = Machine("package.json\n");
+
+        var dossier = await new StagingProof(shell, new MissionRunnerOptions { LabTool = "/lab/lab.sh" }).RunAsync(Mission(), _ => Task.CompletedTask, Ct);
+
+        dossier.Claim.Should().StartWith("Nothing was proven");
+        shell.Calls.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task The_build_runs_with_no_capability_and_bounded_resources()
+    {
+        var shell = Machine("package.json\n");
+
+        await new StagingProof(shell, Options()).RunAsync(Mission(), _ => Task.CompletedTask, Ct);
+
+        shell.Calls.Should().Contain(call => call.Contains("--cap-drop ALL", StringComparison.Ordinal) && call.Contains("no-new-privileges", StringComparison.Ordinal) && call.Contains("--pids-limit", StringComparison.Ordinal) && call.Contains("--memory", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task A_runner_with_no_way_to_restore_the_machine_does_not_work_on_it()
     {
         var shell = Machine("package.json\n");
@@ -110,7 +213,7 @@ public sealed class StagingProofTests
         var dossier = await new StagingProof(shell, Options(lab: null)).RunAsync(Mission(), _ => Task.CompletedTask, Ct);
 
         dossier.OpenPoints.Should().ContainSingle().Which.Should().Contain("cannot restore");
-        shell.Calls.Should().BeEmpty();
+        shell.Calls.Should().NotContain(call => call.StartsWith("ssh", StringComparison.Ordinal));
     }
 
     [Fact]

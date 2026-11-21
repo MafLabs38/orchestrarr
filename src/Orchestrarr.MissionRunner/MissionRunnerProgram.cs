@@ -17,8 +17,7 @@ public static class MissionRunnerProgram
         var options = configuration.GetSection(MissionRunnerOptions.SectionName).Get<MissionRunnerOptions>() ?? new MissionRunnerOptions();
         try
         {
-            options.TokenValue();
-            _ = options.ControlPlaneUrl ?? throw new InvalidOperationException("MissionRunner:ControlPlaneUrl is required.");
+            options.Validate();
         }
         catch (InvalidOperationException failure)
         {
@@ -29,7 +28,7 @@ public static class MissionRunnerProgram
         builder.Services.AddSingleton(options);
         builder.Services.AddSingleton<IShell, ProcessShell>();
         builder.Services.AddSingleton<StagingProof>();
-        builder.Services.AddSingleton<IMissionControlPlane>(_ => new MissionControlPlane(new HttpClient(), options));
+        builder.Services.AddSingleton<IMissionControlPlane>(_ => new MissionControlPlane(new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }), options));
         builder.Services.AddHostedService<MissionRunnerWorker>();
         await builder.Build().RunAsync();
         return 0;

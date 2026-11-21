@@ -31,6 +31,10 @@ public sealed record ValidatePlanResponse(IReadOnlyList<ValidatedProblem> Proble
 /// </summary>
 internal static class PlanEndpoints
 {
+    // What a ticked row asks for: the plan goes as far as the last world, and the standing grant of the application decides how far it really goes (the intersection, read at each crossing)
+    private static readonly World PlanCeiling = World.Release;
+    private static readonly MissionBudget SandboxBudget = new(30, 3, 50);
+
     public static void MapPlanEndpoints(this RouteGroupBuilder api)
     {
         // Whether the validation goes through the missions here: the screen sends the selection to the plan when it does, and says so
@@ -72,7 +76,7 @@ internal static class PlanEndpoints
         {
             return new ValidatedProblem(id, null, null, null, "thePullRequestMoved");
         }
-        var entry = PlanEntryFactory.From(row, approver, time.GetUtcNow(), World.Release, new MissionBudget(30, 3, 50));
+        var entry = PlanEntryFactory.From(row, approver, time.GetUtcNow(), PlanCeiling, SandboxBudget);
         if (entry is null)
         {
             return new ValidatedProblem(id, null, null, null, "noRepository");

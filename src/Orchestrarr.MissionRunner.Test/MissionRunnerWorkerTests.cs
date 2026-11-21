@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging.Abstractions;
+using Orchestrarr.Core.Missions;
 using Orchestrarr.MissionRunner;
 
 namespace Orchestrarr.MissionRunner.Test;
@@ -51,7 +52,7 @@ public sealed class MissionRunnerWorkerTests
     }
 
     [Fact]
-    public async Task A_mission_is_started_worked_on_and_handed_over()
+    public async Task A_refused_proof_is_handed_over_like_any_dossier()
     {
         var plane = Substitute.For<IMissionControlPlane>();
         plane.ClaimAsync(Arg.Any<CancellationToken>()).Returns(Mission("staging"));
@@ -59,11 +60,97 @@ public sealed class MissionRunnerWorkerTests
         plane.HandOverAsync("m1", Arg.Any<MissionHandOver>(), Arg.Any<CancellationToken>()).Returns(true);
         var shell = Substitute.For<IShell>();
         // No restoring tool: the work is refused inside the proof, and that refusal is handed over like any other dossier
-        var worker = Worker(plane, shell, new MissionRunnerOptions { LabTool = null });
+        var worker = Worker(plane, shell, new MissionRunnerOptions { StagingMachine = "staging-1", LabTool = null });
 
         (await worker.TakeOneAsync(Ct)).Should().BeTrue();
 
         await plane.Received(1).HandOverAsync("m1", Arg.Is<MissionHandOver>(dossier => dossier.Complex), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task A_dossier_that_the_control_plane_refuses_does_not_stop_the_runner()
+    {
+        var plane = Substitute.For<IMissionControlPlane>();
+        plane.ClaimAsync(Arg.Any<CancellationToken>()).Returns(Mission("Staging"));
+        plane.StartedAsync("m1", Arg.Any<CancellationToken>()).Returns(true);
+        plane.HandOverAsync("m1", Arg.Any<MissionHandOver>(), Arg.Any<CancellationToken>()).Returns(false);
+
+        (await Worker(plane, Substitute.For<IShell>(), new MissionRunnerOptions { StagingMachine = "staging-1" }).TakeOneAsync(Ct)).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task The_global_stop_cancels_the_work_that_is_going_on_and_nothing_is_handed_over()
+    {
+        var plane = Substitute.For<IMissionControlPlane>();
+        plane.ClaimAsync(Arg.Any<CancellationToken>()).Returns(Mission("Staging"));
+        plane.StartedAsync("m1", Arg.Any<CancellationToken>()).Returns(true);
+        plane.StopEngagedAsync(Arg.Any<CancellationToken>()).Returns(true);
+        var shell = Substitute.For<IShell>();
+        shell.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>()).Returns(async call =>
+        {
+            // The restoring tool answers at once; the work on the machine goes on until it is cancelled
+            if (call.ArgAt<string>(0) != "ssh")
+            {
+                return new ShellResult(0, string.Empty, TimedOut: false);
+            }
+            await Task.Delay(Timeout.Infinite, call.ArgAt<CancellationToken>(3));
+            return new ShellResult(0, string.Empty, TimedOut: false);
+        });
+        var options = new MissionRunnerOptions { StagingMachine = "staging-1", LabTool = "/lab/lab.sh", StopPollSeconds = 1 };
+
+        (await Worker(plane, shell, options).TakeOneAsync(Ct)).Should().BeTrue();
+
+        await plane.DidNotReceiveWithAnyArgs().HandOverAsync(default!, default!, Ct);
+        await plane.Received().ProgressAsync("m1", Arg.Is<string>(line => line.Contains("global stop", StringComparison.Ordinal)), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task A_stop_that_cannot_be_read_does_not_stop_the_work()
+    {
+        var plane = Substitute.For<IMissionControlPlane>();
+        plane.ClaimAsync(Arg.Any<CancellationToken>()).Returns(Mission("Staging"));
+        plane.StartedAsync("m1", Arg.Any<CancellationToken>()).Returns(true);
+        plane.StopEngagedAsync(Arg.Any<CancellationToken>()).Returns<Task<bool>>(_ => throw new HttpRequestException("down"));
+        plane.HandOverAsync("m1", Arg.Any<MissionHandOver>(), Arg.Any<CancellationToken>()).Returns(true);
+
+        (await Worker(plane, Substitute.For<IShell>(), new MissionRunnerOptions { StagingMachine = "staging-1", StopPollSeconds = 1 }).TakeOneAsync(Ct)).Should().BeTrue();
+
+        await plane.Received(1).HandOverAsync("m1", Arg.Any<MissionHandOver>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public void The_options_name_what_is_missing_and_refuse_a_machine_that_is_not_an_alias()
+    {
+        var ready = () => new MissionRunnerOptions { ControlPlaneUrl = new Uri("http://127.0.0.1:5180"), Token = "t", StagingMachine = "staging-1" }.Validate();
+        ready.Should().NotThrow();
+        var noUrl = () => new MissionRunnerOptions { Token = "t", StagingMachine = "staging-1" }.Validate();
+        noUrl.Should().Throw<InvalidOperationException>().WithMessage("*ControlPlaneUrl*");
+        var noMachine = () => new MissionRunnerOptions { ControlPlaneUrl = new Uri("http://127.0.0.1:5180"), Token = "t" }.Validate();
+        noMachine.Should().Throw<InvalidOperationException>().WithMessage("*StagingMachine*");
+        var injected = () => new MissionRunnerOptions { ControlPlaneUrl = new Uri("http://127.0.0.1:5180"), Token = "t", StagingMachine = "a; rm -rf ~" }.Validate();
+        injected.Should().Throw<InvalidOperationException>().WithMessage("*alias*");
+    }
+
+    [Theory]
+    [InlineData("https://control.example", true)]
+    [InlineData("http://127.0.0.1:5180", true)]
+    [InlineData("http://192.168.1.10:5180", true)]
+    [InlineData("http://control.example", false)]
+    [InlineData("http://8.8.8.8", false)]
+    public void The_token_goes_over_plain_http_only_inside_the_local_network(string url, bool accepted)
+    {
+        var options = new MissionRunnerOptions { ControlPlaneUrl = new Uri(url), Token = "t", StagingMachine = "staging-1" };
+
+        var make = () => new MissionControlPlane(new HttpClient(), options);
+
+        if (accepted)
+        {
+            make.Should().NotThrow();
+        }
+        else
+        {
+            make.Should().Throw<InvalidOperationException>().WithMessage("*https*");
+        }
     }
 
     [Fact]

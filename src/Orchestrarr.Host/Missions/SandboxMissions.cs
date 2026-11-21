@@ -62,7 +62,7 @@ internal sealed class SandboxWithdrawals : IApprovalWithdrawals
 /// <summary>
 /// **Sandbox only.** The facts of a problem that is a pull request, read from GitHub by the control plane itself: the head and base commits, the checks of the head, the paths that change. What a source of the facts
 /// of a deployment would read from the rulesets and the workflows (merging does not deploy, no tag, no credential in reach of the agent) is **declared here to hold**, because the test bed has no agent identity to
-/// confine; it is said in the log at start (R-58-170).
+/// confine; it is said in the log at start (`SandboxNotice`).
 /// </summary>
 internal sealed class SandboxFacts(IProblemStore problems, IPullRequestFacts pulls) : IFactsSource
 {
@@ -99,6 +99,18 @@ internal sealed class SandboxGrants(World highest) : IGrantSource
     public World? MaxWorldFor(string applicationId) => highest;
 }
 
+/// <summary>Says at start, once, what the test bed declares to hold instead of reading it, so that nobody takes the sandbox for a deployment.</summary>
+internal sealed class SandboxNotice(World highest, ILogger<SandboxNotice> logger) : IHostedService
+{
+    public Task StartAsync(CancellationToken cancellationToken)
+    {
+        logger.LogWarning("Missions:Sandbox is on: the approvals are made by an authority in this process with no code to type, every application is granted up to {World}, and the frame is DECLARED to hold (merging does not deploy, no tag can be created, no credential is in reach of the branch, the identity is confined to its branches). A deployment never sets it.", highest);
+        return Task.CompletedTask;
+    }
+
+    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+}
+
 internal static class SandboxMissionsExtensions
 {
     /// <summary>Replaces the sources that fail closed by the ones of the test bed. Only where the host says that it is a development host.</summary>
@@ -109,12 +121,14 @@ internal static class SandboxMissionsExtensions
             throw new InvalidOperationException("Missions:Sandbox is for a development host only: it declares the frame to hold and approves with an account of its own.");
         }
         var github = configuration.GetSection(GitHubOptions.SectionName).Get<GitHubOptions>() ?? new GitHubOptions();
+        var missions = configuration.GetSection(MissionsOptions.SectionName).Get<MissionsOptions>() ?? new MissionsOptions();
         return services
             .AddSingleton<SandboxApprovals>()
             .AddSingleton<IApprovalSource>(provider => provider.GetRequiredService<SandboxApprovals>())
             .AddSingleton(provider => provider.GetRequiredService<SandboxApprovals>().Verifier)
             .AddSingleton<IApprovalWithdrawals, SandboxWithdrawals>()
-            .AddSingleton<IGrantSource>(new SandboxGrants(Enum.TryParse<World>(configuration[$"{MissionsOptions.SectionName}:SandboxMaxWorld"], ignoreCase: true, out var world) ? world : World.Git))
+            .AddSingleton<IGrantSource>(new SandboxGrants(missions.SandboxMaxWorld))
+            .AddHostedService(provider => new SandboxNotice(missions.SandboxMaxWorld, provider.GetRequiredService<ILogger<SandboxNotice>>()))
             .AddSingleton<IPullRequestFacts>(_ => string.IsNullOrWhiteSpace(github.Token) ? new NoPullRequestFacts() : GitHubPullRequestFacts.Create(github))
             .AddSingleton<IFactsSource, SandboxFacts>();
     }

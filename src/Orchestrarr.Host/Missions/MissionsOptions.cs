@@ -31,6 +31,9 @@ public sealed class MissionsOptions
     /// </summary>
     public bool Sandbox { get; set; }
 
+    /// <summary>With <see cref="Sandbox"/>: the highest world the test bed grants to every application. The Git world until the later worlds are built.</summary>
+    public World SandboxMaxWorld { get; set; } = World.Git;
+
     /// <summary>The paths no mission may touch, whatever its repository (pipelines, secrets). Unset: the pipelines of the forge, the encrypted files and the environment files.</summary>
     public string[]? ForbiddenPaths { get; set; }
 

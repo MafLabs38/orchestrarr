@@ -68,7 +68,11 @@ internal static class RunnerEndpoints
             return claim.Status == ClaimStatus.Unavailable ? Results.Json(new ErrorResponse(ApiErrors.StorageUnavailable), statusCode: StatusCodes.Status503ServiceUnavailable) : Results.Ok(claim);
         });
 
-        group.MapMissionRunnerRoutes(context => (string)context.Items[RunnerItem]!);
+        // The routes of the missions are there only where a mandate can be issued for a runner to take: today a development host with Missions:Sandbox (ADR 0042)
+        if (app.Services.GetService<SandboxApprovals>() is not null)
+        {
+            group.MapMissionRunnerRoutes(context => (string)context.Items[RunnerItem]!);
+        }
 
         // What a runner reads while it runs: the global stop reaches a task that is going on, not only the next one
         group.MapGet("/stop", (Orchestrarr.Core.Approvals.IKillSwitchControl killSwitch) => Results.Ok(new StopStatus(killSwitch.Engaged)));

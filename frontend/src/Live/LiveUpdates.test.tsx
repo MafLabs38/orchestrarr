@@ -134,6 +134,15 @@ describe('invalidateTopic', () => {
     expect(stale()).toEqual(['/api/v1/problems', '/api/v1/runs', '/api/v1/runs/run-1', '/api/v1/runs/run-2']);
   });
 
+  it('reads again the missions, and what the table offers, when a mission moves', async () => {
+    const { queryClient, stale } = setup();
+    queryClient.setQueryData(['/api/v1/missions'], []);
+
+    await invalidateTopic(queryClient, 'missions', 'm-1');
+
+    expect(stale()).toEqual(['/api/v1/missions', '/api/v1/problems']);
+  });
+
   it('reads again the accounts and the options when they change', async () => {
     const { queryClient, stale } = setup();
     queryClient.setQueryData(['/api/v1/accounts'], {});

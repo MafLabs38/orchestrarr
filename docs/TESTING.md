@@ -71,6 +71,8 @@ On a machine with limited CPU, run heavy builds through the resource-limited sli
 
 Run the **`review-vertical`** skill: the five review agents run in parallel on the branch (the `spec-reviewer` checks that the README, the docs and the spec describe what is implemented), and their findings (and those of CodeQL and SonarQube) are triaged with the three-level protocol of ADR 0022 (`.claude/skills/review-triage/`): fixed, declined at medium or below with the reason, or, at blocker, critical, high or major, accepted by the maintainer in a comment; one table in the PR's *Review* section and `docs/review-decisions/<pr>.md`. An architecture verdict of "no" blocks the PR.
 
+The plan and the staging proof are tried in a development host with `Missions:Sandbox`, a mission runner (`Orchestrarr.MissionRunner`, with a staging machine that a `LabTool` restores) and `Agents:Enabled` for the controller; `Orchestrarr.MissionRunner.Test` covers the proof with a fake shell, and `MissionRunnerApiTests` covers the runner routes and a crossing end to end with a fake controller and a fake forge.
+
 ### Looking at it in a browser, yourself
 
 This is **my own feedback loop**, used freely while building, not a gate at the end: a headless Chromium of the machine, with no tunnel and nothing asked of the maintainer. The maintainer's browser (the shared one) is for looking at something together, when they choose to open it. Once it is validated, the hand-over does not change: the address in the chat, and they look on their side.
