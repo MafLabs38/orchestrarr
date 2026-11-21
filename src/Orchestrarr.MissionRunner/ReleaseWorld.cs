@@ -65,23 +65,26 @@ public sealed partial class ReleaseWorld(IMissionControlPlane controlPlane, IShe
             + $"The application was then checked as a tester would: {Tail(verify.Output)}. The deployment was allowed by the act gateway on that commit; nothing else was changed or rolled back.", evidence, [], Complex: false, ComplexReason: null, commit);
     }
 
-    // What is run on the deployment machine: every value in it is validated here (repository, commit, port); the application is built from a Dockerfile, or brought up from a compose file
-    private static string DeployScript(string repository, string commit, string app, int port) =>
-        $"mkdir -p ~/deploy && cd ~/deploy && {{ [ -d {app} ] || git clone --quiet https://github.com/{repository}.git {app}; }} && cd {app} && git fetch --quiet origin && git checkout --quiet -f {commit} && "
-        + $"echo \"PREVIOUS $(docker inspect -f '{{{{.Config.Image}}}}' orch-{app} 2>/dev/null || echo none)\" && "
-        + "if [ -f Dockerfile ]; then "
-        + $"inner=$(grep -m1 -i '^EXPOSE' Dockerfile | awk '{{print $2}}' | cut -d/ -f1); inner=${{inner:-80}}; "
-        + $"docker build --quiet -t orch-{app}:{commit[..8]} . >/dev/null && (docker rm -f orch-{app} >/dev/null 2>&1 || true) && "
-        + $"docker run -d --name orch-{app} --restart unless-stopped -p {port.ToString(CultureInfo.InvariantCulture)}:$inner orch-{app}:{commit[..8]} >/dev/null; "
-        + $"elif [ -f docker-compose.yml ] || [ -f compose.yml ]; then docker compose -p orch-{app} up -d --build --quiet-pull 2>&1; "
-        + "else echo 'nothing to deploy: no Dockerfile and no compose file' >&2; exit 3; fi";
+    // What is run on the deployment machine: every value in it is validated here (repository, commit, port); the application is built from the Dockerfile of the repository. A port that another application already holds stops the deployment.
+    // A compose file is not brought up: it can mount the host, join its network or add devices, and nothing here judges it (ADR 0043).
+    private static string DeployScript(string repository, string commit, string app, int port)
+    {
+        var published = port.ToString(CultureInfo.InvariantCulture);
+        return $"mkdir -p ~/deploy && cd ~/deploy && {{ [ -d {app} ] || git clone --quiet https://github.com/{repository}.git {app}; }} && cd {app} && git fetch --quiet origin && git checkout --quiet -f {commit} && "
+            + $"echo \"PREVIOUS $(docker inspect -f '{{{{.Config.Image}}}}' orch-{app} 2>/dev/null || echo none)\" && "
+            + $"other=$(docker ps --filter publish={published} --format '{{{{.Names}}}}' | grep -vx orch-{app} || true); if [ -n \"$other\" ]; then echo \"port {published} is used by $other\" >&2; exit 4; fi && "
+            + "if [ -f Dockerfile ]; then "
+            + $"inner=$(grep -m1 -i '^EXPOSE' Dockerfile | awk '{{print $2}}' | cut -d/ -f1); inner=${{inner:-80}}; "
+            + $"docker build --quiet -t orch-{app}:{commit[..8]} . >/dev/null && (docker rm -f orch-{app} >/dev/null 2>&1 || true) && "
+            + $"docker run -d --name orch-{app} --restart unless-stopped -p {published}:$inner orch-{app}:{commit[..8]} >/dev/null; "
+            + "else echo 'nothing to deploy: no Dockerfile (a compose file is not deployed here)' >&2; exit 3; fi";
+    }
 
-    // The tester's check: the application answers its health route when it has one, or the containers stay up; it is tried for a minute because a service takes time to start
+    // The tester's check: the application answers its health route, tried for a minute because a service takes time to start
     private static string VerifyScript(string app, int port) =>
         "ok=0; for i in $(seq 1 30); do "
         + $"if docker inspect -f '{{{{.State.Running}}}}' orch-{app} 2>/dev/null | grep -q true; then code=$(curl -s -o /dev/null -w '%{{http_code}}' --max-time 3 http://127.0.0.1:{port.ToString(CultureInfo.InvariantCulture)}/health || true); "
-        + "if [ \"$code\" = 200 ]; then echo \"GET /health answers 200\"; ok=1; break; fi; "
-        + $"elif [ -n \"$(docker compose -p orch-{app} ps -q 2>/dev/null)\" ] && [ -z \"$(docker compose -p orch-{app} ps --status exited -q 2>/dev/null)\" ]; then sleep 8; echo \"the containers of the stack are up\"; ok=1; break; fi; "
+        + "if [ \"$code\" = 200 ]; then echo \"GET /health answers 200\"; ok=1; break; fi; fi; "
         + "sleep 2; done; "
         + $"[ \"$ok\" = 1 ] || {{ echo \"no healthy answer after a minute; last status: $(docker inspect -f '{{{{.State.Status}}}}' orch-{app} 2>/dev/null || echo none)\"; docker logs --tail 5 orch-{app} 2>&1 | tail -5; exit 1; }}";
 
@@ -89,7 +92,7 @@ public sealed partial class ReleaseWorld(IMissionControlPlane controlPlane, IShe
         shell.RunAsync("ssh", ["-o", "BatchMode=yes", "-o", "ConnectTimeout=15", machine, Prelude + script], timeout, cancellationToken);
 
     // The name of the container is the repository's, with only what a container name takes; the port is stable for a repository, from the base port
-    internal static string AppName(string repository) => NotAName().Replace(repository[(repository.IndexOf('/', StringComparison.Ordinal) + 1)..], "-").ToLowerInvariant();
+    internal static string AppName(string repository) => NotAName().Replace(repository, "-").ToLowerInvariant();
 
     internal int PortOf(string repository) => DeploymentPort.Of(repository, options.DeployPortBase);
 

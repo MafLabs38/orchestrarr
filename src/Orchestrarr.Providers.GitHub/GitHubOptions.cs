@@ -32,6 +32,16 @@ public sealed class GitHubOptions
     public string? ContentsToken { get; set; }
 
     /// <summary>The options of the reader of the code: the same address and limits, and the token that carries <c>Contents: read</c> (<see cref="ContentsToken"/>, else <see cref="Token"/>).</summary>
+    /// <summary>The same address and limits with another token: the one of an act, which is never the one that reads.</summary>
+    public GitHubOptions WithToken(string? token) => new()
+    {
+        ApiUrl = ApiUrl,
+        WebUrl = WebUrl,
+        Token = token,
+        TimeoutSeconds = TimeoutSeconds,
+        MaxResponseBytes = MaxResponseBytes,
+    };
+
     public GitHubOptions ForContents() => new()
     {
         ApiUrl = ApiUrl,

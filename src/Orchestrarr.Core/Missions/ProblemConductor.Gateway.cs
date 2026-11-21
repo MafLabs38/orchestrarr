@@ -53,6 +53,13 @@ public sealed partial class ProblemConductor
         }, cancellationToken);
     }
 
+    /// <summary>
+    /// Writes down what the control plane did once an act was authorised (the merge that was made and the commit it made, or the refusal of the forge): the authorisation is in the trail, and so is the act. False when the trail cannot be written,
+    /// which the caller says and does not hide: the act is done, its record is not.
+    /// </summary>
+    public async Task<bool> RecordActPerformedAsync(string missionId, GatedAct act, string detail, CancellationToken cancellationToken) =>
+        missions.Get(missionId) is { } mission && await RequiredAsync(MissionAuditEvents.ActPerformed, mission.Id, Text($"{act}: {detail}"), cancellationToken);
+
     /// <summary>The commit that the controller accepted at the crossing into the world of this mission (the one the world before handed over): what a release deploys. Null when there is none.</summary>
     public string? AcceptedCommit(string missionId) =>
         missions.Get(missionId) is { } mission && problems.Get(mission.ProblemId) is { } run ? LatestDossier(run, mission)?.Commit : null;

@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using NSubstitute;
 using Orchestrarr.Core.Forge;
 using Orchestrarr.Core.Missions;
 using Orchestrarr.Host.Missions;
@@ -186,6 +187,69 @@ public sealed class MissionWorldsApiTests
         (await ClaimAsync(runner, "Staging")).ValueKind.Should().Be(JsonValueKind.Null, "it is offered once for each send-back");
         (await runner.PostAsJsonAsync($"/api/v1/runner/missions/{staging}/handover", dossier, Ct)).EnsureSuccessStatusCode();
         factory.Services.GetRequiredService<IMissionStore>().Get(staging)!.SendBacks.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task The_merge_and_the_authorisation_are_both_in_the_audit_trail()
+    {
+        var forge = new FakeForge();
+        using var factory = new WorldsFactory(forge);
+        _ = await StartProblemAsync(factory);
+        using var runner = Runner(factory);
+        await HandOverAsync(runner, (await ClaimAsync(runner, "Staging")).GetProperty("missionId").GetString()!, Head, $"artifact:tree={Tree}");
+        var git = await NextMissionAsync(factory, runner, "Git");
+        (await runner.PostAsync($"/api/v1/runner/missions/{git}/started", null, Ct)).EnsureSuccessStatusCode();
+
+        (await runner.PostAsync($"/api/v1/runner/missions/{git}/acts/merge", null, Ct)).EnsureSuccessStatusCode();
+
+        factory.Services.GetRequiredService<Orchestrarr.Core.Approvals.IAuditLog>().Page(100).Select(row => $"{row.Entry.Event} {row.Entry.Detail}").Should()
+            .Contain(line => line.StartsWith("act.authorised", StringComparison.Ordinal))
+            .And.Contain(line => line.StartsWith("act.performed", StringComparison.Ordinal) && line.Contains(MergeCommit, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_sent_back_mission_whose_rework_was_handed_out_does_not_hide_the_next_mission_of_its_world()
+    {
+        var forge = new FakeForge();
+        using var factory = new WorldsFactory(forge, "send_back", "grant");
+        _ = await StartProblemAsync(factory, "p-one");
+        using var runner = Runner(factory);
+        var staging = (await ClaimAsync(runner, "Staging")).GetProperty("missionId").GetString()!;
+        await HandOverAsync(runner, staging, Head, $"artifact:tree={Tree}");
+        var driver = factory.Services.GetServices<IHostedService>().OfType<MissionDriver>().Single();
+        await driver.PassAsync(Ct);
+        (await ClaimAsync(runner, "Staging")).GetProperty("rework").GetBoolean().Should().BeTrue();
+
+        // The rework is out and the runner is gone: a later mission of the same world is still offered (another repository, so its turn has come)
+        var approvals = factory.Services.GetRequiredService<SandboxApprovals>();
+        var other = new PlanEntry("p-two", "example/other", "dependency-update", "Prove pull request #3", ["example/other"], World.Release, new MissionBudget(30, 3, 50), new Validation("alice", null), DateTimeOffset.UtcNow, 3, Head);
+        (await approvals.PrepareAsync(other, Ct)).Should().BeTrue();
+        (await factory.Services.GetRequiredService<ProblemConductor>().StartAsync(other, StagingDeclaration.DeclaredStaging, StagingRequirement.Dependencies, StagingState.BaselineProven, Ct)).Ok.Should().BeTrue();
+
+        (await ClaimAsync(runner, "Staging")).GetProperty("problemId").GetString().Should().Be("p-two");
+    }
+
+    [Fact]
+    public async Task A_merge_is_refused_on_a_repository_that_the_settings_do_not_name()
+    {
+        var inner = Substitute.For<IForgeActs>();
+        var guarded = new GuardedForgeActs(inner, ["example/*"]);
+
+        var refused = await guarded.MergePullRequestAsync("other/shop", 7, Head, Ct);
+        _ = await guarded.MergePullRequestAsync("example/shop", 7, Head, Ct);
+
+        refused.Merged.Should().BeFalse();
+        refused.Error.Should().Contain("SandboxMergeRepositories");
+        await inner.Received(1).MergePullRequestAsync("example/shop", 7, Head, Ct);
+        await inner.DidNotReceive().MergePullRequestAsync("other/shop", Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task A_merge_with_no_token_of_its_own_merges_nothing()
+    {
+        var result = await new NoForgeActs().MergePullRequestAsync("example/shop", 7, Head, Ct);
+
+        result.Merged.Should().BeFalse();
     }
 
     [Fact]

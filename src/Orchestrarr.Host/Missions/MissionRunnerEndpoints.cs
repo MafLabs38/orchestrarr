@@ -47,6 +47,15 @@ public sealed class MissionProgress(TimeProvider time)
 
     public string? RemarksOf(string missionId) => _remarks.GetValueOrDefault(missionId);
 
+    /// <summary>Whether the rework for this send-back was already handed out (it does not hand it out).</summary>
+    public bool WasOffered(string missionId, int sendBacks)
+    {
+        lock (_reworked)
+        {
+            return _reworked.GetValueOrDefault(missionId) >= sendBacks;
+        }
+    }
+
     /// <summary>Whether a mission that was sent back for the <paramref name="sendBacks"/>th time has already been offered for another pass: it is offered once for each send-back.</summary>
     public bool TakeRework(string missionId, int sendBacks)
     {
@@ -91,7 +100,7 @@ internal static partial class MissionRunnerEndpoints
                 registry.Seen(name, hello);
             }
             // A mission is offered when its mandate has just been issued, or when the controller sent it back after a dossier (once for each send-back): the same mandate goes on with the remarks
-            var mission = missions.Recent(200).Where(candidate => (candidate.State == MissionState.Mandated || IsSentBack(candidate, dossiers)) && MandateOf(candidate, mandates) is { } signed && signed.Mandate.RunnerId == name && signed.Mandate.ExpiresAt > time.GetUtcNow() && (world is null || string.Equals(candidate.World.ToString(), world, StringComparison.OrdinalIgnoreCase)))
+            var mission = missions.Recent(200).Where(candidate => (candidate.State == MissionState.Mandated || (IsSentBack(candidate, dossiers) && !progress.WasOffered(candidate.Id, candidate.SendBacks))) && MandateOf(candidate, mandates) is { } signed && signed.Mandate.RunnerId == name && signed.Mandate.ExpiresAt > time.GetUtcNow() && (world is null || string.Equals(candidate.World.ToString(), world, StringComparison.OrdinalIgnoreCase)))
                 .Where(candidate => IsItsTurn(candidate, problems))
                 // The later worlds first: what is on its way to production is finished before something new is started
                 .OrderByDescending(candidate => candidate.World).ThenBy(candidate => candidate.Id, StringComparer.Ordinal).FirstOrDefault();

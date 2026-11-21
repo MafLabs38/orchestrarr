@@ -126,7 +126,10 @@ public sealed class GitAndReleaseWorldTests
         dossier.OpenPoints.Should().BeEmpty();
         dossier.EvidenceDigests.Should().Contain("previous:orch-shop:11111111");
         shell.Scripts.Should().HaveCount(2).And.OnlyContain(script => script.Contains("prod-1", StringComparison.Ordinal));
-        shell.Scripts[0].Should().Contain($"git checkout --quiet -f {Merge}").And.Contain("docker build").And.Contain("orch-shop");
+        shell.Scripts[0].Should().Contain($"git checkout --quiet -f {Merge}").And.Contain("docker build").And.Contain("orch-example-shop");
+        shell.Scripts[0].Should().NotContain("docker compose", "a compose file is not deployed here");
+        shell.Scripts[0].Should().Contain("is used by", "a port that another application holds stops the deployment");
+        lines.Should().Contain(line => line.Contains("Verifying", StringComparison.Ordinal)).And.Contain(line => line.Contains("answers on 10.0.0.20:", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -189,7 +192,8 @@ public sealed class GitAndReleaseWorldTests
         var world = new ReleaseWorld(Substitute.For<IMissionControlPlane>(), new ScriptedShell(_ => Ok(string.Empty)), Options());
 
         world.PortOf("example/shop").Should().Be(world.PortOf("example/shop")).And.BeInRange(8100, 8199);
-        ReleaseWorld.AppName("example/Shop API").Should().Be("shop-api");
+        ReleaseWorld.AppName("example/Shop API").Should().Be("example-shop-api");
+        ReleaseWorld.AppName("other/shop").Should().NotBe(ReleaseWorld.AppName("example/shop"), "two owners with one repository name do not share a container");
     }
 
     [Fact]

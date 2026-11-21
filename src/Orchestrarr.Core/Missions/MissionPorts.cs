@@ -56,4 +56,5 @@ public static class MissionAuditEvents
     public const string SweepFailed = "sweep.failed";
     public const string ActAuthorised = "act.authorised";
     public const string ActRefused = "act.refused";
+    public const string ActPerformed = "act.performed";
 }

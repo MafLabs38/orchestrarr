@@ -18,7 +18,7 @@ public sealed class MissionRunnerWorkerTests
     public async Task With_no_mission_nothing_is_done()
     {
         var plane = Substitute.For<IMissionControlPlane>();
-        plane.ClaimAsync("Staging", Arg.Any<CancellationToken>()).Returns((ClaimedMission?)null);
+        plane.ClaimAsync("Staging", Arg.Any<CancellationToken>()).Returns(Task.FromResult<ClaimedMission?>(null));
 
         (await Worker(plane, Substitute.For<IShell>(), new MissionRunnerOptions()).TakeOneAsync(Ct)).Should().BeFalse();
 

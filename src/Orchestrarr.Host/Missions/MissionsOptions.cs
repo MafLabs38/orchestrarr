@@ -37,6 +37,14 @@ public sealed class MissionsOptions
     /// <summary>With <see cref="Sandbox"/>: the address of the machine that releases are deployed to, so that the control plane looks at the deployed application itself (<c>http://host:port/health</c>, the port being the repository's own, <see cref="Orchestrarr.Core.Missions.DeploymentPort"/>). Unset: the health of a release is not read.</summary>
     public string? SandboxDeployHost { get; set; }
 
+    /// <summary>
+    /// With <see cref="Sandbox"/>: the token with which the control plane's act gateway merges, **its own and with no fallback to <c>GitHub:Token</c>** (which reads), and the repositories it may merge on (patterns like <c>owner/name</c> or <c>owner/*</c>).
+    /// Without both, nothing is merged.
+    /// </summary>
+    public string? SandboxMergeToken { get; set; }
+
+    public string[] SandboxMergeRepositories { get; set; } = [];
+
     public int SandboxDeployPortBase { get; set; } = 8100;
 
     /// <summary>The paths no mission may touch, whatever its repository (pipelines, secrets). Unset: the pipelines of the forge, the encrypted files and the environment files.</summary>

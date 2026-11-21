@@ -135,6 +135,15 @@ internal sealed class SandboxFacts(IProblemStore problems, IPullRequestFacts pul
     }
 }
 
+/// <summary>The merge on the repositories that the settings name and no other: the gateway does not merge where it was not told it may, whatever a row says.</summary>
+internal sealed class GuardedForgeActs(IForgeActs inner, IReadOnlyList<string> allowed) : IForgeActs
+{
+    public Task<MergeResult> MergePullRequestAsync(string repositoryFullName, int number, string expectedHeadSha, CancellationToken cancellationToken) =>
+        allowed.Any(pattern => Orchestrarr.Core.Tasks.RepositoryPattern.Matches(pattern, repositoryFullName))
+            ? inner.MergePullRequestAsync(repositoryFullName, number, expectedHeadSha, cancellationToken)
+            : Task.FromResult(new MergeResult(false, null, "the gateway may not merge on this repository (Missions:SandboxMergeRepositories)"));
+}
+
 /// <summary>The health of a deployed application, read by the control plane itself (never the worker's word): a sentence for the controller, or null when it is not read.</summary>
 internal interface ISandboxHealth
 {
@@ -174,7 +183,7 @@ internal sealed class SandboxNotice(World highest, ILogger<SandboxNotice> logger
 {
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        logger.LogWarning("Missions:Sandbox is on: the approvals are made by an authority in this process with no code to type, every application is granted up to {World}, the act gateway MERGES pull requests with the GitHub token of this host, and the frame is DECLARED to hold (merging does not deploy, no tag can be created, no credential is in reach of the branch, the identity is confined to its branches). A deployment never sets it.", highest);
+        logger.LogWarning("Missions:Sandbox is on: the approvals are made by an authority in this process with no code to type, every application is granted up to {World}, the act gateway MERGES pull requests with the GitHub token of this host, and the frame is DECLARED to hold, as is the way back (the previous version is read by the runner when it deploys, after the authorisation) (merging does not deploy, no tag can be created, no credential is in reach of the branch, the identity is confined to its branches). A deployment never sets it.", highest);
         return Task.CompletedTask;
     }
 
@@ -204,7 +213,7 @@ internal static class SandboxMissionsExtensions
             .AddSingleton<IGrantSource>(new SandboxGrants(missions.SandboxMaxWorld))
             .AddHostedService(provider => new SandboxNotice(missions.SandboxMaxWorld, provider.GetRequiredService<ILogger<SandboxNotice>>()))
             .AddSingleton<IPullRequestFacts>(_ => string.IsNullOrWhiteSpace(github.Token) ? new NoPullRequestFacts() : GitHubPullRequestFacts.Create(github))
-            .AddSingleton<IForgeActs>(_ => string.IsNullOrWhiteSpace(github.Token) ? new NoForgeActs() : GitHubForgeActs.Create(github))
+            .AddSingleton<IForgeActs>(_ => string.IsNullOrWhiteSpace(missions.SandboxMergeToken) ? new NoForgeActs() : new GuardedForgeActs(GitHubForgeActs.Create(github.WithToken(missions.SandboxMergeToken)), missions.SandboxMergeRepositories))
             .AddSingleton<IFactsSource, SandboxFacts>();
     }
 }

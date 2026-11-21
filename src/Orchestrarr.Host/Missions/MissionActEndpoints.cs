@@ -39,6 +39,11 @@ internal static class MissionActEndpoints
             }
             var merged = await forge.MergePullRequestAsync(repository, number, head, ct);
             progress.Add(id, merged.Merged ? $"merged pull request #{number} into the integration branch ({Short(merged.Commit)})" : $"the forge refused the merge: {merged.Error}");
+            // The act is written down as the authorisation was: the trail says that the control plane merged, on what, and what came of it
+            if (!await conductor.RecordActPerformedAsync(id, GatedAct.MergePullRequest, merged.Merged ? $"{repository}#{number} merged as {merged.Commit}" : $"{repository}#{number} refused by the forge: {merged.Error}", ct))
+            {
+                progress.Add(id, "the audit trail could not be written after the merge");
+            }
             live.Publish(LiveTopics.Missions, id);
             return Results.Ok(new MissionActResponse(merged.Merged, merged.Merged ? null : merged.Error, [], Retry: false, merged.Commit));
         });

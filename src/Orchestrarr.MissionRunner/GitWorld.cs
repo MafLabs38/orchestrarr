@@ -43,9 +43,9 @@ public sealed class GitWorld(IMissionControlPlane controlPlane, MissionRunnerOpt
         }
         await report($"The pipeline of the integration branch is {state}");
         var claim = state == "passing"
-            ? $"Pull request of {mission.Repository} merged into the integration branch as {Short(commit)}, and the pipeline of that commit is green."
-            : $"Pull request of {mission.Repository} merged into the integration branch as {Short(commit)}, but the pipeline of that commit is {state}.";
-        return new MissionHandOver(claim, $"Merged by the act gateway as {commit}; pipeline of the integration branch: {state}.", [$"merge:commit={commit}", $"pipeline:{state}"],
+            ? $"Pull request of {mission.Repository} is merged into the integration branch as {Short(commit)}, and the pipeline of that commit is green."
+            : $"Pull request of {mission.Repository} is merged into the integration branch as {Short(commit)}, but the pipeline of that commit is {state}.";
+        return new MissionHandOver(claim, $"The pull request is merged as {commit} (by the act gateway of the control plane, or already merged on the forge); pipeline of the integration branch: {state}.", [$"merge:commit={commit}", $"pipeline:{state}"],
             state == "passing" ? [] : [$"The pipeline of the integration branch on {commit} is {state}"], Complex: false, ComplexReason: null, Commit: commit);
     }
 
