@@ -69,6 +69,16 @@ public sealed partial class RepairAgent(IShell shell, MissionRunnerOptions optio
             {
                 return Failed($"the repair could not be applied: {Last(applied.Output)}", evidence, output);
             }
+            // What the agent wrote is read back **now**, before anything of the change under test runs again: the steps install and run the code that is being proved, and what they leave in the folder is not the agent's work
+            var read = await OnMachineAsync(machine, $"cd ~/work/repo && for f in {string.Join(' ', paths)}; do echo \"FILE $f $(base64 -w0 \"$f\")\"; done && export GIT_INDEX_FILE=$(mktemp -u) && git read-tree HEAD && git update-index --add {string.Join(' ', paths)} && echo \"TREE $(git write-tree)\"",
+                TimeSpan.FromMinutes(1), cancellationToken);
+            var files = Files(read.Output);
+            var tree = TreeLine().Match(read.Output) is { Success: true } found ? found.Groups[1].Value : null;
+            var refusal = RepairPolicy.Refusal(files);
+            if (read.ExitCode != 0 || tree is null || files.Count != paths.Length || refusal is not null)
+            {
+                return Failed($"the repair cannot be handed over: {refusal ?? Last(read.Output)}", evidence, output);
+            }
             await report($"The agent changed {paths.Length} file(s); running the steps again");
             var again = await OnMachineAsync(machine, $"cd ~/work/repo && {recipeCommand}", timeout, cancellationToken);
             evidence.Add($"repair{attempt}:exit={again.ExitCode}");
@@ -79,16 +89,7 @@ public sealed partial class RepairAgent(IShell shell, MissionRunnerOptions optio
                 continue;
             }
 
-            // The repair holds: its files are read back whole, and the tree of the state that was proved is made from the merge result and those files only (what the build left in the folder is not part of it)
-            var read = await OnMachineAsync(machine, $"cd ~/work/repo && for f in {string.Join(' ', paths)}; do echo \"FILE $f $(base64 -w0 \"$f\")\"; done && export GIT_INDEX_FILE=$(mktemp -u) && git read-tree HEAD && git update-index --add {string.Join(' ', paths)} && echo \"TREE $(git write-tree)\"",
-                TimeSpan.FromMinutes(1), cancellationToken);
-            var files = Files(read.Output);
-            var tree = TreeLine().Match(read.Output) is { Success: true } found ? found.Groups[1].Value : null;
-            var refusal = RepairPolicy.Refusal(files);
-            if (read.ExitCode != 0 || tree is null || files.Count != paths.Length || refusal is not null)
-            {
-                return Failed($"the repair cannot be handed over: {refusal ?? Last(read.Output)}", evidence, output);
-            }
+            evidence.Add($"{MissionEvidence.Repair}{files.Count}");
             return new RepairOutcome(true, files, tree, summary.ToString().Trim(), evidence, output);
         }
         return Failed(summary.ToString().Trim(), evidence, output);

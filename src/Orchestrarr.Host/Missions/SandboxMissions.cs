@@ -123,7 +123,8 @@ internal sealed class SandboxFacts(IProblemStore problems, IPullRequestFacts pul
         // Once the pull request is merged, what runs is the commit that the merge made on the base branch: the commit, the checks and the tree that the later worlds are about
         var commit = read.Merged && read.MergeCommit is { } merged ? merged : read.HeadSha;
         var checks = read.Merged ? read.MergeChecks : read.Checks;
-        var repairWaiting = repairs?.PendingOf(query.ProblemId) is not null && repairs.FixOf(query.ProblemId) is null;
+        // Only at the crossing into the Git world (no repository is named): an act (the merge) is judged on the pipeline of the pull request that it is about, never on this declaration
+        var repairWaiting = query.Repository is null && repairs?.PendingOf(query.ProblemId) is not null && repairs.FixOf(query.ProblemId) is null;
         return new ObservedFacts(
             BudgetAvailable: true,
             DiffIsClean: read.PathsComplete,

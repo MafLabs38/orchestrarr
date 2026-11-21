@@ -19,6 +19,15 @@ public sealed class RepairPolicyTests
     [InlineData("CLAUDE.md")]
     [InlineData(".claude/settings.json")]
     [InlineData("pyproject.toml")]
+    [InlineData("pkg/handler_test.go")]
+    [InlineData("src/App.Tests/OrderTests.cs")]
+    [InlineData("spec/models/order_spec.rb")]
+    [InlineData("Jenkinsfile")]
+    [InlineData(".circleci/config.yml")]
+    [InlineData(".nvmrc")]
+    [InlineData(".env.production")]
+    [InlineData("CODEOWNERS")]
+    [InlineData("config/secrets.enc.yaml")]
     public void What_decides_whether_it_passes_what_it_depends_on_and_how_it_is_built_are_not_the_agents(string path) =>
         RepairPolicy.IsProtected(path).Should().BeTrue();
 
@@ -47,6 +56,8 @@ public sealed class RepairPolicyTests
         RepairPolicy.Refusal([new PatchedFile("a.js", "x"), new PatchedFile("a.js", "y")]).Should().Contain("twice");
         RepairPolicy.Refusal([new PatchedFile("a.js", new string('x', RepairPolicy.MaxFileBytes + 1))]).Should().Contain("too big");
         RepairPolicy.Refusal([new PatchedFile("a.js", "bin\0ary")]).Should().Contain("not text");
+        RepairPolicy.Refusal([new PatchedFile(null!, "x")]).Should().Contain("no path");
+        RepairPolicy.Refusal([new PatchedFile("a.js", null!)]).Should().Contain("no path or no content");
         RepairPolicy.Refusal([.. Enumerable.Range(0, RepairPolicy.MaxFiles + 1).Select(n => new PatchedFile($"f{n}.js", "x"))]).Should().Contain("between 1 and");
     }
 }

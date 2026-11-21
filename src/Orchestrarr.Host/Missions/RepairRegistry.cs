@@ -25,6 +25,13 @@ internal sealed class RepairRegistry
         _fixes.TryRemove(problemId, out _);
     }
 
+    /// <summary>Forgets what is held of a problem's repair: what a restart of the control plane does to all of them.</summary>
+    public void Forget(string problemId)
+    {
+        _pending.TryRemove(problemId, out _);
+        _fixes.TryRemove(problemId, out _);
+    }
+
     public PendingRepair? PendingOf(string problemId) => _pending.GetValueOrDefault(problemId);
 
     public FixPullRequest? FixOf(string problemId) => _fixes.GetValueOrDefault(problemId);

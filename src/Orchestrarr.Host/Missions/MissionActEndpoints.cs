@@ -14,11 +14,16 @@ internal static class MissionActEndpoints
     public static void MapMissionActRoutes(this RouteGroupBuilder group, Func<HttpContext, string> runnerName)
     {
         group.MapPost("/missions/{id}/acts/merge", async (string id, HttpContext context, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, IPullRequestFacts pulls, IForgeActs forge,
-            ProblemConductor conductor, MissionProgress progress, RepairRegistry? repairs, ILiveNotifier live, CancellationToken ct) =>
+            ProblemConductor conductor, MissionProgress progress, RepairRegistry? repairs, IDossierStore dossiers, ILiveNotifier live, CancellationToken ct) =>
         {
             if (!Gate(id, runnerName(context), missions, mandates, problems, out var entry) || Effective(repairs, missions.Get(id)!.ProblemId, entry) is not var (number, head))
             {
                 return Results.NotFound();
+            }
+            // A repair that was made and is not in a pull request (it has not been opened, or what held it was lost) is not merged around: the pull request that the problem started from is the one that did not pass
+            if (RepairIsOutstanding(repairs, missions, dossiers, missions.Get(id)!.ProblemId))
+            {
+                return Results.Ok(new MissionActResponse(false, "the repair of this problem is not in a pull request: it is opened first, and a repair that was lost goes back to staging", [], Retry: false, null));
             }
             var repository = entry.Repositories[0];
             if (await pulls.ReadAsync(repository, number, ct) is not { } read)
@@ -61,7 +66,7 @@ internal static class MissionActEndpoints
 
         // The pull request that carries the repair of a staging runner: the gateway makes the branch and the commit itself from the files that it checked, so that the runner never holds a credential that writes to a repository
         group.MapPost("/missions/{id}/acts/open-pull-request", async (string id, HttpContext context, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, IPullRequestFacts pulls, IForgeActs forge,
-            ProblemConductor conductor, MissionProgress progress, RepairRegistry? repairs, ILiveNotifier live, CancellationToken ct) =>
+            ProblemConductor conductor, MissionProgress progress, RepairRegistry? repairs, IDossierStore dossiers, ILiveNotifier live, CancellationToken ct) =>
         {
             if (!Gate(id, runnerName(context), missions, mandates, problems, out var entry) || entry.PullRequest is not { } original || repairs is null)
             {
@@ -75,8 +80,8 @@ internal static class MissionActEndpoints
             }
             if (repairs.PendingOf(problemId) is not { } repair)
             {
-                // Nothing was repaired: the pull request is the one the problem started from
-                return Results.Ok(new MissionPullRequestResponse(false, 0, null, null));
+                // A repair that the staging dossier says was made and that is not kept any more (a restart) is lost, and is not replaced by the pull request that did not pass; else nothing was repaired
+                return Results.Ok(new MissionPullRequestResponse(false, 0, null, RepairWasMade(missions, dossiers, problemId) ? "the repair was made but is no longer held (the control plane restarted): the problem goes back to staging" : null));
             }
             if (await pulls.ReadAsync(repository, original, ct) is not { TargetsDefaultBranch: true, DefaultBranch: { } baseBranch } read || !string.Equals(read.HeadSha, repair.OriginalHead, StringComparison.Ordinal))
             {
@@ -106,11 +111,15 @@ internal static class MissionActEndpoints
         });
 
         group.MapPost("/missions/{id}/acts/deploy", async (string id, HttpContext context, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, IPullRequestFacts pulls, ProblemConductor conductor,
-            MissionProgress progress, RepairRegistry? repairs, ILiveNotifier live, CancellationToken ct) =>
+            MissionProgress progress, RepairRegistry? repairs, IDossierStore dossiers, ILiveNotifier live, CancellationToken ct) =>
         {
             if (!Gate(id, runnerName(context), missions, mandates, problems, out var entry) || Effective(repairs, missions.Get(id)!.ProblemId, entry) is not var (number, _))
             {
                 return Results.NotFound();
+            }
+            if (RepairIsOutstanding(repairs, missions, dossiers, missions.Get(id)!.ProblemId))
+            {
+                return Results.Ok(new MissionActResponse(false, "the repair of this problem is not in a pull request", [], Retry: false, null));
             }
             var repository = entry.Repositories[0];
             if (conductor.AcceptedCommit(id) is not { } commit || await pulls.ReadAsync(repository, number, ct) is not { } read)
@@ -137,6 +146,15 @@ internal static class MissionActEndpoints
             return Results.Ok(read.Merged ? new MissionPipelineResponse(MissionPipelineState.Of(read.MergeChecks), read.MergeCommit) : new MissionPipelineResponse(MissionPipelineState.Of(read.Checks), read.HeadSha));
         });
     }
+
+    // The staging dossier of the problem says that a repair was made (the evidence says it, whatever the control plane still holds)
+    private static bool RepairWasMade(IMissionStore missions, IDossierStore dossiers, string problemId) =>
+        missions.ForProblem(problemId).Where(mission => mission.World == World.Staging).Select(mission => dossiers.Get(mission.Id)).LastOrDefault(dossier => dossier is not null)
+            ?.EvidenceDigests.Any(digest => digest.StartsWith(MissionEvidence.Repair, StringComparison.Ordinal)) == true;
+
+    // A repair was made and no pull request carries it
+    private static bool RepairIsOutstanding(RepairRegistry? repairs, IMissionStore missions, IDossierStore dossiers, string problemId) =>
+        repairs?.FixOf(problemId) is null && RepairWasMade(missions, dossiers, problemId);
 
     private static (int Number, string Head)? Effective(RepairRegistry? repairs, string problemId, PlanEntry entry) =>
         repairs?.Effective(problemId, entry) ?? (entry is { PullRequest: { } number, HeadSha: { } head } ? (number, head) : null);

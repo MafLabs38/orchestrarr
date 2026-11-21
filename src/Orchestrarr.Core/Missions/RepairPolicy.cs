@@ -22,11 +22,14 @@ public static partial class RepairPolicy
         "test/**", "tests/**", "**/test/**", "**/tests/**", "**/__tests__/**", "**/*.test.*", "**/*.spec.*", "**/test_*.py", "**/*_test.py", "**/conftest.py", "**/pytest.ini", "**/tox.ini", "**/.mocharc*", "**/jest.config.*", "**/vitest.config.*",
         "**/.eslintrc*", "**/eslint.config.*", "**/tsconfig*.json", "**/Makefile",
         // How it is built and released, and what instructs an agent
-        ".github/**", ".gitlab-ci.yml", "**/Dockerfile*", "**/docker-compose*", "**/compose.y*ml", ".git/**", "**/.git/**", "**/.claude/**", "**/CLAUDE.md", "**/CLAUDE.local.md", "**/.mcp.json", "**/.gitattributes", "**/.gitmodules",
+        ".github/**", ".gitlab-ci.yml", "**/Dockerfile*", "**/.dockerignore", "**/docker-compose*", "**/compose.y*ml", ".git/**", "**/.git/**", "**/.claude/**", "**/CLAUDE.md", "**/CLAUDE.local.md", "**/.mcp.json", "**/.gitattributes", "**/.gitmodules",
+        // The other ecosystems and forges: their tests, their pipelines, their runtimes and their package managers' settings. The list is a floor, not an inventory: a repair of a source that none of these names is still bounded by the limits and by the pipeline
+        "**/*_test.go", "**/*.Tests/**", "**/*.Test/**", "**/*Tests.cs", "**/*Test.cs", "**/*Test.java", "**/*Tests.java", "spec/**", "**/spec/**", "**/*_spec.rb", "**/__snapshots__/**", "**/Jenkinsfile*", ".circleci/**", "azure-pipelines*.yml", "**/.travis.yml", "**/bitbucket-pipelines.yml",
+        "**/.nvmrc", "**/.node-version", "**/.python-version", "**/.tool-versions", "**/.yarnrc*", "**/.pnpmfile.cjs", "**/pnpm-workspace.yaml", "**/pip.conf", "**/NuGet.config", "**/global.json", "**/dotnet-tools.json", "**/*.sln*", "**/Pipfile", "**/*.lock", "**/packages.lock.json",
     ];
 
     /// <summary>Whether the agent may not change this path.</summary>
-    public static bool IsProtected(string path) => PathPatterns.AnyMatches(ProtectedPaths, [path]);
+    public static bool IsProtected(string path) => PathPatterns.AnyMatches(ProtectedPaths, [path]) || PathPatterns.AnyMatches(ForbiddenPathsDefaults.Floor, [path]);
 
     /// <summary>A path the control plane and the runner both agree to carry: relative, plain characters, no spaces or quotes (a name that needs quoting in a script is refused, not escaped).</summary>
     public static bool IsPlainPath(string path) => path.Length is > 0 and <= 200 && PlainPath().IsMatch(path) && !path.StartsWith('/') && !path.Split('/').Any(segment => segment is "" or "." or "..");
@@ -42,6 +45,10 @@ public static partial class RepairPolicy
         {
             return $"a repair changes between 1 and {MaxFiles} files";
         }
+        if (files.Any(file => file?.Path is null))
+        {
+            return "a file has no path or no content";
+        }
         if (files.Select(file => file.Path).Distinct(StringComparer.Ordinal).Count() != files.Count)
         {
             return "a file is named twice";
@@ -49,6 +56,11 @@ public static partial class RepairPolicy
         long total = 0;
         foreach (var file in files)
         {
+            // What came over the wire can be null whatever the type says: a refusal, not an exception
+            if (file is null || file.Path is null || file.Content is null)
+            {
+                return "a file has no path or no content";
+            }
             if (!IsPlainPath(file.Path))
             {
                 return $"the path '{file.Path}' is not one that a repair may carry";

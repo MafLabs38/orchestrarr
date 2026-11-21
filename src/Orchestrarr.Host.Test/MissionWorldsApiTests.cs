@@ -343,7 +343,7 @@ public sealed class MissionWorldsApiTests
             (await runner.PostAsync($"/api/v1/runner/missions/{missionId}/started", null, Ct)).EnsureSuccessStatusCode();
         }
         return await runner.PostAsJsonAsync($"/api/v1/runner/missions/{missionId}/handover",
-            new { claim = "repaired", whatChangedAndWhy = "the source", evidenceDigests = new[] { $"artifact:tree={Tree}" }, openPoints = Array.Empty<string>(), complex = false, commit = Head, files }, Ct);
+            new { claim = "repaired", whatChangedAndWhy = "the source", evidenceDigests = new[] { $"artifact:tree={Tree}", "repair:files=1" }, openPoints = Array.Empty<string>(), complex = false, commit = Head, files }, Ct);
     }
 
     [Fact]
@@ -371,6 +371,33 @@ public sealed class MissionWorldsApiTests
         (await runner.GetFromJsonAsync<JsonElement>($"/api/v1/runner/missions/{git}/pipeline", Ct)).GetProperty("commit").GetString().Should().Be(MergeCommit);
         (await runner.PostAsync($"/api/v1/runner/missions/{git}/acts/open-pull-request", null, Ct)).StatusCode.Should().Be(System.Net.HttpStatusCode.OK);
         forge.Opened.Should().ContainSingle("asking again does not open a second one");
+    }
+
+    [Fact]
+    public async Task A_repair_that_is_not_in_a_pull_request_is_not_merged_around_and_one_that_was_lost_goes_back()
+    {
+        var forge = new FakeForge { HeadChecks = ChecksState.Failing };
+        using var factory = new WorldsFactory(forge);
+        _ = await StartProblemAsync(factory);
+        using var runner = Runner(factory);
+        var staging = (await ClaimAsync(runner, "Staging")).GetProperty("missionId").GetString()!;
+        (await HandOverWithFilesAsync(runner, staging, [new { path = "server.js", content = "fixed" }])).EnsureSuccessStatusCode();
+        var git = await NextMissionAsync(factory, runner, "Git");
+        (await runner.PostAsync($"/api/v1/runner/missions/{git}/started", null, Ct)).EnsureSuccessStatusCode();
+
+        // Asked to merge before the pull request of the repair exists: nothing is merged, whatever the pipeline of the original says
+        var early = await (await runner.PostAsync($"/api/v1/runner/missions/{git}/acts/merge", null, Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct);
+        early.GetProperty("allowed").GetBoolean().Should().BeFalse();
+        early.GetProperty("refusal").GetString().Should().Contain("not in a pull request");
+        forge.Merged.Should().BeFalse();
+
+        // The control plane forgets what it held of the repair: the staging dossier still says that one was made, so it is not replaced by the pull request that did not pass
+        factory.Services.GetRequiredService<RepairRegistry>().Forget("p-worlds");
+        var lost = await (await runner.PostAsync($"/api/v1/runner/missions/{git}/acts/open-pull-request", null, Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct);
+
+        lost.GetProperty("opened").GetBoolean().Should().BeFalse();
+        lost.GetProperty("refusal").GetString().Should().Contain("no longer held");
+        forge.Opened.Should().BeEmpty();
     }
 
     [Fact]
