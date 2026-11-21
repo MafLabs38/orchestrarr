@@ -12,6 +12,9 @@ public static class DeploymentPort
 {
     public const int Span = 100;
 
+    /// <summary>The base that both sides use unless they are told another: the control plane and the runner have to agree on it.</summary>
+    public const int DefaultBase = 8100;
+
     /// <summary>Whether a base port leaves room for the whole span below the last port.</summary>
     public static bool IsValidBase(int basePort) => basePort is >= 1024 && basePort + Span <= 65535;
 

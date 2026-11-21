@@ -36,7 +36,7 @@ public sealed partial class MissionRunnerOptions
     public string? DeployHost { get; set; }
 
     /// <summary>The first port of the deployed applications: each one gets a stable port from here (the same repository always lands on the same port).</summary>
-    public int DeployPortBase { get; set; } = 8100;
+    public int DeployPortBase { get; set; } = DeploymentPort.DefaultBase;
 
     /// <summary>How long the Git world waits for a pipeline (the pull request's before the merge, the integration branch's after it), and how often it asks.</summary>
     public int PipelineWaitMinutes { get; set; } = 15;

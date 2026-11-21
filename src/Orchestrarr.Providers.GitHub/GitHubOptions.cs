@@ -6,14 +6,10 @@ public sealed class GitHubOptions
     public const string SectionName = "GitHub";
 
     /// <summary>
-    /// The checks that are not the repository's pipeline and are not read as such when the checks of a commit are judged: the update jobs of Dependabot, which appear as check runs of the commit they ran on and fail for reasons of their
-    /// own (a package that cannot be updated). A check is ignored only when **both** its name is in this list (whole name, case-insensitive) **and** the application that made it is in <see cref="IgnoredCheckApps"/>: a job that a pull request
-    /// names "Dependabot" in its own workflow is judged. A list in the configuration replaces the default.
+    /// The check runs that are not judged when the checks of a commit are, **when the repository's rules name no required check** (when they do, only the required checks are judged): the update jobs of Dependabot, for example, appear
+    /// as check runs of the commit they ran on and fail for reasons of their own. Whole names, case-insensitive. None by default: what is ignored is the operator's decision.
     /// </summary>
-    public string[] IgnoredChecks { get; set; } = ["Dependabot"];
-
-    /// <summary>The applications (the slug of the app that made the check run) whose checks of the names above are ignored. The update jobs of Dependabot run as GitHub Actions.</summary>
-    public string[] IgnoredCheckApps { get; set; } = ["github-actions"];
+    public string[] IgnoredChecks { get; set; } = [];
 
     public static readonly string[] DefaultBotLogins = ["dependabot[bot]", "renovate[bot]"];
 
@@ -39,7 +35,6 @@ public sealed class GitHubOptions
     public GitHubOptions WithToken(string? token) => new()
     {
         IgnoredChecks = IgnoredChecks,
-        IgnoredCheckApps = IgnoredCheckApps,
         ApiUrl = ApiUrl,
         WebUrl = WebUrl,
         Token = token,

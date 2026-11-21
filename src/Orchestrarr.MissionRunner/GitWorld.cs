@@ -37,18 +37,18 @@ public sealed class GitWorld(IMissionControlPlane controlPlane, MissionRunnerOpt
         while (true)
         {
             state = (await controlPlane.PipelineAsync(mission.MissionId, cancellationToken)).State;
-            if (state is "passing" or "failing" || DateTimeOffset.UtcNow >= deadline)
+            if (state is MissionPipelineState.Passing or MissionPipelineState.Failing || DateTimeOffset.UtcNow >= deadline)
             {
                 break;
             }
             await Task.Delay(TimeSpan.FromSeconds(options.PipelineAskSeconds), cancellationToken);
         }
         await report($"The pipeline of the integration branch is {state}");
-        var claim = state == "passing"
+        var claim = state == MissionPipelineState.Passing
             ? $"Pull request of {mission.Repository} is merged into the integration branch as {Short(commit)}, and the pipeline of that commit is green."
             : $"Pull request of {mission.Repository} is merged into the integration branch as {Short(commit)}, but the pipeline of that commit is {state}.";
         return new MissionHandOver(claim, $"The pull request is merged as {commit} (by the act gateway of the control plane, or already merged on the forge); pipeline of the integration branch: {state}.", [$"{MissionEvidence.MergeCommit}{commit}", $"{MissionEvidence.Pipeline}{state}"],
-            state == "passing" ? [] : [$"The pipeline of the integration branch on {commit} is {state}"], Complex: false, ComplexReason: null, Commit: commit);
+            state == MissionPipelineState.Passing ? [] : [$"The pipeline of the integration branch on {commit} is {state}"], Complex: false, ComplexReason: null, Commit: commit);
     }
 
     private static string Short(string sha) => sha.Length > 8 ? sha[..8] : sha;

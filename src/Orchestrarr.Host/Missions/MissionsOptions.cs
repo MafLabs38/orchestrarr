@@ -45,7 +45,8 @@ public sealed class MissionsOptions
 
     public string[] SandboxMergeRepositories { get; set; } = [];
 
-    public int SandboxDeployPortBase { get; set; } = 8100;
+    /// <summary>The first port of the deployed applications. It must be the same value as <c>MissionRunner:DeployPortBase</c>, or the control plane probes another port than the one deployed to.</summary>
+    public int SandboxDeployPortBase { get; set; } = DeploymentPort.DefaultBase;
 
     /// <summary>The paths no mission may touch, whatever its repository (pipelines, secrets). Unset: the pipelines of the forge, the encrypted files and the environment files.</summary>
     public string[]? ForbiddenPaths { get; set; }

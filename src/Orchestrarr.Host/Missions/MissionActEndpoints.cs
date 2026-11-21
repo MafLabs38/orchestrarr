@@ -79,9 +79,9 @@ internal static class MissionActEndpoints
             }
             if (await pulls.ReadAsync(entry.Repositories[0], number, ct) is not { } read)
             {
-                return Results.Ok(new MissionPipelineResponse("unknown", null));
+                return Results.Ok(new MissionPipelineResponse(MissionPipelineState.Unknown, null));
             }
-            return Results.Ok(read.Merged ? new MissionPipelineResponse(read.MergeChecks.ToString().ToLowerInvariant(), read.MergeCommit) : new MissionPipelineResponse(read.Checks.ToString().ToLowerInvariant(), read.HeadSha));
+            return Results.Ok(read.Merged ? new MissionPipelineResponse(MissionPipelineState.Of(read.MergeChecks), read.MergeCommit) : new MissionPipelineResponse(MissionPipelineState.Of(read.Checks), read.HeadSha));
         });
     }
 

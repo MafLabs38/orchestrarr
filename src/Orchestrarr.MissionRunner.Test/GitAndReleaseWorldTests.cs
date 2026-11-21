@@ -156,7 +156,8 @@ public sealed class GitAndReleaseWorldTests
         dossier.Claim.Should().Contain("verification failed");
         dossier.WhatChangedAndWhy.Should().Contain("Nothing was rolled back").And.Contain("11111111");
         dossier.Commit.Should().Be(Merge);
-        shell.Scripts.Should().HaveCount(2).And.NotContain(script => script.Contains("docker rm -f orch-shop:11111111", StringComparison.Ordinal));
+        shell.Scripts.Should().HaveCount(2);
+        shell.Scripts[1].Should().NotContain("docker run").And.NotContain("docker rm", "the verification only looks");
     }
 
     [Fact]

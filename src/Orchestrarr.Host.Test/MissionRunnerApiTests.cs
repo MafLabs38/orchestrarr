@@ -50,7 +50,7 @@ public sealed class MissionRunnerApiTests
                 builder.ConfigureTestServices(services =>
                 {
                     services.AddSingleton<IAgentGateway>(new SaysGateway(says));
-                    services.AddSingleton<IPullRequestFacts>(new FakeFacts(ForgeReadable ? new PullRequestFacts(Head, "base", false, ChecksState.Passing, ["package.json"], PathsComplete: true) : null));
+                    services.AddSingleton<IPullRequestFacts>(new FakeFacts(ForgeReadable ? new PullRequestFacts(Head, "base", false, ChecksState.Passing, ["package.json"], PathsComplete: true, BaseRef: "main", DefaultBranch: "main") : null));
                 });
             }
             builder.UseEnvironment("Development");
@@ -391,7 +391,7 @@ public sealed class MissionRunnerApiTests
         var problems = new InMemoryProblemStore();
         var entry = new PlanEntry("p-1", "example/shop", "dependency-update", "x", ["example/shop"], World.Release, new MissionBudget(30, 3, 50), new Validation("alice", null), DateTimeOffset.UtcNow, 7, Head);
         problems.Save(new ProblemRun("p-1", "example/shop", ProblemState.InProgress, DateTimeOffset.UtcNow, entry, World.Git, true, null!));
-        var forge = new FakeFacts(new PullRequestFacts(Head, "base", false, ChecksState.Passing, ["package.json", ".github/workflows/ci.yml"], PathsComplete: true));
+        var forge = new FakeFacts(new PullRequestFacts(Head, "base", false, ChecksState.Passing, ["package.json", ".github/workflows/ci.yml"], PathsComplete: true, BaseRef: "main", DefaultBranch: "main"));
         var facts = new SandboxFacts(problems, forge, new InMemoryMissionStore(), new InMemoryDossierStore());
         var dossier = new Dossier("m1", "claim", "why", [], [], false, null, new string('e', 40));
 
@@ -433,7 +433,7 @@ public sealed class MissionRunnerApiTests
         var frame = new MissionFrame(["example/shop"], [], "place");
         missions.Save(new Mission("m-staging", "p-1", "example/shop", World.Staging, "x", frame, new MissionBudget(30, 3, 50), MissionState.Accepted));
         dossiers.Save(new Dossier("m-staging", "proved", "w", [$"artifact:tree={Tree}"], [], false, null, Head));
-        var merged = new PullRequestFacts(Head, "base", false, ChecksState.Passing, ["package.json"], PathsComplete: true, Merged: true, MergeSha, Tree, ChecksState.Passing);
+        var merged = new PullRequestFacts(Head, "base", false, ChecksState.Passing, ["package.json"], PathsComplete: true, Merged: true, MergeSha, Tree, ChecksState.Passing, BaseRef: "main", DefaultBranch: "main");
         var dossier = new Dossier("m-git", "merged", "w", [], [], false, null, MergeSha);
 
         var same = await new SandboxFacts(problems, new FakeFacts(merged), missions, dossiers, new FakeHealth()).FactsAsync(new FactsQuery("p-1", "m-release", World.Release, frame, dossier, MergeSha), Ct);

@@ -105,7 +105,8 @@ internal sealed class SandboxFacts(IProblemStore problems, IPullRequestFacts pul
                 // The forge did not answer in time: the facts are unknown, which fails the checks
             }
         }
-        if (entry is null || read is null)
+        // Staging proves the merge onto the default branch: a pull request that targets another base is not one that this source can speak for (unknown counts as failing)
+        if (entry is null || read is null || !read.TargetsDefaultBranch)
         {
             return new ObservedFacts(BudgetAvailable: false, DiffIsClean: null, CiGreenOnExactCommit: null, ArtifactIsTheOneProvedInStaging: null, WayBackKnown: null, WorkerClaimMatchesFacts: false);
         }

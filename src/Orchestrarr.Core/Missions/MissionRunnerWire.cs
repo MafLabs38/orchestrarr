@@ -20,6 +20,23 @@ public sealed record MissionActResponse(bool Allowed, string? Refusal, IReadOnly
 /// <summary>The state of the pipeline on the commit that a mission works on, read by the control plane from the forge: <c>passing</c>, <c>failing</c>, <c>pending</c> or <c>unknown</c>.</summary>
 public sealed record MissionPipelineResponse(string State, string? Commit);
 
+/// <summary>The values of the state of a pipeline on the wire, and the one mapping from what the forge says: one place for the control plane that says them and the runner that waits for them.</summary>
+public static class MissionPipelineState
+{
+    public const string Passing = "passing";
+    public const string Failing = "failing";
+    public const string Pending = "pending";
+    public const string Unknown = "unknown";
+
+    public static string Of(Orchestrarr.Core.Forge.ChecksState state) => state switch
+    {
+        Orchestrarr.Core.Forge.ChecksState.Passing => Passing,
+        Orchestrarr.Core.Forge.ChecksState.Failing => Failing,
+        Orchestrarr.Core.Forge.ChecksState.Pending or Orchestrarr.Core.Forge.ChecksState.NotRun => Pending,
+        _ => Unknown,
+    };
+}
+
 /// <summary>The prefixes of the evidence that the runners put in a dossier and that the control plane reads back (one place, read by both sides): the tree that was built and tested in staging, the commit that a merge made, the state of a pipeline.</summary>
 public static class MissionEvidence
 {

@@ -14,7 +14,13 @@ public sealed record PullRequestFacts(
     bool Merged = false,
     string? MergeCommit = null,
     string? MergeTree = null,
-    ChecksState MergeChecks = ChecksState.Unknown);
+    ChecksState MergeChecks = ChecksState.Unknown,
+    string? BaseRef = null,
+    string? DefaultBranch = null)
+{
+    /// <summary>Whether the pull request targets the default branch of its repository: the only base that staging proves a merge onto. Unknown counts as not.</summary>
+    public bool TargetsDefaultBranch => BaseRef is not null && string.Equals(BaseRef, DefaultBranch, StringComparison.Ordinal);
+}
 
 /// <summary>The reader of those facts. Null: the pull request cannot be read now (unknown counts as failing for whoever asks).</summary>
 public interface IPullRequestFacts

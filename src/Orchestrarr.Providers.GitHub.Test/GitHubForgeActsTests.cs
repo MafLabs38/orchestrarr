@@ -72,6 +72,28 @@ public sealed class GitHubForgeActsTests
         result.Error.Should().Contain("could not be reached");
     }
 
+    [Theory]
+    [InlineData(HttpStatusCode.MethodNotAllowed, """{ "message": "Pull Request is not mergeable" }""")]
+    [InlineData(HttpStatusCode.OK, "not json at all")]
+    [InlineData(HttpStatusCode.OK, """{ "merged": true }""")]
+    public async Task An_answer_that_does_not_say_which_commit_the_merge_made_is_never_a_merge(HttpStatusCode status, string body)
+    {
+        var result = await Acts(new Recorder(status, body)).MergePullRequestAsync("example/shop", 7, Head, TestContext.Current.CancellationToken);
+
+        result.Merged.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_redirect_is_not_followed_and_the_token_goes_in_the_authorization_header_only()
+    {
+        var handler = new Recorder(HttpStatusCode.Redirect, "{}");
+
+        var result = await Acts(handler).MergePullRequestAsync("example/shop", 7, Head, TestContext.Current.CancellationToken);
+
+        result.Merged.Should().BeFalse();
+        handler.Requests.Should().ContainSingle();
+    }
+
     [Fact]
     public void Without_a_token_there_is_no_act()
     {

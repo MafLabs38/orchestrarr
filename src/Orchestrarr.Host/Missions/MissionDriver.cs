@@ -13,7 +13,6 @@ internal sealed class MissionDriver(IMissionStore missions, IDossierStore dossie
     private static readonly TimeSpan Interval = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan Retry = TimeSpan.FromSeconds(45);
     private readonly Dictionary<string, DateTimeOffset> _askedAt = new(StringComparer.Ordinal);
-    private readonly HashSet<string> _deployRecorded = new(StringComparer.Ordinal);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -58,11 +57,6 @@ internal sealed class MissionDriver(IMissionStore missions, IDossierStore dossie
             return;
         }
         progress.Add(mission.Id, "the controller reads the dossier and the facts");
-        // A deployment is done by the runner: what it says it did is written down next to the authorisation, as what the runner reported and not as a fact of the control plane
-        if (mission.World == World.Release && _deployRecorded.Add(mission.Id))
-        {
-            _ = await conductor.RecordActPerformedAsync(mission.Id, GatedAct.Deploy, $"reported by the runner: {(dossier.Claim.Length > 300 ? dossier.Claim[..300] : dossier.Claim)}", cancellationToken);
-        }
         var observed = await facts.FactsAsync(new FactsQuery(mission.ProblemId, mission.Id, mission.World, mission.Frame, dossier, dossier.Commit), cancellationToken);
         var view = new FactsView(observed.ChangedPaths ?? [], $"checks of the head commit: {observed.CiGreenOnExactCommit?.ToString() ?? "not known"}", mission.World == World.Staging ? "not applicable in the staging world" : observed.Health ?? "not read", []);
         var outcome = await controller.DecideAsync(new ControllerInput(mission, dossier, view), cancellationToken);

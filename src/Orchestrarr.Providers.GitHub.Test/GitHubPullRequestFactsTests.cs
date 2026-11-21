@@ -10,11 +10,11 @@ public sealed class GitHubPullRequestFactsTests
     private const string Base = "2222222222222222222222222222222222222222";
     private readonly Dictionary<string, string> _routes = new(StringComparer.Ordinal);
 
-    private GitHubPullRequestFacts Facts() => GitHubPullRequestFacts.Create(new GitHubOptions { Token = "ghp_secret" }, new Handler(_routes));
+    private GitHubPullRequestFacts Facts(params string[] ignored) => GitHubPullRequestFacts.Create(new GitHubOptions { Token = "ghp_secret", IgnoredChecks = ignored }, new Handler(_routes));
 
     private void Serve(string checkRuns, string files = """[ { "filename": "package.json" }, { "filename": "package-lock.json" } ]""")
     {
-        _routes["/repos/example/app/pulls/3"] = $$"""{ "draft": false, "head": { "sha": "{{Head}}" }, "base": { "sha": "{{Base}}" } }""";
+        _routes["/repos/example/app/pulls/3"] = $$"""{ "draft": false, "head": { "sha": "{{Head}}" }, "base": { "sha": "{{Base}}", "ref": "develop", "repo": { "default_branch": "develop" } } }""";
         _routes["/repos/example/app/pulls/3/files"] = files;
         _routes[$"/repos/example/app/commits/{Head}/check-runs"] = checkRuns;
     }
@@ -51,27 +51,47 @@ public sealed class GitHubPullRequestFactsTests
     }
 
     [Fact]
-    public async Task The_update_jobs_of_dependabot_are_not_the_pipeline()
+    public async Task A_check_that_the_operator_listed_is_not_judged_and_the_others_are()
     {
-        Serve("""{ "check_runs": [ { "name": "build", "status": "completed", "conclusion": "success" }, { "name": "Dependabot", "app": { "slug": "github-actions" }, "status": "completed", "conclusion": "failure" } ] }""");
+        Serve("""{ "check_runs": [ { "name": "build", "status": "completed", "conclusion": "success" }, { "name": "Dependabot", "status": "completed", "conclusion": "failure" } ] }""");
 
-        (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!.Checks.Should().Be(ChecksState.Passing);
+        (await Facts("dependabot").ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!.Checks.Should().Be(ChecksState.Passing);
+        (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!.Checks.Should().Be(ChecksState.Failing, "nothing is ignored unless the operator says so");
+    }
+
+    private void Require(params string[] contexts) =>
+        _routes["/repos/example/app/rules/branches/develop"] = $$"""[ { "type": "deletion" }, { "type": "required_status_checks", "parameters": { "required_status_checks": [ {{string.Join(',', contexts.Select(context => $$"""{ "context": "{{context}}" }"""))}} ] } } ]""";
+
+    [Fact]
+    public async Task When_the_rules_of_the_branch_require_checks_only_those_are_judged()
+    {
+        Serve("""{ "check_runs": [ { "name": "build", "status": "completed", "conclusion": "success" }, { "name": "Dependabot", "status": "completed", "conclusion": "failure" }, { "name": "lint", "status": "completed", "conclusion": "failure" } ] }""");
+        Require("build");
+
+        (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!.Checks.Should().Be(ChecksState.Passing, "the pipeline is what the rules require, a job that is named like an update job is judged only if it is required");
     }
 
     [Fact]
-    public async Task A_job_that_a_pull_request_names_dependabot_in_its_own_application_is_judged()
+    public async Task A_required_check_that_is_red_or_has_not_appeared_is_not_a_green()
     {
-        Serve("""{ "check_runs": [ { "name": "build", "app": { "slug": "github-actions" }, "status": "completed", "conclusion": "success" }, { "name": "Dependabot", "app": { "slug": "some-other-app" }, "status": "completed", "conclusion": "failure" } ] }""");
+        Serve("""{ "check_runs": [ { "name": "build", "status": "completed", "conclusion": "failure" } ] }""");
+        Require("build");
+        (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!.Checks.Should().Be(ChecksState.Failing);
 
-        (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!.Checks.Should().Be(ChecksState.Failing, "only the update jobs that run as the forge's own actions are ignored");
+        Serve("""{ "check_runs": [ { "name": "Dependabot", "status": "completed", "conclusion": "success" } ] }""");
+        (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!.Checks.Should().Be(ChecksState.Pending, "the required check is not there yet");
     }
 
     [Fact]
-    public async Task A_commit_that_has_only_the_update_jobs_of_dependabot_has_no_pipeline_to_judge()
+    public async Task The_base_of_a_pull_request_is_read_and_only_the_default_branch_is_the_one_staging_proves()
     {
-        Serve("""{ "check_runs": [ { "name": "Dependabot", "app": { "slug": "github-actions" }, "status": "completed", "conclusion": "success" } ] }""");
+        Serve("""{ "check_runs": [ { "name": "build", "status": "completed", "conclusion": "success" } ] }""");
+        var facts = (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!;
+        facts.BaseRef.Should().Be("develop");
+        facts.TargetsDefaultBranch.Should().BeTrue();
 
-        (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!.Checks.Should().Be(ChecksState.Unknown);
+        _routes["/repos/example/app/pulls/3"] = $$"""{ "draft": false, "head": { "sha": "{{Head}}" }, "base": { "sha": "{{Base}}", "ref": "release", "repo": { "default_branch": "develop" } } }""";
+        (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!.TargetsDefaultBranch.Should().BeFalse();
     }
 
     [Fact]

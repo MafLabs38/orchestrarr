@@ -33,8 +33,10 @@ public sealed class MissionWorldsApiTests
 
         public string TreeOfTheMerge { get; set; } = Tree;
 
+        public string BaseRef { get; set; } = "main";
+
         public Task<PullRequestFacts?> ReadAsync(string repositoryFullName, int number, CancellationToken cancellationToken) =>
-            Task.FromResult<PullRequestFacts?>(new PullRequestFacts(Head, "base", false, HeadChecks, ["package.json"], PathsComplete: true, Merged, Merged ? MergeCommit : null, Merged ? TreeOfTheMerge : null, Merged ? MergeChecks : ChecksState.Unknown));
+            Task.FromResult<PullRequestFacts?>(new PullRequestFacts(Head, "base", false, HeadChecks, ["package.json"], PathsComplete: true, Merged, Merged ? MergeCommit : null, Merged ? TreeOfTheMerge : null, Merged ? MergeChecks : ChecksState.Unknown, BaseRef: BaseRef, DefaultBranch: "main"));
 
         public Task<MergeResult> MergePullRequestAsync(string repositoryFullName, int number, string expectedHeadSha, CancellationToken cancellationToken)
         {
@@ -294,6 +296,23 @@ public sealed class MissionWorldsApiTests
         await driver.PassAsync(Ct);
 
         factory.Services.GetRequiredService<IMissionStore>().ForProblem("p-worlds").Select(mission => mission.World).Should().NotContain(World.Release, "the base moved between the proof and the merge: another artifact, no release");
+    }
+
+    [Fact]
+    public async Task A_pull_request_whose_base_is_not_the_default_branch_is_not_proved_nor_merged()
+    {
+        var forge = new FakeForge { BaseRef = "release" };
+        using var factory = new WorldsFactory(forge);
+        _ = await StartProblemAsync(factory);
+        using var runner = Runner(factory);
+        var staging = (await ClaimAsync(runner, "Staging")).GetProperty("missionId").GetString()!;
+        await HandOverAsync(runner, staging, Head, $"artifact:tree={Tree}");
+        var driver = factory.Services.GetServices<IHostedService>().OfType<MissionDriver>().Single();
+
+        await driver.PassAsync(Ct);
+
+        factory.Services.GetRequiredService<IMissionStore>().ForProblem("p-worlds").Select(mission => mission.World).Should().Equal(World.Staging);
+        forge.Merged.Should().BeFalse();
     }
 
     [Fact]
