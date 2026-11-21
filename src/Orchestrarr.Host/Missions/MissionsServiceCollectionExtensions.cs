@@ -11,7 +11,7 @@ namespace Orchestrarr.Host.Missions;
 internal static class MissionsServiceCollectionExtensions
 {
     /// <summary>The stores, the key that signs the mandates and the conductor of a problem (ADR 0030 to 0032), in the SQLite file or, in the sandbox, in memory.</summary>
-    public static IServiceCollection AddMissions(this IServiceCollection services, IConfiguration configuration, IStorageSettings storage, string contentRoot)
+    public static IServiceCollection AddMissions(this IServiceCollection services, IConfiguration configuration, IStorageSettings storage, string contentRoot, bool isDevelopment = false)
     {
         var options = configuration.GetSection(MissionsOptions.SectionName).Get<MissionsOptions>() ?? new MissionsOptions();
         services.AddSingleton(options);
@@ -34,7 +34,7 @@ internal static class MissionsServiceCollectionExtensions
             services.AddSingleton<IMissionStore, InMemoryMissionStore>().AddSingleton<IMandateLedger, InMemoryMandateLedger>()
                 .AddSingleton<IProblemStore, InMemoryProblemStore>().AddSingleton<IDossierStore, InMemoryDossierStore>().AddSingleton<IMissionUnit, InMemoryMissionUnit>();
         }
-        return services
+        services
             .AddSingleton<ProblemLocks>()
             .AddSingleton(_ => SigningKey.Open(options.SigningKeyFile ?? (storage is SqliteStorage file ? Path.Combine(Path.GetDirectoryName(file.Path) ?? contentRoot, "keys", "mandate-signing.key") : null)))
             .AddSingleton<IRunnerDirectory>(new ConfiguredRunners(options))
@@ -53,5 +53,11 @@ internal static class MissionsServiceCollectionExtensions
             .AddSingleton(provider => new ConductorServices(provider.GetRequiredService<IFactsSource>(), provider.GetRequiredService<IRunnerDirectory>(), provider.GetRequiredService<IMissionAudit>(), provider.GetRequiredService<TimeProvider>(), () => Guid.NewGuid().ToString("N")))
             .AddSingleton(provider => new ProblemConductor(
                 provider.GetRequiredService<MandateSigner>(), provider.GetRequiredService<MissionStores>(), provider.GetRequiredService<PowerSources>(), provider.GetRequiredService<ConductorServices>(), options.Conductor(), provider.GetRequiredService<ProblemLocks>()));
+        services.AddSingleton<MissionProgress>();
+        if (options.Sandbox)
+        {
+            services.AddSandboxMissions(configuration, isDevelopment).AddHostedService<MissionDriver>();
+        }
+        return services;
     }
 }

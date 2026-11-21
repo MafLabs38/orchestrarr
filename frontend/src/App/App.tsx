@@ -9,6 +9,7 @@ import Page from 'Components/Page/Page';
 import Decisions from 'Decisions/Decisions';
 import HistoryPage from 'Decisions/HistoryPage';
 import LiveUpdates from 'Live/LiveUpdates';
+import Missions from 'Missions/Missions';
 import Options from 'Options/Options';
 import RunDetail from 'Runs/RunDetail';
 import Runs from 'Runs/Runs';
@@ -26,6 +27,7 @@ export default function App() {
             <Route path="/" element={<Decisions />} />
             <Route path="/history" element={<HistoryPage />} />
             <Route path="/queue" element={<Queue />} />
+            <Route path="/missions" element={<Missions />} />
             <Route path="/runs" element={<Runs />} />
             <Route path="/runs/:id" element={<RunDetail />} />
             <Route path="/system/status" element={<Status />} />

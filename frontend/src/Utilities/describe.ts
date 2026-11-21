@@ -386,3 +386,40 @@ const severities = {
 export function describeSeverity(severity: Severity): string {
   return translate(severities[severity]);
 }
+
+const missionWorlds = {
+  Staging: 'MissionWorldStaging',
+  Git: 'MissionWorldGit',
+  Release: 'MissionWorldRelease',
+} as const;
+
+export function describeMissionWorld(world: string): string {
+  return Object.hasOwn(missionWorlds, world) ? translate(missionWorlds[world as keyof typeof missionWorlds]) : world;
+}
+
+const missionEnds = {
+  Done: 'MissionEndDone',
+  DoneComplex: 'MissionEndDoneComplex',
+  Failed: 'MissionEndFailed',
+  Stopped: 'MissionEndStopped',
+  Refused: 'MissionEndRefused',
+} as const;
+
+export function describeMissionEnd(end: string): string {
+  return Object.hasOwn(missionEnds, end) ? translate(missionEnds[end as keyof typeof missionEnds]) : end;
+}
+
+const planRefusals = {
+  theTableChanged: 'PlanRefusalTheTableChanged',
+  thePullRequestMoved: 'PlanRefusalThePullRequestMoved',
+  noRepository: 'PlanRefusalNoRepository',
+  noApproval: 'PlanRefusalNoApproval',
+  notActionable: 'PlanRefusalNotActionable',
+} as const;
+
+// Why a ticked row was not started, from the code of the server
+export function describePlanRefusal(code: string): string {
+  return Object.hasOwn(planRefusals, code)
+    ? translate(planRefusals[code as keyof typeof planRefusals])
+    : translate('PlanRefusalOther');
+}

@@ -5,8 +5,9 @@ import Button from 'Components/Button';
 import form from 'Components/Form/Form.module.css';
 import { ApiRefusal } from 'Helpers/Hooks/sendJson';
 import { kinds } from 'Helpers/Props/kinds';
-import type { ProblemRow } from 'typings/api';
-import { describeApprovalError } from 'Utilities/describe';
+import { usePlanStatus, useValidatePlan } from 'Missions/useMissions';
+import type { ProblemRow, ValidatedProblem } from 'typings/api';
+import { describeApprovalError, describePlanRefusal } from 'Utilities/describe';
 import translate from 'Utilities/translate';
 
 import styles from './SelectionBar.module.css';
@@ -44,6 +45,29 @@ function planLines(chosen: ProblemRow[], stops: Readonly<Record<string, boolean>
   });
 }
 
+function started(problems: { missionId: string | null }[]): number {
+  return problems.filter((problem) => problem.missionId).length;
+}
+
+// What came of the validation through the plan: how many problems started, and why each of the others did not
+function PlanResult({ problems }: Readonly<{ problems: ValidatedProblem[] }>) {
+  const count = started(problems);
+  return (
+    <>
+      <Alert kind={count > 0 ? kinds.SUCCESS : kinds.WARNING}>
+        {count > 0 ? translate('PlanValidated', { count }) : translate('PlanNothingStarted')}
+      </Alert>
+      {problems
+        .filter((problem) => problem.refusal)
+        .map((problem) => (
+          <div key={problem.rowId} className={styles.muted}>
+            {problem.rowId}: {describePlanRefusal(problem.refusal ?? '')}
+          </div>
+        ))}
+    </>
+  );
+}
+
 function summary(problems: number, apps: number): string {
   if (apps === 1) {
     return problems === 1 ? translate('SelectionSummaryOne') : translate('SelectionSummaryOneApp', { problems });
@@ -61,16 +85,28 @@ export default function SelectionBar({
   onDone,
 }: Readonly<SelectionBarProps>) {
   const approve = useApproveProblems();
+  const plan = useValidatePlan();
+  const planStatus = usePlanStatus();
+  const viaMissions = planStatus.data?.available === true;
   const [code, setCode] = useState('');
   const apps = new Set(chosen.map((row) => row.application)).size;
   const canSubmit =
     isOperator &&
     chosen.length > 0 &&
     !approve.isPending &&
-    (!requiresSecondFactor || code.replaceAll(' ', '').length === 6);
+    !plan.isPending &&
+    !planStatus.isPending &&
+    (viaMissions || !requiresSecondFactor || code.replaceAll(' ', '').length === 6);
 
   function submit(event: FormEvent) {
     event.preventDefault();
+    if (viaMissions) {
+      plan.mutate(
+        chosen.map((row) => ({ id: row.id, headSha: row.headSha ?? '', stopBeforeProduction: stops[row.id] ?? false })),
+        { onSuccess: onDone },
+      );
+      return;
+    }
     const rows: SelectedRow[] = chosen.map((row) => ({
       id: row.id,
       headSha: row.headSha ?? '',
@@ -107,13 +143,15 @@ export default function SelectionBar({
         {approve.isSuccess ? (
           <Alert kind={kinds.SUCCESS}>{translate('SelectionApproved', { count: approve.data.approvals.length })}</Alert>
         ) : null}
+        {plan.isSuccess ? <PlanResult problems={plan.data.problems} /> : null}
+        {plan.isError ? <Alert kind={kinds.DANGER}>{translate('PlanNotValidated')}</Alert> : null}
         {approve.isError ? (
           <Alert kind={kinds.DANGER}>
             {describeApprovalError(approve.error instanceof ApiRefusal ? approve.error.code : null)}
           </Alert>
         ) : null}
       </div>
-      {requiresSecondFactor ? (
+      {requiresSecondFactor && !viaMissions ? (
         <label className={styles.code}>
           <span className={form.label}>{translate('AuthenticatorCode')}</span>
           <input

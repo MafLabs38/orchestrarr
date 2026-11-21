@@ -29,7 +29,9 @@ public sealed record PlanEntry(
     World MaxWorld,
     MissionBudget Budget,
     Validation Validation,
-    DateTimeOffset ValidatedAt);
+    DateTimeOffset ValidatedAt,
+    int? PullRequest = null,
+    string? HeadSha = null);
 
 /// <summary>What the control plane keeps about one problem while it is worked on: its plan entry, the certificate of the approval, the highest world its powers reached when it started (a display: the power is read again at each crossing), and whether its application has a staging.</summary>
 public sealed record ProblemRun(string ProblemId, string ApplicationId, ProblemState State, DateTimeOffset StartedAt, PlanEntry Entry, World HighestAllowed, bool UsesStaging, SignedApproval Approval, World? CurrentWorld = null, string? Note = null);

@@ -25,6 +25,7 @@
       "Helpers/*": ["./src/Helpers/*"],
       "Options/*": ["./src/Options/*"],
       "Live/*": ["./src/Live/*"],
+      "Missions/*": ["./src/Missions/*"],
       "Runs/*": ["./src/Runs/*"],
       "System/*": ["./src/System/*"],
       "Utilities/*": ["./src/Utilities/*"],

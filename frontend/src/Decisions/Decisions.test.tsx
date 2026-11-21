@@ -267,6 +267,172 @@ describe('Decisions', () => {
     expect(posted(fetchMock)).toMatchObject({ rows: [{ id: 'pr:example/shop#9', goesUpTo: 'repair' }] });
   });
 
+  it('sends the selection to the plan, with the commit that was seen, when the host validates through the missions', async () => {
+    const failing = problem({
+      id: 'pr:example/shop#9',
+      description: 'lodash 4.17.4 → 4.18.1',
+      headSha: head('d'),
+      pullRequest: 9,
+    });
+    const base = stub(problemsReport([failing]), { requiresSecondFactor: false });
+    const answer = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status }));
+    const wrapped = vi.fn((input: string, init?: RequestInit) => {
+      if (String(input) === '/api/v1/plan') {
+        return answer({ available: true });
+      }
+      if (String(input) === '/api/v1/plan/validate') {
+        return answer(
+          { problems: [{ rowId: failing.id, problemId: 'p-1', missionId: 'm-1', world: 'Staging', refusal: null }] },
+          201,
+        );
+      }
+      return base(input, init);
+    });
+    vi.stubGlobal('fetch', wrapped);
+    renderWithProviders(<Decisions />);
+
+    await userEvent.click(await screen.findByLabelText(/Select example\/shop lodash/));
+    await userEvent.click(screen.getByRole('button', { name: 'Validate the selection' }));
+
+    expect(await screen.findByText(/Validated: 1 problems started/)).toBeInTheDocument();
+    const call = wrapped.mock.calls.find(([path]) => String(path) === '/api/v1/plan/validate');
+    expect(JSON.parse(String((call?.[1] as RequestInit).body))).toEqual({
+      rows: [{ id: 'pr:example/shop#9', headSha: head('d'), stopBeforeProduction: false }],
+    });
+    expect(base.mock.calls.some(([path]) => String(path) === '/api/v1/problems/approve')).toBe(false);
+  });
+
+  it('says that nothing started, and why, when the plan refuses every row', async () => {
+    const row = problem({
+      id: 'pr:example/shop#9',
+      description: 'lodash 4.17.4 → 4.18.1',
+      headSha: head('d'),
+      pullRequest: 9,
+    });
+    const base = stub(problemsReport([row]), { requiresSecondFactor: false });
+    const answer = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: string, init?: RequestInit) => {
+        if (String(input) === '/api/v1/plan') {
+          return answer({ available: true });
+        }
+        if (String(input) === '/api/v1/plan/validate') {
+          return answer(
+            {
+              problems: [
+                { rowId: row.id, problemId: null, missionId: null, world: null, refusal: 'thePullRequestMoved' },
+              ],
+            },
+            201,
+          );
+        }
+        return base(input, init);
+      }),
+    );
+    renderWithProviders(<Decisions />);
+
+    await userEvent.click(await screen.findByLabelText(/Select example\/shop lodash/));
+    await userEvent.click(screen.getByRole('button', { name: 'Validate the selection' }));
+
+    expect(await screen.findByText('Nothing was started.')).toBeInTheDocument();
+    expect(screen.getByText(/the pull request moved since it was read/)).toBeInTheDocument();
+    expect(screen.queryByText(/problems started/)).not.toBeInTheDocument();
+  });
+
+  it('says how many started and why each of the others did not, when only some rows are started', async () => {
+    const first = problem({
+      id: 'pr:example/shop#9',
+      description: 'lodash 4.17.4 → 4.18.1',
+      headSha: head('d'),
+      pullRequest: 9,
+    });
+    const second = problem({
+      id: 'pr:example/shop#10',
+      description: 'minimist 0.0.8 → 1.2.8',
+      headSha: head('e'),
+      pullRequest: 10,
+    });
+    const base = stub(problemsReport([first, second]), { requiresSecondFactor: false });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: string, init?: RequestInit) => {
+        if (String(input) === '/api/v1/plan') {
+          return Promise.resolve(new Response(JSON.stringify({ available: true }), { status: 200 }));
+        }
+        if (String(input) === '/api/v1/plan/validate') {
+          const problems = [
+            { rowId: first.id, problemId: 'p-1', missionId: 'm-1', world: 'Staging', refusal: null },
+            { rowId: second.id, problemId: null, missionId: null, world: null, refusal: 'noApproval' },
+          ];
+          return Promise.resolve(new Response(JSON.stringify({ problems }), { status: 201 }));
+        }
+        return base(input, init);
+      }),
+    );
+    renderWithProviders(<Decisions />);
+
+    await userEvent.click(await screen.findByLabelText(/Select example\/shop lodash/));
+    await userEvent.click(screen.getByLabelText(/Select example\/shop minimist/));
+    await userEvent.click(screen.getByRole('button', { name: 'Validate the selection' }));
+
+    expect(await screen.findByText(/Validated: 1 problems started/)).toBeInTheDocument();
+    expect(screen.getByText(/pr:example\/shop#10: already in progress or not approved/)).toBeInTheDocument();
+  });
+
+  it('says so when the plan cannot be reached, and does not use the approval path for it', async () => {
+    const row = problem({
+      id: 'pr:example/shop#9',
+      description: 'lodash 4.17.4 → 4.18.1',
+      headSha: head('d'),
+      pullRequest: 9,
+    });
+    const base = stub(problemsReport([row]), { requiresSecondFactor: false });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: string, init?: RequestInit) => {
+        if (String(input) === '/api/v1/plan') {
+          return Promise.resolve(new Response(JSON.stringify({ available: true }), { status: 200 }));
+        }
+        if (String(input) === '/api/v1/plan/validate') {
+          return Promise.resolve(new Response('{}', { status: 500 }));
+        }
+        return base(input, init);
+      }),
+    );
+    renderWithProviders(<Decisions />);
+
+    await userEvent.click(await screen.findByLabelText(/Select example\/shop lodash/));
+    await userEvent.click(screen.getByRole('button', { name: 'Validate the selection' }));
+
+    expect(await screen.findByText('The selection could not be validated.')).toBeInTheDocument();
+    expect(base.mock.calls.some(([path]) => String(path) === '/api/v1/problems/approve')).toBe(false);
+  });
+
+  it('does not ask for the code when the host validates through the plan', async () => {
+    const row = problem({
+      id: 'pr:example/shop#9',
+      description: 'lodash 4.17.4 → 4.18.1',
+      headSha: head('d'),
+      pullRequest: 9,
+    });
+    const base = stub(problemsReport([row]), { requiresSecondFactor: true });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: string, init?: RequestInit) =>
+        String(input) === '/api/v1/plan'
+          ? Promise.resolve(new Response(JSON.stringify({ available: true }), { status: 200 }))
+          : base(input, init),
+      ),
+    );
+    renderWithProviders(<Decisions />);
+
+    await userEvent.click(await screen.findByLabelText(/Select example\/shop lodash/));
+
+    await waitFor(() => expect(screen.queryByLabelText('Authenticator code')).not.toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'Validate the selection' })).toBeEnabled();
+  });
+
   it('sorts by a column when its header is clicked, ascending then descending then back, and a line keeps its number', async () => {
     stub(problemsReport(rows));
     renderWithProviders(<Decisions />);

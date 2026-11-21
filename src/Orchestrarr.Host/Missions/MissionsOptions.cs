@@ -25,6 +25,15 @@ public sealed class MissionsOptions
     /// <summary>Where the private key that signs the mandates is kept. Unset: next to the database when there is one, else a key that lives as long as the host.</summary>
     public string? SigningKeyFile { get; set; }
 
+    /// <summary>
+    /// **Sandbox only, Development only** (the host refuses to start otherwise): an approval authority in this process with an account of its own and no second factor to type, the facts of GitHub for the pull request of a
+    /// problem, and a frame that is declared to hold (merging does not deploy, tags and credentials are out of the agent's reach). It lets the test bed run a problem end to end; a deployment never sets it.
+    /// </summary>
+    public bool Sandbox { get; set; }
+
+    /// <summary>With <see cref="Sandbox"/>: the highest world the test bed grants to every application. The Git world until the later worlds are built.</summary>
+    public World SandboxMaxWorld { get; set; } = World.Git;
+
     /// <summary>The paths no mission may touch, whatever its repository (pipelines, secrets). Unset: the pipelines of the forge, the encrypted files and the environment files.</summary>
     public string[]? ForbiddenPaths { get; set; }
 

@@ -20,6 +20,7 @@ export default defineConfig({
       Options: src('Options'),
       System: src('System'),
       Live: src('Live'),
+      Missions: src('Missions'),
       Runs: src('Runs'),
       Utilities: src('Utilities'),
       typings: src('typings'),

@@ -67,7 +67,7 @@ builder.Services.AddApprovals(approvals, grants, storage, tasks, optionsSettings
 // The accounts share the database of the approvals, so they come after it; the cookie's keys sit next to the database when there is one
 builder.Services.AddAccounts(auth, storage);
 // The missions, the mandates and the conductor of a problem (ADR 0030 to 0032); they share the database too
-builder.Services.AddMissions(builder.Configuration, storage, builder.Environment.ContentRootPath);
+builder.Services.AddMissions(builder.Configuration, storage, builder.Environment.ContentRootPath, builder.Environment.IsDevelopment());
 builder.Services.AddOrchestrarrSecurity(auth, storage is SqliteStorage file ? Path.Combine(Path.GetDirectoryName(file.Path) ?? builder.Environment.ContentRootPath, "keys") : null);
 builder.Services.AddSingleton(builder.Configuration.GetSection(WorkItemCatalogOptions.SectionName).Get<WorkItemCatalogOptions>() ?? new WorkItemCatalogOptions());
 builder.Services.AddSingleton<WorkItemCatalog>();
@@ -152,6 +152,7 @@ app.MapHub<LiveHub>(LiveHub.Path, options => options.CloseOnAuthenticationExpira
 api.MapProblemsEndpoints();
 api.MapRunEndpoints();
 api.MapMissionEndpoints();
+api.MapPlanEndpoints();
 if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Testing"))
 {
     // Fake agents and fake facts, no power: for the sandbox and the tests, never for a deployment

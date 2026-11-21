@@ -353,3 +353,46 @@ export interface ProblemsReport {
   skipped: number;
   code: CodeScopeStatus | null;
 }
+
+// A mission of a problem, in the world where it works (FUNCTIONAL 5.12), with what its runner reported and the dossier it handed over
+export interface MissionView {
+  id: string;
+  problemId: string;
+  applicationId: string;
+  world: 'Staging' | 'Git' | 'Release';
+  objective: string;
+  state: string;
+  end: string | null;
+  endReason: string | null;
+  sendBacks: number;
+  problemState: string | null;
+  mandate: {
+    id: string;
+    runnerId: string;
+    source: string;
+    acts: string[];
+    issuedAt: string;
+    expiresAt: string;
+    revoked: boolean;
+  } | null;
+  dossier: {
+    claim: string;
+    whatChangedAndWhy: string;
+    openPoints: string[];
+    complex: boolean;
+    complexReason: string | null;
+  } | null;
+  progress: string[] | null;
+}
+
+export interface PlanStatus {
+  available: boolean;
+}
+
+export interface ValidatedProblem {
+  rowId: string;
+  problemId: string | null;
+  missionId: string | null;
+  world: string | null;
+  refusal: string | null;
+}

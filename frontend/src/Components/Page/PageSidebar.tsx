@@ -33,6 +33,11 @@ export default function PageSidebar() {
         badge={approvals?.length}
       />
       <SidebarLink
+        to="/missions"
+        icon={<icons.RUNS size={iconSizes.LARGE} aria-hidden="true" />}
+        label={translate('Missions')}
+      />
+      <SidebarLink
         to="/runs"
         icon={<icons.RUNS size={iconSizes.LARGE} aria-hidden="true" />}
         label={translate('Runs')}
