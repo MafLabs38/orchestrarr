@@ -62,7 +62,7 @@ public sealed partial class StagingProof(IShell shell, MissionRunnerOptions opti
                 return Refused(mission, $"The pull request could not be fetched and merged on the staging machine (a conflict with the base branch): {Tail(checkout.Output)}");
             }
             // What is built and tested is the result of the merge, and its tree names the artifact: the release must be that tree (FR-WLD-14)
-            evidence.Add($"artifact:tree={tree}");
+            evidence.Add($"{MissionEvidence.ArtifactTree}{tree}");
             if (mission.HeadSha is { Length: > 0 } expected && !head.Equals(expected, StringComparison.OrdinalIgnoreCase))
             {
                 return Refused(mission, $"The pull request moved since it was approved (approved {Short(expected)}, found {Short(head)}): nothing was built.");

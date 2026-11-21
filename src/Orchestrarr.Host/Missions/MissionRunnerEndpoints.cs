@@ -40,7 +40,7 @@ public sealed class MissionProgress(TimeProvider time)
     }
 
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _remarks = new(StringComparer.Ordinal);
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> _reworked = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, int> _reworked = new(StringComparer.Ordinal);
 
     /// <summary>What the controller asked to be done again when it sent a mission back (kept with the lines: the dossier is the record, this is only what the next pass of the runner is told).</summary>
     public void Remark(string missionId, string remarks) => _remarks[missionId] = remarks.Length > 1000 ? remarks[..1000] : remarks;

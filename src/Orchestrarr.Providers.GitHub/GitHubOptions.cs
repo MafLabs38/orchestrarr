@@ -7,9 +7,13 @@ public sealed class GitHubOptions
 
     /// <summary>
     /// The checks that are not the repository's pipeline and are not read as such when the checks of a commit are judged: the update jobs of Dependabot, which appear as check runs of the commit they ran on and fail for reasons of their
-    /// own (a package that cannot be updated). A comparison of the whole name, case-insensitive. A list in the configuration replaces the default.
+    /// own (a package that cannot be updated). A check is ignored only when **both** its name is in this list (whole name, case-insensitive) **and** the application that made it is in <see cref="IgnoredCheckApps"/>: a job that a pull request
+    /// names "Dependabot" in its own workflow is judged. A list in the configuration replaces the default.
     /// </summary>
     public string[] IgnoredChecks { get; set; } = ["Dependabot"];
+
+    /// <summary>The applications (the slug of the app that made the check run) whose checks of the names above are ignored. The update jobs of Dependabot run as GitHub Actions.</summary>
+    public string[] IgnoredCheckApps { get; set; } = ["github-actions"];
 
     public static readonly string[] DefaultBotLogins = ["dependabot[bot]", "renovate[bot]"];
 
@@ -31,10 +35,11 @@ public sealed class GitHubOptions
     /// </summary>
     public string? ContentsToken { get; set; }
 
-    /// <summary>The options of the reader of the code: the same address and limits, and the token that carries <c>Contents: read</c> (<see cref="ContentsToken"/>, else <see cref="Token"/>).</summary>
     /// <summary>The same address and limits with another token: the one of an act, which is never the one that reads.</summary>
     public GitHubOptions WithToken(string? token) => new()
     {
+        IgnoredChecks = IgnoredChecks,
+        IgnoredCheckApps = IgnoredCheckApps,
         ApiUrl = ApiUrl,
         WebUrl = WebUrl,
         Token = token,
@@ -42,6 +47,7 @@ public sealed class GitHubOptions
         MaxResponseBytes = MaxResponseBytes,
     };
 
+    /// <summary>The options of the reader of the code: the same address and limits, and the token that carries <c>Contents: read</c> (<see cref="ContentsToken"/>, else <see cref="Token"/>).</summary>
     public GitHubOptions ForContents() => new()
     {
         ApiUrl = ApiUrl,

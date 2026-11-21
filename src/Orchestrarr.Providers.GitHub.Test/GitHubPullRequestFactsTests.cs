@@ -53,15 +53,23 @@ public sealed class GitHubPullRequestFactsTests
     [Fact]
     public async Task The_update_jobs_of_dependabot_are_not_the_pipeline()
     {
-        Serve("""{ "check_runs": [ { "name": "build", "status": "completed", "conclusion": "success" }, { "name": "Dependabot", "status": "completed", "conclusion": "failure" } ] }""");
+        Serve("""{ "check_runs": [ { "name": "build", "status": "completed", "conclusion": "success" }, { "name": "Dependabot", "app": { "slug": "github-actions" }, "status": "completed", "conclusion": "failure" } ] }""");
 
         (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!.Checks.Should().Be(ChecksState.Passing);
     }
 
     [Fact]
+    public async Task A_job_that_a_pull_request_names_dependabot_in_its_own_application_is_judged()
+    {
+        Serve("""{ "check_runs": [ { "name": "build", "app": { "slug": "github-actions" }, "status": "completed", "conclusion": "success" }, { "name": "Dependabot", "app": { "slug": "some-other-app" }, "status": "completed", "conclusion": "failure" } ] }""");
+
+        (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!.Checks.Should().Be(ChecksState.Failing, "only the update jobs that run as the forge's own actions are ignored");
+    }
+
+    [Fact]
     public async Task A_commit_that_has_only_the_update_jobs_of_dependabot_has_no_pipeline_to_judge()
     {
-        Serve("""{ "check_runs": [ { "name": "Dependabot", "status": "completed", "conclusion": "success" } ] }""");
+        Serve("""{ "check_runs": [ { "name": "Dependabot", "app": { "slug": "github-actions" }, "status": "completed", "conclusion": "success" } ] }""");
 
         (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!.Checks.Should().Be(ChecksState.Unknown);
     }

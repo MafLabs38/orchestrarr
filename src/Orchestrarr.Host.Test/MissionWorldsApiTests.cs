@@ -72,6 +72,7 @@ public sealed class MissionWorldsApiTests
             });
             builder.UseEnvironment("Development");
             builder.UseSetting("Missions:Sandbox", "true");
+            builder.UseSetting("Missions:SandboxMaxWorld", "Release");
             builder.UseSetting("Missions:StagingRunner", "runner-staging");
             builder.UseSetting("Missions:GitRunner", "runner-staging");
             builder.UseSetting("Missions:ReleaseRunner", "runner-staging");
@@ -112,7 +113,8 @@ public sealed class MissionWorldsApiTests
     private static async Task<string> NextMissionAsync(AccountsApiFactory factory, HttpClient runner, string world)
     {
         var driver = factory.Services.GetServices<IHostedService>().OfType<MissionDriver>().Single();
-        for (var attempt = 0; attempt < 20; attempt++)
+        // The driver and the claim answer at once: a mission that is not offered after a pass is not coming
+        for (var attempt = 0; attempt < 3; attempt++)
         {
             await driver.PassAsync(Ct);
             var mission = await ClaimAsync(runner, world);
@@ -120,7 +122,6 @@ public sealed class MissionWorldsApiTests
             {
                 return mission.GetProperty("missionId").GetString()!;
             }
-            await Task.Delay(250, Ct);
         }
         throw new InvalidOperationException($"No mission of the {world} world was offered.");
     }

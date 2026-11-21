@@ -20,5 +20,13 @@ public sealed record MissionActResponse(bool Allowed, string? Refusal, IReadOnly
 /// <summary>The state of the pipeline on the commit that a mission works on, read by the control plane from the forge: <c>passing</c>, <c>failing</c>, <c>pending</c> or <c>unknown</c>.</summary>
 public sealed record MissionPipelineResponse(string State, string? Commit);
 
+/// <summary>The prefixes of the evidence that the runners put in a dossier and that the control plane reads back (one place, read by both sides): the tree that was built and tested in staging, the commit that a merge made, the state of a pipeline.</summary>
+public static class MissionEvidence
+{
+    public const string ArtifactTree = "artifact:tree=";
+    public const string MergeCommit = "merge:commit=";
+    public const string Pipeline = "pipeline:";
+}
+
 /// <summary>What a runner hands over. A value that is missing is a refusal on the control plane's side, whatever the runner sends.</summary>
 public sealed record MissionHandOver(string? Claim, string? WhatChangedAndWhy, IReadOnlyList<string>? EvidenceDigests, IReadOnlyList<string>? OpenPoints, bool Complex, string? ComplexReason, string? Commit);

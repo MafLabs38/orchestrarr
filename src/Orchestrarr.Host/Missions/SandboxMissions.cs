@@ -82,12 +82,9 @@ internal sealed class SandboxFacts(IProblemStore problems, IPullRequestFacts pul
             return null;
         }
         var proved = missions.ForProblem(problemId).Where(mission => mission.World == World.Staging).Select(mission => dossiers.Get(mission.Id))
-            .LastOrDefault(dossier => dossier is not null)?.EvidenceDigests.FirstOrDefault(digest => digest.StartsWith(ArtifactEvidence, StringComparison.Ordinal));
-        return proved is not null && string.Equals(proved[ArtifactEvidence.Length..], read.MergeTree, StringComparison.Ordinal);
+            .LastOrDefault(dossier => dossier is not null)?.EvidenceDigests.FirstOrDefault(digest => digest.StartsWith(MissionEvidence.ArtifactTree, StringComparison.Ordinal));
+        return proved is not null && string.Equals(proved[MissionEvidence.ArtifactTree.Length..], read.MergeTree, StringComparison.Ordinal);
     }
-
-    /// <summary>The evidence of the staging proof that names the tree it built and tested (the runner of missions writes it, the facts source compares it).</summary>
-    public const string ArtifactEvidence = "artifact:tree=";
 
     public async ValueTask<ObservedFacts> FactsAsync(FactsQuery query, CancellationToken cancellationToken)
     {
@@ -203,6 +200,10 @@ internal static class SandboxMissionsExtensions
         var missions = configuration.GetSection(MissionsOptions.SectionName).Get<MissionsOptions>() ?? new MissionsOptions();
         if (missions.SandboxDeployHost is { Length: > 0 } deployHost)
         {
+            if (!DeploymentPort.IsValidBase(missions.SandboxDeployPortBase))
+            {
+                throw new InvalidOperationException("Missions:SandboxDeployPortBase must leave room for 100 ports below 65535.");
+            }
             services.AddSingleton<ISandboxHealth>(new HttpSandboxHealth(deployHost, missions.SandboxDeployPortBase));
         }
         return services

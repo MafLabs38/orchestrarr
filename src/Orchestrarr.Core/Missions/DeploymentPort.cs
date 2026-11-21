@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -11,5 +12,9 @@ public static class DeploymentPort
 {
     public const int Span = 100;
 
-    public static int Of(string repository, int basePort) => basePort + BitConverter.ToUInt16(SHA256.HashData(Encoding.UTF8.GetBytes(repository)), 0) % Span;
+    /// <summary>Whether a base port leaves room for the whole span below the last port.</summary>
+    public static bool IsValidBase(int basePort) => basePort is >= 1024 && basePort + Span <= 65535;
+
+    // Big-endian whatever the machine is: the runner and the control plane may not run on the same architecture
+    public static int Of(string repository, int basePort) => basePort + BinaryPrimitives.ReadUInt16BigEndian(SHA256.HashData(Encoding.UTF8.GetBytes(repository))) % Span;
 }

@@ -25,9 +25,14 @@ internal static class MissionActEndpoints
             {
                 return Results.Ok(new MissionActResponse(false, "the pull request cannot be read now", [], Retry: true, null));
             }
-            // A merge that was done (by this gateway, before a failure of the runner's call) is reported, not done twice
+            // A pull request that is found merged is reported, not merged twice, and what the control plane found is written down: it may have been this gateway's merge, whose answer did not reach the runner, or someone else's
             if (read.Merged)
             {
+                if (!string.Equals(read.HeadSha, head, StringComparison.Ordinal))
+                {
+                    return Results.Ok(new MissionActResponse(false, "the pull request was merged at another head than the one that was approved", [], Retry: false, null));
+                }
+                _ = await conductor.RecordActPerformedAsync(id, GatedAct.MergePullRequest, $"{repository}#{number} found already merged as {read.MergeCommit}, at the approved head (by this gateway earlier, or not)", ct);
                 return Results.Ok(new MissionActResponse(true, null, [], Retry: false, read.MergeCommit));
             }
             var authorisation = await conductor.AuthoriseActAsync(id, GatedAct.MergePullRequest, head, ct, repository, read.BaseSha);

@@ -13,11 +13,13 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts
     private readonly HttpClient _http;
 
     private readonly string[] _ignored;
+    private readonly string[] _ignoredApps;
 
-    private GitHubPullRequestFacts(HttpClient http, string[] ignored)
+    private GitHubPullRequestFacts(HttpClient http, string[] ignored, string[] ignoredApps)
     {
         _http = http;
         _ignored = ignored;
+        _ignoredApps = ignoredApps;
     }
 
     [GeneratedRegex(@"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9._-]{1,100}$", RegexOptions.None, 250)]
@@ -35,7 +37,7 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts
         http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
         http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("orchestrarr", "1"));
         http.DefaultRequestHeaders.Add("X-GitHub-Api-Version", "2022-11-28");
-        return new GitHubPullRequestFacts(http, options.IgnoredChecks);
+        return new GitHubPullRequestFacts(http, options.IgnoredChecks, options.IgnoredCheckApps);
     }
 
     public async Task<PullRequestFacts?> ReadAsync(string repositoryFullName, int number, CancellationToken cancellationToken)
@@ -118,7 +120,8 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts
             {
                 seen++;
                 // A check that is not a pipeline of the repository is counted as read (the total is of every run) and not judged
-                if (run.TryGetProperty("name", out var name) && _ignored.Contains(name.GetString(), StringComparer.OrdinalIgnoreCase))
+                if (run.TryGetProperty("name", out var name) && _ignored.Contains(name.GetString(), StringComparer.OrdinalIgnoreCase)
+                    && run.TryGetProperty("app", out var app) && app.ValueKind == JsonValueKind.Object && app.TryGetProperty("slug", out var slug) && _ignoredApps.Contains(slug.GetString(), StringComparer.OrdinalIgnoreCase))
                 {
                     continue;
                 }

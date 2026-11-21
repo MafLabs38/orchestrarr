@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using Orchestrarr.Core.Missions;
 
 namespace Orchestrarr.MissionRunner;
 
@@ -68,6 +69,10 @@ public sealed partial class MissionRunnerOptions
         if (!StagingMachineShape().IsMatch(StagingMachine))
         {
             throw new InvalidOperationException("MissionRunner:StagingMachine must be an SSH alias: letters, digits, dot, underscore and dash only.");
+        }
+        if (PipelineAskSeconds < 1 || PipelineWaitMinutes < 1 || StepTimeoutMinutes < 1 || !DeploymentPort.IsValidBase(DeployPortBase))
+        {
+            throw new InvalidOperationException("MissionRunner: PipelineAskSeconds, PipelineWaitMinutes and StepTimeoutMinutes must be at least 1, and DeployPortBase must leave room for 100 ports below 65535.");
         }
         if (Worlds.Length == 0)
         {

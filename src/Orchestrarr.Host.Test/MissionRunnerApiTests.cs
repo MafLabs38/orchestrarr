@@ -437,7 +437,7 @@ public sealed class MissionRunnerApiTests
         var dossier = new Dossier("m-git", "merged", "w", [], [], false, null, MergeSha);
 
         var same = await new SandboxFacts(problems, new FakeFacts(merged), missions, dossiers, new FakeHealth()).FactsAsync(new FactsQuery("p-1", "m-release", World.Release, frame, dossier, MergeSha), Ct);
-        var moved = await new SandboxFacts(problems, new FakeFacts(merged with { MergeTree = new string('8', 40) }), missions, dossiers).FactsAsync(new FactsQuery("p-1", "m-release", World.Release, frame, dossier, MergeSha), Ct);
+        var moved = await new SandboxFacts(problems, new FakeFacts(merged with { MergeTree = new string('8', 40) }), missions, dossiers, new FakeHealth()).FactsAsync(new FactsQuery("p-1", "m-release", World.Release, frame, dossier, MergeSha), Ct);
         var open = await new SandboxFacts(problems, new FakeFacts(merged with { Merged = false, MergeCommit = null, MergeTree = null }), missions, dossiers).FactsAsync(new FactsQuery("p-1", "m-git", World.Git, frame, dossier with { Commit = Head }, Head), Ct);
 
         same.HeadCommit.Should().Be(MergeSha);
@@ -445,7 +445,7 @@ public sealed class MissionRunnerApiTests
         same.ArtifactIsTheOneProvedInStaging.Should().BeTrue();
         same.Health.Should().Be("GET example/shop answered 200", "the control plane looks at the deployed application in the release world");
         moved.ArtifactIsTheOneProvedInStaging.Should().BeFalse("the merge is another tree than the one that was proved");
-        moved.Health.Should().BeNull();
+        moved.Health.Should().NotBeNull("the health is read in the release world whatever the tree says");
         open.HeadCommit.Should().Be(Head, "before the merge the commit is the head of the pull request");
         open.ArtifactIsTheOneProvedInStaging.Should().BeNull("nothing to compare before the merge");
     }
