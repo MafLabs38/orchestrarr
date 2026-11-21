@@ -27,6 +27,14 @@ public sealed class GitAndReleaseWorldTests
 
     private static MissionPipelineResponse Pipeline(string state) => new(state, Merge);
 
+    // A control plane with nothing to open: a change that was not repaired is carried by its own pull request
+    private static IMissionControlPlane Plane()
+    {
+        var plane = Substitute.For<IMissionControlPlane>();
+        plane.OpenPullRequestAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new MissionPullRequestResponse(false, 0, null, null));
+        return plane;
+    }
+
     private static Func<string, Task> Quiet => _ => Task.CompletedTask;
 
     // --- the Git world
@@ -34,7 +42,7 @@ public sealed class GitAndReleaseWorldTests
     [Fact]
     public async Task The_merge_is_asked_again_while_only_the_pipeline_stands_in_the_way_then_the_pipeline_of_the_integration_branch_is_waited_for()
     {
-        var plane = Substitute.For<IMissionControlPlane>();
+        var plane = Plane();
         plane.MergeAsync("m1", Arg.Any<CancellationToken>()).Returns(Waiting(), Waiting(), Merged());
         plane.PipelineAsync("m1", Arg.Any<CancellationToken>()).Returns(Pipeline("pending"), Pipeline("passing"));
         var lines = new List<string>();
@@ -50,9 +58,42 @@ public sealed class GitAndReleaseWorldTests
     }
 
     [Fact]
+    public async Task A_repair_is_carried_by_a_pull_request_that_the_gateway_opens_before_the_merge_and_the_dossier_says_that_it_replaces_the_original()
+    {
+        var plane = Plane();
+        plane.OpenPullRequestAsync("m1", Arg.Any<CancellationToken>()).Returns(new MissionPullRequestResponse(true, 17, new string('c', 40), null));
+        plane.MergeAsync("m1", Arg.Any<CancellationToken>()).Returns(Merged());
+        plane.PipelineAsync("m1", Arg.Any<CancellationToken>()).Returns(Pipeline("passing"));
+        var lines = new List<string>();
+
+        var dossier = await new GitWorld(plane, Options()).RunAsync(Mission("Git"), line => { lines.Add(line); return Task.CompletedTask; }, Ct);
+
+        dossier.Claim.Should().Contain("#17").And.Contain("carries the repair of #7").And.Contain("replaces it");
+        lines.Should().Contain(line => line.Contains("Opened pull request #17", StringComparison.Ordinal));
+        Received.InOrder(() =>
+        {
+            plane.OpenPullRequestAsync("m1", Arg.Any<CancellationToken>());
+            plane.MergeAsync("m1", Arg.Any<CancellationToken>());
+        });
+    }
+
+    [Fact]
+    public async Task A_pull_request_that_the_gateway_would_not_open_is_handed_over_as_a_refusal_and_nothing_is_merged()
+    {
+        var plane = Plane();
+        plane.OpenPullRequestAsync("m1", Arg.Any<CancellationToken>()).Returns(new MissionPullRequestResponse(false, 0, null, "the pull request moved since the repair was made"));
+
+        var dossier = await new GitWorld(plane, Options()).RunAsync(Mission("Git"), Quiet, Ct);
+
+        dossier.Claim.Should().Contain("was not opened").And.Contain("moved");
+        dossier.Commit.Should().BeNull();
+        await plane.DidNotReceive().MergeAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task A_merge_that_the_gateway_refuses_for_good_is_handed_over_as_a_refusal_with_no_commit()
     {
-        var plane = Substitute.For<IMissionControlPlane>();
+        var plane = Plane();
         plane.MergeAsync("m1", Arg.Any<CancellationToken>()).Returns(new MissionActResponse(false, "a check of the code failed", ["DiffTouchesForbiddenPath"], Retry: false, null));
 
         var dossier = await new GitWorld(plane, Options()).RunAsync(Mission("Git"), Quiet, Ct);
@@ -65,7 +106,7 @@ public sealed class GitAndReleaseWorldTests
     [Fact]
     public async Task A_pipeline_that_fails_on_the_integration_branch_is_said_with_the_merge_commit()
     {
-        var plane = Substitute.For<IMissionControlPlane>();
+        var plane = Plane();
         plane.MergeAsync("m1", Arg.Any<CancellationToken>()).Returns(Merged());
         plane.PipelineAsync("m1", Arg.Any<CancellationToken>()).Returns(Pipeline("failing"));
 
@@ -79,7 +120,7 @@ public sealed class GitAndReleaseWorldTests
     [Fact]
     public async Task A_pipeline_that_never_ends_is_not_waited_for_without_end()
     {
-        var plane = Substitute.For<IMissionControlPlane>();
+        var plane = Plane();
         plane.MergeAsync("m1", Arg.Any<CancellationToken>()).Returns(Merged());
         plane.PipelineAsync("m1", Arg.Any<CancellationToken>()).Returns(Pipeline("pending"));
         var options = Options();
@@ -108,7 +149,7 @@ public sealed class GitAndReleaseWorldTests
 
     private static IMissionControlPlane Allowing()
     {
-        var plane = Substitute.For<IMissionControlPlane>();
+        var plane = Plane();
         plane.DeployAsync("m1", Arg.Any<CancellationToken>()).Returns(new MissionActResponse(true, null, [], Retry: false, Merge));
         return plane;
     }
@@ -133,9 +174,19 @@ public sealed class GitAndReleaseWorldTests
     }
 
     [Fact]
+    public async Task The_dossier_of_a_release_says_that_the_pull_request_replaces_the_one_the_problem_started_from()
+    {
+        var shell = new ScriptedShell(script => script.Contains("git clone", StringComparison.Ordinal) ? Ok("PREVIOUS none") : Ok("GET /health answers 200"));
+
+        var dossier = await new ReleaseWorld(Allowing(), shell, Options()).RunAsync(Mission("Release") with { PullRequest = 17, Replaces = 6 }, Quiet, Ct);
+
+        dossier.Claim.Should().Contain("pull request #17").And.Contain("replaces #6");
+    }
+
+    [Fact]
     public async Task A_deployment_that_is_not_allowed_touches_no_machine()
     {
-        var plane = Substitute.For<IMissionControlPlane>();
+        var plane = Plane();
         plane.DeployAsync("m1", Arg.Any<CancellationToken>()).Returns(new MissionActResponse(false, "a check of the code failed", ["ArtifactNotProvedInStaging"], Retry: false, null));
         var shell = new ScriptedShell(_ => Ok(string.Empty));
 
@@ -177,7 +228,7 @@ public sealed class GitAndReleaseWorldTests
     [InlineData("other/shop")]
     public async Task A_repository_that_is_unreadable_or_not_accepted_is_refused_before_anything_is_asked_or_run(string repository)
     {
-        var plane = Substitute.For<IMissionControlPlane>();
+        var plane = Plane();
         var shell = new ScriptedShell(_ => Ok(string.Empty));
 
         var dossier = await new ReleaseWorld(plane, shell, Options()).RunAsync(Mission("Release") with { Repository = repository }, Quiet, Ct);

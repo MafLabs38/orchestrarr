@@ -43,6 +43,9 @@ public sealed partial class MissionRunnerOptions
 
     public int PipelineAskSeconds { get; set; } = 15;
 
+    /// <summary>The agent that repairs a change that does not pass in staging (ADR 0044). Not configured: a change that does not pass is handed over as it is.</summary>
+    public RepairSettings Repair { get; set; } = new();
+
     public int PollSeconds { get; set; } = 3;
 
     /// <summary>How often the global stop is read while a mission runs.</summary>
@@ -74,6 +77,7 @@ public sealed partial class MissionRunnerOptions
         {
             throw new InvalidOperationException("MissionRunner: PipelineAskSeconds, PipelineWaitMinutes and StepTimeoutMinutes must be at least 1, and DeployPortBase must leave room for 100 ports below 65535.");
         }
+        Repair.Validate();
         if (Worlds.Length == 0)
         {
             throw new InvalidOperationException("MissionRunner:Worlds must name at least one world.");

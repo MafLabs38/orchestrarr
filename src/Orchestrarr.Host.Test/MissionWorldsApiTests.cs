@@ -36,11 +36,32 @@ public sealed class MissionWorldsApiTests
         public string BaseRef { get; set; } = "main";
 
         public Task<PullRequestFacts?> ReadAsync(string repositoryFullName, int number, CancellationToken cancellationToken) =>
-            Task.FromResult<PullRequestFacts?>(new PullRequestFacts(Head, "base", false, HeadChecks, ["package.json"], PathsComplete: true, Merged, Merged ? MergeCommit : null, Merged ? TreeOfTheMerge : null, Merged ? MergeChecks : ChecksState.Unknown, BaseRef: BaseRef, DefaultBranch: "main"));
+            Task.FromResult<PullRequestFacts?>(new PullRequestFacts(Opened.Count > 0 && number == RepairNumber ? RepairHead : Head, "base", false, Opened.Count > 0 && number == RepairNumber ? ChecksState.Passing : HeadChecks, ["package.json"], PathsComplete: true, Merged, Merged ? MergeCommit : null, Merged ? TreeOfTheMerge : null, Merged ? MergeChecks : ChecksState.Unknown, BaseRef: BaseRef, DefaultBranch: "main"));
+
+        public List<(string Branch, string Parent, IReadOnlyList<PatchedFile> Files)> Opened { get; } = [];
+
+        public List<int> Closed { get; } = [];
+
+        /// <summary>The pull request that carries a repair, once opened: the merge and the reads are about it.</summary>
+        public const int RepairNumber = 42;
+
+        public static readonly string RepairHead = new('f', 40);
+
+        public Task<OpenedPullRequest> OpenPullRequestAsync(string repositoryFullName, string baseBranch, string parentSha, string branch, IReadOnlyList<PatchedFile> files, string title, string body, CancellationToken cancellationToken)
+        {
+            Opened.Add((branch, parentSha, files));
+            return Task.FromResult(new OpenedPullRequest(true, RepairNumber, RepairHead, null));
+        }
+
+        public Task<bool> ClosePullRequestAsync(string repositoryFullName, int number, string comment, CancellationToken cancellationToken)
+        {
+            Closed.Add(number);
+            return Task.FromResult(true);
+        }
 
         public Task<MergeResult> MergePullRequestAsync(string repositoryFullName, int number, string expectedHeadSha, CancellationToken cancellationToken)
         {
-            if (expectedHeadSha != Head)
+            if (expectedHeadSha != (Opened.Count > 0 ? RepairHead : Head))
             {
                 return Task.FromResult(new MergeResult(false, null, "409: the head moved"));
             }
@@ -313,6 +334,95 @@ public sealed class MissionWorldsApiTests
 
         factory.Services.GetRequiredService<IMissionStore>().ForProblem("p-worlds").Select(mission => mission.World).Should().Equal(World.Staging);
         forge.Merged.Should().BeFalse();
+    }
+
+    private static async Task<HttpResponseMessage> HandOverWithFilesAsync(HttpClient runner, string missionId, object[] files, bool start = true)
+    {
+        if (start)
+        {
+            (await runner.PostAsync($"/api/v1/runner/missions/{missionId}/started", null, Ct)).EnsureSuccessStatusCode();
+        }
+        return await runner.PostAsJsonAsync($"/api/v1/runner/missions/{missionId}/handover",
+            new { claim = "repaired", whatChangedAndWhy = "the source", evidenceDigests = new[] { $"artifact:tree={Tree}" }, openPoints = Array.Empty<string>(), complex = false, commit = Head, files }, Ct);
+    }
+
+    [Fact]
+    public async Task A_repair_is_carried_by_a_pull_request_that_the_gateway_opens_and_that_replaces_the_original()
+    {
+        var forge = new FakeForge { HeadChecks = ChecksState.Failing };
+        using var factory = new WorldsFactory(forge);
+        _ = await StartProblemAsync(factory);
+        using var runner = Runner(factory);
+        var staging = (await ClaimAsync(runner, "Staging")).GetProperty("missionId").GetString()!;
+
+        (await HandOverWithFilesAsync(runner, staging, [new { path = "server.js", content = "fixed" }])).EnsureSuccessStatusCode();
+        var git = await NextMissionAsync(factory, runner, "Git");
+        (await runner.PostAsync($"/api/v1/runner/missions/{git}/started", null, Ct)).EnsureSuccessStatusCode();
+
+        var opened = await (await runner.PostAsync($"/api/v1/runner/missions/{git}/acts/open-pull-request", null, Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct);
+        opened.GetProperty("opened").GetBoolean().Should().BeTrue(opened.ToString());
+        opened.GetProperty("number").GetInt32().Should().Be(FakeForge.RepairNumber);
+        forge.Opened.Should().ContainSingle().Which.Should().Match<(string Branch, string Parent, IReadOnlyList<PatchedFile> Files)>(made => made.Parent == Head && made.Branch.StartsWith("orchestrarr/p-worlds-", StringComparison.Ordinal) && made.Files.Single().Path == "server.js");
+        var merge = await (await runner.PostAsync($"/api/v1/runner/missions/{git}/acts/merge", null, Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct);
+
+        merge.GetProperty("allowed").GetBoolean().Should().BeTrue(merge.ToString());
+        forge.Merged.Should().BeTrue();
+        forge.Closed.Should().Equal(7);
+        (await runner.GetFromJsonAsync<JsonElement>($"/api/v1/runner/missions/{git}/pipeline", Ct)).GetProperty("commit").GetString().Should().Be(MergeCommit);
+        (await runner.PostAsync($"/api/v1/runner/missions/{git}/acts/open-pull-request", null, Ct)).StatusCode.Should().Be(System.Net.HttpStatusCode.OK);
+        forge.Opened.Should().ContainSingle("asking again does not open a second one");
+    }
+
+    [Fact]
+    public async Task Nothing_is_opened_for_a_change_that_was_not_repaired()
+    {
+        var forge = new FakeForge();
+        using var factory = new WorldsFactory(forge);
+        _ = await StartProblemAsync(factory);
+        using var runner = Runner(factory);
+        await HandOverAsync(runner, (await ClaimAsync(runner, "Staging")).GetProperty("missionId").GetString()!, Head, $"artifact:tree={Tree}");
+        var git = await NextMissionAsync(factory, runner, "Git");
+        (await runner.PostAsync($"/api/v1/runner/missions/{git}/started", null, Ct)).EnsureSuccessStatusCode();
+
+        var opened = await (await runner.PostAsync($"/api/v1/runner/missions/{git}/acts/open-pull-request", null, Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct);
+
+        opened.GetProperty("opened").GetBoolean().Should().BeFalse();
+        opened.GetProperty("refusal").ValueKind.Should().Be(JsonValueKind.Null);
+        forge.Opened.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("package.json")]
+    [InlineData(".github/workflows/ci.yml")]
+    [InlineData("test/api.test.js")]
+    [InlineData("../server.js")]
+    public async Task A_repair_that_touches_what_a_repair_may_not_is_refused_whatever_the_runner_checked(string path)
+    {
+        var forge = new FakeForge();
+        using var factory = new WorldsFactory(forge);
+        _ = await StartProblemAsync(factory);
+        using var runner = Runner(factory);
+        var staging = (await ClaimAsync(runner, "Staging")).GetProperty("missionId").GetString()!;
+
+        var response = await HandOverWithFilesAsync(runner, staging, [new { path, content = "x" }]);
+
+        response.StatusCode.Should().Be(System.Net.HttpStatusCode.UnprocessableEntity);
+        factory.Services.GetRequiredService<RepairRegistry>().PendingOf("p-worlds").Should().BeNull("nothing of a refused repair is kept");
+    }
+
+    [Fact]
+    public async Task Only_the_staging_world_hands_over_a_repair()
+    {
+        var forge = new FakeForge();
+        using var factory = new WorldsFactory(forge);
+        _ = await StartProblemAsync(factory);
+        using var runner = Runner(factory);
+        await HandOverAsync(runner, (await ClaimAsync(runner, "Staging")).GetProperty("missionId").GetString()!, Head, $"artifact:tree={Tree}");
+        var git = await NextMissionAsync(factory, runner, "Git");
+
+        var response = await HandOverWithFilesAsync(runner, git, [new { path = "server.js", content = "x" }]);
+
+        response.StatusCode.Should().Be(System.Net.HttpStatusCode.Conflict);
     }
 
     [Fact]

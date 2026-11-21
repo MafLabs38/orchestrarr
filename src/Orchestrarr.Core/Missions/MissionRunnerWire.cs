@@ -5,7 +5,7 @@ namespace Orchestrarr.Core.Missions;
 /// a line of what it does. The mandate itself stays with the control plane in this first version (ADR 0042 point 6).
 /// </summary>
 public sealed record ClaimedMission(string MissionId, string ProblemId, string ApplicationId, string World, string Objective, string Repository, int? PullRequest, string? HeadSha, DateTimeOffset MandateExpiresAt,
-    IReadOnlyList<string> Acts, string? Commit = null, bool Rework = false, string? Remarks = null);
+    IReadOnlyList<string> Acts, string? Commit = null, bool Rework = false, string? Remarks = null, int? Replaces = null);
 
 public sealed record MissionClaimResponse(ClaimedMission? Mission);
 
@@ -45,5 +45,11 @@ public static class MissionEvidence
     public const string Pipeline = "pipeline:";
 }
 
+/// <summary>One file of a repair, whole: its path from the root of the repository and its text. The control plane writes it into a commit; it is never applied by anything that reads a diff.</summary>
+public sealed record PatchedFile(string Path, string Content);
+
+/// <summary>What the gateway answers when it opened the pull request that carries a repair: the head of the new branch, or why it did not.</summary>
+public sealed record MissionPullRequestResponse(bool Opened, int Number, string? Commit, string? Refusal);
+
 /// <summary>What a runner hands over. A value that is missing is a refusal on the control plane's side, whatever the runner sends.</summary>
-public sealed record MissionHandOver(string? Claim, string? WhatChangedAndWhy, IReadOnlyList<string>? EvidenceDigests, IReadOnlyList<string>? OpenPoints, bool Complex, string? ComplexReason, string? Commit);
+public sealed record MissionHandOver(string? Claim, string? WhatChangedAndWhy, IReadOnlyList<string>? EvidenceDigests, IReadOnlyList<string>? OpenPoints, bool Complex, string? ComplexReason, string? Commit, IReadOnlyList<PatchedFile>? Files = null);

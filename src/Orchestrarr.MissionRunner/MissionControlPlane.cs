@@ -18,6 +18,9 @@ public interface IMissionControlPlane
     /// <summary>Asks the act gateway whether the commit that the controller accepted may be deployed now.</summary>
     Task<MissionActResponse> DeployAsync(string missionId, CancellationToken cancellationToken);
 
+    /// <summary>Asks the act gateway to open the pull request that carries the repair of the staging world, if there is one: it makes the branch and the commit itself. <c>Opened</c> false with no refusal: there was nothing to open.</summary>
+    Task<MissionPullRequestResponse> OpenPullRequestAsync(string missionId, CancellationToken cancellationToken);
+
     /// <summary>The pipeline of the commit that the mission works on, as the control plane reads it from the forge.</summary>
     Task<MissionPipelineResponse> PipelineAsync(string missionId, CancellationToken cancellationToken);
 
@@ -89,6 +92,13 @@ public sealed class MissionControlPlane : IMissionControlPlane
         using var response = await _http.PostAsync($"/api/v1/runner/missions/{Uri.EscapeDataString(missionId)}/acts/{act}", content: null, cancellationToken);
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadFromJsonAsync<MissionActResponse>(MissionWire.Json, cancellationToken) ?? new MissionActResponse(false, "the control plane gave no answer", [], Retry: false, null);
+    }
+
+    public async Task<MissionPullRequestResponse> OpenPullRequestAsync(string missionId, CancellationToken cancellationToken)
+    {
+        using var response = await _http.PostAsync($"/api/v1/runner/missions/{Uri.EscapeDataString(missionId)}/acts/open-pull-request", content: null, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<MissionPullRequestResponse>(MissionWire.Json, cancellationToken) ?? new MissionPullRequestResponse(false, 0, null, "the control plane gave no answer");
     }
 
     public async Task<MissionPipelineResponse> PipelineAsync(string missionId, CancellationToken cancellationToken)

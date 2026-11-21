@@ -59,7 +59,8 @@ public sealed partial class ReleaseWorld(IMissionControlPlane controlPlane, IShe
             return Failed(commit, evidence, $"{app} was deployed at {Short(commit)} on {address} but its verification failed: {Tail(verify.Output)}", previous);
         }
         await report($"{app} answers on {address}");
-        var what = mission.PullRequest is { } number ? $"pull request #{number} of {mission.Repository}, merged as {Short(commit)} after its proof in staging," : $"{mission.Repository} at {Short(commit)}";
+        var replaces = mission.Replaces is { } original ? $" (it replaces #{original}, which did not pass as it was: it carries the same change with a repair of the source)" : string.Empty;
+        var what = mission.PullRequest is { } number ? $"pull request #{number} of {mission.Repository}{replaces}, merged as {Short(commit)} after its proof in staging," : $"{mission.Repository} at {Short(commit)}";
         return new MissionHandOver($"The change ({what.TrimEnd(',')}) is deployed on {machine} as {app} ({address}) and verified: {Tail(verify.Output)}.",
             $"Deployed {commit}, the commit that the controller accepted for {mission.Repository}, on {machine} as the container orch-{app} (image orch-{app}:{commit[..8]}), from the repository at that commit. Previous version: {previous}. "
             + $"The application was then checked as a tester would: {Tail(verify.Output)}. The deployment was allowed by the act gateway on that commit; nothing else was changed or rolled back.", evidence, [], Complex: false, ComplexReason: null, commit);

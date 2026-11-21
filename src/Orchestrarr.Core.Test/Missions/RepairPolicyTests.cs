@@ -1,0 +1,52 @@
+using Orchestrarr.Core.Missions;
+
+namespace Orchestrarr.Core.Test.Missions;
+
+public sealed class RepairPolicyTests
+{
+    [Theory]
+    [InlineData("package.json")]
+    [InlineData("app/package-lock.json")]
+    [InlineData("requirements.txt")]
+    [InlineData("test/api.test.js")]
+    [InlineData("src/__tests__/a.js")]
+    [InlineData("tests/test_app.py")]
+    [InlineData("app/test_models.py")]
+    [InlineData(".github/workflows/ci.yml")]
+    [InlineData("Dockerfile")]
+    [InlineData("deploy/Dockerfile.prod")]
+    [InlineData("docker-compose.yml")]
+    [InlineData("CLAUDE.md")]
+    [InlineData(".claude/settings.json")]
+    [InlineData("pyproject.toml")]
+    public void What_decides_whether_it_passes_what_it_depends_on_and_how_it_is_built_are_not_the_agents(string path) =>
+        RepairPolicy.IsProtected(path).Should().BeTrue();
+
+    [Theory]
+    [InlineData("server.js")]
+    [InlineData("lib/items.js")]
+    [InlineData("app.py")]
+    [InlineData("src/routes/orders.ts")]
+    public void The_source_of_the_application_is(string path) => RepairPolicy.IsProtected(path).Should().BeFalse();
+
+    [Theory]
+    [InlineData("a b.js")]
+    [InlineData("../server.js")]
+    [InlineData("/etc/passwd")]
+    [InlineData("a//b.js")]
+    [InlineData("a'b.js")]
+    [InlineData("")]
+    public void A_path_that_would_need_quoting_or_leaves_the_repository_is_not_carried(string path) => RepairPolicy.IsPlainPath(path).Should().BeFalse();
+
+    [Fact]
+    public void A_repair_of_the_source_is_accepted_and_the_limits_and_the_protected_paths_are_refused()
+    {
+        RepairPolicy.Refusal([new PatchedFile("server.js", "ok")]).Should().BeNull();
+        RepairPolicy.Refusal([]).Should().Contain("between 1 and");
+        RepairPolicy.Refusal([new PatchedFile("package.json", "{}")]).Should().Contain("protected");
+        RepairPolicy.Refusal([new PatchedFile("a.js", "x"), new PatchedFile("a.js", "y")]).Should().Contain("twice");
+        RepairPolicy.Refusal([new PatchedFile("a.js", new string('x', RepairPolicy.MaxFileBytes + 1))]).Should().Contain("too big");
+        RepairPolicy.Refusal([new PatchedFile("a.js", "bin\0ary")]).Should().Contain("not text");
+        RepairPolicy.Refusal([.. Enumerable.Range(0, RepairPolicy.MaxFiles + 1).Select(n => new PatchedFile($"f{n}.js", "x"))]).Should().Contain("between 1 and");
+    }
+}
