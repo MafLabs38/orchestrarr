@@ -59,6 +59,10 @@ internal static class MissionActEndpoints
             {
                 var closed = await forge.ClosePullRequestAsync(repository, original, $"Replaced by #{fix.Number}, which carries the same change with the repair that it needed, and is merged.", ct);
                 progress.Add(id, closed ? $"closed pull request #{original}, replaced by #{fix.Number}" : $"pull request #{original} could not be closed");
+                if (!await conductor.RecordActPerformedAsync(id, GatedAct.MergePullRequest, closed ? $"{repository}#{original} closed, replaced by #{fix.Number}" : $"{repository}#{original} could not be closed (replaced by #{fix.Number})", ct))
+                {
+                    progress.Add(id, "the audit trail could not be written after the close");
+                }
             }
             live.Publish(LiveTopics.Missions, id);
             return Results.Ok(new MissionActResponse(merged.Merged, merged.Merged ? null : merged.Error, [], Retry: false, merged.Commit));
@@ -76,7 +80,7 @@ internal static class MissionActEndpoints
             var repository = entry.Repositories[0];
             if (repairs.FixOf(problemId) is { } already)
             {
-                return Results.Ok(new MissionPullRequestResponse(true, already.Number, already.Head, null));
+                return Results.Ok(new MissionPullRequestResponse(true, already.Number, already.Head, null, already.OriginalHead));
             }
             if (repairs.PendingOf(problemId) is not { } repair)
             {
@@ -86,6 +90,11 @@ internal static class MissionActEndpoints
             if (await pulls.ReadAsync(repository, original, ct) is not { TargetsDefaultBranch: true, DefaultBranch: { } baseBranch } read || !string.Equals(read.HeadSha, repair.OriginalHead, StringComparison.Ordinal))
             {
                 return Results.Ok(new MissionPullRequestResponse(false, 0, null, "the pull request cannot be read, does not target the default branch, or moved since the repair was made"));
+            }
+            // The frame of the mission applies to what is written, not only to what was read: the paths that the maintainer's certificate forbids too
+            if (RepairPolicy.Refusal(repair.Files, missions.Get(id)!.Frame.ForbiddenPaths) is { } forbidden)
+            {
+                return Results.Ok(new MissionPullRequestResponse(false, 0, null, forbidden));
             }
             var authorisation = await conductor.AuthoriseActAsync(id, GatedAct.OpenPullRequest, null, ct, repository);
             if (!authorisation.Allowed)
@@ -107,7 +116,7 @@ internal static class MissionActEndpoints
                 progress.Add(id, "the audit trail could not be written after the pull request");
             }
             live.Publish(LiveTopics.Missions, id);
-            return Results.Ok(new MissionPullRequestResponse(opened.Opened, opened.Number, opened.HeadSha, opened.Opened ? null : opened.Error));
+            return Results.Ok(new MissionPullRequestResponse(opened.Opened, opened.Number, opened.HeadSha, opened.Opened ? null : opened.Error, repair.OriginalHead));
         });
 
         group.MapPost("/missions/{id}/acts/deploy", async (string id, HttpContext context, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, IPullRequestFacts pulls, ProblemConductor conductor,

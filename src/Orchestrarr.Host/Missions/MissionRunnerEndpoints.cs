@@ -153,7 +153,7 @@ internal static partial class MissionRunnerEndpoints
                 {
                     return Results.Json(new { error = "only the staging world hands over a repair, on a pull request" }, statusCode: StatusCodes.Status409Conflict);
                 }
-                if (RepairPolicy.Refusal(files) is { } refusal)
+                if (RepairPolicy.Refusal(files, missions.Get(id)!.Frame.ForbiddenPaths) is { } refusal)
                 {
                     return Results.Json(new { error = refusal }, statusCode: StatusCodes.Status422UnprocessableEntity);
                 }

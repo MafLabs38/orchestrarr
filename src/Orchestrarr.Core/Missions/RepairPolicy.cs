@@ -26,6 +26,7 @@ public static partial class RepairPolicy
         // The other ecosystems and forges: their tests, their pipelines, their runtimes and their package managers' settings. The list is a floor, not an inventory: a repair of a source that none of these names is still bounded by the limits and by the pipeline
         "**/*_test.go", "**/*.Tests/**", "**/*.Test/**", "**/*Tests.cs", "**/*Test.cs", "**/*Test.java", "**/*Tests.java", "spec/**", "**/spec/**", "**/*_spec.rb", "**/__snapshots__/**", "**/Jenkinsfile*", ".circleci/**", "azure-pipelines*.yml", "**/.travis.yml", "**/bitbucket-pipelines.yml",
         "**/.nvmrc", "**/.node-version", "**/.python-version", "**/.tool-versions", "**/.yarnrc*", "**/.pnpmfile.cjs", "**/pnpm-workspace.yaml", "**/pip.conf", "**/NuGet.config", "**/global.json", "**/dotnet-tools.json", "**/*.sln*", "**/Pipfile", "**/*.lock", "**/packages.lock.json",
+        "**/jest.setup.*", "**/vitest.setup.*", "**/setupTests.*", "**/babel.config.*", "**/.babelrc*", "**/vite.config.*", "**/webpack.config.*", "**/rollup.config.*", "**/karma.conf.*", "**/playwright.config.*", "**/cypress/**", "**/e2e/**", "**/.husky/**", "**/.pre-commit-config.yaml", "**/*.snap", ".gitlab/**",
     ];
 
     /// <summary>Whether the agent may not change this path.</summary>
@@ -37,8 +38,8 @@ public static partial class RepairPolicy
     [GeneratedRegex(@"^[A-Za-z0-9_./@+-]+$", RegexOptions.None, 250)]
     private static partial Regex PlainPath();
 
-    /// <summary>Why a set of files cannot be a repair, or null when it can: how many, how big, where, and whether it is text.</summary>
-    public static string? Refusal(IReadOnlyList<PatchedFile> files)
+    /// <summary>Why a set of files cannot be a repair, or null when it can: how many, how big, where (the policy, and the paths that the frame of the mission forbids), and whether it is text.</summary>
+    public static string? Refusal(IReadOnlyList<PatchedFile> files, IEnumerable<string>? forbidden = null)
     {
         ArgumentNullException.ThrowIfNull(files);
         if (files.Count is 0 or > MaxFiles)
@@ -64,6 +65,11 @@ public static partial class RepairPolicy
             if (!IsPlainPath(file.Path))
             {
                 return $"the path '{file.Path}' is not one that a repair may carry";
+            }
+            // Beyond the policy, what the frame of the mission forbids (the options of the control plane and the paths that the maintainer's certificate adds)
+            if (forbidden is not null && PathPatterns.AnyMatches(forbidden, [file.Path]))
+            {
+                return $"the path '{file.Path}' is forbidden by the frame of the mission";
             }
             if (IsProtected(file.Path))
             {

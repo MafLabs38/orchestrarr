@@ -96,6 +96,8 @@ public sealed class MissionWorldsApiTests
             builder.UseEnvironment("Development");
             builder.UseSetting("Missions:Sandbox", "true");
             builder.UseSetting("Missions:SandboxMaxWorld", "Release");
+            builder.UseSetting("Missions:ForbiddenPaths:0", ".github/**");
+            builder.UseSetting("Missions:ForbiddenPaths:1", "infra/prod/**");
             builder.UseSetting("Missions:StagingRunner", "runner-staging");
             builder.UseSetting("Missions:GitRunner", "runner-staging");
             builder.UseSetting("Missions:ReleaseRunner", "runner-staging");
@@ -435,6 +437,44 @@ public sealed class MissionWorldsApiTests
 
         response.StatusCode.Should().Be(System.Net.HttpStatusCode.UnprocessableEntity);
         factory.Services.GetRequiredService<RepairRegistry>().PendingOf("p-worlds").Should().BeNull("nothing of a refused repair is kept");
+    }
+
+    [Fact]
+    public async Task A_repair_under_a_path_that_the_certificate_forbids_is_refused_even_if_the_policy_lets_it_through()
+    {
+        var forge = new FakeForge();
+        using var factory = new WorldsFactory(forge);
+        _ = await StartProblemAsync(factory);
+        using var runner = Runner(factory);
+        var staging = (await ClaimAsync(runner, "Staging")).GetProperty("missionId").GetString()!;
+
+        var response = await HandOverWithFilesAsync(runner, staging, [new { path = "infra/prod/deploy.js", content = "x" }]);
+
+        response.StatusCode.Should().Be(System.Net.HttpStatusCode.UnprocessableEntity);
+        (await response.Content.ReadAsStringAsync(Ct)).Should().Contain("frame of the mission");
+    }
+
+    [Fact]
+    public async Task The_close_of_the_original_and_the_link_to_the_repair_pull_request_are_recorded_and_survive_a_restart()
+    {
+        var forge = new FakeForge { HeadChecks = ChecksState.Failing };
+        using var factory = new WorldsFactory(forge);
+        _ = await StartProblemAsync(factory);
+        using var runner = Runner(factory);
+        var staging = (await ClaimAsync(runner, "Staging")).GetProperty("missionId").GetString()!;
+        (await HandOverWithFilesAsync(runner, staging, [new { path = "server.js", content = "fixed" }])).EnsureSuccessStatusCode();
+        var git = await NextMissionAsync(factory, runner, "Git");
+        (await runner.PostAsync($"/api/v1/runner/missions/{git}/started", null, Ct)).EnsureSuccessStatusCode();
+        var opened = await (await runner.PostAsync($"/api/v1/runner/missions/{git}/acts/open-pull-request", null, Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct);
+        (await runner.PostAsync($"/api/v1/runner/missions/{git}/acts/merge", null, Ct)).EnsureSuccessStatusCode();
+        var evidence = $"repair:pr={opened.GetProperty("number").GetInt32()};head={opened.GetProperty("commit").GetString()};from={opened.GetProperty("from").GetString()}";
+        (await runner.PostAsJsonAsync($"/api/v1/runner/missions/{git}/handover", new { claim = "merged", whatChangedAndWhy = "squash", evidenceDigests = new[] { "pipeline:passing", evidence }, openPoints = Array.Empty<string>(), complex = false, commit = MergeCommit }, Ct)).EnsureSuccessStatusCode();
+
+        factory.Services.GetRequiredService<RepairRegistry>().Forget("p-worlds");
+
+        var recovered = factory.Services.GetRequiredService<RepairRegistry>().FixOf("p-worlds");
+        recovered.Should().Be(new FixPullRequest(FakeForge.RepairNumber, FakeForge.RepairHead, Head));
+        factory.Services.GetRequiredService<Orchestrarr.Core.Approvals.IAuditLog>().Page(100).Select(row => $"{row.Entry.Event} {row.Entry.Detail}").Should().Contain(line => line.StartsWith("act.performed", StringComparison.Ordinal) && line.Contains("closed, replaced by", StringComparison.Ordinal));
     }
 
     [Fact]

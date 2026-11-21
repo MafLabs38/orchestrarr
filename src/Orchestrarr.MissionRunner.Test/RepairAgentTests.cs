@@ -93,6 +93,30 @@ public sealed class RepairAgentTests : IDisposable
     }
 
     [Fact]
+    public async Task The_agent_works_on_the_committed_state_and_not_on_what_the_build_of_the_change_left_in_the_folder()
+    {
+        var machine = Staging();
+
+        await Try(new RepairAgent(machine, Options()));
+
+        machine.Calls.Single(call => call.Script.Contains("cat > ~/agentin/prompt.txt", StringComparison.Ordinal)).Script.Should().Contain("git checkout -q -- .").And.Contain("git archive HEAD");
+        var order = machine.Calls.Select(call => call.Script).ToList();
+        order.FindIndex(script => script.Contains("base64 -w0", StringComparison.Ordinal)).Should().BeLessThan(order.FindLastIndex(script => script.Contains("&& docker run --rm --cap-drop ALL node", StringComparison.Ordinal)), "the files are read back before the steps run again");
+    }
+
+    [Fact]
+    public async Task An_empty_token_file_is_a_failed_repair_not_a_crash()
+    {
+        var options = Options();
+        await File.WriteAllTextAsync(options.Repair.TokenFile!, "  \n", Ct);
+
+        var outcome = await Try(new RepairAgent(Staging(), options));
+
+        outcome.Repaired.Should().BeFalse();
+        outcome.Summary.Should().Contain("token file is empty");
+    }
+
+    [Fact]
     public async Task The_failure_that_the_agent_is_told_is_data_between_markers_and_the_agent_has_no_shell()
     {
         var machine = Staging();

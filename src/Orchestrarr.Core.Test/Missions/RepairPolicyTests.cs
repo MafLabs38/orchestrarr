@@ -48,6 +48,22 @@ public sealed class RepairPolicyTests
     public void A_path_that_would_need_quoting_or_leaves_the_repository_is_not_carried(string path) => RepairPolicy.IsPlainPath(path).Should().BeFalse();
 
     [Fact]
+    public void The_paths_that_the_frame_of_the_mission_forbids_are_forbidden_to_a_repair_too()
+    {
+        RepairPolicy.Refusal([new PatchedFile("infra/prod/deploy.js", "x")], ["infra/prod/**"]).Should().Contain("frame of the mission");
+        RepairPolicy.Refusal([new PatchedFile("infra/prod/deploy.js", "x")]).Should().BeNull("the policy alone does not know the certificate's paths");
+        RepairPolicy.Refusal([new PatchedFile("server.js", "x")], ["infra/prod/**"]).Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("jest.setup.js")]
+    [InlineData("vite.config.ts")]
+    [InlineData("e2e/login.ts")]
+    [InlineData("__snapshots__/a.snap")]
+    [InlineData(".husky/pre-commit")]
+    public void The_files_that_set_up_the_tests_and_the_build_are_protected_too(string path) => RepairPolicy.IsProtected(path).Should().BeTrue();
+
+    [Fact]
     public void A_repair_of_the_source_is_accepted_and_the_limits_and_the_protected_paths_are_refused()
     {
         RepairPolicy.Refusal([new PatchedFile("server.js", "ok")]).Should().BeNull();

@@ -14,6 +14,7 @@ public sealed class GitWorld(IMissionControlPlane controlPlane, MissionRunnerOpt
     {
         // A change that was repaired in staging is carried by a pull request that the gateway opens first; one that was not has its own
         int? repairNumber = null;
+        string? repairEvidence = null;
         var opened = await controlPlane.OpenPullRequestAsync(mission.MissionId, cancellationToken);
         if (opened.Refusal is { } notOpened)
         {
@@ -23,6 +24,7 @@ public sealed class GitWorld(IMissionControlPlane controlPlane, MissionRunnerOpt
         {
             await report($"Opened pull request #{opened.Number} for the repair of #{mission.PullRequest}");
             repairNumber = opened.Number;
+            repairEvidence = $"{MissionEvidence.RepairPullRequest}{opened.Number};head={opened.Commit};from={opened.From}";
         }
         var deadline = DateTimeOffset.UtcNow.AddMinutes(options.PipelineWaitMinutes);
         MissionActResponse merge;
@@ -59,7 +61,7 @@ public sealed class GitWorld(IMissionControlPlane controlPlane, MissionRunnerOpt
         var claim = state == MissionPipelineState.Passing
             ? $"{Subject(mission, repairNumber)} is merged into the integration branch as {Short(commit)}, and the pipeline of that commit is green."
             : $"{Subject(mission, repairNumber)} is merged into the integration branch as {Short(commit)}, but the pipeline of that commit is {state}.";
-        return new MissionHandOver(claim, $"The pull request is merged as {commit} (by the act gateway of the control plane, or already merged on the forge); pipeline of the integration branch: {state}.", [$"{MissionEvidence.MergeCommit}{commit}", $"{MissionEvidence.Pipeline}{state}"],
+        return new MissionHandOver(claim, $"The pull request is merged as {commit} (by the act gateway of the control plane, or already merged on the forge); pipeline of the integration branch: {state}.", [$"{MissionEvidence.MergeCommit}{commit}", $"{MissionEvidence.Pipeline}{state}", .. repairEvidence is null ? Array.Empty<string>() : [repairEvidence]],
             state == MissionPipelineState.Passing ? [] : [$"The pipeline of the integration branch on {commit} is {state}"], Complex: false, ComplexReason: null, Commit: commit);
     }
 

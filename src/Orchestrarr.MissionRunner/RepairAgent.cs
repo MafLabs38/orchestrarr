@@ -25,9 +25,8 @@ public sealed partial class RepairAgent(IShell shell, MissionRunnerOptions optio
         var evidence = new List<string>();
         var summary = new StringBuilder();
         var output = failure;
-        var timeout = TimeSpan.FromMinutes(settings.TimeoutMinutes);
         await report("Preparing the agent on the staging machine");
-        var image = await OnMachineAsync(machine, $"docker image inspect {settings.Image} >/dev/null 2>&1 || docker build -q -t {settings.Image} -", timeout, cancellationToken, input: await File.ReadAllTextAsync(settings.DockerfileFile!, cancellationToken));
+        var image = await OnMachineAsync(machine, $"docker image inspect {settings.Image} >/dev/null 2>&1 || docker build -q -t {settings.Image} -", TimeSpan.FromMinutes(settings.TimeoutMinutes), cancellationToken, input: await File.ReadAllTextAsync(settings.DockerfileFile!, cancellationToken));
         if (image.ExitCode != 0)
         {
             return Failed($"the agent's image could not be built: {Last(image.Output)}", evidence, output);
@@ -35,65 +34,82 @@ public sealed partial class RepairAgent(IShell shell, MissionRunnerOptions optio
         for (var attempt = 1; attempt <= settings.Attempts; attempt++)
         {
             await report($"The agent repairs the source (try {attempt} of {settings.Attempts})");
-            var marker = $"OUTPUT-{Guid.NewGuid():N}";
-            var prompt = Prompt(mission, marker, output.Length > 4000 ? output[^4000..] : output);
-            var prepare = await OnMachineAsync(machine,
-                "rm -rf ~/agentwork ~/agentin && mkdir -p ~/agentwork ~/agentin && cd ~/work/repo && tar --exclude=.git --exclude=node_modules --exclude=.claude --exclude=CLAUDE.md --exclude=CLAUDE.local.md --exclude=.mcp.json -cf - . | tar -xf - -C ~/agentwork && chmod -R a+rwX ~/agentwork ~/agentin && cat > ~/agentin/prompt.txt && chmod a+r ~/agentin/prompt.txt",
-                TimeSpan.FromMinutes(2), cancellationToken, input: prompt);
-            if (prepare.ExitCode != 0)
+            var result = await AttemptAsync(machine, mission, recipeCommand, output, attempt, evidence, report, cancellationToken);
+            output = result.Output;
+            summary.Append(result.Note);
+            if (result.Done is { } done)
             {
-                return Failed($"the copy of the source for the agent could not be made: {Last(prepare.Output)}", evidence, output);
+                return done.Repaired ? done with { Summary = summary.ToString().Trim() } : Failed($"{summary} {done.Summary}".Trim(), evidence, output);
             }
-            var token = (await File.ReadAllTextAsync(settings.TokenFile!, cancellationToken)).Trim();
-            var run = await OnMachineAsync(machine, AgentScript(settings), timeout, cancellationToken, input: token + "\n");
-            // What the agent said is its own words, kept short; the token is never in what comes back (it is taken out of anything that carries it)
-            var said = Last(run.Output.Replace(token, "***", StringComparison.Ordinal));
-            evidence.Add($"agent{attempt}:exit={run.ExitCode}");
-            summary.Append(CultureInfo.InvariantCulture, $"try {attempt}: {said}. ");
-            if (run.ExitCode != 0 || run.TimedOut)
-            {
-                continue;
-            }
-
-            var changed = await OnMachineAsync(machine, "cd ~/agentwork && find . -type f ! -path './.git/*' ! -path './node_modules/*' -newer ~/agentmarker | sed 's#^\\./##' | sort", TimeSpan.FromMinutes(1), cancellationToken);
-            var paths = changed.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            if (changed.ExitCode != 0 || paths.Length == 0 || paths.Any(path => !RepairPolicy.IsPlainPath(path) || RepairPolicy.IsProtected(path)))
-            {
-                evidence.Add($"agent{attempt}:refused={paths.Length} path(s), {(paths.FirstOrDefault(path => !RepairPolicy.IsPlainPath(path) || RepairPolicy.IsProtected(path)) is { } bad ? $"'{bad}' is not one that a repair may change" : "none changed")}");
-                summary.Append(CultureInfo.InvariantCulture, $"the agent changed nothing, or a file that a repair may not change ({paths.Length} path(s)). ");
-                continue;
-            }
-
-            var applied = await OnMachineAsync(machine, $"cd ~/agentwork && cp --parents {string.Join(' ', paths)} ~/work/repo/", TimeSpan.FromMinutes(1), cancellationToken);
-            if (applied.ExitCode != 0)
-            {
-                return Failed($"the repair could not be applied: {Last(applied.Output)}", evidence, output);
-            }
-            // What the agent wrote is read back **now**, before anything of the change under test runs again: the steps install and run the code that is being proved, and what they leave in the folder is not the agent's work
-            var read = await OnMachineAsync(machine, $"cd ~/work/repo && for f in {string.Join(' ', paths)}; do echo \"FILE $f $(base64 -w0 \"$f\")\"; done && export GIT_INDEX_FILE=$(mktemp -u) && git read-tree HEAD && git update-index --add {string.Join(' ', paths)} && echo \"TREE $(git write-tree)\"",
-                TimeSpan.FromMinutes(1), cancellationToken);
-            var files = Files(read.Output);
-            var tree = TreeLine().Match(read.Output) is { Success: true } found ? found.Groups[1].Value : null;
-            var refusal = RepairPolicy.Refusal(files);
-            if (read.ExitCode != 0 || tree is null || files.Count != paths.Length || refusal is not null)
-            {
-                return Failed($"the repair cannot be handed over: {refusal ?? Last(read.Output)}", evidence, output);
-            }
-            await report($"The agent changed {paths.Length} file(s); running the steps again");
-            var again = await OnMachineAsync(machine, $"cd ~/work/repo && {recipeCommand}", timeout, cancellationToken);
-            evidence.Add($"repair{attempt}:exit={again.ExitCode}");
-            output = again.Output;
-            if (again.ExitCode != 0 || again.TimedOut)
-            {
-                summary.Append(CultureInfo.InvariantCulture, $"the steps still fail after try {attempt}. ");
-                continue;
-            }
-
-            evidence.Add($"{MissionEvidence.Repair}{files.Count}");
-            return new RepairOutcome(true, files, tree, summary.ToString().Trim(), evidence, output);
         }
         return Failed(summary.ToString().Trim(), evidence, output);
     }
+
+    // What one try came to: the outcome when it is over (a repair, or a failure that no other try can mend), what it noted, and the output that the next try is told
+    private sealed record Attempt(RepairOutcome? Done, string Note, string Output);
+
+    private async Task<Attempt> AttemptAsync(string machine, ClaimedMission mission, string recipeCommand, string output, int attempt, List<string> evidence, Func<string, Task> report, CancellationToken cancellationToken)
+    {
+        var settings = options.Repair;
+        var timeout = TimeSpan.FromMinutes(settings.TimeoutMinutes);
+        var prompt = Prompt(mission, $"OUTPUT-{Guid.NewGuid():N}", output.Length > 4000 ? output[^4000..] : output);
+        var prepare = await OnMachineAsync(machine,
+            "rm -rf ~/agentwork ~/agentin && mkdir -p ~/agentwork ~/agentin && cd ~/work/repo && git checkout -q -- . && git archive HEAD | tar -x -C ~/agentwork --exclude=.claude --exclude=CLAUDE.md --exclude=CLAUDE.local.md --exclude=.mcp.json && chmod -R a+rwX ~/agentwork ~/agentin && cat > ~/agentin/prompt.txt && chmod a+r ~/agentin/prompt.txt",
+            TimeSpan.FromMinutes(2), cancellationToken, input: prompt);
+        if (prepare.ExitCode != 0)
+        {
+            return Fatal($"the copy of the source for the agent could not be made: {Last(prepare.Output)}", output);
+        }
+        var token = (await File.ReadAllTextAsync(settings.TokenFile!, cancellationToken)).Trim();
+        if (token.Length == 0)
+        {
+            return Fatal("the token file is empty", output);
+        }
+        var run = await OnMachineAsync(machine, AgentScript(settings), timeout, cancellationToken, input: token + "\n");
+        // What the agent said is its own words, kept short; the token is never in what comes back (it is taken out of anything that carries it)
+        var note = $"try {attempt}: {Last(run.Output.Replace(token, "***", StringComparison.Ordinal))}. ";
+        evidence.Add($"agent{attempt}:exit={run.ExitCode}");
+        if (run.ExitCode != 0 || run.TimedOut)
+        {
+            return new Attempt(null, note, output);
+        }
+
+        var changed = await OnMachineAsync(machine, "cd ~/agentwork && find . -type f ! -path './.git/*' ! -path './node_modules/*' -newer ~/agentmarker | sed 's#^\\./##' | sort", TimeSpan.FromMinutes(1), cancellationToken);
+        var paths = changed.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var bad = paths.FirstOrDefault(path => !RepairPolicy.IsPlainPath(path) || RepairPolicy.IsProtected(path));
+        if (changed.ExitCode != 0 || paths.Length == 0 || bad is not null)
+        {
+            evidence.Add($"agent{attempt}:refused={paths.Length} path(s), {(bad is not null ? $"'{bad}' is not one that a repair may change" : "none changed")}");
+            return new Attempt(null, $"{note}the agent changed nothing, or a file that a repair may not change ({paths.Length} path(s)). ", output);
+        }
+
+        var applied = await OnMachineAsync(machine, $"cd ~/agentwork && cp --parents {string.Join(' ', paths)} ~/work/repo/", TimeSpan.FromMinutes(1), cancellationToken);
+        if (applied.ExitCode != 0)
+        {
+            return Fatal($"the repair could not be applied: {Last(applied.Output)}", output);
+        }
+        // What the agent wrote is read back **now**, before anything of the change under test runs again: the steps install and run the code that is being proved, and what they leave in the folder is not the agent's work
+        var read = await OnMachineAsync(machine, $"cd ~/work/repo && for f in {string.Join(' ', paths)}; do echo \"FILE $f $(base64 -w0 \"$f\")\"; done && export GIT_INDEX_FILE=$(mktemp -u) && git read-tree HEAD && git update-index --add {string.Join(' ', paths)} && echo \"TREE $(git write-tree)\"",
+            TimeSpan.FromMinutes(1), cancellationToken);
+        var files = Files(read.Output);
+        var tree = TreeLine().Match(read.Output) is { Success: true } found ? found.Groups[1].Value : null;
+        var refusal = RepairPolicy.Refusal(files);
+        if (read.ExitCode != 0 || tree is null || files.Count != paths.Length || refusal is not null)
+        {
+            return Fatal($"the repair cannot be handed over: {refusal ?? Last(read.Output)}", output);
+        }
+        await report($"The agent changed {paths.Length} file(s); running the steps again");
+        var again = await OnMachineAsync(machine, $"cd ~/work/repo && {recipeCommand}", timeout, cancellationToken);
+        evidence.Add($"repair{attempt}:exit={again.ExitCode}");
+        if (again.ExitCode != 0 || again.TimedOut)
+        {
+            return new Attempt(null, $"{note}the steps still fail after try {attempt}. ", again.Output);
+        }
+        evidence.Add($"{MissionEvidence.Repair}{files.Count}");
+        return new Attempt(new RepairOutcome(true, files, tree, note, evidence, again.Output), note, again.Output);
+    }
+
+    private static Attempt Fatal(string why, string output) => new(Failed(why, [], output), string.Empty, output);
 
     private static RepairOutcome Failed(string why, IReadOnlyList<string> evidence, string output) => new(false, [], null, why, evidence, output);
 
