@@ -5,6 +5,12 @@ public sealed class GitHubOptions
 {
     public const string SectionName = "GitHub";
 
+    /// <summary>
+    /// The check runs that are not judged when the checks of a commit are, **when the repository's rules name no required check** (when they do, only the required checks are judged): the update jobs of Dependabot, for example, appear
+    /// as check runs of the commit they ran on and fail for reasons of their own. Whole names, case-insensitive. None by default: what is ignored is the operator's decision.
+    /// </summary>
+    public string[] IgnoredChecks { get; set; } = [];
+
     public static readonly string[] DefaultBotLogins = ["dependabot[bot]", "renovate[bot]"];
 
     /// <summary>Address of the REST API. It must be https (http only to the local machine): the token is sent in a header. Redirects are not followed.</summary>
@@ -24,6 +30,17 @@ public sealed class GitHubOptions
     /// and then it must carry <c>Contents: read</c> on them as well, which a fine-grained token grants on every repository it selects.
     /// </summary>
     public string? ContentsToken { get; set; }
+
+    /// <summary>The same address and limits with another token: the one of an act, which is never the one that reads.</summary>
+    public GitHubOptions WithToken(string? token) => new()
+    {
+        IgnoredChecks = IgnoredChecks,
+        ApiUrl = ApiUrl,
+        WebUrl = WebUrl,
+        Token = token,
+        TimeoutSeconds = TimeoutSeconds,
+        MaxResponseBytes = MaxResponseBytes,
+    };
 
     /// <summary>The options of the reader of the code: the same address and limits, and the token that carries <c>Contents: read</c> (<see cref="ContentsToken"/>, else <see cref="Token"/>).</summary>
     public GitHubOptions ForContents() => new()

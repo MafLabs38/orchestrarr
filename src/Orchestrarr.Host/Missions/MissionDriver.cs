@@ -58,7 +58,7 @@ internal sealed class MissionDriver(IMissionStore missions, IDossierStore dossie
         }
         progress.Add(mission.Id, "the controller reads the dossier and the facts");
         var observed = await facts.FactsAsync(new FactsQuery(mission.ProblemId, mission.Id, mission.World, mission.Frame, dossier, dossier.Commit), cancellationToken);
-        var view = new FactsView(observed.ChangedPaths ?? [], $"checks of the head commit: {observed.CiGreenOnExactCommit?.ToString() ?? "not known"}", mission.World == World.Staging ? "not applicable in the staging world" : "not read", []);
+        var view = new FactsView(observed.ChangedPaths ?? [], $"checks of the head commit: {observed.CiGreenOnExactCommit?.ToString() ?? "not known"}", mission.World == World.Staging ? "not applicable in the staging world" : observed.Health ?? "not read", []);
         var outcome = await controller.DecideAsync(new ControllerInput(mission, dossier, view), cancellationToken);
         if (outcome.Decision is not { } decision)
         {
@@ -66,9 +66,14 @@ internal sealed class MissionDriver(IMissionStore missions, IDossierStore dossie
             live.Publish(LiveTopics.Missions, mission.Id);
             return;
         }
+        if (decision.Kind == ControllerDecisionKind.SendBack && decision.Remarks is { } remarks)
+        {
+            progress.Remark(mission.Id, remarks);
+        }
         progress.Add(mission.Id, $"the controller decided: {decision.Kind} ({string.Join(" | ", decision.Reasons)})");
         var result = await conductor.DecideAsync(mission.Id, decision, cancellationToken);
-        progress.Add(mission.Id, result.Ok || result.Moved ? $"the conductor applied it: {result.Mission?.World} {result.Mission?.State}" : $"the conductor refused: {result.Refusal}");
+        var failed = result.Failures.Count > 0 ? $", its own checks failed: {string.Join(", ", result.Failures)}" : string.Empty;
+        progress.Add(mission.Id, result.Ok || result.Moved ? $"the conductor applied it: {result.Mission?.World} {result.Mission?.State}{failed}" : $"the conductor refused: {result.Refusal}");
         // A mission that moved is not asked about again; one that the conductor refused stays handed over, and is asked again only after the retry delay (not at every pass)
         if (result.Ok || result.Moved)
         {

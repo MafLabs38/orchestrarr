@@ -1,8 +1,9 @@
 using System.Text.RegularExpressions;
+using Orchestrarr.Core.Missions;
 
 namespace Orchestrarr.MissionRunner;
 
-/// <summary>The settings of a runner that serves the missions of one world (<c>MissionRunner</c> section).</summary>
+/// <summary>The settings of a runner that serves the missions of some worlds (<c>MissionRunner</c> section).</summary>
 public sealed partial class MissionRunnerOptions
 {
     public const string SectionName = "MissionRunner";
@@ -16,8 +17,8 @@ public sealed partial class MissionRunnerOptions
 
     public string? TokenFile { get; set; }
 
-    /// <summary>The world this runner serves. This first version serves the staging world.</summary>
-    public string World { get; set; } = "Staging";
+    /// <summary>The worlds this runner serves: the missions of these worlds whose mandate names it. A world it does not serve is never claimed (it would block the missions behind it).</summary>
+    public string[] Worlds { get; set; } = ["Staging"];
 
     /// <summary>The SSH alias of the staging machine, and the name that the lab tool knows it by. Required: a runner that is not told which machine to restore does not guess one.</summary>
     public string? StagingMachine { get; set; }
@@ -27,6 +28,20 @@ public sealed partial class MissionRunnerOptions
 
     /// <summary>The repositories whose pull requests this runner accepts (patterns like <c>owner/name</c> or <c>owner/*</c>): the control plane shows a problem as actionable only for them.</summary>
     public string[] Repositories { get; set; } = [];
+
+    /// <summary>The SSH alias of the machine that a release deploys to (the release world). Required when the runner serves it; never the staging machine, which is restored after each job.</summary>
+    public string? DeployMachine { get; set; }
+
+    /// <summary>The address under which the deployed applications are reachable, only to say it in the dossier (default: the alias of the machine).</summary>
+    public string? DeployHost { get; set; }
+
+    /// <summary>The first port of the deployed applications: each one gets a stable port from here (the same repository always lands on the same port).</summary>
+    public int DeployPortBase { get; set; } = DeploymentPort.DefaultBase;
+
+    /// <summary>How long the Git world waits for a pipeline (the pull request's before the merge, the integration branch's after it), and how often it asks.</summary>
+    public int PipelineWaitMinutes { get; set; } = 15;
+
+    public int PipelineAskSeconds { get; set; } = 15;
 
     public int PollSeconds { get; set; } = 3;
 
@@ -54,6 +69,18 @@ public sealed partial class MissionRunnerOptions
         if (!StagingMachineShape().IsMatch(StagingMachine))
         {
             throw new InvalidOperationException("MissionRunner:StagingMachine must be an SSH alias: letters, digits, dot, underscore and dash only.");
+        }
+        if (PipelineAskSeconds < 1 || PipelineWaitMinutes < 1 || StepTimeoutMinutes < 1 || !DeploymentPort.IsValidBase(DeployPortBase))
+        {
+            throw new InvalidOperationException("MissionRunner: PipelineAskSeconds, PipelineWaitMinutes and StepTimeoutMinutes must be at least 1, and DeployPortBase must leave room for 100 ports below 65535.");
+        }
+        if (Worlds.Length == 0)
+        {
+            throw new InvalidOperationException("MissionRunner:Worlds must name at least one world.");
+        }
+        if (Worlds.Contains("Release", StringComparer.OrdinalIgnoreCase) && (string.IsNullOrWhiteSpace(DeployMachine) || !StagingMachineShape().IsMatch(DeployMachine) || string.Equals(DeployMachine, StagingMachine, StringComparison.Ordinal)))
+        {
+            throw new InvalidOperationException("MissionRunner:DeployMachine is required to serve the Release world: an SSH alias, and not the staging machine.");
         }
     }
 

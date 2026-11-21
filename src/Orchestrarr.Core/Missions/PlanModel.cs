@@ -144,7 +144,8 @@ public interface IDossierStore
 /// <summary>What the control plane fetched itself (FR-MAN-7; <c>ChangedPaths</c> are **the whole change from the merge base with the target branch to the head commit the source read, with both sides of a rename or a copy and every deleted path**, or null when they are not known: the conductor matches them against the frame of the mission, which holds the certificate's floor, so a source never decides what is forbidden): the diff and the CI status from the forge on the exact commit, the health from Portarr. A fact that is not known is null, and counts as failing.</summary>
 public sealed record ObservedFacts(
     bool BudgetAvailable, bool? DiffIsClean, bool? CiGreenOnExactCommit, bool? ArtifactIsTheOneProvedInStaging, bool? WayBackKnown, bool WorkerClaimMatchesFacts,
-    bool? MergeMayDeploy = null, bool? ExecutedFilesTouched = null, bool? TagCreationBlocked = null, bool? BranchCannotReachWriteCredentials = null, string? HeadCommit = null, bool? IdentityConfinedToItsBranches = null, IReadOnlyList<string>? ChangedPaths = null, string? Repository = null, string? BaseCommit = null);
+    bool? MergeMayDeploy = null, bool? ExecutedFilesTouched = null, bool? TagCreationBlocked = null, bool? BranchCannotReachWriteCredentials = null, string? HeadCommit = null, bool? IdentityConfinedToItsBranches = null, IReadOnlyList<string>? ChangedPaths = null, string? Repository = null, string? BaseCommit = null,
+    string? Health = null);
 
 /// <summary>
 /// The source of the facts. It says only what it observed: the plan, the stop, the loop and the staging are the conductor's own. **The commit it is given is the worker's claim, not the commit to look at**: the source reads

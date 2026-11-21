@@ -10,11 +10,11 @@ public sealed class GitHubPullRequestFactsTests
     private const string Base = "2222222222222222222222222222222222222222";
     private readonly Dictionary<string, string> _routes = new(StringComparer.Ordinal);
 
-    private GitHubPullRequestFacts Facts() => GitHubPullRequestFacts.Create(new GitHubOptions { Token = "ghp_secret" }, new Handler(_routes));
+    private GitHubPullRequestFacts Facts(params string[] ignored) => GitHubPullRequestFacts.Create(new GitHubOptions { Token = "ghp_secret", IgnoredChecks = ignored }, new Handler(_routes));
 
     private void Serve(string checkRuns, string files = """[ { "filename": "package.json" }, { "filename": "package-lock.json" } ]""")
     {
-        _routes["/repos/example/app/pulls/3"] = $$"""{ "draft": false, "head": { "sha": "{{Head}}" }, "base": { "sha": "{{Base}}" } }""";
+        _routes["/repos/example/app/pulls/3"] = $$"""{ "draft": false, "head": { "sha": "{{Head}}" }, "base": { "sha": "{{Base}}", "ref": "develop", "repo": { "default_branch": "develop" } } }""";
         _routes["/repos/example/app/pulls/3/files"] = files;
         _routes[$"/repos/example/app/commits/{Head}/check-runs"] = checkRuns;
     }
@@ -51,6 +51,50 @@ public sealed class GitHubPullRequestFactsTests
     }
 
     [Fact]
+    public async Task A_check_that_the_operator_listed_is_not_judged_and_the_others_are()
+    {
+        Serve("""{ "check_runs": [ { "name": "build", "status": "completed", "conclusion": "success" }, { "name": "Dependabot", "status": "completed", "conclusion": "failure" } ] }""");
+
+        (await Facts("dependabot").ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!.Checks.Should().Be(ChecksState.Passing);
+        (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!.Checks.Should().Be(ChecksState.Failing, "nothing is ignored unless the operator says so");
+    }
+
+    private void Require(params string[] contexts) =>
+        _routes["/repos/example/app/rules/branches/develop"] = $$"""[ { "type": "deletion" }, { "type": "required_status_checks", "parameters": { "required_status_checks": [ {{string.Join(',', contexts.Select(context => $$"""{ "context": "{{context}}" }"""))}} ] } } ]""";
+
+    [Fact]
+    public async Task When_the_rules_of_the_branch_require_checks_only_those_are_judged()
+    {
+        Serve("""{ "check_runs": [ { "name": "build", "status": "completed", "conclusion": "success" }, { "name": "Dependabot", "status": "completed", "conclusion": "failure" }, { "name": "lint", "status": "completed", "conclusion": "failure" } ] }""");
+        Require("build");
+
+        (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!.Checks.Should().Be(ChecksState.Passing, "the pipeline is what the rules require, a job that is named like an update job is judged only if it is required");
+    }
+
+    [Fact]
+    public async Task A_required_check_that_is_red_or_has_not_appeared_is_not_a_green()
+    {
+        Serve("""{ "check_runs": [ { "name": "build", "status": "completed", "conclusion": "failure" } ] }""");
+        Require("build");
+        (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!.Checks.Should().Be(ChecksState.Failing);
+
+        Serve("""{ "check_runs": [ { "name": "Dependabot", "status": "completed", "conclusion": "success" } ] }""");
+        (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!.Checks.Should().Be(ChecksState.Pending, "the required check is not there yet");
+    }
+
+    [Fact]
+    public async Task The_base_of_a_pull_request_is_read_and_only_the_default_branch_is_the_one_staging_proves()
+    {
+        Serve("""{ "check_runs": [ { "name": "build", "status": "completed", "conclusion": "success" } ] }""");
+        var facts = (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!;
+        facts.BaseRef.Should().Be("develop");
+        facts.TargetsDefaultBranch.Should().BeTrue();
+
+        _routes["/repos/example/app/pulls/3"] = $$"""{ "draft": false, "head": { "sha": "{{Head}}" }, "base": { "sha": "{{Base}}", "ref": "release", "repo": { "default_branch": "develop" } } }""";
+        (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!.TargetsDefaultBranch.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task A_failing_check_on_a_later_page_is_seen()
     {
         Serve("""{ "total_count": 101, "check_runs": [ {{SUCCESSES}} ] }""".Replace("{{SUCCESSES}}", string.Join(',', Enumerable.Repeat("""{ "status": "completed", "conclusion": "success" }""", 100))));
@@ -74,6 +118,37 @@ public sealed class GitHubPullRequestFactsTests
         _routes.Remove("/repos/example/app/pulls/3/files?page=2");
         _routes["/repos/example/app/pulls/3/files"] = $"[{hundred}]";
         (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!.PathsComplete.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_merged_pull_request_gives_the_commit_of_the_merge_its_tree_and_the_checks_of_that_commit()
+    {
+        const string MergeSha = "3333333333333333333333333333333333333333";
+        const string Tree = "4444444444444444444444444444444444444444";
+        Serve("""{ "check_runs": [ { "status": "completed", "conclusion": "success" } ] }""");
+        _routes["/repos/example/app/pulls/3"] = $$"""{ "draft": false, "merged": true, "merge_commit_sha": "{{MergeSha}}", "head": { "sha": "{{Head}}" }, "base": { "sha": "{{Base}}" } }""";
+        _routes[$"/repos/example/app/git/commits/{MergeSha}"] = $$"""{ "tree": { "sha": "{{Tree}}" } }""";
+        _routes[$"/repos/example/app/commits/{MergeSha}/check-runs"] = """{ "check_runs": [ { "status": "completed", "conclusion": "failure" } ] }""";
+
+        var facts = (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!;
+
+        facts.Merged.Should().BeTrue();
+        facts.MergeCommit.Should().Be(MergeSha);
+        facts.MergeTree.Should().Be(Tree);
+        facts.MergeChecks.Should().Be(ChecksState.Failing);
+        facts.Checks.Should().Be(ChecksState.Passing, "the checks of the head are the head's");
+    }
+
+    [Fact]
+    public async Task A_pull_request_that_is_not_merged_has_no_merge_commit()
+    {
+        Serve("""{ "check_runs": [ { "status": "completed", "conclusion": "success" } ] }""");
+
+        var facts = (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!;
+
+        facts.Merged.Should().BeFalse();
+        facts.MergeCommit.Should().BeNull();
+        facts.MergeTree.Should().BeNull();
     }
 
     [Fact]

@@ -7,6 +7,7 @@ public sealed class StagingProofTests
 {
     private static readonly CancellationToken Ct = TestContext.Current.CancellationToken;
     private static readonly string Head = new('a', 40);
+    private static readonly string Tree = new('7', 40);
 
     private sealed class ScriptedShell(Func<string, IReadOnlyList<string>, ShellResult> answer) : IShell
     {
@@ -27,11 +28,11 @@ public sealed class StagingProofTests
     private static ShellResult Ok(string output = "") => new(0, output, TimedOut: false);
 
     // What the staging machine answers to each step, with the build left to the caller
-    private static ShellResult Step(string script, string files, Func<ShellResult> build)
+    private static ShellResult Step(string script, string files, Func<ShellResult> build, bool cloneFails = false)
     {
         if (script.Contains("git clone", StringComparison.Ordinal))
         {
-            return Ok($"HEAD {Head}\n");
+            return cloneFails ? new ShellResult(1, "fatal: CONFLICT (content): Merge conflict in package-lock.json", TimedOut: false) : Ok($"HEAD {Head}\nTREE {Tree}\n");
         }
         if (script.Contains("ls -1", StringComparison.Ordinal))
         {
@@ -53,7 +54,7 @@ public sealed class StagingProofTests
             var script = arguments[^1];
             if (script.Contains("git clone", StringComparison.Ordinal))
             {
-                return Ok($"HEAD {sha}\n package.json | 2 +-\n 1 file changed\n");
+                return Ok($"HEAD {sha}\nTREE {Tree}\n package.json | 2 +-\n 1 file changed\n");
             }
             if (script.Contains("ls -1", StringComparison.Ordinal))
             {
@@ -76,9 +77,22 @@ public sealed class StagingProofTests
         dossier.Complex.Should().BeFalse();
         dossier.OpenPoints.Should().BeEmpty();
         dossier.EvidenceDigests.Should().NotBeNull().And.Contain(digest => digest.StartsWith("node:exit=0:sha256=", StringComparison.Ordinal));
+        dossier.EvidenceDigests.Should().Contain($"artifact:tree={Tree}", "the release has to be the tree that was proved here");
+        shell.Calls.Should().Contain(call => call.Contains("merge --quiet --no-edit --no-ff pr", StringComparison.Ordinal), "what is built is the result of the merge on the base as it is now");
         shell.Calls.Where(call => call.StartsWith("/lab/lab.sh reset staging-1", StringComparison.Ordinal)).Should().HaveCount(2, "before the work and after it");
         shell.Calls.Should().Contain(call => call.Contains("npm ci", StringComparison.Ordinal));
         lines.Should().Contain(line => line.Contains("restored", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_pull_request_with_no_merge_result_is_refused_before_anything_is_built()
+    {
+        var shell = new ScriptedShell((file, arguments) => file != "ssh" ? Ok() : Step(arguments[^1], "package.json\n", () => Ok(string.Empty), cloneFails: true));
+
+        var dossier = await new StagingProof(shell, Options()).RunAsync(Mission(), _ => Task.CompletedTask, Ct);
+
+        dossier.Claim.Should().StartWith("Nothing was proven");
+        shell.Calls.Should().NotContain(call => call.Contains("docker run", StringComparison.Ordinal));
     }
 
     [Fact]

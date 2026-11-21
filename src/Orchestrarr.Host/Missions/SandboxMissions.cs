@@ -70,9 +70,21 @@ internal sealed class SandboxWithdrawals : IApprovalWithdrawals
 /// of a deployment would read from the rulesets and the workflows (merging does not deploy, no tag, no credential in reach of the agent) is **declared here to hold**, because the test bed has no agent identity to
 /// confine; it is said in the log at start (`SandboxNotice`).
 /// </summary>
-internal sealed class SandboxFacts(IProblemStore problems, IPullRequestFacts pulls) : IFactsSource
+internal sealed class SandboxFacts(IProblemStore problems, IPullRequestFacts pulls, IMissionStore missions, IDossierStore dossiers, ISandboxHealth? health = null) : IFactsSource
 {
     private static readonly TimeSpan ForgeDeadline = TimeSpan.FromSeconds(20);
+
+    // What was proved in staging is the result of the merge (the tree), and the release is the same tree: a merge made on a base that moved since is another artifact. Unknown until the pull request is merged.
+    private bool? ArtifactProvedInStaging(string problemId, PullRequestFacts read)
+    {
+        if (!read.Merged || read.MergeTree is null)
+        {
+            return null;
+        }
+        var proved = missions.ForProblem(problemId).Where(mission => mission.World == World.Staging).Select(mission => dossiers.Get(mission.Id))
+            .LastOrDefault(dossier => dossier is not null)?.EvidenceDigests.FirstOrDefault(digest => digest.StartsWith(MissionEvidence.ArtifactTree, StringComparison.Ordinal));
+        return proved is not null && string.Equals(proved[MissionEvidence.ArtifactTree.Length..], read.MergeTree, StringComparison.Ordinal);
+    }
 
     public async ValueTask<ObservedFacts> FactsAsync(FactsQuery query, CancellationToken cancellationToken)
     {
@@ -93,30 +105,72 @@ internal sealed class SandboxFacts(IProblemStore problems, IPullRequestFacts pul
                 // The forge did not answer in time: the facts are unknown, which fails the checks
             }
         }
-        if (entry is null || read is null)
+        // Staging proves the merge onto the default branch: a pull request that targets another base is not one that this source can speak for (unknown counts as failing)
+        if (entry is null || read is null || !read.TargetsDefaultBranch)
         {
             return new ObservedFacts(BudgetAvailable: false, DiffIsClean: null, CiGreenOnExactCommit: null, ArtifactIsTheOneProvedInStaging: null, WayBackKnown: null, WorkerClaimMatchesFacts: false);
         }
+        // Once the pull request is merged, what runs is the commit that the merge made on the base branch: the commit, the checks and the tree that the later worlds are about
+        var commit = read.Merged && read.MergeCommit is { } merged ? merged : read.HeadSha;
+        var checks = read.Merged ? read.MergeChecks : read.Checks;
         return new ObservedFacts(
             BudgetAvailable: true,
             DiffIsClean: read.PathsComplete,
-            CiGreenOnExactCommit: read.Checks switch { ChecksState.Passing => true, ChecksState.Failing => false, _ => null },
-            ArtifactIsTheOneProvedInStaging: null,
+            CiGreenOnExactCommit: checks switch { ChecksState.Passing => true, ChecksState.Failing => false, _ => null },
+            ArtifactIsTheOneProvedInStaging: ArtifactProvedInStaging(query.ProblemId, read),
             WayBackKnown: true,
-            WorkerClaimMatchesFacts: query.Dossier?.Commit is { } claimed && string.Equals(claimed, read.HeadSha, StringComparison.Ordinal),
+            WorkerClaimMatchesFacts: query.Dossier?.Commit is { } claimed && string.Equals(claimed, commit, StringComparison.Ordinal),
             MergeMayDeploy: false,
             ExecutedFilesTouched: read.ChangedPaths.Any(path => path.StartsWith(".github/", StringComparison.Ordinal)),
             TagCreationBlocked: true,
             BranchCannotReachWriteCredentials: true,
-            HeadCommit: read.HeadSha,
+            HeadCommit: commit,
             IdentityConfinedToItsBranches: true,
             ChangedPaths: read.ChangedPaths,
             Repository: entry.Repositories[0],
-            BaseCommit: read.BaseSha);
+            BaseCommit: read.BaseSha,
+            Health: query.World == World.Release && health is not null ? await health.ReadAsync(entry.Repositories[0], cancellationToken) : null);
     }
 }
 
-/// <summary>The standing grant of the test bed: every application may go up to one world, set by <c>Missions:SandboxMaxWorld</c> (the Git world until the later worlds are built).</summary>
+/// <summary>The merge on the repositories that the settings name and no other: the gateway does not merge where it was not told it may, whatever a row says.</summary>
+internal sealed class GuardedForgeActs(IForgeActs inner, IReadOnlyList<string> allowed) : IForgeActs
+{
+    public Task<MergeResult> MergePullRequestAsync(string repositoryFullName, int number, string expectedHeadSha, CancellationToken cancellationToken) =>
+        allowed.Any(pattern => Orchestrarr.Core.Tasks.RepositoryPattern.Matches(pattern, repositoryFullName))
+            ? inner.MergePullRequestAsync(repositoryFullName, number, expectedHeadSha, cancellationToken)
+            : Task.FromResult(new MergeResult(false, null, "the gateway may not merge on this repository (Missions:SandboxMergeRepositories)"));
+}
+
+/// <summary>The health of a deployed application, read by the control plane itself (never the worker's word): a sentence for the controller, or null when it is not read.</summary>
+internal interface ISandboxHealth
+{
+    Task<string?> ReadAsync(string repository, CancellationToken cancellationToken);
+}
+
+internal sealed class HttpSandboxHealth(string host, int basePort) : ISandboxHealth
+{
+    private static readonly HttpClient Client = new(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(5) };
+
+    public async Task<string?> ReadAsync(string repository, CancellationToken cancellationToken)
+    {
+        // The applications of the test bed serve plain HTTP on the lab network and carry nothing secret: the probe reads a health route only
+#pragma warning disable S5332
+        var address = new Uri($"http://{host}:{DeploymentPort.Of(repository, basePort)}/health");
+#pragma warning restore S5332
+        try
+        {
+            using var response = await Client.GetAsync(address, cancellationToken);
+            return $"GET {address} answered {(int)response.StatusCode}, read by the control plane";
+        }
+        catch (Exception failure) when (failure is HttpRequestException or TaskCanceledException)
+        {
+            return $"GET {address} did not answer, read by the control plane";
+        }
+    }
+}
+
+/// <summary>The standing grant of the test bed: every application may go up to one world, set by <c>Missions:SandboxMaxWorld</c> (the last world: the test bed merges and deploys).</summary>
 internal sealed class SandboxGrants(World highest) : IGrantSource
 {
     public World? MaxWorldFor(string applicationId) => highest;
@@ -127,7 +181,7 @@ internal sealed class SandboxNotice(World highest, ILogger<SandboxNotice> logger
 {
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        logger.LogWarning("Missions:Sandbox is on: the approvals are made by an authority in this process with no code to type, every application is granted up to {World}, and the frame is DECLARED to hold (merging does not deploy, no tag can be created, no credential is in reach of the branch, the identity is confined to its branches). A deployment never sets it.", highest);
+        logger.LogWarning("Missions:Sandbox is on: the approvals are made by an authority in this process with no code to type, every application is granted up to {World}, the act gateway MERGES pull requests on the repositories of Missions:SandboxMergeRepositories with Missions:SandboxMergeToken (nothing is merged without both), and the frame is DECLARED to hold, as is the way back (the previous version is read by the runner when it deploys, after the authorisation) (merging does not deploy, no tag can be created, no credential is in reach of the branch, the identity is confined to its branches). A deployment never sets it.", highest);
         return Task.CompletedTask;
     }
 
@@ -145,6 +199,18 @@ internal static class SandboxMissionsExtensions
         }
         var github = configuration.GetSection(GitHubOptions.SectionName).Get<GitHubOptions>() ?? new GitHubOptions();
         var missions = configuration.GetSection(MissionsOptions.SectionName).Get<MissionsOptions>() ?? new MissionsOptions();
+        if (missions.SandboxDeployHost is { Length: > 0 } deployHost)
+        {
+            if (Uri.CheckHostName(deployHost) == UriHostNameType.Unknown)
+            {
+                throw new InvalidOperationException("Missions:SandboxDeployHost must be a host name or an address.");
+            }
+            if (!DeploymentPort.IsValidBase(missions.SandboxDeployPortBase))
+            {
+                throw new InvalidOperationException("Missions:SandboxDeployPortBase must leave room for 100 ports below 65535.");
+            }
+            services.AddSingleton<ISandboxHealth>(new HttpSandboxHealth(deployHost, missions.SandboxDeployPortBase));
+        }
         return services
             .AddSingleton<SandboxApprovals>()
             .AddSingleton<IApprovalSource>(provider => provider.GetRequiredService<SandboxApprovals>())
@@ -153,6 +219,7 @@ internal static class SandboxMissionsExtensions
             .AddSingleton<IGrantSource>(new SandboxGrants(missions.SandboxMaxWorld))
             .AddHostedService(provider => new SandboxNotice(missions.SandboxMaxWorld, provider.GetRequiredService<ILogger<SandboxNotice>>()))
             .AddSingleton<IPullRequestFacts>(_ => string.IsNullOrWhiteSpace(github.Token) ? new NoPullRequestFacts() : GitHubPullRequestFacts.Create(github))
+            .AddSingleton<IForgeActs>(_ => string.IsNullOrWhiteSpace(missions.SandboxMergeToken) ? new NoForgeActs() : new GuardedForgeActs(GitHubForgeActs.Create(github.WithToken(missions.SandboxMergeToken)), missions.SandboxMergeRepositories))
             .AddSingleton<IFactsSource, SandboxFacts>();
     }
 }

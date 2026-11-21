@@ -195,8 +195,8 @@
       "change": "major",
       "users": [
         {
-          "environmentId": "bilbao",
-          "environmentName": "bilbao (sandbox production)",
+          "environmentId": "lab-prod",
+          "environmentName": "lab-prod (sandbox production)",
           "name": "shop-api"
         }
       ],
@@ -210,8 +210,8 @@
       "change": "major",
       "users": [
         {
-          "environmentId": "bilbao",
-          "environmentName": "bilbao (sandbox production)",
+          "environmentId": "lab-prod",
+          "environmentName": "lab-prod (sandbox production)",
           "name": "ledger-worker"
         }
       ],
@@ -225,8 +225,8 @@
       "change": "major",
       "users": [
         {
-          "environmentId": "bilbao",
-          "environmentName": "bilbao (sandbox production)",
+          "environmentId": "lab-prod",
+          "environmentName": "lab-prod (sandbox production)",
           "name": "edge-web"
         }
       ],
@@ -240,8 +240,8 @@
       "change": "major",
       "users": [
         {
-          "environmentId": "bilbao",
-          "environmentName": "bilbao (sandbox production)",
+          "environmentId": "lab-prod",
+          "environmentName": "lab-prod (sandbox production)",
           "name": "edge-cache"
         }
       ],
@@ -255,8 +255,8 @@
       "change": "major",
       "users": [
         {
-          "environmentId": "bilbao",
-          "environmentName": "bilbao (sandbox production)",
+          "environmentId": "lab-prod",
+          "environmentName": "lab-prod (sandbox production)",
           "name": "edge-db"
         }
       ],
@@ -269,8 +269,8 @@
       "change": "none",
       "users": [
         {
-          "environmentId": "bilbao",
-          "environmentName": "bilbao (sandbox production)",
+          "environmentId": "lab-prod",
+          "environmentName": "lab-prod (sandbox production)",
           "name": "edge-app"
         }
       ],

@@ -10,7 +10,16 @@ namespace Orchestrarr.MissionRunner;
 public interface IMissionControlPlane
 {
     /// <summary>The mission of the given world whose mandate names this runner, if there is one.</summary>
-    Task<ClaimedMission?> ClaimAsync(CancellationToken cancellationToken);
+    Task<ClaimedMission?> ClaimAsync(string world, CancellationToken cancellationToken);
+
+    /// <summary>Asks the act gateway to merge the pull request of the mission: the control plane checks the facts itself and merges with its own credential.</summary>
+    Task<MissionActResponse> MergeAsync(string missionId, CancellationToken cancellationToken);
+
+    /// <summary>Asks the act gateway whether the commit that the controller accepted may be deployed now.</summary>
+    Task<MissionActResponse> DeployAsync(string missionId, CancellationToken cancellationToken);
+
+    /// <summary>The pipeline of the commit that the mission works on, as the control plane reads it from the forge.</summary>
+    Task<MissionPipelineResponse> PipelineAsync(string missionId, CancellationToken cancellationToken);
 
     /// <summary>Says that the work starts: false when the control plane refuses (the mandate expired, the mission is not the runner's any more).</summary>
     Task<bool> StartedAsync(string missionId, CancellationToken cancellationToken);
@@ -43,12 +52,12 @@ public sealed class MissionControlPlane : IMissionControlPlane
         _http.Timeout = TimeSpan.FromSeconds(30);
     }
 
-    public async Task<ClaimedMission?> ClaimAsync(CancellationToken cancellationToken)
+    public async Task<ClaimedMission?> ClaimAsync(string world, CancellationToken cancellationToken)
     {
         // The hello is the one of the typed-task registry on purpose, as an interim that the table still reads (ADR 0042 point 6(b)); only the kind that this runner does is announced.
         // The runner says what it accepts and the world it serves: a mission of another world is not even offered (it would block those behind it)
         var hello = new RunnerHello(_options.Name, typeof(MissionControlPlane).Assembly.GetName().Version?.ToString() ?? "0", [TaskKind.ValidatePullRequest], _options.Repositories, [], SecondFactorRequired: false);
-        using var response = await _http.PostAsJsonAsync($"/api/v1/runner/missions/claim?world={Uri.EscapeDataString(_options.World)}", new ClaimRequest(hello), RunnerWire.Json, cancellationToken);
+        using var response = await _http.PostAsJsonAsync($"/api/v1/runner/missions/claim?world={Uri.EscapeDataString(world)}", new ClaimRequest(hello), RunnerWire.Json, cancellationToken);
         response.EnsureSuccessStatusCode();
         return (await response.Content.ReadFromJsonAsync<MissionClaimResponse>(MissionWire.Json, cancellationToken))?.Mission;
     }
@@ -69,6 +78,24 @@ public sealed class MissionControlPlane : IMissionControlPlane
     {
         using var response = await _http.PostAsJsonAsync($"/api/v1/runner/missions/{Uri.EscapeDataString(missionId)}/handover", dossier, MissionWire.Json, cancellationToken);
         return response.IsSuccessStatusCode;
+    }
+
+    public Task<MissionActResponse> MergeAsync(string missionId, CancellationToken cancellationToken) => PostActAsync(missionId, "merge", cancellationToken);
+
+    public Task<MissionActResponse> DeployAsync(string missionId, CancellationToken cancellationToken) => PostActAsync(missionId, "deploy", cancellationToken);
+
+    private async Task<MissionActResponse> PostActAsync(string missionId, string act, CancellationToken cancellationToken)
+    {
+        using var response = await _http.PostAsync($"/api/v1/runner/missions/{Uri.EscapeDataString(missionId)}/acts/{act}", content: null, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<MissionActResponse>(MissionWire.Json, cancellationToken) ?? new MissionActResponse(false, "the control plane gave no answer", [], Retry: false, null);
+    }
+
+    public async Task<MissionPipelineResponse> PipelineAsync(string missionId, CancellationToken cancellationToken)
+    {
+        using var response = await _http.GetAsync($"/api/v1/runner/missions/{Uri.EscapeDataString(missionId)}/pipeline", cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<MissionPipelineResponse>(MissionWire.Json, cancellationToken) ?? new MissionPipelineResponse("unknown", null);
     }
 
     public async Task<bool> StopEngagedAsync(CancellationToken cancellationToken)
