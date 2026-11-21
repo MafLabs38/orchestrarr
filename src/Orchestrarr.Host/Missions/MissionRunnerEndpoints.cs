@@ -39,6 +39,28 @@ public sealed class MissionProgress(TimeProvider time)
         }
     }
 
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _remarks = new(StringComparer.Ordinal);
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> _reworked = new(StringComparer.Ordinal);
+
+    /// <summary>What the controller asked to be done again when it sent a mission back (kept with the lines: the dossier is the record, this is only what the next pass of the runner is told).</summary>
+    public void Remark(string missionId, string remarks) => _remarks[missionId] = remarks.Length > 1000 ? remarks[..1000] : remarks;
+
+    public string? RemarksOf(string missionId) => _remarks.GetValueOrDefault(missionId);
+
+    /// <summary>Whether a mission that was sent back for the <paramref name="sendBacks"/>th time has already been offered for another pass: it is offered once for each send-back.</summary>
+    public bool TakeRework(string missionId, int sendBacks)
+    {
+        lock (_reworked)
+        {
+            if (_reworked.GetValueOrDefault(missionId) >= sendBacks)
+            {
+                return false;
+            }
+            _reworked[missionId] = sendBacks;
+            return true;
+        }
+    }
+
     public IReadOnlyList<string> Lines(string missionId)
     {
         if (!_lines.TryGetValue(missionId, out var list))
@@ -60,7 +82,7 @@ internal static partial class MissionRunnerEndpoints
 {
     public static void MapMissionRunnerRoutes(this RouteGroupBuilder group, Func<HttpContext, string> runnerName)
     {
-        group.MapPost("/missions/claim", (ClaimRequest? request, string? world, HttpContext context, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, TimeProvider time, RunnerRegistry registry) =>
+        group.MapPost("/missions/claim", (ClaimRequest? request, string? world, HttpContext context, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, ProblemConductor conductor, IDossierStore dossiers, MissionProgress progress, TimeProvider time, RunnerRegistry registry) =>
         {
             var name = runnerName(context);
             if (request?.Hello is { } hello)
@@ -68,14 +90,22 @@ internal static partial class MissionRunnerEndpoints
                 // A runner of missions is seen like the others: what it accepts decides what the table offers
                 registry.Seen(name, hello);
             }
-            var mission = missions.Recent(200).Where(candidate => candidate.State == MissionState.Mandated && MandateOf(candidate, mandates) is { } signed && signed.Mandate.RunnerId == name && signed.Mandate.ExpiresAt > time.GetUtcNow() && (world is null || string.Equals(candidate.World.ToString(), world, StringComparison.OrdinalIgnoreCase)))
-                .OrderBy(candidate => candidate.Id, StringComparer.Ordinal).FirstOrDefault();
+            // A mission is offered when its mandate has just been issued, or when the controller sent it back after a dossier (once for each send-back): the same mandate goes on with the remarks
+            var mission = missions.Recent(200).Where(candidate => (candidate.State == MissionState.Mandated || IsSentBack(candidate, dossiers)) && MandateOf(candidate, mandates) is { } signed && signed.Mandate.RunnerId == name && signed.Mandate.ExpiresAt > time.GetUtcNow() && (world is null || string.Equals(candidate.World.ToString(), world, StringComparison.OrdinalIgnoreCase)))
+                .Where(candidate => IsItsTurn(candidate, problems))
+                // The later worlds first: what is on its way to production is finished before something new is started
+                .OrderByDescending(candidate => candidate.World).ThenBy(candidate => candidate.Id, StringComparer.Ordinal).FirstOrDefault();
             if (mission is null || MandateOf(mission, mandates) is not { } mandate || problems.Get(mission.ProblemId)?.Entry is not { Repositories.Count: 1 } entry)
             {
                 return Results.Ok(new MissionClaimResponse(null));
             }
+            var rework = mission.State == MissionState.Running;
+            if (rework && !progress.TakeRework(mission.Id, mission.SendBacks))
+            {
+                return Results.Ok(new MissionClaimResponse(null));
+            }
             return Results.Ok(new MissionClaimResponse(new ClaimedMission(mission.Id, mission.ProblemId, mission.ApplicationId, mission.World.ToString(), mission.Objective, entry.Repositories[0], entry.PullRequest, entry.HeadSha,
-                mandate.Mandate.ExpiresAt, [.. mandate.Mandate.Acts.Select(act => act.ToString())])));
+                mandate.Mandate.ExpiresAt, [.. mandate.Mandate.Acts.Select(act => act.ToString())], conductor.AcceptedCommit(mission.Id) ?? entry.HeadSha, rework, rework ? progress.RemarksOf(mission.Id) : null)));
         });
 
         group.MapPost("/missions/{id}/started", async (string id, HttpContext context, IMissionStore missions, IMandateLedger mandates, ProblemConductor conductor, ILiveNotifier live, CancellationToken ct) =>
@@ -114,6 +144,21 @@ internal static partial class MissionRunnerEndpoints
         });
     }
 
+    private static bool IsSentBack(Mission candidate, IDossierStore dossiers) => candidate.State == MissionState.Running && candidate.SendBacks > 0 && dossiers.Get(candidate.Id) is not null;
+
+    // One problem at a time on one repository (FR-MIS-6): a mission is offered only when its problem is the oldest of those in progress on its repository, so that what was proved in staging is what is merged and deployed
+    private static bool IsItsTurn(Mission candidate, IProblemStore problems)
+    {
+        if (problems.Get(candidate.ProblemId) is not { Entry.Repositories.Count: 1 } run)
+        {
+            return false;
+        }
+        var repository = run.Entry.Repositories[0];
+        var oldest = problems.InProgress().Where(other => other.Entry.Repositories.Count == 1 && string.Equals(other.Entry.Repositories[0], repository, StringComparison.Ordinal))
+            .OrderBy(other => other.StartedAt).ThenBy(other => other.ProblemId, StringComparer.Ordinal).FirstOrDefault();
+        return oldest is null || string.Equals(oldest.ProblemId, candidate.ProblemId, StringComparison.Ordinal);
+    }
+
     // What a runner may put in a dossier is bounded here as it is in the prompt of the controller: a runner that is not trusted cannot fill the store
     private const int MaxListed = 20;
     private const int MaxTextLength = 2000;
@@ -128,6 +173,6 @@ internal static partial class MissionRunnerEndpoints
 
     private static SignedMandate? MandateOf(Mission mission, IMandateLedger mandates) => mission.MandateId is { } id ? mandates.Get(id) : null;
 
-    private static bool Owns(string id, string runner, IMissionStore missions, IMandateLedger mandates) =>
+    internal static bool Owns(string id, string runner, IMissionStore missions, IMandateLedger mandates) =>
         missions.Get(id) is { } mission && MandateOf(mission, mandates) is { } signed && signed.Mandate.RunnerId == runner;
 }

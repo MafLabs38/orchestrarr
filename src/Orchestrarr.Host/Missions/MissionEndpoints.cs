@@ -8,7 +8,7 @@ namespace Orchestrarr.Host.Missions;
 /// <summary>A mandate as a person sees it: who issued it, for which runner, which acts, until when. The signature is not shown.</summary>
 public sealed record MandateView(string Id, string RunnerId, string Source, IReadOnlyList<string> Acts, DateTimeOffset IssuedAt, DateTimeOffset ExpiresAt, bool Revoked);
 
-public sealed record DossierView(string Claim, string WhatChangedAndWhy, IReadOnlyList<string> OpenPoints, bool Complex, string? ComplexReason);
+public sealed record DossierView(string Claim, string WhatChangedAndWhy, IReadOnlyList<string> OpenPoints, bool Complex, string? ComplexReason, IReadOnlyList<string>? EvidenceDigests = null);
 
 /// <summary>A mission with its mandate, its dossier and the state of its problem.</summary>
 public sealed record MissionView(
@@ -43,7 +43,7 @@ internal static class MissionEndpoints
             var mandate = mission.MandateId is { } id && signedById.TryGetValue(id, out var signed)
                 ? new MandateView(signed.Mandate.Id, signed.Mandate.RunnerId, signed.Mandate.Source.ToString(), [.. signed.Mandate.Acts.Select(act => act.ToString())], signed.Mandate.IssuedAt, signed.Mandate.ExpiresAt, revoked.Contains(id))
                 : null;
-            var dossier = dossierById.TryGetValue(mission.Id, out var found) ? new DossierView(found.Claim, found.WhatChangedAndWhy, found.OpenPoints, found.Complex, found.ComplexReason) : null;
+            var dossier = dossierById.TryGetValue(mission.Id, out var found) ? new DossierView(found.Claim, found.WhatChangedAndWhy, found.OpenPoints, found.Complex, found.ComplexReason, found.EvidenceDigests) : null;
             return new MissionView(mission.Id, mission.ProblemId, mission.ApplicationId, mission.World.ToString(), mission.Objective, mission.State.ToString(), mission.End?.ToString(), mission.EndReason, mission.SendBacks,
                 problemById.TryGetValue(mission.ProblemId, out var run) ? run.State.ToString() : null, mandate, dossier, progress?.Lines(mission.Id));
         })];

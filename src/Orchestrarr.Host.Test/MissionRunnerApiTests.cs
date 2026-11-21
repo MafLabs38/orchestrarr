@@ -392,7 +392,7 @@ public sealed class MissionRunnerApiTests
         var entry = new PlanEntry("p-1", "example/shop", "dependency-update", "x", ["example/shop"], World.Release, new MissionBudget(30, 3, 50), new Validation("alice", null), DateTimeOffset.UtcNow, 7, Head);
         problems.Save(new ProblemRun("p-1", "example/shop", ProblemState.InProgress, DateTimeOffset.UtcNow, entry, World.Git, true, null!));
         var forge = new FakeFacts(new PullRequestFacts(Head, "base", false, ChecksState.Passing, ["package.json", ".github/workflows/ci.yml"], PathsComplete: true));
-        var facts = new SandboxFacts(problems, forge);
+        var facts = new SandboxFacts(problems, forge, new InMemoryMissionStore(), new InMemoryDossierStore());
         var dossier = new Dossier("m1", "claim", "why", [], [], false, null, new string('e', 40));
 
         var seen = await facts.FactsAsync(new FactsQuery("p-1", "m1", World.Staging, new MissionFrame(["example/shop"], [], "place"), dossier, null), Ct);
@@ -413,6 +413,41 @@ public sealed class MissionRunnerApiTests
     private sealed class SaysGateway(string text) : IAgentGateway
     {
         public Task<AgentReply> RunAsync(AgentRequest request, CancellationToken cancellationToken) => Task.FromResult(new AgentReply(true, text, null));
+    }
+
+    private sealed class FakeHealth : ISandboxHealth
+    {
+        public Task<string?> ReadAsync(string repository, CancellationToken cancellationToken) => Task.FromResult<string?>($"GET {repository} answered 200");
+    }
+
+    [Fact]
+    public async Task The_facts_after_a_merge_are_those_of_the_merge_commit_and_the_artifact_is_the_tree_that_staging_proved()
+    {
+        const string MergeSha = "5555555555555555555555555555555555555555";
+        const string Tree = "6666666666666666666666666666666666666666";
+        var problems = new InMemoryProblemStore();
+        var entry = new PlanEntry("p-1", "example/shop", "dependency-update", "x", ["example/shop"], World.Release, new MissionBudget(30, 3, 50), new Validation("alice", null), DateTimeOffset.UtcNow, 7, Head);
+        problems.Save(new ProblemRun("p-1", "example/shop", ProblemState.InProgress, DateTimeOffset.UtcNow, entry, World.Release, true, null!));
+        var missions = new InMemoryMissionStore();
+        var dossiers = new InMemoryDossierStore();
+        var frame = new MissionFrame(["example/shop"], [], "place");
+        missions.Save(new Mission("m-staging", "p-1", "example/shop", World.Staging, "x", frame, new MissionBudget(30, 3, 50), MissionState.Accepted));
+        dossiers.Save(new Dossier("m-staging", "proved", "w", [$"artifact:tree={Tree}"], [], false, null, Head));
+        var merged = new PullRequestFacts(Head, "base", false, ChecksState.Passing, ["package.json"], PathsComplete: true, Merged: true, MergeSha, Tree, ChecksState.Passing);
+        var dossier = new Dossier("m-git", "merged", "w", [], [], false, null, MergeSha);
+
+        var same = await new SandboxFacts(problems, new FakeFacts(merged), missions, dossiers, new FakeHealth()).FactsAsync(new FactsQuery("p-1", "m-release", World.Release, frame, dossier, MergeSha), Ct);
+        var moved = await new SandboxFacts(problems, new FakeFacts(merged with { MergeTree = new string('8', 40) }), missions, dossiers).FactsAsync(new FactsQuery("p-1", "m-release", World.Release, frame, dossier, MergeSha), Ct);
+        var open = await new SandboxFacts(problems, new FakeFacts(merged with { Merged = false, MergeCommit = null, MergeTree = null }), missions, dossiers).FactsAsync(new FactsQuery("p-1", "m-git", World.Git, frame, dossier with { Commit = Head }, Head), Ct);
+
+        same.HeadCommit.Should().Be(MergeSha);
+        same.WorkerClaimMatchesFacts.Should().BeTrue();
+        same.ArtifactIsTheOneProvedInStaging.Should().BeTrue();
+        same.Health.Should().Be("GET example/shop answered 200", "the control plane looks at the deployed application in the release world");
+        moved.ArtifactIsTheOneProvedInStaging.Should().BeFalse("the merge is another tree than the one that was proved");
+        moved.Health.Should().BeNull();
+        open.HeadCommit.Should().Be(Head, "before the merge the commit is the head of the pull request");
+        open.ArtifactIsTheOneProvedInStaging.Should().BeNull("nothing to compare before the merge");
     }
 
     private sealed class FakeFacts(PullRequestFacts? facts) : IPullRequestFacts

@@ -5,6 +5,12 @@ public sealed class GitHubOptions
 {
     public const string SectionName = "GitHub";
 
+    /// <summary>
+    /// The checks that are not the repository's pipeline and are not read as such when the checks of a commit are judged: the update jobs of Dependabot, which appear as check runs of the commit they ran on and fail for reasons of their
+    /// own (a package that cannot be updated). A comparison of the whole name, case-insensitive. A list in the configuration replaces the default.
+    /// </summary>
+    public string[] IgnoredChecks { get; set; } = ["Dependabot"];
+
     public static readonly string[] DefaultBotLogins = ["dependabot[bot]", "renovate[bot]"];
 
     /// <summary>Address of the REST API. It must be https (http only to the local machine): the token is sent in a header. Redirects are not followed.</summary>

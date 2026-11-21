@@ -72,6 +72,7 @@ internal static class RunnerEndpoints
         if (app.Services.GetService<SandboxApprovals>() is not null)
         {
             group.MapMissionRunnerRoutes(context => (string)context.Items[RunnerItem]!);
+            group.MapMissionActRoutes(context => (string)context.Items[RunnerItem]!);
         }
 
         // What a runner reads while it runs: the global stop reaches a task that is going on, not only the next one

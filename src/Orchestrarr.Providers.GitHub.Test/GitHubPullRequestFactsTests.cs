@@ -51,6 +51,22 @@ public sealed class GitHubPullRequestFactsTests
     }
 
     [Fact]
+    public async Task The_update_jobs_of_dependabot_are_not_the_pipeline()
+    {
+        Serve("""{ "check_runs": [ { "name": "build", "status": "completed", "conclusion": "success" }, { "name": "Dependabot", "status": "completed", "conclusion": "failure" } ] }""");
+
+        (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!.Checks.Should().Be(ChecksState.Passing);
+    }
+
+    [Fact]
+    public async Task A_commit_that_has_only_the_update_jobs_of_dependabot_has_no_pipeline_to_judge()
+    {
+        Serve("""{ "check_runs": [ { "name": "Dependabot", "status": "completed", "conclusion": "success" } ] }""");
+
+        (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!.Checks.Should().Be(ChecksState.Unknown);
+    }
+
+    [Fact]
     public async Task A_failing_check_on_a_later_page_is_seen()
     {
         Serve("""{ "total_count": 101, "check_runs": [ {{SUCCESSES}} ] }""".Replace("{{SUCCESSES}}", string.Join(',', Enumerable.Repeat("""{ "status": "completed", "conclusion": "success" }""", 100))));
@@ -74,6 +90,37 @@ public sealed class GitHubPullRequestFactsTests
         _routes.Remove("/repos/example/app/pulls/3/files?page=2");
         _routes["/repos/example/app/pulls/3/files"] = $"[{hundred}]";
         (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!.PathsComplete.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_merged_pull_request_gives_the_commit_of_the_merge_its_tree_and_the_checks_of_that_commit()
+    {
+        const string MergeSha = "3333333333333333333333333333333333333333";
+        const string Tree = "4444444444444444444444444444444444444444";
+        Serve("""{ "check_runs": [ { "status": "completed", "conclusion": "success" } ] }""");
+        _routes["/repos/example/app/pulls/3"] = $$"""{ "draft": false, "merged": true, "merge_commit_sha": "{{MergeSha}}", "head": { "sha": "{{Head}}" }, "base": { "sha": "{{Base}}" } }""";
+        _routes[$"/repos/example/app/git/commits/{MergeSha}"] = $$"""{ "tree": { "sha": "{{Tree}}" } }""";
+        _routes[$"/repos/example/app/commits/{MergeSha}/check-runs"] = """{ "check_runs": [ { "status": "completed", "conclusion": "failure" } ] }""";
+
+        var facts = (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!;
+
+        facts.Merged.Should().BeTrue();
+        facts.MergeCommit.Should().Be(MergeSha);
+        facts.MergeTree.Should().Be(Tree);
+        facts.MergeChecks.Should().Be(ChecksState.Failing);
+        facts.Checks.Should().Be(ChecksState.Passing, "the checks of the head are the head's");
+    }
+
+    [Fact]
+    public async Task A_pull_request_that_is_not_merged_has_no_merge_commit()
+    {
+        Serve("""{ "check_runs": [ { "status": "completed", "conclusion": "success" } ] }""");
+
+        var facts = (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!;
+
+        facts.Merged.Should().BeFalse();
+        facts.MergeCommit.Should().BeNull();
+        facts.MergeTree.Should().BeNull();
     }
 
     [Fact]

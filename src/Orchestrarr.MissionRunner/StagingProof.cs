@@ -10,8 +10,10 @@ namespace Orchestrarr.MissionRunner;
 /// The work of the staging world for a pull request: the staging machine is put back to its reference, the pull request is fetched there at the commit that the mandate names,
 /// built and tested in a container, and what was seen is handed over as a dossier. The machine is put back again when the work ends (ADR 0041): the next job never works in what this one left.
 /// </summary>
-public sealed partial class StagingProof(IShell shell, MissionRunnerOptions options)
+public sealed partial class StagingProof(IShell shell, MissionRunnerOptions options) : IWorldWork
 {
+    public string World => "Staging";
+
     private const string Prelude = "export DOCKER_HOST=unix:///run/user/$(id -u)/docker.sock; set -e; ";
 
     public async Task<MissionHandOver> RunAsync(ClaimedMission mission, Func<string, Task> report, CancellationToken cancellationToken)
@@ -50,14 +52,17 @@ public sealed partial class StagingProof(IShell shell, MissionRunnerOptions opti
 
             await report($"Fetching {mission.Repository} pull request #{number}");
             var checkout = await OnMachineAsync(machine,
-                $"rm -rf ~/work && mkdir -p ~/work && cd ~/work && git clone --quiet https://github.com/{mission.Repository}.git repo && cd repo && git fetch --quiet origin pull/{number}/head:pr && git checkout --quiet pr && echo \"HEAD $(git rev-parse HEAD)\" && git diff --stat origin/HEAD...HEAD | tail -8",
+                $"rm -rf ~/work && mkdir -p ~/work && cd ~/work && git clone --quiet https://github.com/{mission.Repository}.git repo && cd repo && git fetch --quiet origin pull/{number}/head:pr && git checkout --quiet pr && echo \"HEAD $(git rev-parse HEAD)\" && {MergeResult}",
                 timeout, cancellationToken);
             Keep(evidence, "checkout", checkout);
             var head = HeadLine().Match(checkout.Output) is { Success: true } found ? found.Groups[1].Value : null;
-            if (checkout.ExitCode != 0 || head is null)
+            var tree = TreeLine().Match(checkout.Output) is { Success: true } treeFound ? treeFound.Groups[1].Value : null;
+            if (checkout.ExitCode != 0 || head is null || tree is null)
             {
-                return Refused(mission, $"The pull request could not be fetched on the staging machine: {Tail(checkout.Output)}");
+                return Refused(mission, $"The pull request could not be fetched and merged on the staging machine (a conflict with the base branch): {Tail(checkout.Output)}");
             }
+            // What is built and tested is the result of the merge, and its tree names the artifact: the release must be that tree (FR-WLD-14)
+            evidence.Add($"artifact:tree={tree}");
             if (mission.HeadSha is { Length: > 0 } expected && !head.Equals(expected, StringComparison.OrdinalIgnoreCase))
             {
                 return Refused(mission, $"The pull request moved since it was approved (approved {Short(expected)}, found {Short(head)}): nothing was built.");
@@ -156,10 +161,16 @@ public sealed partial class StagingProof(IShell shell, MissionRunnerOptions opti
     }
 
     private static string FirstLines(string output, int count) =>
-        string.Join(" | ", output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Skip(1).Take(count));
+        string.Join(" | ", output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Skip(2).Take(count));
 
     [GeneratedRegex(@"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9_][A-Za-z0-9._-]{0,99}$")]
     private static partial Regex RepositoryShape();
+
+    [GeneratedRegex(@"^TREE ([0-9a-f]{40})\s*$", RegexOptions.Multiline)]
+    private static partial Regex TreeLine();
+
+    // The merge is made here, on the base branch as it is now, and not read from the forge: the test merge that the forge keeps is computed lazily and can be of a base that has moved since. A conflict stops the script.
+    private const string MergeResult = "git checkout --quiet -B merged origin/HEAD && git -c user.name=orchestrarr -c user.email=orchestrarr@localhost merge --quiet --no-edit --no-ff pr && echo \"TREE $(git rev-parse 'HEAD^{tree}')\" && git diff --stat origin/HEAD HEAD | tail -8";
 
     [GeneratedRegex(@"^HEAD ([0-9a-f]{40})\s*$", RegexOptions.Multiline)]
     private static partial Regex HeadLine();

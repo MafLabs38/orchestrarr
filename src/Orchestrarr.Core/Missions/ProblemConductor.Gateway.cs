@@ -53,6 +53,10 @@ public sealed partial class ProblemConductor
         }, cancellationToken);
     }
 
+    /// <summary>The commit that the controller accepted at the crossing into the world of this mission (the one the world before handed over): what a release deploys. Null when there is none.</summary>
+    public string? AcceptedCommit(string missionId) =>
+        missions.Get(missionId) is { } mission && problems.Get(mission.ProblemId) is { } run ? LatestDossier(run, mission)?.Commit : null;
+
     // What an act asks for: the act, and where and on what it is to be done
     private readonly record struct ActRequest(GatedAct Act, string? Commit, string? Repository, string? BaseCommit)
     {

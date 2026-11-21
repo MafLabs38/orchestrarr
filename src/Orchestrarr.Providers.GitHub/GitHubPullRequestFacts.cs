@@ -12,7 +12,13 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts
 
     private readonly HttpClient _http;
 
-    private GitHubPullRequestFacts(HttpClient http) => _http = http;
+    private readonly string[] _ignored;
+
+    private GitHubPullRequestFacts(HttpClient http, string[] ignored)
+    {
+        _http = http;
+        _ignored = ignored;
+    }
 
     [GeneratedRegex(@"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9._-]{1,100}$", RegexOptions.None, 250)]
     private static partial Regex RepositoryName();
@@ -29,7 +35,7 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts
         http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
         http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("orchestrarr", "1"));
         http.DefaultRequestHeaders.Add("X-GitHub-Api-Version", "2022-11-28");
-        return new GitHubPullRequestFacts(http);
+        return new GitHubPullRequestFacts(http, options.IgnoredChecks);
     }
 
     public async Task<PullRequestFacts?> ReadAsync(string repositoryFullName, int number, CancellationToken cancellationToken)
@@ -53,12 +59,26 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts
             }
             var draft = pull.RootElement.TryGetProperty("draft", out var d) && d.ValueKind == JsonValueKind.True;
             var (paths, complete) = await ChangedPathsAsync(repositoryFullName, number, cancellationToken);
-            return new PullRequestFacts(head, baseSha, draft, await ChecksOfAsync(repositoryFullName, head, cancellationToken), paths, complete);
+            var checks = await ChecksOfAsync(repositoryFullName, head, cancellationToken);
+            var merged = pull.RootElement.TryGetProperty("merged", out var m) && m.ValueKind == JsonValueKind.True;
+            var mergeCommit = merged && pull.RootElement.TryGetProperty("merge_commit_sha", out var mc) ? mc.GetString() : null;
+            if (!merged || string.IsNullOrEmpty(mergeCommit))
+            {
+                return new PullRequestFacts(head, baseSha, draft, checks, paths, complete);
+            }
+            // Once it is merged, what runs is the commit that the merge made on the base branch: its tree and the checks of its pipeline are the facts of the later worlds
+            return new PullRequestFacts(head, baseSha, draft, checks, paths, complete, Merged: true, mergeCommit, await TreeOfAsync(repositoryFullName, mergeCommit, cancellationToken), await ChecksOfAsync(repositoryFullName, mergeCommit, cancellationToken));
         }
         catch (Exception failure) when (failure is HttpRequestException or JsonException or KeyNotFoundException or TaskCanceledException or InvalidOperationException)
         {
             return null;
         }
+    }
+
+    private async Task<string?> TreeOfAsync(string repository, string sha, CancellationToken cancellationToken)
+    {
+        using var commit = await GetAsync($"repos/{repository}/git/commits/{sha}", cancellationToken);
+        return commit is not null && commit.RootElement.TryGetProperty("tree", out var tree) && tree.TryGetProperty("sha", out var treeSha) ? treeSha.GetString() : null;
     }
 
     private async Task<(IReadOnlyList<string> Paths, bool Complete)> ChangedPathsAsync(string repository, int number, CancellationToken cancellationToken)
@@ -86,6 +106,7 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts
     {
         var pending = false;
         var seen = 0;
+        var judged = 0;
         for (var page = 1; page <= MaxPages; page++)
         {
             using var runs = await GetAsync($"repos/{repository}/commits/{sha}/check-runs?per_page=100&page={page}", cancellationToken);
@@ -96,6 +117,12 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts
             foreach (var run in list.EnumerateArray())
             {
                 seen++;
+                // A check that is not a pipeline of the repository is counted as read (the total is of every run) and not judged
+                if (run.TryGetProperty("name", out var name) && _ignored.Contains(name.GetString(), StringComparer.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+                judged++;
                 if (run.GetProperty("status").GetString() != "completed")
                 {
                     pending = true;
@@ -109,7 +136,7 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts
             if (seen >= total || list.GetArrayLength() == 0)
             {
                 // A green that was read only in part is not a green: unknown counts as failing for whoever asks
-                if (seen == 0 || seen < total)
+                if (judged == 0 || seen < total)
                 {
                     return ChecksState.Unknown;
                 }

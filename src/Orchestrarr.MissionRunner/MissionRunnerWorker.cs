@@ -5,9 +5,10 @@ using Orchestrarr.Core.Missions;
 namespace Orchestrarr.MissionRunner;
 
 /// <summary>Asks the control plane for a mission of its own, says that it starts, works, reports and hands the dossier over, then asks again.</summary>
-public sealed partial class MissionRunnerWorker(IMissionControlPlane controlPlane, StagingProof staging, MissionRunnerOptions options, ILogger<MissionRunnerWorker> logger) : BackgroundService
+public sealed partial class MissionRunnerWorker(IMissionControlPlane controlPlane, IEnumerable<IWorldWork> works, MissionRunnerOptions options, ILogger<MissionRunnerWorker> logger) : BackgroundService
 {
     private const int HandOverAttempts = 3;
+    private static readonly string[] WorldOrder = ["Staging", "Git", "Release"];
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -35,38 +36,49 @@ public sealed partial class MissionRunnerWorker(IMissionControlPlane controlPlan
     /// <summary>One mission, if there is one. True when work was done.</summary>
     internal async Task<bool> TakeOneAsync(CancellationToken cancellationToken)
     {
-        if (await controlPlane.ClaimAsync(cancellationToken) is not { } mission)
+        // The worlds it serves, the later ones first; a world it has no work for is not asked about
+        IWorldWork? work = null;
+        ClaimedMission? mission = null;
+        foreach (var candidate in works.Where(known => options.Worlds.Contains(known.World, StringComparer.OrdinalIgnoreCase)).OrderByDescending(known => Array.IndexOf(WorldOrder, known.World)))
+        {
+            if (await controlPlane.ClaimAsync(candidate.World, cancellationToken) is { } claimed)
+            {
+                (work, mission) = (candidate, claimed);
+                break;
+            }
+        }
+        if (work is null || mission is null)
         {
             return false;
         }
-        if (!string.Equals(mission.World, options.World, StringComparison.OrdinalIgnoreCase))
+        // A mission that was sent back is already started: it goes on, told what the controller asked
+        if (mission.Rework)
         {
-            await controlPlane.ProgressAsync(mission.MissionId, $"This runner serves the {options.World} world, not {mission.World}: nothing done.", cancellationToken);
-            return false;
+            await controlPlane.ProgressAsync(mission.MissionId, $"Sent back by the controller: {mission.Remarks ?? "no remarks"}", cancellationToken);
         }
-        if (!await controlPlane.StartedAsync(mission.MissionId, cancellationToken))
+        else if (!await controlPlane.StartedAsync(mission.MissionId, cancellationToken))
         {
             return false;
         }
         // The global stop reaches the work that is going on: it is read while the work runs, and the work is cancelled (the machine is still restored)
-        using var work = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var watcher = WatchStopAsync(work);
+        using var stopped = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var watcher = WatchStopAsync(stopped);
         try
         {
-            var dossier = await staging.RunAsync(mission, line => controlPlane.ProgressAsync(mission.MissionId, line, cancellationToken), work.Token);
+            var dossier = await work.RunAsync(mission, line => controlPlane.ProgressAsync(mission.MissionId, line, cancellationToken), stopped.Token);
             if (!await HandOverAsync(mission.MissionId, dossier, cancellationToken))
             {
                 LogRefused(mission.MissionId);
             }
         }
         // Only the stop ends the work like this: a call that timed out is not a stop
-        catch (OperationCanceledException) when (work.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (stopped.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
             await controlPlane.ProgressAsync(mission.MissionId, "The global stop is engaged: the work was stopped and nothing is handed over.", cancellationToken);
         }
         finally
         {
-            await work.CancelAsync();
+            await stopped.CancelAsync();
             await watcher;
         }
         return true;

@@ -31,8 +31,13 @@ public sealed class MissionsOptions
     /// </summary>
     public bool Sandbox { get; set; }
 
-    /// <summary>With <see cref="Sandbox"/>: the highest world the test bed grants to every application. The Git world until the later worlds are built.</summary>
-    public World SandboxMaxWorld { get; set; } = World.Git;
+    /// <summary>With <see cref="Sandbox"/>: the highest world the test bed grants to every application. The last world: the test bed merges and deploys.</summary>
+    public World SandboxMaxWorld { get; set; } = World.Release;
+
+    /// <summary>With <see cref="Sandbox"/>: the address of the machine that releases are deployed to, so that the control plane looks at the deployed application itself (<c>http://host:port/health</c>, the port being the repository's own, <see cref="Orchestrarr.Core.Missions.DeploymentPort"/>). Unset: the health of a release is not read.</summary>
+    public string? SandboxDeployHost { get; set; }
+
+    public int SandboxDeployPortBase { get; set; } = 8100;
 
     /// <summary>The paths no mission may touch, whatever its repository (pipelines, secrets). Unset: the pipelines of the forge, the encrypted files and the environment files.</summary>
     public string[]? ForbiddenPaths { get; set; }
