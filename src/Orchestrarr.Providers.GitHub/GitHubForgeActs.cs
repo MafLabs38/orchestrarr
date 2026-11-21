@@ -75,45 +75,45 @@ public sealed partial class GitHubForgeActs : IForgeActs
         {
             // The branch is made from the tip of the base branch, the change under repair is merged into it (so that the branch carries the base's own pipeline, as the staging proved the merge result), and one commit puts the repair
             // on top of that merge: the files are written whole, nothing else is touched, and the branch is a new name (a name that exists is refused by the forge)
-            var tip = await SendAsync(HttpMethod.Get, $"repos/{repositoryFullName}/git/ref/heads/{Uri.EscapeDataString(baseBranch)}", null, cancellationToken);
+            using var tip = await SendAsync(HttpMethod.Get, $"repos/{repositoryFullName}/git/ref/heads/{Uri.EscapeDataString(baseBranch)}", null, cancellationToken);
             var baseTip = tip.Body?.RootElement.TryGetProperty("object", out var tipObject) == true && tipObject.TryGetProperty("sha", out var tipSha) ? tipSha.GetString() : null;
             if (baseTip is null)
             {
                 return Failed("the base branch cannot be read", tip);
             }
-            var reference = await SendAsync(HttpMethod.Post, $"repos/{repositoryFullName}/git/refs", new { @ref = $"refs/heads/{branch}", sha = baseTip }, cancellationToken);
+            using var reference = await SendAsync(HttpMethod.Post, $"repos/{repositoryFullName}/git/refs", new { @ref = $"refs/heads/{branch}", sha = baseTip }, cancellationToken);
             if (!reference.Ok)
             {
                 return Failed("the branch cannot be made", reference);
             }
-            var merge = await SendAsync(HttpMethod.Post, $"repos/{repositoryFullName}/merges", new { @base = branch, head = parentSha, commit_message = $"Merge the change to repair into {branch}" }, cancellationToken);
+            using var merge = await SendAsync(HttpMethod.Post, $"repos/{repositoryFullName}/merges", new { @base = branch, head = parentSha, commit_message = $"Merge the change to repair into {branch}" }, cancellationToken);
             var mergeCommit = ShaOf(merge) ?? baseTip;
             if (!merge.Ok && merge.Status != 204)
             {
                 return Failed("the change cannot be merged into the branch (a conflict with the base)", merge);
             }
-            var parent = await SendAsync(HttpMethod.Get, $"repos/{repositoryFullName}/git/commits/{mergeCommit}", null, cancellationToken);
+            using var parent = await SendAsync(HttpMethod.Get, $"repos/{repositoryFullName}/git/commits/{mergeCommit}", null, cancellationToken);
             var baseTree = parent.Body?.RootElement.TryGetProperty("tree", out var tree) == true && tree.TryGetProperty("sha", out var treeSha) ? treeSha.GetString() : null;
             if (baseTree is null)
             {
                 return Failed("the merged commit cannot be read", parent);
             }
-            var made = await SendAsync(HttpMethod.Post, $"repos/{repositoryFullName}/git/trees", new { base_tree = baseTree, tree = files.Select(file => new { path = file.Path, mode = "100644", type = "blob", content = file.Content }) }, cancellationToken);
+            using var made = await SendAsync(HttpMethod.Post, $"repos/{repositoryFullName}/git/trees", new { base_tree = baseTree, tree = files.Select(file => new { path = file.Path, mode = "100644", type = "blob", content = file.Content }) }, cancellationToken);
             if (ShaOf(made) is not { } newTree)
             {
                 return Failed("the tree cannot be made", made);
             }
-            var commit = await SendAsync(HttpMethod.Post, $"repos/{repositoryFullName}/git/commits", new { message = title, tree = newTree, parents = new[] { mergeCommit } }, cancellationToken);
+            using var commit = await SendAsync(HttpMethod.Post, $"repos/{repositoryFullName}/git/commits", new { message = title, tree = newTree, parents = new[] { mergeCommit } }, cancellationToken);
             if (ShaOf(commit) is not { } head)
             {
                 return Failed("the commit cannot be made", commit);
             }
-            var moved = await SendAsync(new HttpMethod("PATCH"), $"repos/{repositoryFullName}/git/refs/heads/{branch}", new { sha = head }, cancellationToken);
+            using var moved = await SendAsync(new HttpMethod("PATCH"), $"repos/{repositoryFullName}/git/refs/heads/{branch}", new { sha = head }, cancellationToken);
             if (!moved.Ok)
             {
                 return Failed("the branch cannot be moved to the repair", moved);
             }
-            var pull = await SendAsync(HttpMethod.Post, $"repos/{repositoryFullName}/pulls", new { title, head = branch, @base = baseBranch, body }, cancellationToken);
+            using var pull = await SendAsync(HttpMethod.Post, $"repos/{repositoryFullName}/pulls", new { title, head = branch, @base = baseBranch, body }, cancellationToken);
             return pull.Ok && pull.Body?.RootElement.TryGetProperty("number", out var number) == true && number.TryGetInt32(out var n) ? new OpenedPullRequest(true, n, head, null) : Failed("the pull request cannot be opened", pull);
         }
         catch (Exception failure) when (failure is HttpRequestException or TaskCanceledException or JsonException)
@@ -130,8 +130,9 @@ public sealed partial class GitHubForgeActs : IForgeActs
         }
         try
         {
-            _ = await SendAsync(HttpMethod.Post, $"repos/{repositoryFullName}/issues/{number}/comments", new { body = comment }, cancellationToken);
-            return (await SendAsync(new HttpMethod("PATCH"), $"repos/{repositoryFullName}/pulls/{number}", new { state = "closed" }, cancellationToken)).Ok;
+            using var commented = await SendAsync(HttpMethod.Post, $"repos/{repositoryFullName}/issues/{number}/comments", new { body = comment }, cancellationToken);
+            using var closed = await SendAsync(new HttpMethod("PATCH"), $"repos/{repositoryFullName}/pulls/{number}", new { state = "closed" }, cancellationToken);
+            return closed.Ok;
         }
         catch (Exception failure) when (failure is HttpRequestException or TaskCanceledException or JsonException)
         {
@@ -139,7 +140,10 @@ public sealed partial class GitHubForgeActs : IForgeActs
         }
     }
 
-    private sealed record Answer(bool Ok, int Status, JsonDocument? Body);
+    private sealed record Answer(bool Ok, int Status, JsonDocument? Body) : IDisposable
+    {
+        public void Dispose() => Body?.Dispose();
+    }
 
     private async Task<Answer> SendAsync(HttpMethod method, string path, object? payload, CancellationToken cancellationToken)
     {

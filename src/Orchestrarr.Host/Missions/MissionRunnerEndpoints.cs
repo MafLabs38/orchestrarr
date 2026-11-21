@@ -159,6 +159,11 @@ internal static partial class MissionRunnerEndpoints
                 }
                 repairs.Keep(missions.Get(id)!.ProblemId, originalHead, files);
             }
+            else if (repairs is not null && missions.Get(id) is { World: World.Staging } staged)
+            {
+                // A staging pass that repaired nothing is the last word on the problem: a repair that an earlier pass held is not the one that this pass proved
+                repairs.Forget(staged.ProblemId);
+            }
             var dossier = new Dossier(id, Cut(request.Claim), Cut(request.WhatChangedAndWhy), Bounded(request.EvidenceDigests), Bounded(request.OpenPoints), request.Complex, request.ComplexReason is null ? null : Cut(request.ComplexReason),
                 request.Commit is { } commit && CommitShape().IsMatch(commit) ? commit : null);
             var result = await conductor.HandOverAsync(id, dossier, ct);

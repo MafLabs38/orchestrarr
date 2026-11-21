@@ -151,11 +151,11 @@ public sealed partial class StagingProof(IShell shell, MissionRunnerOptions opti
         if (files.Contains("package.json"))
         {
             var install = files.Contains("package-lock.json") ? "npm ci" : "npm install";
-            return ("node", $"docker run --rm --cap-drop ALL --security-opt no-new-privileges --pids-limit 512 --memory 2g --cpus 2 -v \"$PWD\":/app -w /app node:22-alpine sh -c \"{install} --no-audit --no-fund && npm test\"");
+            return ("node", $"docker run --rm --cap-drop ALL --security-opt no-new-privileges --pids-limit 512 --memory 2g --cpus 2 -v \"$PWD\":/app -v \"$PWD/.git\":/app/.git:ro -w /app node:22-alpine sh -c \"{install} --no-audit --no-fund && npm test\"");
         }
         if (files.Contains("requirements.txt"))
         {
-            return ("python", "docker run --rm --cap-drop ALL --security-opt no-new-privileges --pids-limit 512 --memory 2g --cpus 2 -v \"$PWD\":/app -w /app python:3.12-slim sh -c \"pip install -q -r requirements.txt pytest && python -m pytest -q\"");
+            return ("python", "docker run --rm --cap-drop ALL --security-opt no-new-privileges --pids-limit 512 --memory 2g --cpus 2 -v \"$PWD\":/app -v \"$PWD/.git\":/app/.git:ro -w /app python:3.12-slim sh -c \"pip install -q -r requirements.txt pytest && python -m pytest -q\"");
         }
         var compose = new[] { "docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml" }.FirstOrDefault(files.Contains);
         return compose is null ? ("none", null) : ("compose", $"docker compose -f {compose} config -q");

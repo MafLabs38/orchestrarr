@@ -13,7 +13,7 @@ internal sealed record FixPullRequest(int Number, string Head, string OriginalHe
 /// What the control plane keeps of the repairs (ADR 0044), in memory: the files of a repair (checked against the policy before they are kept) and the pull request that the gateway opened for them. In memory because the test bed is, and
 /// because a repair that is lost is made again by the loop of the problem, not trusted from a store that nobody can check. A problem has one repair at a time.
 /// </summary>
-internal sealed partial class RepairRegistry(IMissionStore missions, IDossierStore dossiers)
+internal sealed class RepairRegistry
 {
     private readonly ConcurrentDictionary<string, PendingRepair> _pending = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, FixPullRequest> _fixes = new(StringComparer.Ordinal);
@@ -34,23 +34,8 @@ internal sealed partial class RepairRegistry(IMissionStore missions, IDossierSto
 
     public PendingRepair? PendingOf(string problemId) => _pending.GetValueOrDefault(problemId);
 
-    /// <summary>
-    /// The pull request that carries the repair: what the gateway opened, or, when the control plane has restarted since, what the Git world's dossier recorded of it (the dossiers are kept, this registry is not). A restart between the
-    /// opening and that dossier is not recovered: the repair is then outstanding, and the problem goes back.
-    /// </summary>
-    public FixPullRequest? FixOf(string problemId)
-    {
-        if (_fixes.TryGetValue(problemId, out var held))
-        {
-            return held;
-        }
-        var recorded = missions.ForProblem(problemId).Where(mission => mission.World == World.Git).Select(mission => dossiers.Get(mission.Id)).LastOrDefault(dossier => dossier is not null)
-            ?.EvidenceDigests.Select(digest => RecordedFix().Match(digest)).FirstOrDefault(match => match.Success);
-        return recorded is null ? null : new FixPullRequest(int.Parse(recorded.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture), recorded.Groups[2].Value, recorded.Groups[3].Value);
-    }
-
-    [System.Text.RegularExpressions.GeneratedRegex(@"^repair:pr=(\d{1,9});head=([0-9a-f]{40});from=([0-9a-f]{40})$", System.Text.RegularExpressions.RegexOptions.None, 250)]
-    private static partial System.Text.RegularExpressions.Regex RecordedFix();
+    /// <summary>The pull request that the gateway opened for the repair. **Only what the control plane itself did is believed**: a runner's dossier is not a source of it. After a restart nothing is held, and a repair that was made is then outstanding (the merge and the deployment are refused, the problem goes back).</summary>
+    public FixPullRequest? FixOf(string problemId) => _fixes.GetValueOrDefault(problemId);
 
     public void Opened(string problemId, int number, string head, string originalHead) => _fixes[problemId] = new FixPullRequest(number, head, originalHead);
 

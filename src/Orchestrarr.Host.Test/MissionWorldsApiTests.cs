@@ -455,7 +455,7 @@ public sealed class MissionWorldsApiTests
     }
 
     [Fact]
-    public async Task The_close_of_the_original_and_the_link_to_the_repair_pull_request_are_recorded_and_survive_a_restart()
+    public async Task The_close_of_the_original_is_recorded_and_a_restart_does_not_let_the_original_be_merged_in_place_of_the_repair()
     {
         var forge = new FakeForge { HeadChecks = ChecksState.Failing };
         using var factory = new WorldsFactory(forge);
@@ -465,16 +465,45 @@ public sealed class MissionWorldsApiTests
         (await HandOverWithFilesAsync(runner, staging, [new { path = "server.js", content = "fixed" }])).EnsureSuccessStatusCode();
         var git = await NextMissionAsync(factory, runner, "Git");
         (await runner.PostAsync($"/api/v1/runner/missions/{git}/started", null, Ct)).EnsureSuccessStatusCode();
-        var opened = await (await runner.PostAsync($"/api/v1/runner/missions/{git}/acts/open-pull-request", null, Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct);
-        (await runner.PostAsync($"/api/v1/runner/missions/{git}/acts/merge", null, Ct)).EnsureSuccessStatusCode();
-        var evidence = $"repair:pr={opened.GetProperty("number").GetInt32()};head={opened.GetProperty("commit").GetString()};from={opened.GetProperty("from").GetString()}";
-        (await runner.PostAsJsonAsync($"/api/v1/runner/missions/{git}/handover", new { claim = "merged", whatChangedAndWhy = "squash", evidenceDigests = new[] { "pipeline:passing", evidence }, openPoints = Array.Empty<string>(), complex = false, commit = MergeCommit }, Ct)).EnsureSuccessStatusCode();
+        (await runner.PostAsync($"/api/v1/runner/missions/{git}/acts/open-pull-request", null, Ct)).EnsureSuccessStatusCode();
 
+        // The control plane restarts: what it held of the repair is gone, and a runner's dossier is not a source of it
         factory.Services.GetRequiredService<RepairRegistry>().Forget("p-worlds");
+        var afterRestart = await (await runner.PostAsync($"/api/v1/runner/missions/{git}/acts/merge", null, Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct);
 
-        var recovered = factory.Services.GetRequiredService<RepairRegistry>().FixOf("p-worlds");
-        recovered.Should().Be(new FixPullRequest(FakeForge.RepairNumber, FakeForge.RepairHead, Head));
-        factory.Services.GetRequiredService<Orchestrarr.Core.Approvals.IAuditLog>().Page(100).Select(row => $"{row.Entry.Event} {row.Entry.Detail}").Should().Contain(line => line.StartsWith("act.performed", StringComparison.Ordinal) && line.Contains("closed, replaced by", StringComparison.Ordinal));
+        afterRestart.GetProperty("allowed").GetBoolean().Should().BeFalse();
+        afterRestart.GetProperty("refusal").GetString().Should().Contain("not in a pull request");
+        forge.Merged.Should().BeFalse("the original, red, is not merged in place of the repair");
+    }
+
+    [Fact]
+    public async Task A_dossier_that_names_a_pull_request_is_not_a_source_of_the_pull_request_of_a_repair()
+    {
+        var forge = new FakeForge();
+        using var factory = new WorldsFactory(forge);
+        _ = await StartProblemAsync(factory);
+        using var runner = Runner(factory);
+        await HandOverAsync(runner, (await ClaimAsync(runner, "Staging")).GetProperty("missionId").GetString()!, Head, $"artifact:tree={Tree}");
+        var git = await NextMissionAsync(factory, runner, "Git");
+        (await runner.PostAsync($"/api/v1/runner/missions/{git}/started", null, Ct)).EnsureSuccessStatusCode();
+        (await runner.PostAsJsonAsync($"/api/v1/runner/missions/{git}/handover", new { claim = "x", whatChangedAndWhy = "y", evidenceDigests = new[] { $"repair:pr=99;head={new string('a', 40)};from={Head}" }, openPoints = Array.Empty<string>(), complex = false, commit = MergeCommit }, Ct)).EnsureSuccessStatusCode();
+
+        factory.Services.GetRequiredService<RepairRegistry>().FixOf("p-worlds").Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_staging_pass_that_repaired_nothing_clears_a_repair_that_an_earlier_pass_held()
+    {
+        var forge = new FakeForge();
+        using var factory = new WorldsFactory(forge);
+        _ = await StartProblemAsync(factory);
+        using var runner = Runner(factory);
+        factory.Services.GetRequiredService<RepairRegistry>().Keep("p-worlds", Head, [new PatchedFile("server.js", "old")]);
+        var staging = (await ClaimAsync(runner, "Staging")).GetProperty("missionId").GetString()!;
+
+        await HandOverAsync(runner, staging, Head, $"artifact:tree={Tree}");
+
+        factory.Services.GetRequiredService<RepairRegistry>().PendingOf("p-worlds").Should().BeNull("the last pass is the last word");
     }
 
     [Fact]
