@@ -76,18 +76,36 @@ public sealed partial class ProblemConductor
         {
             return ConductResult.Fail("the problem is not being worked on");
         }
+        // Every revoke, every mission that ends and the problem that fails go in together or not at all, and the trail is written after: a stop never leaves a mandate revoked under a mission that still runs,
+        // nor missions over under a problem that is still in progress
         Mission? last = null;
-        foreach (var mission in missions.ForProblem(problemId))
+        var revoked = new List<(Mission Mission, string Id)>();
+        var stopped = new List<Mission>();
+        unit.Atomically(() =>
         {
-            await RevokeAsync(mission);
-            if (!mission.IsOver && MissionMachine.Apply(mission, MissionEvent.Stopped, options.Loop, reason: reason) is { Mission: { } ended })
+            foreach (var mission in missions.ForProblem(problemId))
             {
-                missions.Save(ended);
-                await BestEffortAsync(MissionAuditEvents.MissionEnded, mission.Id, Text($"stopped: {reason}"));
-                last = ended;
+                if (RevokeStore(mission) is { } id)
+                {
+                    revoked.Add((mission, id));
+                }
+                if (!mission.IsOver && MissionMachine.Apply(mission, MissionEvent.Stopped, options.Loop, reason: reason) is { Mission: { } ended })
+                {
+                    missions.Save(ended);
+                    stopped.Add(ended);
+                    last = ended;
+                }
             }
+            problems.Save(run with { State = ProblemState.Failed, Note = reason });
+        });
+        foreach (var (mission, id) in revoked)
+        {
+            await TellRevokedAsync(mission, id);
         }
-        problems.Save(run with { State = ProblemState.Failed, Note = reason });
+        foreach (var ended in stopped)
+        {
+            await BestEffortAsync(MissionAuditEvents.MissionEnded, ended.Id, Text($"stopped: {reason}"));
+        }
         await BestEffortAsync(MissionAuditEvents.ProblemFailed, problemId, reason);
         // The problem moved to Failed even when no mission was running: that is a stop that worked
         return new ConductResult(true, null, [], last, null);

@@ -235,7 +235,7 @@ public sealed class SqliteMissionUnit(SqliteDatabase database) : IMissionUnit
 {
     public void Atomically(Action work)
     {
-        ArgumentNullException.ThrowIfNull(work);
+        MissionUnitWork.RequireSynchronous(work);
         SqliteDatabase.Guard(() =>
         {
             database.Atomically(work);

@@ -335,8 +335,6 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
         }
     }
 
-    private async Task RevokeAsync(Mission mission) => await TellRevokedAsync(mission, RevokeStore(mission));
-
     // The write of a revoke: the identifier of the mandate that was revoked now, or null when there was none to revoke
     private string? RevokeStore(Mission mission)
     {

@@ -208,6 +208,18 @@ public sealed class SqliteMissionStoresTests : IDisposable
     }
 
     [Fact]
+    public void The_work_of_a_unit_is_synchronous_an_asynchronous_one_is_refused_before_it_runs()
+    {
+        var unit = new SqliteMissionUnit(_file.Open());
+
+        var refused = () => unit.Atomically(async () => await Task.Yield());
+
+        refused.Should().Throw<InvalidOperationException>().WithMessage("*never awaits*");
+        var inMemory = () => new InMemoryMissionUnit().Atomically(async () => await Task.Yield());
+        inMemory.Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
     public void A_problem_and_a_dossier_are_kept()
     {
         var entry = new PlanEntry("p1", "shop", "deprecated", "Replace the call", ["example/shop"], World.Release, new MissionBudget(20, 3, 50), new Validation("alice", null), new DateTimeOffset(2026, 11, 13, 11, 0, 0, TimeSpan.Zero));

@@ -32,7 +32,7 @@ public sealed class InMemoryMissionUnit : IMissionUnit
 
     public void Atomically(Action work)
     {
-        ArgumentNullException.ThrowIfNull(work);
+        MissionUnitWork.RequireSynchronous(work);
         lock (_gate)
         {
             work();

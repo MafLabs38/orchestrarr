@@ -43,7 +43,21 @@ public sealed record MissionStores(IMissionStore Missions, IMandateLedger Mandat
 /// </summary>
 public interface IMissionUnit
 {
+    /// <summary>Runs the work as one unit. **The work is synchronous**: an asynchronous lambda would be an <c>async void</c> that the unit commits at its first await, so it is refused (see <see cref="MissionUnitWork"/>).</summary>
     void Atomically(Action work);
+}
+
+/// <summary>The one rule of the work of a unit, said once for every implementation: it does not await.</summary>
+public static class MissionUnitWork
+{
+    public static void RequireSynchronous(Action work)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        if (work.Method.GetCustomAttributes(typeof(System.Runtime.CompilerServices.AsyncStateMachineAttribute), inherit: false).Length > 0)
+        {
+            throw new InvalidOperationException("The work of a unit of work is synchronous: it never awaits (the audit trail is written before or after it).");
+        }
+    }
 }
 
 /// <summary>What the power of a problem is read from, at every crossing and every act: the approval source, the verifier of its certificates, the withdrawals the authority published, the grants and the global stop.</summary>
