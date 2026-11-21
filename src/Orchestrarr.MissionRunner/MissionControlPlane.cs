@@ -45,6 +45,7 @@ public sealed class MissionControlPlane : IMissionControlPlane
 
     public async Task<ClaimedMission?> ClaimAsync(CancellationToken cancellationToken)
     {
+        // The hello is the one of the typed-task registry on purpose, as an interim that the table still reads (ADR 0042 point 6(b)); only the kind that this runner does is announced.
         // The runner says what it accepts and the world it serves: a mission of another world is not even offered (it would block those behind it)
         var hello = new RunnerHello(_options.Name, typeof(MissionControlPlane).Assembly.GetName().Version?.ToString() ?? "0", [TaskKind.ValidatePullRequest], _options.Repositories, [], SecondFactorRequired: false);
         using var response = await _http.PostAsJsonAsync($"/api/v1/runner/missions/claim?world={Uri.EscapeDataString(_options.World)}", new ClaimRequest(hello), RunnerWire.Json, cancellationToken);

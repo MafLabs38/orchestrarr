@@ -36,6 +36,9 @@ public sealed class MissionRunnerApiTests
         /// <summary>When set, the controller answers with this text and the forge says that the pull request is green at the head of the mission.</summary>
         public string? ControllerSays { get; init; }
 
+        /// <summary>With <see cref="ControllerSays"/>: whether the forge reads the pull request as green (default) or cannot be read at all.</summary>
+        public bool ForgeReadable { get; init; } = true;
+
         /// <summary>The runner that the staging mandates name (default: the one whose token the tests hold).</summary>
         public string StagingRunner { get; init; } = "runner-staging";
 
@@ -47,7 +50,7 @@ public sealed class MissionRunnerApiTests
                 builder.ConfigureTestServices(services =>
                 {
                     services.AddSingleton<IAgentGateway>(new SaysGateway(says));
-                    services.AddSingleton<IPullRequestFacts>(new FakeFacts(new PullRequestFacts(Head, "base", false, ChecksState.Passing, ["package.json"], PathsComplete: true)));
+                    services.AddSingleton<IPullRequestFacts>(new FakeFacts(ForgeReadable ? new PullRequestFacts(Head, "base", false, ChecksState.Passing, ["package.json"], PathsComplete: true) : null));
                 });
             }
             builder.UseEnvironment("Development");
@@ -223,6 +226,26 @@ public sealed class MissionRunnerApiTests
         var missions = await person.GetFromJsonAsync<JsonElement>("/api/v1/missions", Ct);
         missions.GetArrayLength().Should().Be(1, "no mandate of the next world without an answer");
         missions[0].GetProperty("state").GetString().Should().Be("HandingOver");
+    }
+
+    [Fact]
+    public async Task A_grant_that_the_facts_do_not_support_ends_the_mission_and_the_controller_is_not_asked_again()
+    {
+        using var factory = new SandboxFactory { ControllerSays = """{"decision":"grant","reasons":["fine"],"remarks":""}""", ForgeReadable = false };
+        var missionId = await StartProblemAsync(factory);
+        using var runner = Runner(factory, Token);
+        (await runner.PostAsync($"/api/v1/runner/missions/{missionId}/started", null, Ct)).EnsureSuccessStatusCode();
+        var dossier = new { claim = "c", whatChangedAndWhy = "w", evidenceDigests = new[] { "d" }, openPoints = Array.Empty<string>(), complex = false, commit = Head };
+        (await runner.PostAsJsonAsync($"/api/v1/runner/missions/{missionId}/handover", dossier, Ct)).EnsureSuccessStatusCode();
+        var driver = factory.Services.GetServices<IHostedService>().OfType<MissionDriver>().Single();
+        var progress = factory.Services.GetRequiredService<MissionProgress>();
+
+        await driver.PassAsync(Ct);
+        await driver.PassAsync(Ct);
+        await driver.PassAsync(Ct);
+
+        progress.Lines(missionId).Count(line => line.Contains("reads the dossier", StringComparison.Ordinal)).Should().Be(1, "the controller is not called again for a mission that has moved");
+        progress.Lines(missionId).Should().Contain(line => line.Contains("Staging Ended", StringComparison.Ordinal), "a forge that cannot be read is not a green: the conductor ends the mission whatever the controller said");
     }
 
     [Fact]

@@ -69,7 +69,11 @@ internal sealed class MissionDriver(IMissionStore missions, IDossierStore dossie
         progress.Add(mission.Id, $"the controller decided: {decision.Kind} ({string.Join(" | ", decision.Reasons)})");
         var result = await conductor.DecideAsync(mission.Id, decision, cancellationToken);
         progress.Add(mission.Id, result.Ok || result.Moved ? $"the conductor applied it: {result.Mission?.World} {result.Mission?.State}" : $"the conductor refused: {result.Refusal}");
-        _askedAt.Remove(mission.Id);
+        // A mission that moved is not asked about again; one that the conductor refused stays handed over, and is asked again only after the retry delay (not at every pass)
+        if (result.Ok || result.Moved)
+        {
+            _askedAt.Remove(mission.Id);
+        }
         live.Publish(LiveTopics.Missions, mission.Id);
     }
 }
