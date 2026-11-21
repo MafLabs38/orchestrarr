@@ -181,7 +181,7 @@ internal sealed class SandboxNotice(World highest, ILogger<SandboxNotice> logger
 {
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        logger.LogWarning("Missions:Sandbox is on: the approvals are made by an authority in this process with no code to type, every application is granted up to {World}, the act gateway MERGES pull requests with the GitHub token of this host, and the frame is DECLARED to hold, as is the way back (the previous version is read by the runner when it deploys, after the authorisation) (merging does not deploy, no tag can be created, no credential is in reach of the branch, the identity is confined to its branches). A deployment never sets it.", highest);
+        logger.LogWarning("Missions:Sandbox is on: the approvals are made by an authority in this process with no code to type, every application is granted up to {World}, the act gateway MERGES pull requests on the repositories of Missions:SandboxMergeRepositories with Missions:SandboxMergeToken (nothing is merged without both), and the frame is DECLARED to hold, as is the way back (the previous version is read by the runner when it deploys, after the authorisation) (merging does not deploy, no tag can be created, no credential is in reach of the branch, the identity is confined to its branches). A deployment never sets it.", highest);
         return Task.CompletedTask;
     }
 
@@ -201,6 +201,10 @@ internal static class SandboxMissionsExtensions
         var missions = configuration.GetSection(MissionsOptions.SectionName).Get<MissionsOptions>() ?? new MissionsOptions();
         if (missions.SandboxDeployHost is { Length: > 0 } deployHost)
         {
+            if (Uri.CheckHostName(deployHost) == UriHostNameType.Unknown)
+            {
+                throw new InvalidOperationException("Missions:SandboxDeployHost must be a host name or an address.");
+            }
             if (!DeploymentPort.IsValidBase(missions.SandboxDeployPortBase))
             {
                 throw new InvalidOperationException("Missions:SandboxDeployPortBase must leave room for 100 ports below 65535.");

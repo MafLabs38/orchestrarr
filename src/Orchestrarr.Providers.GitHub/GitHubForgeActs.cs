@@ -56,7 +56,8 @@ public sealed partial class GitHubForgeActs : IForgeActs
         }
         catch (Exception failure) when (failure is HttpRequestException or TaskCanceledException or JsonException)
         {
-            return new MergeResult(false, null, "the forge could not be reached");
+            // The merge may have been made before the answer was lost: it is said, and the next read of the pull request tells
+            return new MergeResult(false, null, "the forge did not answer; the merge may have been made, the pull request is read again to know");
         }
     }
 

@@ -69,7 +69,7 @@ public sealed class GitHubForgeActsTests
         var result = await GitHubForgeActs.Create(new GitHubOptions { Token = "ghp_secret" }, handler).MergePullRequestAsync("example/shop", 7, Head, TestContext.Current.CancellationToken);
 
         result.Merged.Should().BeFalse();
-        result.Error.Should().Contain("could not be reached");
+        result.Error.Should().Contain("did not answer").And.Contain("may have been made");
     }
 
     [Theory]
