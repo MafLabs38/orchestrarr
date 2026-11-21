@@ -70,13 +70,13 @@ Powers are **not** in this file. What Orchestrarr is allowed to do per applicati
 
 What it does follows from the **runtime** of the workload and the `deployment.tool`. Nothing is declared by the application.
 
-| Runtime / tool | Deploy | Roll back | Smoke test |
+| Runtime / tool | Deploy | Roll back *(2026-11-17, D-93: how the previous version is restored, through the process, not an act of its own)* | Smoke test |
 |---|---|---|---|
-| `kubernetes` | Change the image in the deployment definition (or `kubectl set image`), wait for the rollout | Roll the workload back to the previous revision | Rollout complete, then the app's `check` |
-| `docker`, `compose` | Pull the new image, recreate the container | Recreate with the previous image, which is kept | Container healthy, then the app's `check` |
+| `kubernetes` | Change the image in the deployment definition, through the repository's delivery (GitOps or its pipeline), wait for the rollout | A new change that puts the previous image back, through the same delivery | Rollout complete, then the app's `check` |
+| `docker`, `compose` | Change the image in the definition, through the repository's delivery, which recreates the container | A new change that puts the previous image back, through the same delivery | Container healthy, then the app's `check` |
 | `release` (desktop client) | Run the release workflow | **None once clients updated** (SPEC D-13): every check happens before; fixing means a new release | Build and launch checks in CI, before publishing |
 
-An application with no `check` has no smoke test: its deployment step is not offered on the card (SPEC D-10), only the merge.
+An application with no `check` has no smoke test: its deployment step is not offered on the card (SPEC D-10), only the merge. *(an application with no check: see SPEC Q-38; until the maintainer answers, this holds.)*
 
 ## Rules
 

@@ -2,6 +2,8 @@
 
 > Same strategy as Portarr's ([TESTING.md](https://github.com/MafLabs38/portarr/blob/develop/docs/TESTING.md)), scaled to what exists. The three products share conventions.
 
+> **Planned, not built**: the cases of [USE-CASES.md](USE-CASES.md) are the end-to-end tests of the restructured product (the laboratory of FUNCTIONAL section 8), and no laboratory exists yet. A section on how a case becomes a runnable test (the verdict, the lane, the threshold) is written when the first one runs.
+
 ## 1. What is tested, and where
 
 | Level | Tool | What it proves |
@@ -12,7 +14,7 @@
 | Storage | A real SQLite file in a temporary folder | What must survive a restart: persistence after reopening, the unique key of a decision, the history of what was decided (photographs, paging, skip and take-back, the outcome kept, a skip that lapsed, a line that cannot be read, the migration to schema version 7), all-or-nothing batches, the append-only trail, the capacities, and the global stop (a new database is released, an unreadable one is engaged, a release that cannot be saved is refused) |
 | Frontend | Vitest, Testing Library (`happy-dom`) | The screens and components: what is shown, what is ticked, what is disabled and why |
 | End to end | Playwright, by hand against the sandbox | Looking at the real screens in a real browser, as the maintainer does (§6). No suite is committed yet: the scripts hold the address and the accounts of a sandbox, which never go in the repository |
-| Acceptance | The rotten test repository (`SCENARIOS.md` of `orchestrarr-testbed`) | Find, fix, merge, deploy and roll back on a real application |
+| Acceptance | The rotten test repository (`SCENARIOS.md` of `orchestrarr-testbed`) | Find, fix, merge, deploy and repair a failed release on a real application |
 
 Rules: a test protects a behavior someone relies on, runs in milliseconds, and fails for one reason. Time is a `FakeTimeProvider`, never a sleep. **Safety behaviours are tested like features**: the tests prove that no route runs anything, that the runners that start a container change nothing outside it (git on the host never reads a folder a container can write, the agent has no shell and its token never reaches the trace), and that the ones that record something answer only to an operator or an administrator who signed in, with the header that only the interface sends; a step that cannot be done is unavailable and unticked; a power that is off is not offered.
 
@@ -78,6 +80,9 @@ Unit tests do not see what a person sees. Before a vertical goes to the maintain
 - **Playwright, headless Chromium, one browser and one page at a time** (a shared, small machine: check `uptime` and `free -m` first). Use any Playwright install of the machine from a script kept **outside the repository** (a scratch folder on disk, not `/tmp`): the script carries the address and the accounts of the sandbox, which are never committed.
 - Print what matters as **text** (the rows, the badges, the states, the console errors) and take **one screenshot only when the look is the question**: read it, fix what it shows, then **delete it at once** (an image read stays in the context of every later turn).
 - A bug found this way gets a test in the suite (Vitest or the API tests) in the same change, so that it stays found.
+
+
+The restructured design is tried in the sandbox with `POST /api/v1/dev/missions/demo` (`scenario=happy|red|escalate`), which uses fake agents and facts, and with `POST /api/v1/dev/controller/decide`, which needs `Agents:Enabled=true` and a `claude` login or `Agents:TokenFile` (README). Both are mapped in Development and Testing only.
 
 ## 7. Seeing the code smells in the editor
 

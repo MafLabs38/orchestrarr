@@ -1,0 +1,24 @@
+# 0033 — The agent gateway, and the line between free and gated acts
+
+- **Status**: proposed (the architecture was described to the maintainer on 2026-11-13 and the maintainer agreed with it in broad lines; accepted when the pull request that carries it is merged)
+- **Date**: 2026-11-13
+- **Spec**: D-86 ([FUNCTIONAL.md](../FUNCTIONAL.md), [ARCHITECTURE.md](../ARCHITECTURE.md))
+
+## Context
+
+A developer-agent needs a shell and the tools of a developer to run its own tests. The first design gave the agent no shell and had the runner run a profile of steps written by hand for each repository. That removed the agent's autonomy and made every repository a piece of configuration.
+
+## Decision
+
+1. One abstraction, the **agent gateway**, runs a model in a sandbox: it takes a toolset, a workspace, an input and a budget, and returns a transcript and files. It serves the **worker** (the tools of the world) and the **controller** (no tools).
+2. The worker is **free inside its workspace**: it reads, edits, builds, tests, runs requests and a browser, writes its dossier and evidence.
+3. The acts that have **consequences outside the workspace are gated**: open a pull request, merge, deploy, create or restore a staging (the way back is a change made through the process: ADR 0040).
+   The agent's identity on the forge can **only read and push to non-protected `orchestrarr/*` branches**, without the `workflows` permission; **opening a pull request and merging use another identity held only by the act gateway of the Git world**, a runner on a host apart from every agent sandbox, which verifies the mandate and the authority's certificate itself and asks the control plane to authorise the act of the moment (ADR 0031 point 8); the control plane's own forge credential is read-only; deployment credentials are held by the release runner, on a host separate from every agent sandbox. The acts are performed only if the **mandate lists them, the certificate covers them and the preconditions hold at the moment of the act**, and each is audited.
+4. The model credential is the maintainer's subscription token, and the proxy that adds it is a **policy point**: the messages endpoint only, no provider-side tool that calls out for the agent (a remote tool server, a server-side fetch or search, files and uploads), a cap on the size and the rate of a request, and a digest of each request in the audit trail. It is **never inside a sandbox**: a credential proxy outside the sandbox adds it to the calls to the model provider, and the sandbox holds a dummy or short-lived scoped credential. The sandbox is a container with no capability, not root, bounded resources and limited network (registries only through read-only mirrors or a caching proxy).
+5. Containers needed in staging run in a **rootless or throwaway engine** that gives no access to the host; **the runner and its keys stay outside the machine the agent controls**: in the staging world on the platform side, outside the virtual machine; in the Git and release worlds in a process, user and filesystem separate from the agent's sandbox.
+6. The **gateway's holder** is one per sandbox: the runner of its world for the worker, and a runner with the `controller` profile, on a host independent of the worker runners, for the controller; the control plane gives it the dossier and the facts and takes the decision back.
+
+## Consequences
+
+- The validation profile per repository and the repair handler are removed: the agent does what a developer does.
+- The attack surface is the sandbox and the gateway: ADR 0035 says where the frame is enforced.

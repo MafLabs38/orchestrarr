@@ -1,0 +1,27 @@
+# 0034 — Staging is a prerequisite per application, proved before any mandate on the code
+
+- **Status**: proposed (the architecture was described to the maintainer on 2026-11-13 and the maintainer agreed with it in broad lines; accepted when the pull request that carries it is merged)
+- **Date**: 2026-11-13
+- **Spec**: D-87 ([FUNCTIONAL.md](../FUNCTIONAL.md), [ARCHITECTURE.md](../ARCHITECTURE.md))
+
+## Context
+
+Many cases cannot be proved in a lone container: an application of several services needs its database, its other services and its front end. The maintainer asked that every production application exist in staging, and that no mandate on the code be given where staging is not usable.
+
+## Decision
+
+1. Every application has a **staging requirement**: **blank machine** (a blank machine is enough), **dependencies** (declared other services or data), or **full stack** (the whole constellation).
+2. Every application that runs in production **must exist in staging**, switched off or created on demand. Third-party applications are included.
+3. Staging is **the same infrastructure code as production applied to another inventory**, with **no real secret and no real side effect**.
+4. An application has a **staging state**: not defined, defined, provisioned, **baseline proven** (the staging was brought up and its dependencies answered, with a revision of its description and a date; the application under change is not part of it, ADR 0041), stale, broken.
+5. The start of a job and a mandate **of the staging world** are **granted only when its requirement is met** (ADR 0041: the later worlds ask for the proof made there, not for the staging). The **baseline proof is itself a mission**.
+6. Staging environments are **created on demand and restored to a clean baseline** after a mission (snapshots), by a **platform controller** whose rights are limited to the pool of staging machines. Capacity (two stagings at once on the first machine) is a constraint the scheduler respects: missions wait for a free slot.
+7. Portarr says the **facts** (it exists, it runs); Orchestrarr says the **verdict** only a test gives.
+8. The cases are explicit: **requirement blank machine**: the mandate is granted, no baseline needed; **staging explicitly declared by the maintainer as none** (the rule of CASE-17): the application goes on like the others with no net, recorded as an accepted risk and reported as a parity-gap finding (an application with no check at all: SPEC Q-38); **neither declared nor defined**: the mandate is **refused** (fail closed: unknown counts as stopped); **defined but broken or stale**: the mandate is refused until the baseline is proved again. The declaration lives in the **description of the perimeter, which only the maintainer edits**, never in the application's repository.
+9. The **baseline mission** has no problem and no plan entry: its mandate is issued by the scheduler under a system standing rule (ADR 0031), **bound to the revision of the staging's description**, which the runner reads itself (the application under change is not part of the baseline, ADR 0041), and the rule is bounded by the applications it covers and by a rate; **it is a certificate of the authority, given once when the maintainer sets up the staging of the application, for the staging world only, which makes the baseline wait for the authority's own channel (SPEC Q-36)**. *(A repair of a failed release is a new cycle of the same problem and meets this rule like any change.)*
+10. Orchestrarr stores **only the verdict** (state, revision, date, evidence digest); the facts and dependencies are read from Portarr or the description.
+
+## Consequences
+
+- A large piece of infrastructure work, done application by application.
+- The staging machine is a hard dependency of the first mission that touches an application's code.

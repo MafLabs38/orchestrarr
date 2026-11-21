@@ -1,0 +1,54 @@
+using Orchestrarr.Core.Missions;
+
+namespace Orchestrarr.Host.Missions;
+
+/// <summary>The settings of the missions (ADR 0030 to 0032, 0036): which runner serves each world, how long a mandate lasts, the bounds of the loop.</summary>
+public sealed class MissionsOptions
+{
+    public const string SectionName = "Missions";
+
+    /// <summary>The runner of the staging world, of the Git world and of the release world. A mandate is for one runner and one world.</summary>
+    public string StagingRunner { get; set; } = "runner-staging";
+
+    public string GitRunner { get; set; } = "runner-git";
+
+    public string ReleaseRunner { get; set; } = "runner-release";
+
+    public int MandateMinutes { get; set; } = (int)ConductorOptions.Default.MandateLifetime.TotalMinutes;
+
+    public int MaxSendBacksPerMission { get; set; } = LoopPolicy.Default.MaxSendBacksPerMission;
+
+    public int MaxMandatesPerProblem { get; set; } = LoopPolicy.Default.MaxMandatesPerProblem;
+
+    public int MaxHoursPerProblem { get; set; } = (int)LoopPolicy.Default.MaxTimePerProblem.TotalHours;
+
+    /// <summary>Where the private key that signs the mandates is kept. Unset: next to the database when there is one, else a key that lives as long as the host.</summary>
+    public string? SigningKeyFile { get; set; }
+
+    /// <summary>The paths no mission may touch, whatever its repository (pipelines, secrets). Unset: the pipelines of the forge, the encrypted files and the environment files.</summary>
+    public string[]? ForbiddenPaths { get; set; }
+
+    /// <summary>The public key of the approval authority (ADR 0031 point 7), a file in SubjectPublicKeyInfo form. Unset: no certificate is ever valid, so no real mandate is issued.</summary>
+    public string? ApprovalAuthorityPublicKeyFile { get; set; }
+
+    /// <summary>The settings of the conductor. A bound that is not a positive number is refused at start, not corrected: a loop with no bound is the mistake to catch.</summary>
+    public ConductorOptions Conductor()
+    {
+        Positive(MandateMinutes, nameof(MandateMinutes));
+        Positive(MaxSendBacksPerMission, nameof(MaxSendBacksPerMission));
+        Positive(MaxMandatesPerProblem, nameof(MaxMandatesPerProblem));
+        Positive(MaxHoursPerProblem, nameof(MaxHoursPerProblem));
+        return new ConductorOptions(
+            TimeSpan.FromMinutes(MandateMinutes),
+            ForbiddenPaths ?? [.. ConductorOptions.Default.ForbiddenPaths],
+            new LoopPolicy(MaxSendBacksPerMission, MaxMandatesPerProblem, TimeSpan.FromHours(MaxHoursPerProblem)));
+    }
+
+    private static void Positive(int value, string name)
+    {
+        if (value < 1)
+        {
+            throw new InvalidOperationException($"{SectionName}:{name} must be a positive number, not {value}.");
+        }
+    }
+}

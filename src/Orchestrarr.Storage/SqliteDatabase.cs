@@ -116,7 +116,57 @@ public sealed class SqliteDatabase : IDisposable
     }
 
     /// <summary>Lets go of the lock of the one writer, when this database holds one.</summary>
-    public void Dispose() => _writerLock?.Dispose();
+    public void Dispose()
+    {
+        _shared.Dispose();
+        _writerLock?.Dispose();
+    }
+
+    // The connection that the unit of work of this thread holds, for the stores of the missions: what they write inside it goes in one transaction
+    private readonly ThreadLocal<SqliteConnection?> _shared = new();
+
+    /// <summary>A connection for the stores of the missions: the one of the unit of work of this thread when there is one (and it is left open), else a connection of its own.</summary>
+    internal Lease ConnectShared() => _shared.Value is { } shared ? new Lease(shared, owned: false) : new Lease(Connect(), owned: true);
+
+    /// <summary>Runs synchronous work as one write transaction over the stores of the missions: all of it or none of it. A unit inside a unit is the outer one.</summary>
+    internal void Atomically(Action work)
+    {
+        if (_shared.Value is not null)
+        {
+            work();
+            return;
+        }
+        using var connection = Connect();
+        Run(connection, "BEGIN IMMEDIATE;");
+        _shared.Value = connection;
+        try
+        {
+            work();
+            Run(connection, "COMMIT;");
+        }
+        catch
+        {
+            TryRollback(connection);
+            throw;
+        }
+        finally
+        {
+            _shared.Value = null;
+        }
+    }
+
+    internal sealed class Lease(SqliteConnection connection, bool owned) : IDisposable
+    {
+        public SqliteCommand CreateCommand() => connection.CreateCommand();
+
+        public void Dispose()
+        {
+            if (owned)
+            {
+                connection.Dispose();
+            }
+        }
+    }
 
     internal SqliteConnection Connect()
     {
@@ -196,7 +246,7 @@ public sealed class SqliteDatabase : IDisposable
     // A new step is appended here, and SchemaVersion goes up with it.
     private delegate void Step(SqliteConnection connection, bool created, bool startEngagedWhenNew, TimeProvider time);
 
-    private static readonly Step[] Steps = [CreateVersion1, CreateVersion2, CreateVersion3, CreateVersion4, CreateVersion5, CreateVersion6, CreateVersion7];
+    private static readonly Step[] Steps = [CreateVersion1, CreateVersion2, CreateVersion3, CreateVersion4, CreateVersion5, CreateVersion6, CreateVersion7, CreateVersion8];
 
     private static int SchemaVersion => Steps.Length;
 
@@ -430,6 +480,21 @@ public sealed class SqliteDatabase : IDisposable
         {
             Run(connection, "ALTER TABLE problem_history ADD COLUMN outcome TEXT NULL;");
         }
+    }
+
+    // Version 7 to 8: the missions, the mandates, the problems and the dossiers of the restructuring (ADR 0030 to 0032); each is a document with the key it is looked up by
+    private static void CreateVersion8(SqliteConnection connection, bool created, bool startEngagedWhenNew, TimeProvider time)
+    {
+        Run(connection, """
+            CREATE TABLE IF NOT EXISTS missions (id TEXT PRIMARY KEY, problem_id TEXT NOT NULL, body TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS missions_by_problem ON missions (problem_id);
+            CREATE TABLE IF NOT EXISTS mandates (id TEXT PRIMARY KEY, problem_id TEXT NOT NULL, approval_id TEXT NOT NULL, body TEXT NOT NULL, revoked INTEGER NOT NULL DEFAULT 0);
+            CREATE INDEX IF NOT EXISTS mandates_by_problem ON mandates (problem_id);
+            CREATE INDEX IF NOT EXISTS mandates_by_approval ON mandates (approval_id);
+            CREATE TABLE IF NOT EXISTS problems (problem_id TEXT PRIMARY KEY, state TEXT NOT NULL, body TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS problems_by_state ON problems (state);
+            CREATE TABLE IF NOT EXISTS dossiers (mission_id TEXT PRIMARY KEY, body TEXT NOT NULL);
+            """);
     }
 
     private static object? Scalar(SqliteConnection connection, string sql)

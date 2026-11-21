@@ -32,7 +32,7 @@ qualify:
   mode: health
   check: { url: /api/system/status, expect: 200 }
   notAvailable: "the Kubernetes environments are not tested"
-promote: { method: compose-pull, backup: manager_data, rollback: previous-tag }
+promote: { method: compose-pull, backup: manager_data, rollback: previous-tag }   # D-93: says how the previous version is restored, through the process; not an act of its own
 update: { autoQualify: [patch] }
 ```
 
