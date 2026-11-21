@@ -35,6 +35,9 @@ internal static class PlanEndpoints
     private static readonly World PlanCeiling = World.Release;
     private static readonly MissionBudget SandboxBudget = new(30, 3, 50);
 
+    // A selection is a screenful, not a flood: more rows than the table can hold at once is refused
+    private const int MaxRows = 400;
+
     public static void MapPlanEndpoints(this RouteGroupBuilder api)
     {
         // Whether the validation goes through the missions here: the screen sends the selection to the plan when it does, and says so
@@ -52,6 +55,15 @@ internal static class PlanEndpoints
             {
                 return Results.Json(new ErrorResponse("planNotAvailable"), statusCode: StatusCodes.Status501NotImplemented);
             }
+            // The same gate as approving: a person, and an operator
+            if (!approver.IsPerson || !approver.IsOperator)
+            {
+                return Results.Json(new ErrorResponse(ApiErrors.NotAnOperator), statusCode: StatusCodes.Status403Forbidden);
+            }
+            if ((request.Rows?.Count ?? 0) > MaxRows)
+            {
+                return Results.Json(new ErrorResponse("tooManyRows"), statusCode: StatusCodes.Status422UnprocessableEntity);
+            }
             var report = await catalog.GetAsync(refresh: false, ct);
             var table = ProblemsEndpoints.VisibleTable(TableInputs.Last(report, infrastructure), applications, runners, queue, history, approvalStore, time, policy).ToDictionary(row => row.Id, StringComparer.Ordinal);
             var started = new List<ValidatedProblem>();
@@ -61,7 +73,7 @@ internal static class PlanEndpoints
             }
             live.Publish(LiveTopics.Missions);
             return Results.Json(new ValidatePlanResponse(started), statusCode: StatusCodes.Status201Created);
-        }).RequireAuthorization(Permissions.ApprovalsCreate);
+        }).RequireAuthorization(Permissions.ApprovalsCreate).RequireRateLimiting(ApprovalsServiceCollectionExtensions.ApprovingPolicy);
     }
 
     private static async Task<ValidatedProblem> StartAsync(ValidatedRow chosen, Dictionary<string, ProblemRow> table, string approver, SandboxApprovals approvals, ProblemConductor conductor, TimeProvider time,

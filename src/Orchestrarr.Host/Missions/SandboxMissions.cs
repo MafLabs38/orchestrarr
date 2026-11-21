@@ -22,7 +22,7 @@ internal sealed class SandboxApprovals : IApprovalSource
     {
         _time = time;
         _secrets = new SandboxSecrets(OtpAuthUri.NewSecret());
-        _authority = new ApprovalAuthority(new SecondFactorGuard(_secrets, new InMemorySecondFactorUseLedger(), time, _factor), time, () => Guid.NewGuid().ToString("N"));
+        _authority = new ApprovalAuthority(new SecondFactorGuard(_secrets, new SandboxUseLedger(), time, _factor), time, () => Guid.NewGuid().ToString("N"));
         Verifier = new ApprovalVerifier(_authority.PublicKey(), time);
     }
 
@@ -48,6 +48,12 @@ internal sealed class SandboxApprovals : IApprovalSource
 
     public SignedApproval? For(PlanEntry entry) => _prepared.GetValueOrDefault(entry.ProblemId);
 
+    /// <summary>The code is computed here and typed by nobody: a step that was used is not a reason to refuse the next row of the same selection (nothing to protect in the test bed; the real authority has to approve a batch with one code).</summary>
+    private sealed class SandboxUseLedger : ISecondFactorUseLedger
+    {
+        public ValueTask<bool> TryAdvanceAsync(string subject, long step, CancellationToken cancellationToken) => ValueTask.FromResult(true);
+    }
+
     private sealed class SandboxSecrets(byte[] secret) : ISecondFactorSecrets
     {
         public ValueTask<byte[]?> FindAsync(string subject, CancellationToken cancellationToken) => ValueTask.FromResult<byte[]?>(subject == Subject ? secret : null);
@@ -66,11 +72,28 @@ internal sealed class SandboxWithdrawals : IApprovalWithdrawals
 /// </summary>
 internal sealed class SandboxFacts(IProblemStore problems, IPullRequestFacts pulls) : IFactsSource
 {
+    private static readonly TimeSpan ForgeDeadline = TimeSpan.FromSeconds(20);
+
     public async ValueTask<ObservedFacts> FactsAsync(FactsQuery query, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(query);
         var entry = problems.Get(query.ProblemId)?.Entry;
-        if (entry is not { PullRequest: { } number } || entry.Repositories.Count != 1 || await pulls.ReadAsync(entry.Repositories[0], number, cancellationToken) is not { } read)
+        // The forge is read within a time of its own: this is called while the lock of the problem is held, and a slow forge must not hold its stop
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(ForgeDeadline);
+        PullRequestFacts? read = null;
+        if (entry is { PullRequest: { } number } && entry.Repositories.Count == 1)
+        {
+            try
+            {
+                read = await pulls.ReadAsync(entry.Repositories[0], number, deadline.Token);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                // The forge did not answer in time: the facts are unknown, which fails the checks
+            }
+        }
+        if (entry is null || read is null)
         {
             return new ObservedFacts(BudgetAvailable: false, DiffIsClean: null, CiGreenOnExactCommit: null, ArtifactIsTheOneProvedInStaging: null, WayBackKnown: null, WorkerClaimMatchesFacts: false);
         }
@@ -80,7 +103,7 @@ internal sealed class SandboxFacts(IProblemStore problems, IPullRequestFacts pul
             CiGreenOnExactCommit: read.Checks switch { ChecksState.Passing => true, ChecksState.Failing => false, _ => null },
             ArtifactIsTheOneProvedInStaging: null,
             WayBackKnown: true,
-            WorkerClaimMatchesFacts: query.Dossier?.Commit is null || string.Equals(query.Dossier.Commit, read.HeadSha, StringComparison.Ordinal),
+            WorkerClaimMatchesFacts: query.Dossier?.Commit is { } claimed && string.Equals(claimed, read.HeadSha, StringComparison.Ordinal),
             MergeMayDeploy: false,
             ExecutedFilesTouched: read.ChangedPaths.Any(path => path.StartsWith(".github/", StringComparison.Ordinal)),
             TagCreationBlocked: true,

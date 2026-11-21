@@ -96,7 +96,7 @@ public sealed class MissionRunnerWorkerTests
             await Task.Delay(Timeout.Infinite, call.ArgAt<CancellationToken>(3));
             return new ShellResult(0, string.Empty, TimedOut: false);
         });
-        var options = new MissionRunnerOptions { StagingMachine = "staging-1", LabTool = "/lab/lab.sh", StopPollSeconds = 1 };
+        var options = new MissionRunnerOptions { StagingMachine = "staging-1", LabTool = "/lab/lab.sh", StopPollSeconds = 1, Repositories = ["example/*"] };
 
         (await Worker(plane, shell, options).TakeOneAsync(Ct)).Should().BeTrue();
 
@@ -105,29 +105,43 @@ public sealed class MissionRunnerWorkerTests
     }
 
     [Fact]
-    public async Task A_stop_that_cannot_be_read_does_not_stop_the_work()
+    public async Task A_stop_that_cannot_be_read_once_does_not_end_the_watch_and_the_next_read_stops_the_work()
     {
         var plane = Substitute.For<IMissionControlPlane>();
         plane.ClaimAsync(Arg.Any<CancellationToken>()).Returns(Mission("Staging"));
         plane.StartedAsync("m1", Arg.Any<CancellationToken>()).Returns(true);
-        plane.StopEngagedAsync(Arg.Any<CancellationToken>()).Returns<Task<bool>>(_ => throw new HttpRequestException("down"));
-        plane.HandOverAsync("m1", Arg.Any<MissionHandOver>(), Arg.Any<CancellationToken>()).Returns(true);
+        // A read that times out (the HTTP client's own timeout is a cancellation), then the stop is engaged
+        plane.StopEngagedAsync(Arg.Any<CancellationToken>()).Returns(_ => Task.FromException<bool>(new TaskCanceledException("timed out")), _ => Task.FromResult(true));
+        var shell = Substitute.For<IShell>();
+        shell.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>()).Returns(async call =>
+        {
+            if (call.ArgAt<string>(0) != "ssh")
+            {
+                return new ShellResult(0, string.Empty, TimedOut: false);
+            }
+            await Task.Delay(Timeout.Infinite, call.ArgAt<CancellationToken>(3));
+            return new ShellResult(0, string.Empty, TimedOut: false);
+        });
+        var options = new MissionRunnerOptions { StagingMachine = "staging-1", LabTool = "/lab/lab.sh", StopPollSeconds = 1, Repositories = ["example/*"] };
 
-        (await Worker(plane, Substitute.For<IShell>(), new MissionRunnerOptions { StagingMachine = "staging-1", StopPollSeconds = 1 }).TakeOneAsync(Ct)).Should().BeTrue();
+        (await Worker(plane, shell, options).TakeOneAsync(Ct)).Should().BeTrue();
 
-        await plane.Received(1).HandOverAsync("m1", Arg.Any<MissionHandOver>(), Arg.Any<CancellationToken>());
+        await plane.DidNotReceiveWithAnyArgs().HandOverAsync(default!, default!, Ct);
+        await plane.Received(2).StopEngagedAsync(Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public void The_options_name_what_is_missing_and_refuse_a_machine_that_is_not_an_alias()
     {
-        var ready = () => new MissionRunnerOptions { ControlPlaneUrl = new Uri("http://127.0.0.1:5180"), Token = "t", StagingMachine = "staging-1" }.Validate();
+        var ready = () => new MissionRunnerOptions { ControlPlaneUrl = new Uri("http://127.0.0.1:5180"), Token = "t", StagingMachine = "staging-1", LabTool = "/lab/lab.sh" }.Validate();
         ready.Should().NotThrow();
-        var noUrl = () => new MissionRunnerOptions { Token = "t", StagingMachine = "staging-1" }.Validate();
+        var noUrl = () => new MissionRunnerOptions { Token = "t", StagingMachine = "staging-1", LabTool = "/lab/lab.sh" }.Validate();
         noUrl.Should().Throw<InvalidOperationException>().WithMessage("*ControlPlaneUrl*");
-        var noMachine = () => new MissionRunnerOptions { ControlPlaneUrl = new Uri("http://127.0.0.1:5180"), Token = "t" }.Validate();
+        var noMachine = () => new MissionRunnerOptions { ControlPlaneUrl = new Uri("http://127.0.0.1:5180"), Token = "t", LabTool = "/lab/lab.sh" }.Validate();
         noMachine.Should().Throw<InvalidOperationException>().WithMessage("*StagingMachine*");
-        var injected = () => new MissionRunnerOptions { ControlPlaneUrl = new Uri("http://127.0.0.1:5180"), Token = "t", StagingMachine = "a; rm -rf ~" }.Validate();
+        var noTool = () => new MissionRunnerOptions { ControlPlaneUrl = new Uri("http://127.0.0.1:5180"), Token = "t", StagingMachine = "staging-1" }.Validate();
+        noTool.Should().Throw<InvalidOperationException>().WithMessage("*LabTool*");
+        var injected = () => new MissionRunnerOptions { ControlPlaneUrl = new Uri("http://127.0.0.1:5180"), Token = "t", StagingMachine = "a; rm -rf ~", LabTool = "/lab/lab.sh" }.Validate();
         injected.Should().Throw<InvalidOperationException>().WithMessage("*alias*");
     }
 

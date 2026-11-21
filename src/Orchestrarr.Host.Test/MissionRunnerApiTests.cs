@@ -21,6 +21,16 @@ public sealed class MissionRunnerApiTests
     private static readonly string Head = new('d', 40);
     private static readonly CancellationToken Ct = TestContext.Current.CancellationToken;
 
+    private sealed class SandboxlessFactory : AccountsApiFactory
+    {
+        protected override void ConfigureWebHost(IWebHostBuilder builder)
+        {
+            base.ConfigureWebHost(builder);
+            builder.UseSetting("Tasks:Runners:0:Name", "runner-staging");
+            builder.UseSetting("Tasks:Runners:0:Token", Token);
+        }
+    }
+
     private sealed class SandboxFactory : AccountsApiFactory
     {
         /// <summary>When set, the controller answers with this text and the forge says that the pull request is green at the head of the mission.</summary>
@@ -276,6 +286,76 @@ public sealed class MissionRunnerApiTests
     }
 
     [Fact]
+    public async Task One_selection_of_several_rows_gets_a_certificate_for_each()
+    {
+        using var factory = new SandboxFactory();
+        var approvals = factory.Services.GetRequiredService<SandboxApprovals>();
+        PlanEntry Entry(string id) => new(id, "example/shop", "dependency-update", "x", ["example/shop"], World.Release, new MissionBudget(30, 3, 50), new Validation("alice", null), DateTimeOffset.UtcNow, 7, Head);
+
+        (await approvals.PrepareAsync(Entry("p-a"), Ct)).Should().BeTrue();
+        (await approvals.PrepareAsync(Entry("p-b"), Ct)).Should().BeTrue("a code that was used a moment ago is not a reason to refuse the next row of the same selection");
+        (await approvals.PrepareAsync(Entry("p-c"), Ct)).Should().BeTrue();
+
+        approvals.For(Entry("p-a")).Should().NotBeNull();
+        approvals.For(Entry("p-c")).Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task The_plan_needs_a_session_and_the_header_of_a_write()
+    {
+        using var factory = new SandboxFactory();
+        using var anonymous = factory.CreateClient();
+        anonymous.DefaultRequestHeaders.Add(Header, "test");
+        using var person = await SignedIn(factory);
+        using var noHeader = await SignedIn(factory);
+        noHeader.DefaultRequestHeaders.Remove(Header);
+
+        (await anonymous.PostAsJsonAsync("/api/v1/plan/validate", new { rows = Array.Empty<object>() }, Ct)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await noHeader.PostAsJsonAsync("/api/v1/plan/validate", new { rows = Array.Empty<object>() }, Ct)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        var tooMany = Enumerable.Range(0, 401).Select(n => new { id = $"pr:example/shop#{n}", headSha = Head }).ToArray();
+        (await person.PostAsJsonAsync("/api/v1/plan/validate", new { rows = tooMany }, Ct)).StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+    }
+
+    [Fact]
+    public async Task The_routes_of_the_runners_of_missions_are_not_there_without_the_sandbox()
+    {
+        using var factory = new SandboxlessFactory();
+        using var runner = Runner(factory, Token);
+
+        (await runner.PostAsJsonAsync("/api/v1/runner/missions/claim", Hello, Ct)).StatusCode.Should().Be(HttpStatusCode.Unauthorized, "an unknown route needs a session like every other");
+        (await runner.GetAsync("/api/v1/runner/stop", Ct)).StatusCode.Should().Be(HttpStatusCode.OK, "the runner of tasks is not affected");
+    }
+
+    [Fact]
+    public void The_lines_of_a_mission_are_bounded_in_length_in_number_and_in_missions_kept()
+    {
+        var progress = new MissionProgress(TimeProvider.System);
+
+        progress.Add("m-long", new string('x', 5000));
+        for (var line = 0; line < 400; line++)
+        {
+            progress.Add("m-many", $"line {line}");
+        }
+        for (var mission = 0; mission < 250; mission++)
+        {
+            progress.Add($"m-{mission}", "hello");
+        }
+
+        progress.Lines("m-long").Should().BeEmpty("the oldest missions are forgotten first");
+        progress.Lines("m-249").Should().ContainSingle();
+        progress.Lines("m-0").Should().BeEmpty();
+        var many = new MissionProgress(TimeProvider.System);
+        for (var line = 0; line < 400; line++)
+        {
+            many.Add("m", $"line {line}");
+        }
+        many.Lines("m").Should().HaveCount(300).And.ContainSingle(entry => entry.EndsWith("line 399", StringComparison.Ordinal));
+        var one = new MissionProgress(TimeProvider.System);
+        one.Add("m", new string('x', 5000));
+        one.Lines("m").Single().Length.Should().BeLessThan(520);
+    }
+
+    [Fact]
     public async Task The_facts_of_a_pull_request_come_from_the_forge_and_the_frame_that_is_declared_holds()
     {
         var problems = new InMemoryProblemStore();
@@ -292,6 +372,9 @@ public sealed class MissionRunnerApiTests
         seen.WorkerClaimMatchesFacts.Should().BeFalse("the dossier names another commit than the head of the pull request");
         seen.HeadCommit.Should().Be(Head);
         seen.MergeMayDeploy.Should().BeFalse();
+
+        var unclaimed = await facts.FactsAsync(new FactsQuery("p-1", "m1", World.Staging, new MissionFrame(["example/shop"], [], "place"), dossier with { Commit = null }, null), Ct);
+        unclaimed.WorkerClaimMatchesFacts.Should().BeFalse("a dossier that names no commit does not match the head, it fails the check");
 
         var unknown = await facts.FactsAsync(new FactsQuery("nobody", null, World.Staging, new MissionFrame([], [], "place"), null, null), Ct);
         unknown.BudgetAvailable.Should().BeFalse();

@@ -1,6 +1,7 @@
 using Orchestrarr.Core.Missions;
 using Orchestrarr.Core.Tasks;
 using Orchestrarr.Host.Live;
+using Orchestrarr.Host.Tasks;
 
 namespace Orchestrarr.Host.Missions;
 
@@ -14,16 +15,20 @@ public sealed class MissionProgress(TimeProvider time)
 
     public void Add(string missionId, string line)
     {
-        var list = _lines.GetOrAdd(missionId, id =>
+        if (!_lines.TryGetValue(missionId, out var list))
         {
-            _order.Enqueue(id);
-            // The oldest missions are forgotten first: what a screen shows of an old mission is its dossier, not these lines
-            while (_lines.Count > MaxMissions && _order.TryDequeue(out var oldest))
+            var added = new List<string>();
+            list = _lines.GetOrAdd(missionId, added);
+            if (ReferenceEquals(list, added))
             {
-                _lines.TryRemove(oldest, out _);
+                _order.Enqueue(missionId);
+                // The oldest missions are forgotten first: what a screen shows of an old mission is its dossier, not these lines
+                while (_lines.Count > MaxMissions && _order.TryDequeue(out var oldest))
+                {
+                    _lines.TryRemove(oldest, out _);
+                }
             }
-            return [];
-        });
+        }
         lock (list)
         {
             list.Add($"{time.GetUtcNow():HH:mm:ss} {(line.Length > 500 ? line[..500] : line)}");
@@ -51,11 +56,11 @@ public sealed class MissionProgress(TimeProvider time)
 /// The routes of a runner that serves missions (ADR 0031, 0033), under the token of the runner like the others: it asks for a mission of its own, says that it started, reports what it does and hands the dossier over.
 /// A mission is a runner's only if its mandate names that runner, whatever the runner asks.
 /// </summary>
-internal static class MissionRunnerEndpoints
+internal static partial class MissionRunnerEndpoints
 {
     public static void MapMissionRunnerRoutes(this RouteGroupBuilder group, Func<HttpContext, string> runnerName)
     {
-        group.MapPost("/missions/claim", (ClaimRequest? request, string? world, HttpContext context, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, TimeProvider time, Orchestrarr.Host.Tasks.RunnerRegistry registry) =>
+        group.MapPost("/missions/claim", (ClaimRequest? request, string? world, HttpContext context, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, TimeProvider time, RunnerRegistry registry) =>
         {
             var name = runnerName(context);
             if (request?.Hello is { } hello)
@@ -65,7 +70,7 @@ internal static class MissionRunnerEndpoints
             }
             var mission = missions.Recent(200).Where(candidate => candidate.State == MissionState.Mandated && MandateOf(candidate, mandates) is { } signed && signed.Mandate.RunnerId == name && signed.Mandate.ExpiresAt > time.GetUtcNow() && (world is null || string.Equals(candidate.World.ToString(), world, StringComparison.OrdinalIgnoreCase)))
                 .OrderBy(candidate => candidate.Id, StringComparer.Ordinal).FirstOrDefault();
-            if (mission is null || MandateOf(mission, mandates) is not { } mandate || problems.Get(mission.ProblemId)?.Entry is not { } entry)
+            if (mission is null || MandateOf(mission, mandates) is not { } mandate || problems.Get(mission.ProblemId)?.Entry is not { Repositories.Count: 1 } entry)
             {
                 return Results.Ok(new MissionClaimResponse(null));
             }
@@ -101,7 +106,8 @@ internal static class MissionRunnerEndpoints
             {
                 return Results.NotFound();
             }
-            var dossier = new Dossier(id, request.Claim, request.WhatChangedAndWhy, Bounded(request.EvidenceDigests), Bounded(request.OpenPoints), request.Complex, request.ComplexReason, request.Commit);
+            var dossier = new Dossier(id, Cut(request.Claim), Cut(request.WhatChangedAndWhy), Bounded(request.EvidenceDigests), Bounded(request.OpenPoints), request.Complex, request.ComplexReason is null ? null : Cut(request.ComplexReason),
+                request.Commit is { } commit && CommitShape().IsMatch(commit) ? commit : null);
             var result = await conductor.HandOverAsync(id, dossier, ct);
             live.Publish(LiveTopics.Missions, id);
             return result.Ok ? Results.Ok() : Results.Conflict(new { error = result.Refusal });
@@ -111,6 +117,11 @@ internal static class MissionRunnerEndpoints
     // What a runner may put in a dossier is bounded here as it is in the prompt of the controller: a runner that is not trusted cannot fill the store
     private const int MaxListed = 20;
     private const int MaxTextLength = 2000;
+
+    private static string Cut(string text) => text.Length > MaxTextLength ? text[..MaxTextLength] : text;
+
+    [System.Text.RegularExpressions.GeneratedRegex("^[0-9a-f]{40}$", System.Text.RegularExpressions.RegexOptions.None, 250)]
+    private static partial System.Text.RegularExpressions.Regex CommitShape();
 
     private static List<string> Bounded(IReadOnlyList<string>? values) =>
         [.. (values ?? []).Take(MaxListed).Select(value => value.Length > MaxTextLength ? value[..MaxTextLength] : value)];

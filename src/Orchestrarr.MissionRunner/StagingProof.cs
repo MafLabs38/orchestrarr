@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using Orchestrarr.Core.Missions;
+using Orchestrarr.Core.Tasks;
 
 namespace Orchestrarr.MissionRunner;
 
@@ -18,6 +19,10 @@ public sealed partial class StagingProof(IShell shell, MissionRunnerOptions opti
         if (mission.PullRequest is not { } number || !RepositoryShape().IsMatch(mission.Repository))
         {
             return Refused(mission, "This runner proves pull requests only for now: the mission names no pull request or an unreadable repository.");
+        }
+        if (!options.Repositories.Any(pattern => RepositoryPattern.Matches(pattern, mission.Repository)))
+        {
+            return Refused(mission, $"This runner does not accept {mission.Repository} (MissionRunner:Repositories): it is the one check it makes of its own.");
         }
         if (mission.HeadSha is not { Length: > 0 })
         {
@@ -94,8 +99,16 @@ public sealed partial class StagingProof(IShell shell, MissionRunnerOptions opti
         {
             return $"{machine} was not restored: the runner has no tool to do it";
         }
-        var back = await shell.RunAsync(options.LabTool, ["reset", machine], TimeSpan.FromMinutes(5), CancellationToken.None);
-        return back.ExitCode == 0 ? $"{machine} restored" : $"Restoring {machine} FAILED: {Tail(back.Output)}";
+        try
+        {
+            var back = await shell.RunAsync(options.LabTool, ["reset", machine], TimeSpan.FromMinutes(5), CancellationToken.None);
+            return back.ExitCode == 0 ? $"{machine} restored" : $"Restoring {machine} FAILED: {Tail(back.Output)}";
+        }
+        catch (Exception failure) when (failure is System.ComponentModel.Win32Exception or IOException or InvalidOperationException)
+        {
+            // What is said replaces nothing: the dossier or the stop that the work ended with is still the answer
+            return $"Restoring {machine} FAILED: {failure.Message}";
+        }
     }
 
     private static async Task ReportQuietlyAsync(Func<string, Task> report, string line)
@@ -145,7 +158,7 @@ public sealed partial class StagingProof(IShell shell, MissionRunnerOptions opti
     private static string FirstLines(string output, int count) =>
         string.Join(" | ", output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Skip(1).Take(count));
 
-    [GeneratedRegex(@"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")]
+    [GeneratedRegex(@"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9_][A-Za-z0-9._-]{0,99}$")]
     private static partial Regex RepositoryShape();
 
     [GeneratedRegex(@"^HEAD ([0-9a-f]{40})\s*$", RegexOptions.Multiline)]

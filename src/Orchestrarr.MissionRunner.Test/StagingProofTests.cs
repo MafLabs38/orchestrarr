@@ -19,7 +19,7 @@ public sealed class StagingProofTests
         }
     }
 
-    private static MissionRunnerOptions Options(string? lab = "/lab/lab.sh") => new() { StagingMachine = "staging-1", LabTool = lab };
+    private static MissionRunnerOptions Options(string? lab = "/lab/lab.sh") => new() { StagingMachine = "staging-1", LabTool = lab, Repositories = ["example/*"] };
 
     private static ClaimedMission Mission(string repository = "example/shop", int? pullRequest = 7, string? head = "") =>
         new("m1", "p1", "example/shop", "Staging", "Prove it", repository, pullRequest, head == "" ? Head : head, DateTimeOffset.UtcNow.AddHours(1), []);
@@ -161,6 +161,8 @@ public sealed class StagingProofTests
     [Theory]
     [InlineData("example/shop; rm -rf ~", 7)]
     [InlineData("example", 7)]
+    [InlineData("example/..", 7)]
+    [InlineData("-bad/shop", 7)]
     [InlineData("example/shop", null)]
     public async Task A_mission_that_names_no_pull_request_or_an_unreadable_repository_is_refused_without_touching_the_machine(string repository, int? number)
     {
@@ -169,6 +171,18 @@ public sealed class StagingProofTests
         var dossier = await new StagingProof(shell, Options()).RunAsync(Mission(repository, number), _ => Task.CompletedTask, Ct);
 
         dossier.Claim.Should().StartWith("Nothing was proven");
+        shell.Calls.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_repository_that_the_runner_does_not_accept_is_refused_whatever_the_control_plane_says()
+    {
+        var shell = Machine("package.json\n");
+
+        var dossier = await new StagingProof(shell, Options()).RunAsync(Mission("another/shop"), _ => Task.CompletedTask, Ct);
+
+        dossier.Claim.Should().StartWith("Nothing was proven");
+        dossier.OpenPoints.Should().ContainSingle().Which.Should().Contain("does not accept");
         shell.Calls.Should().BeEmpty();
     }
 
@@ -234,6 +248,15 @@ public sealed class StagingProofTests
 
         dossier.Complex.Should().BeTrue();
         dossier.ComplexReason.Should().Contain("No build recipe");
+    }
+
+    [Fact]
+    public void A_repository_with_both_kinds_of_files_is_built_as_node()
+    {
+        var recipe = StagingProof.Recipe(new HashSet<string> { "requirements.txt", "package.json", "package-lock.json" });
+
+        recipe.Kind.Should().Be("node");
+        recipe.Command.Should().Contain("npm ci");
     }
 
     [Theory]

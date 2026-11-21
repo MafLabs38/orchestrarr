@@ -40,6 +40,10 @@ public sealed partial class MissionRunnerOptions
     {
         _ = ControlPlaneUrl ?? throw new InvalidOperationException("MissionRunner:ControlPlaneUrl is required.");
         _ = TokenValue();
+        if (string.IsNullOrWhiteSpace(LabTool))
+        {
+            throw new InvalidOperationException("MissionRunner:LabTool is required (the tool that restores the staging machine: <tool> reset <machine>).");
+        }
         if (string.IsNullOrWhiteSpace(StagingMachine))
         {
             throw new InvalidOperationException("MissionRunner:StagingMachine is required (the SSH alias of the machine to restore and work on).");
