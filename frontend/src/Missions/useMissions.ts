@@ -21,7 +21,7 @@ export function usePlanStatus() {
 export function useValidatePlan() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (rows: { id: string; headSha: string }[]) =>
+    mutationFn: (rows: { id: string; headSha: string; stopBeforeProduction: boolean }[]) =>
       sendJson<{ problems: ValidatedProblem[] }>('POST', `${planPath}/validate`, { rows }),
     onSettled: () =>
       Promise.all([

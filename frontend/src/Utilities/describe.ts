@@ -414,6 +414,7 @@ const planRefusals = {
   thePullRequestMoved: 'PlanRefusalThePullRequestMoved',
   noRepository: 'PlanRefusalNoRepository',
   noApproval: 'PlanRefusalNoApproval',
+  notActionable: 'PlanRefusalNotActionable',
 } as const;
 
 // Why a ticked row was not started, from the code of the server

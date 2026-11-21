@@ -102,7 +102,7 @@ export default function SelectionBar({
     event.preventDefault();
     if (viaMissions) {
       plan.mutate(
-        chosen.map((row) => ({ id: row.id, headSha: row.headSha ?? '' })),
+        chosen.map((row) => ({ id: row.id, headSha: row.headSha ?? '', stopBeforeProduction: stops[row.id] ?? false })),
         { onSuccess: onDone },
       );
       return;

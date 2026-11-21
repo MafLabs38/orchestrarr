@@ -131,6 +131,61 @@ public sealed class MissionRunnerWorkerTests
     }
 
     [Fact]
+    public async Task A_stop_that_stays_unreadable_stops_the_work_in_the_end()
+    {
+        var plane = Substitute.For<IMissionControlPlane>();
+        plane.ClaimAsync(Arg.Any<CancellationToken>()).Returns(Mission("Staging"));
+        plane.StartedAsync("m1", Arg.Any<CancellationToken>()).Returns(true);
+        plane.StopEngagedAsync(Arg.Any<CancellationToken>()).Returns<Task<bool>>(_ => throw new HttpRequestException("down"));
+        var shell = Substitute.For<IShell>();
+        shell.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>()).Returns(async call =>
+        {
+            if (call.ArgAt<string>(0) != "ssh")
+            {
+                return new ShellResult(0, string.Empty, TimedOut: false);
+            }
+            await Task.Delay(Timeout.Infinite, call.ArgAt<CancellationToken>(3));
+            return new ShellResult(0, string.Empty, TimedOut: false);
+        });
+        var options = new MissionRunnerOptions { StagingMachine = "staging-1", LabTool = "/lab/lab.sh", StopPollSeconds = 1, StopReadFailuresAllowed = 2, Repositories = ["example/*"] };
+
+        (await Worker(plane, shell, options).TakeOneAsync(Ct)).Should().BeTrue();
+
+        await plane.DidNotReceiveWithAnyArgs().HandOverAsync(default!, default!, Ct);
+        await plane.Received().ProgressAsync("m1", Arg.Is<string>(line => line.Contains("global stop", StringComparison.Ordinal)), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task A_call_that_times_out_during_the_work_is_not_taken_for_a_stop()
+    {
+        var plane = Substitute.For<IMissionControlPlane>();
+        plane.ClaimAsync(Arg.Any<CancellationToken>()).Returns(Mission("Staging"));
+        plane.StartedAsync("m1", Arg.Any<CancellationToken>()).Returns(true);
+        plane.ProgressAsync("m1", Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(_ => Task.FromException(new TaskCanceledException("the line timed out")));
+
+        var shell = Substitute.For<IShell>();
+        shell.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>()).Returns(new ShellResult(0, string.Empty, TimedOut: false));
+
+        var work = () => Worker(plane, shell, new MissionRunnerOptions { StagingMachine = "staging-1", LabTool = "/lab/lab.sh", Repositories = ["example/*"] }).TakeOneAsync(Ct);
+
+        await work.Should().ThrowAsync<TaskCanceledException>("it is the loop of the runner that says why, not the stop");
+        await plane.DidNotReceive().ProgressAsync("m1", Arg.Is<string>(line => line.Contains("global stop", StringComparison.Ordinal)), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task A_hand_over_that_fails_on_the_network_is_tried_again_and_a_refusal_is_final()
+    {
+        var plane = Substitute.For<IMissionControlPlane>();
+        plane.ClaimAsync(Arg.Any<CancellationToken>()).Returns(Mission("Staging"));
+        plane.StartedAsync("m1", Arg.Any<CancellationToken>()).Returns(true);
+        plane.HandOverAsync("m1", Arg.Any<MissionHandOver>(), Arg.Any<CancellationToken>()).Returns(_ => Task.FromException<bool>(new HttpRequestException("reset")), _ => Task.FromResult(true));
+
+        (await Worker(plane, Substitute.For<IShell>(), new MissionRunnerOptions { StagingMachine = "staging-1", PollSeconds = 1 }).TakeOneAsync(Ct)).Should().BeTrue();
+
+        await plane.Received(2).HandOverAsync("m1", Arg.Any<MissionHandOver>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public void The_options_name_what_is_missing_and_refuse_a_machine_that_is_not_an_alias()
     {
         var ready = () => new MissionRunnerOptions { ControlPlaneUrl = new Uri("http://127.0.0.1:5180"), Token = "t", StagingMachine = "staging-1", LabTool = "/lab/lab.sh" }.Validate();

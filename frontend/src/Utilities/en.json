@@ -497,5 +497,6 @@
   "PlanRefusalNoRepository": "no repository to work on",
   "PlanRefusalNoApproval": "already in progress or not approved",
   "PlanRefusalOther": "refused",
-  "PlanNothingStarted": "Nothing was started."
+  "PlanNothingStarted": "Nothing was started.",
+  "PlanRefusalNotActionable": "nothing can act on it yet"
 }

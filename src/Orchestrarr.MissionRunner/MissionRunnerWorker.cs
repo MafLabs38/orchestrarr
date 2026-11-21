@@ -7,8 +7,7 @@ namespace Orchestrarr.MissionRunner;
 /// <summary>Asks the control plane for a mission of its own, says that it starts, works, reports and hands the dossier over, then asks again.</summary>
 public sealed partial class MissionRunnerWorker(IMissionControlPlane controlPlane, StagingProof staging, MissionRunnerOptions options, ILogger<MissionRunnerWorker> logger) : BackgroundService
 {
-    // How many reads of the stop in a row may fail before the work is stopped (about half a minute with the default poll)
-    private const int MaxUnreadStops = 6;
+    private const int HandOverAttempts = 3;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -55,12 +54,13 @@ public sealed partial class MissionRunnerWorker(IMissionControlPlane controlPlan
         try
         {
             var dossier = await staging.RunAsync(mission, line => controlPlane.ProgressAsync(mission.MissionId, line, cancellationToken), work.Token);
-            if (!await controlPlane.HandOverAsync(mission.MissionId, dossier, cancellationToken))
+            if (!await HandOverAsync(mission.MissionId, dossier, cancellationToken))
             {
                 LogRefused(mission.MissionId);
             }
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        // Only the stop ends the work like this: a call that timed out is not a stop
+        catch (OperationCanceledException) when (work.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
             await controlPlane.ProgressAsync(mission.MissionId, "The global stop is engaged: the work was stopped and nothing is handed over.", cancellationToken);
         }
@@ -70,6 +70,25 @@ public sealed partial class MissionRunnerWorker(IMissionControlPlane controlPlan
             await watcher;
         }
         return true;
+    }
+
+    // A proof that took minutes is not lost to one network error: the hand-over is tried a few times (a refusal of the control plane is final)
+    private async Task<bool> HandOverAsync(string missionId, MissionHandOver dossier, CancellationToken cancellationToken)
+    {
+        for (var attempt = 1; attempt < HandOverAttempts; attempt++)
+        {
+            try
+            {
+                return await controlPlane.HandOverAsync(missionId, dossier, cancellationToken);
+            }
+            catch (Exception failure) when (failure is HttpRequestException || (failure is TaskCanceledException && !cancellationToken.IsCancellationRequested))
+            {
+                LogFailure(failure.Message);
+                await Task.Delay(TimeSpan.FromSeconds(Math.Max(1, options.PollSeconds)), cancellationToken);
+            }
+        }
+        // The last attempt is not caught: the loop of the runner says why it failed
+        return await controlPlane.HandOverAsync(missionId, dossier, cancellationToken);
     }
 
     private async Task WatchStopAsync(CancellationTokenSource work)
@@ -83,7 +102,7 @@ public sealed partial class MissionRunnerWorker(IMissionControlPlane controlPlan
                 var engaged = await ReadStopAsync(work.Token);
                 unread = engaged is null ? unread + 1 : 0;
                 // A stop that has not been readable for a while is a stop that cannot be confirmed: the work does not go on blind
-                if (engaged is true || unread >= MaxUnreadStops)
+                if (engaged is true || unread >= Math.Max(1, options.StopReadFailuresAllowed))
                 {
                     await work.CancelAsync();
                 }

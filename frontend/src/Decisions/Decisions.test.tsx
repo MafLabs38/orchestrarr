@@ -297,7 +297,7 @@ describe('Decisions', () => {
     expect(await screen.findByText(/Validated: 1 problems started/)).toBeInTheDocument();
     const call = wrapped.mock.calls.find(([path]) => String(path) === '/api/v1/plan/validate');
     expect(JSON.parse(String((call?.[1] as RequestInit).body))).toEqual({
-      rows: [{ id: 'pr:example/shop#9', headSha: head('d') }],
+      rows: [{ id: 'pr:example/shop#9', headSha: head('d'), stopBeforeProduction: false }],
     });
     expect(base.mock.calls.some(([path]) => String(path) === '/api/v1/problems/approve')).toBe(false);
   });

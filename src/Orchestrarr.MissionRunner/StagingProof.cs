@@ -142,7 +142,7 @@ public sealed partial class StagingProof(IShell shell, MissionRunnerOptions opti
         shell.RunAsync("ssh", ["-o", "BatchMode=yes", "-o", "ConnectTimeout=15", machine, Prelude + script], timeout, cancellationToken);
 
     private static MissionHandOver Refused(ClaimedMission mission, string reason) =>
-        new($"Nothing was proven for {mission.Repository}: {reason}", reason, [], [reason], Complex: true, reason, mission.HeadSha);
+        new($"Nothing was proven for {mission.Repository}: {reason}", reason, [], [reason], Complex: true, reason, Commit: null);
 
     private static void Keep(List<string> evidence, string step, ShellResult result) =>
         evidence.Add($"{step}:exit={result.ExitCode}:sha256={Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(result.Output)))}");

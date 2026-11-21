@@ -154,6 +154,7 @@ public sealed class StagingProofTests
 
         dossier.Claim.Should().StartWith("Nothing was proven");
         dossier.Complex.Should().BeTrue();
+        dossier.Commit.Should().BeNull("a refusal names no commit: nothing was proven at any");
         shell.Calls.Should().NotContain(call => call.Contains("docker run", StringComparison.Ordinal));
         shell.Calls.Count(call => call.StartsWith("/lab/lab.sh reset", StringComparison.Ordinal)).Should().Be(2);
     }

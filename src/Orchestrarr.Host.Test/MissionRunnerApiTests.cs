@@ -286,6 +286,13 @@ public sealed class MissionRunnerApiTests
     }
 
     [Fact]
+    public void A_stop_before_production_that_the_operator_ticked_narrows_what_the_row_asks_for()
+    {
+        PlanEndpoints.CeilingOf(new ValidatedRow("pr:example/shop#1", Head)).Should().Be(World.Release);
+        PlanEndpoints.CeilingOf(new ValidatedRow("pr:example/shop#1", Head, StopBeforeProduction: true)).Should().Be(World.Git, "the plan keeps what the operator chose, and never widens it");
+    }
+
+    [Fact]
     public async Task One_selection_of_several_rows_gets_a_certificate_for_each()
     {
         using var factory = new SandboxFactory();

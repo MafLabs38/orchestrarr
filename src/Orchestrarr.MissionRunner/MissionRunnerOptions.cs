@@ -33,6 +33,9 @@ public sealed partial class MissionRunnerOptions
     /// <summary>How often the global stop is read while a mission runs.</summary>
     public int StopPollSeconds { get; set; } = 5;
 
+    /// <summary>How many reads of the stop in a row may fail before the work is stopped: a stop that cannot be confirmed for a while stops the work (about half a minute with the default poll).</summary>
+    public int StopReadFailuresAllowed { get; set; } = 6;
+
     public int StepTimeoutMinutes { get; set; } = 15;
 
     /// <summary>What a runner cannot start without: where the control plane is, its token, and the machine it works on. Throws with the name of the setting that is missing.</summary>

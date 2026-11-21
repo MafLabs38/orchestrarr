@@ -16,7 +16,7 @@ namespace Orchestrarr.Host.Missions;
 /// <summary>The rows the maintainer ticked, with the commit each one was seen at: what was seen is what is validated (the table is computed again here).</summary>
 public sealed record ValidatePlanRequest(List<ValidatedRow>? Rows);
 
-public sealed record ValidatedRow(string? Id, string? HeadSha);
+public sealed record ValidatedRow(string? Id, string? HeadSha, bool StopBeforeProduction = false);
 
 /// <summary>What became of one ticked row: the problem it started and its first mission, or why nothing started.</summary>
 public sealed record ValidatedProblem(string RowId, string? ProblemId, string? MissionId, string? World, string? Refusal);
@@ -76,6 +76,8 @@ internal static class PlanEndpoints
         }).RequireAuthorization(Permissions.ApprovalsCreate).RequireRateLimiting(ApprovalsServiceCollectionExtensions.ApprovingPolicy);
     }
 
+    internal static World CeilingOf(ValidatedRow chosen) => chosen.StopBeforeProduction ? World.Git : PlanCeiling;
+
     private static async Task<ValidatedProblem> StartAsync(ValidatedRow chosen, Dictionary<string, ProblemRow> table, string approver, SandboxApprovals approvals, ProblemConductor conductor, TimeProvider time,
         CancellationToken cancellationToken)
     {
@@ -88,7 +90,12 @@ internal static class PlanEndpoints
         {
             return new ValidatedProblem(id, null, null, null, "thePullRequestMoved");
         }
-        var entry = PlanEntryFactory.From(row, approver, time.GetUtcNow(), PlanCeiling, SandboxBudget);
+        // A row that nothing can act on is not started, and a stop before production that the operator ticked is carried into the plan: it narrows what the row asks for, never widens it
+        if (row.GoesUpTo == Ceiling.NoAction)
+        {
+            return new ValidatedProblem(id, null, null, null, "notActionable");
+        }
+        var entry = PlanEntryFactory.From(row, approver, time.GetUtcNow(), CeilingOf(chosen), SandboxBudget);
         if (entry is null)
         {
             return new ValidatedProblem(id, null, null, null, "noRepository");
