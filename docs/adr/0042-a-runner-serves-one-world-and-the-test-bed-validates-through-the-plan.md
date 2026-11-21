@@ -1,0 +1,24 @@
+# 0042 — A runner serves one world, and the test bed validates through the plan
+
+- **Status**: proposed (accepted when the pull request that carries it is merged)
+- **Date**: 2026-11-21
+- **Spec**: D-96 ([SPEC.md](../SPEC.md), [FUNCTIONAL.md](../FUNCTIONAL.md) FR-WLD, FR-STG). Builds on [ADR 0031](0031-a-mandate-is-the-signed-permission-for-a-mission.md), [ADR 0033](0033-the-controller-agent-and-the-agent-gateway.md) and [ADR 0041](0041-a-problem-is-on-one-repository-and-the-staging-is-held-only-while-it-is-needed.md).
+
+## Context
+
+The core of the missions was merged with test doubles only: nothing started a problem from the table, nothing took a mandate and worked, and the facts of the controller were simulated. A demonstration that proves nothing is not one: the maintainer wants to tick problems, validate, and see the process run for real, the only invented thing being the list of defects.
+
+## Decision
+
+1. **A runner of missions serves one world** (`src/Orchestrarr.MissionRunner`, a process of its own that only connects out, with the token of its name in `Tasks:Runners`). It asks for the mission whose **mandate names it**, says that it started, reports what it does line by line, and hands a **dossier** over (the claim, what changed and why, the digests of its evidence, the commit it worked on). The control plane checks that the mission is the runner's at every call; a runner that is not named by the mandate gets nothing. The routes are under `/api/v1/runner/missions/…`; the claim carries the runner's hello (what it accepts), so the table offers a pull request only where a runner accepts it.
+2. **The staging world's work is a proof, not a belief**: the staging machine is put back to its reference snapshot, the pull request is fetched there **at the commit that the plan names** (a pull request that moved is not built), built and tested in a throwaway container, and the dossier says what was seen; **the machine is put back again when the work ends** (ADR 0041). Only pull requests are proven for now; another kind of problem is handed over as complex until the agents that repair code exist.
+3. **The control plane reads the facts itself.** The controller reads the dossier next to facts that the control plane fetched from the forge (the head commit, the checks of that commit, the changed paths); a driver asks the controller when a mission is handed over, and the conductor applies the decision with its own checks. A controller that cannot answer is never a grant: the mission waits and is asked again.
+4. **The test bed validates through the plan** (`POST /api/v1/plan/validate`, `GET /api/v1/plan`): each ticked row, at the commit that was seen, becomes a problem with its approval and the mandate of its first world. **This is only wired with `Missions:Sandbox`, which a development host alone accepts** (the host refuses to start otherwise): the approval is made by an authority in the same process with no code to type, the frame that no agent can break (merging does not deploy, no tag, no credential in reach) is **declared to hold**, and the standing grant is one world (`Missions:SandboxMaxWorld`, the Git world until the later worlds are built). On a deployment the plan answers `501` and the approval authority stays a service of its own (ADR 0031 point 7).
+5. **A screen shows it, live**: Missions lists each mission with its world, its state, the runner's lines, the dossier and the controller's decision; the topic `missions` of the live channel makes it read again.
+
+## Consequences
+
+- A problem now goes from the table to a mandate in the Git world with real work behind it (a machine restored, a real build, a real controller), which is what the demonstration needs; the Git and release worlds, with a real merge and a real deployment, are the next verticals.
+- The runner's lines are kept in memory (the dossier is the record), and bounded.
+- Only one runner is supported by the settings for now (`Tasks:Runners`, ADR 0017): the staging runner takes that place on the test bed; serving the Git and release worlds needs the routing of batches between runners, with the verticals that build those worlds.
+- The facts that the sandbox declares true are listed in the code and said in the log; none of them is read as true on a deployment.

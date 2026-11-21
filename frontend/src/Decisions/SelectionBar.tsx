@@ -5,6 +5,7 @@ import Button from 'Components/Button';
 import form from 'Components/Form/Form.module.css';
 import { ApiRefusal } from 'Helpers/Hooks/sendJson';
 import { kinds } from 'Helpers/Props/kinds';
+import { usePlanStatus, useValidatePlan } from 'Missions/useMissions';
 import type { ProblemRow } from 'typings/api';
 import { describeApprovalError } from 'Utilities/describe';
 import translate from 'Utilities/translate';
@@ -61,16 +62,26 @@ export default function SelectionBar({
   onDone,
 }: Readonly<SelectionBarProps>) {
   const approve = useApproveProblems();
+  const plan = useValidatePlan();
+  const viaMissions = usePlanStatus().data?.available === true;
   const [code, setCode] = useState('');
   const apps = new Set(chosen.map((row) => row.application)).size;
   const canSubmit =
     isOperator &&
     chosen.length > 0 &&
     !approve.isPending &&
+    !plan.isPending &&
     (!requiresSecondFactor || code.replaceAll(' ', '').length === 6);
 
   function submit(event: FormEvent) {
     event.preventDefault();
+    if (viaMissions) {
+      plan.mutate(
+        chosen.map((row) => ({ id: row.id, headSha: row.headSha ?? '' })),
+        { onSuccess: onDone },
+      );
+      return;
+    }
     const rows: SelectedRow[] = chosen.map((row) => ({
       id: row.id,
       headSha: row.headSha ?? '',
@@ -107,6 +118,16 @@ export default function SelectionBar({
         {approve.isSuccess ? (
           <Alert kind={kinds.SUCCESS}>{translate('SelectionApproved', { count: approve.data.approvals.length })}</Alert>
         ) : null}
+        {plan.isSuccess ? (
+          <Alert kind={kinds.SUCCESS}>
+            {translate('PlanValidated', { count: plan.data.problems.filter((problem) => problem.missionId).length })}
+            {plan.data.problems
+              .filter((problem) => problem.refusal)
+              .map((problem) => ` ${problem.rowId}: ${problem.refusal}`)
+              .join(';')}
+          </Alert>
+        ) : null}
+        {plan.isError ? <Alert kind={kinds.DANGER}>{translate('PlanNotValidated')}</Alert> : null}
         {approve.isError ? (
           <Alert kind={kinds.DANGER}>
             {describeApprovalError(approve.error instanceof ApiRefusal ? approve.error.code : null)}

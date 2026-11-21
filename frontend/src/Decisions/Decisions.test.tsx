@@ -267,6 +267,41 @@ describe('Decisions', () => {
     expect(posted(fetchMock)).toMatchObject({ rows: [{ id: 'pr:example/shop#9', goesUpTo: 'repair' }] });
   });
 
+  it('sends the selection to the plan, with the commit that was seen, when the host validates through the missions', async () => {
+    const failing = problem({
+      id: 'pr:example/shop#9',
+      description: 'lodash 4.17.4 → 4.18.1',
+      headSha: head('d'),
+      pullRequest: 9,
+    });
+    const base = stub(problemsReport([failing]), { requiresSecondFactor: false });
+    const answer = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status }));
+    const wrapped = vi.fn((input: string, init?: RequestInit) => {
+      if (String(input) === '/api/v1/plan') {
+        return answer({ available: true });
+      }
+      if (String(input) === '/api/v1/plan/validate') {
+        return answer(
+          { problems: [{ rowId: failing.id, problemId: 'p-1', missionId: 'm-1', world: 'Staging', refusal: null }] },
+          201,
+        );
+      }
+      return base(input, init);
+    });
+    vi.stubGlobal('fetch', wrapped);
+    renderWithProviders(<Decisions />);
+
+    await userEvent.click(await screen.findByLabelText(/Select example\/shop lodash/));
+    await userEvent.click(screen.getByRole('button', { name: 'Validate the selection' }));
+
+    expect(await screen.findByText(/Validated: 1 problems started/)).toBeInTheDocument();
+    const call = wrapped.mock.calls.find(([path]) => String(path) === '/api/v1/plan/validate');
+    expect(JSON.parse(String((call?.[1] as RequestInit).body))).toEqual({
+      rows: [{ id: 'pr:example/shop#9', headSha: head('d') }],
+    });
+    expect(base.mock.calls.some(([path]) => String(path) === '/api/v1/problems/approve')).toBe(false);
+  });
+
   it('sorts by a column when its header is clicked, ascending then descending then back, and a line keeps its number', async () => {
     stub(problemsReport(rows));
     renderWithProviders(<Decisions />);

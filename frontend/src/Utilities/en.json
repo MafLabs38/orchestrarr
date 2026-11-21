@@ -470,5 +470,18 @@
   "NotificationCodeWarningTitle": "The description names '{subject}'",
   "NotificationCodeWarningText": "{reason}",
   "NotificationCodeErrorTitle": "The code of the description could not be read",
-  "NotificationCodeErrorText": "{error}: what was read last is used."
+  "NotificationCodeErrorText": "{error}: what was read last is used.",
+  "Missions": "Missions",
+  "MissionsDescription": "What the conductor does with each validated problem: the mission of each world, what its runner reports, the dossier it hands over and what the controller decided.",
+  "MissionsEmpty": "No mission yet. Tick problems in Decisions and validate them.",
+  "CannotReadMissions": "Cannot read the missions: {error}",
+  "MissionAccepted": "Accepted",
+  "MissionDone": "Done",
+  "MissionEnded": "Ended",
+  "MissionControllerReading": "Controller reading",
+  "MissionRunning": "Running",
+  "MissionWaiting": "Waiting for its runner",
+  "MissionMandate": "mandate for {runner}, acts: {acts}",
+  "PlanValidated": "Validated: {count} problems started. Follow them in Missions.",
+  "PlanNotValidated": "The selection could not be validated."
 }

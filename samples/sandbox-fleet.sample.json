@@ -1,0 +1,280 @@
+{
+  "repositories": [
+    {
+      "fullName": "orchestrarr-sandbox/shop-api",
+      "archived": false,
+      "fork": false,
+      "dependabot": {
+        "state": "on",
+        "critical": 1,
+        "high": 3,
+        "medium": 2,
+        "low": 0,
+        "other": 0,
+        "total": 6
+      },
+      "codeScanning": {
+        "state": "on",
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0,
+        "other": 0,
+        "total": 0
+      },
+      "secretScanning": {
+        "state": "on",
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0,
+        "other": 0,
+        "total": 0
+      },
+      "dependabotPullRequests": 8,
+      "ci": {
+        "workflow": "CI",
+        "status": "completed",
+        "conclusion": "success",
+        "failed": false
+      },
+      "appIds": [
+        "shop-api"
+      ],
+      "images": [
+        "node:14-alpine"
+      ],
+      "deployed": true
+    },
+    {
+      "fullName": "orchestrarr-sandbox/ledger-worker",
+      "archived": false,
+      "fork": false,
+      "dependabot": {
+        "state": "on",
+        "critical": 0,
+        "high": 2,
+        "medium": 3,
+        "low": 0,
+        "other": 0,
+        "total": 5
+      },
+      "codeScanning": {
+        "state": "on",
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0,
+        "other": 0,
+        "total": 0
+      },
+      "secretScanning": {
+        "state": "on",
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0,
+        "other": 0,
+        "total": 0
+      },
+      "dependabotPullRequests": 8,
+      "ci": {
+        "workflow": "CI",
+        "status": "completed",
+        "conclusion": "success",
+        "failed": false
+      },
+      "appIds": [
+        "ledger-worker"
+      ],
+      "images": [
+        "python:3.7"
+      ],
+      "deployed": true
+    },
+    {
+      "fullName": "orchestrarr-sandbox/edge-stack",
+      "archived": false,
+      "fork": false,
+      "dependabot": {
+        "state": "on",
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0,
+        "other": 0,
+        "total": 0
+      },
+      "codeScanning": {
+        "state": "on",
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0,
+        "other": 0,
+        "total": 0
+      },
+      "secretScanning": {
+        "state": "on",
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0,
+        "other": 0,
+        "total": 0
+      },
+      "dependabotPullRequests": 1,
+      "ci": {
+        "workflow": "CI",
+        "status": "completed",
+        "conclusion": "success",
+        "failed": false
+      },
+      "appIds": [
+        "edge-stack"
+      ],
+      "images": [
+        "nginx:1.14",
+        "redis:4.0",
+        "postgres:9.6",
+        "hashicorp/http-echo:latest"
+      ],
+      "deployed": true
+    },
+    {
+      "fullName": "orchestrarr-sandbox/pipeline-scenarios",
+      "archived": false,
+      "fork": false,
+      "dependabot": {
+        "state": "on",
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0,
+        "other": 0,
+        "total": 0
+      },
+      "codeScanning": {
+        "state": "on",
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0,
+        "other": 0,
+        "total": 0
+      },
+      "secretScanning": {
+        "state": "on",
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0,
+        "other": 0,
+        "total": 0
+      },
+      "dependabotPullRequests": 2,
+      "ci": {
+        "workflow": "CI",
+        "status": "completed",
+        "conclusion": "failure",
+        "failed": true
+      },
+      "appIds": [
+        "pipeline-scenarios"
+      ],
+      "images": [],
+      "deployed": false
+    }
+  ],
+  "images": [
+    {
+      "reference": "node:14-alpine",
+      "status": "behind",
+      "current": "14",
+      "latest": "22",
+      "change": "major",
+      "users": [
+        {
+          "environmentId": "bilbao",
+          "environmentName": "bilbao (sandbox production)",
+          "name": "shop-api"
+        }
+      ],
+      "repositoryFullName": "orchestrarr-sandbox/shop-api"
+    },
+    {
+      "reference": "python:3.7",
+      "status": "behind",
+      "current": "3.7",
+      "latest": "3.13",
+      "change": "major",
+      "users": [
+        {
+          "environmentId": "bilbao",
+          "environmentName": "bilbao (sandbox production)",
+          "name": "ledger-worker"
+        }
+      ],
+      "repositoryFullName": "orchestrarr-sandbox/ledger-worker"
+    },
+    {
+      "reference": "nginx:1.14",
+      "status": "behind",
+      "current": "1.14",
+      "latest": "1.28",
+      "change": "major",
+      "users": [
+        {
+          "environmentId": "bilbao",
+          "environmentName": "bilbao (sandbox production)",
+          "name": "edge-web"
+        }
+      ],
+      "repositoryFullName": "orchestrarr-sandbox/edge-stack"
+    },
+    {
+      "reference": "redis:4.0",
+      "status": "behind",
+      "current": "4.0",
+      "latest": "8.0",
+      "change": "major",
+      "users": [
+        {
+          "environmentId": "bilbao",
+          "environmentName": "bilbao (sandbox production)",
+          "name": "edge-cache"
+        }
+      ],
+      "repositoryFullName": "orchestrarr-sandbox/edge-stack"
+    },
+    {
+      "reference": "postgres:9.6",
+      "status": "behind",
+      "current": "9.6",
+      "latest": "17",
+      "change": "major",
+      "users": [
+        {
+          "environmentId": "bilbao",
+          "environmentName": "bilbao (sandbox production)",
+          "name": "edge-db"
+        }
+      ],
+      "repositoryFullName": "orchestrarr-sandbox/edge-stack"
+    },
+    {
+      "reference": "hashicorp/http-echo:latest",
+      "status": "floating",
+      "current": "latest",
+      "change": "none",
+      "users": [
+        {
+          "environmentId": "bilbao",
+          "environmentName": "bilbao (sandbox production)",
+          "name": "edge-app"
+        }
+      ],
+      "repositoryFullName": "orchestrarr-sandbox/edge-stack"
+    }
+  ]
+}

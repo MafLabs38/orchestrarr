@@ -2,6 +2,8 @@
   <Folder Name="/src/">
     <Project Path="src/Orchestrarr.Core.Test/Orchestrarr.Core.Test.csproj" />
     <Project Path="src/Orchestrarr.Core/Orchestrarr.Core.csproj" />
+    <Project Path="src/Orchestrarr.MissionRunner.Test/Orchestrarr.MissionRunner.Test.csproj" />
+    <Project Path="src/Orchestrarr.MissionRunner/Orchestrarr.MissionRunner.csproj" />
     <Project Path="src/Orchestrarr.Runner.Test/Orchestrarr.Runner.Test.csproj" />
     <Project Path="src/Orchestrarr.Runner/Orchestrarr.Runner.csproj" />
     <Project Path="src/Orchestrarr.Host.Test/Orchestrarr.Host.Test.csproj" />

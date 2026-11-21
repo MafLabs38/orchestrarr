@@ -12,7 +12,7 @@ public sealed record DossierView(string Claim, string WhatChangedAndWhy, IReadOn
 
 /// <summary>A mission with its mandate, its dossier and the state of its problem.</summary>
 public sealed record MissionView(
-    string Id, string ProblemId, string ApplicationId, string World, string Objective, string State, string? End, string? EndReason, int SendBacks, string? ProblemState, MandateView? Mandate, DossierView? Dossier);
+    string Id, string ProblemId, string ApplicationId, string World, string Objective, string State, string? End, string? EndReason, int SendBacks, string? ProblemState, MandateView? Mandate, DossierView? Dossier, IReadOnlyList<string>? Progress = null);
 
 /// <summary>What a person sees of the missions (FUNCTIONAL 5.12): the list and one mission. Nothing here changes anything.</summary>
 internal static class MissionEndpoints
@@ -22,16 +22,16 @@ internal static class MissionEndpoints
 
     public static void MapMissionEndpoints(this RouteGroupBuilder api)
     {
-        api.MapGet("/missions", (IMissionStore missions, IMandateLedger mandates, IProblemStore problems, IDossierStore dossiers, int? limit) =>
-            WhenReadable(() => Results.Ok(Views(missions.Recent(Math.Clamp(limit ?? DefaultPageSize, 1, MaxPageSize)), mandates, problems, dossiers)))).RequireAuthorization(Permissions.FleetRead);
-        api.MapGet("/missions/{id}", (string id, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, IDossierStore dossiers) =>
-            WhenReadable(() => missions.Get(id) is { } mission ? Results.Ok(View(mission, mandates, problems, dossiers)) : Results.NotFound())).RequireAuthorization(Permissions.FleetRead);
+        api.MapGet("/missions", (IMissionStore missions, IMandateLedger mandates, IProblemStore problems, IDossierStore dossiers, MissionProgress progress, int? limit) =>
+            WhenReadable(() => Results.Ok(Views(missions.Recent(Math.Clamp(limit ?? DefaultPageSize, 1, MaxPageSize)), mandates, problems, dossiers, progress)))).RequireAuthorization(Permissions.FleetRead);
+        api.MapGet("/missions/{id}", (string id, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, IDossierStore dossiers, MissionProgress progress) =>
+            WhenReadable(() => missions.Get(id) is { } mission ? Results.Ok(View(mission, mandates, problems, dossiers, progress)) : Results.NotFound())).RequireAuthorization(Permissions.FleetRead);
     }
 
-    internal static MissionView View(Mission mission, IMandateLedger mandates, IProblemStore problems, IDossierStore dossiers) => Views([mission], mandates, problems, dossiers)[0];
+    internal static MissionView View(Mission mission, IMandateLedger mandates, IProblemStore problems, IDossierStore dossiers, MissionProgress? progress = null) => Views([mission], mandates, problems, dossiers, progress)[0];
 
     // A page of missions is read with one read of each store, not one read of each store per mission
-    internal static IReadOnlyList<MissionView> Views(IReadOnlyList<Mission> list, IMandateLedger mandates, IProblemStore problems, IDossierStore dossiers)
+    internal static IReadOnlyList<MissionView> Views(IReadOnlyList<Mission> list, IMandateLedger mandates, IProblemStore problems, IDossierStore dossiers, MissionProgress? progress = null)
     {
         var mandateIds = list.Select(mission => mission.MandateId).OfType<string>().ToList();
         var signedById = mandates.GetMany(mandateIds);
@@ -45,7 +45,7 @@ internal static class MissionEndpoints
                 : null;
             var dossier = dossierById.TryGetValue(mission.Id, out var found) ? new DossierView(found.Claim, found.WhatChangedAndWhy, found.OpenPoints, found.Complex, found.ComplexReason) : null;
             return new MissionView(mission.Id, mission.ProblemId, mission.ApplicationId, mission.World.ToString(), mission.Objective, mission.State.ToString(), mission.End?.ToString(), mission.EndReason, mission.SendBacks,
-                problemById.TryGetValue(mission.ProblemId, out var run) ? run.State.ToString() : null, mandate, dossier);
+                problemById.TryGetValue(mission.ProblemId, out var run) ? run.State.ToString() : null, mandate, dossier, progress?.Lines(mission.Id));
         })];
     }
 

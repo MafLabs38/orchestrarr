@@ -12,6 +12,8 @@ export const livePath = '/api/v1/live';
 const topicPaths: Readonly<Record<string, readonly string[]>> = {
   // What a run ended with changes what the table offers for that pull request
   runs: ['/api/v1/runs', '/api/v1/problems'],
+  // A mission that moves changes what the table offers for its pull request
+  missions: ['/api/v1/missions', '/api/v1/problems'],
   approvals: ['/api/v1/approvals'],
   audit: ['/api/v1/audit'],
   status: ['/api/v1/system/status'],

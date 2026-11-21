@@ -1,0 +1,39 @@
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mission {
+  padding: 10px 0;
+  border-top: 1px solid var(--hairline);
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.objective {
+  font-weight: 700;
+}
+
+.meta,
+.claim {
+  margin: 4px 0 0;
+  color: var(--inkMuted);
+  font-size: var(--fontSizeMeta);
+}
+
+.progress {
+  margin: 6px 0 0;
+  padding: 6px 8px;
+  max-height: 220px;
+  overflow: auto;
+  background: var(--surfaceMuted, transparent);
+  border: 1px solid var(--hairline);
+  font: var(--fontSizeMeta) var(--monoSpaceFontFamily);
+  white-space: pre-wrap;
+}
