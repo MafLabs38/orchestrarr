@@ -16,10 +16,11 @@ Two things made a case impossible to replay: the pull requests that a bot opens 
 2. **A case is ticked only by a scenario that runs without anyone**: reset the test bed to its seed, plant the fault, drive the interface as the maintainer does, and read the final state **on the forge** (not in the interface), then reset again. A demonstration played once by hand is marked *manual* and ticks nothing.
 3. **A repository of the test bed has a seed**, the commit tagged `lab-seed`. A reset closes the pull requests of the lab and of the agents (never a bot's: a closed one is not opened again), deletes the work branches, and restores the seed tree **through a pull request that passes the repository's checks** and is squash-merged on the exact head that passed. The rules of the test bed are never changed or bypassed.
 4. **The lab plants its own faults** (a branch and a pull request from a scenario file) instead of waiting for a bot's, and a scenario names its pull request by what it planted.
-5. **The lab is a development tool, not part of the product**: it holds no power of the product, writes to the test-bed organisation only, and takes its organisation, account and token from the environment, never from the repository. It does not reproduce the product's pipelines.
+5. **The lab is a development tool, not part of the product**: it holds no power of the product, writes only to the organisation it is given (the test bed: the operator checks it) and to repositories that have a seed, and takes its organisation, account and token from the environment, never from the repository. It does not reproduce the product's pipelines.
 
 ## Consequences
 
 - The work is organised in lots of cases that share a mechanism, one pull request at a time; the order is in the grid.
 - A scenario can find a defect of the product (the first replays found that the table offers, for up to five minutes, pull requests closed since): it is written in the grid and fixed with the case that needs it.
 - The runner needs a live test bed and runs by hand, not in CI.
+- The replays found, besides the stale rows of the table, a defect of the controller: it received the whole problem in every world and sometimes asked the Git world for the health of the release, which only the release world produces, and refused a good merge. Its prompt now says what each world proves (staging: built and tested; Git: merged with green pipelines; release: deployed and healthy). The judging rule of the controller (ADR 0032) is unchanged otherwise.

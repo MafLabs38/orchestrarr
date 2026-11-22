@@ -30,9 +30,11 @@ const expect = (ok, text) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${text}`); i
 // The state of a pull request on the forge, or NOT_FOUND when there is none (never an exception: the run goes on and reports)
 function prState(repo, branch) {
   try {
-    return execFileSync('gh', ['pr', 'view', branch, '-R', `${org}/${repo}`, '--json', 'state', '--jq', '.state'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-  } catch {
-    return 'NOT_FOUND';
+    return execFileSync('gh', ['pr', 'view', branch, '-R', `${org}/${repo}`, '--json', 'state', '--jq', '.state'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  } catch (error) {
+    // only "there is no such pull request" is a state; a bad token or a network error is a failure of the run
+    if (/no pull requests found/i.test(String(error.stderr ?? ''))) return 'NOT_FOUND';
+    throw error;
   }
 }
 
@@ -72,9 +74,9 @@ async function waitForPlantedRows(page, planted) {
 async function tickAndValidate(page) {
   for (const pattern of scenario.tick ?? []) {
     const row = page.locator('tbody tr', { hasText: pattern }).first();
-    const listed = (await row.count()) > 0;
-    expect(listed, `the table lists a problem with "${pattern}"`);
-    if (listed) await row.getByRole('checkbox').first().check();
+    const matching = await page.locator('tbody tr', { hasText: pattern }).count();
+    expect(matching === 1, `the table lists exactly one problem with "${pattern}" (lists ${matching})`);
+    if (matching > 0) await row.getByRole('checkbox').first().check();
   }
   await page.getByRole('button', { name: UI.validate }).click();
   const started = page.getByText(UI.started).first();

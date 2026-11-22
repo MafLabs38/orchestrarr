@@ -14,7 +14,8 @@
 #
 # Needs git, gh, jq and npm. Optional: LAB_BASE_BRANCH (develop), LAB_WORKDIR (~/.cache/orchestrarr-lab), LAB_CHECK_TIMEOUT (600 s),
 # LAB_REQUIRED_CHECK (build: the check that must have reported, and passed, before a restore is merged),
-# LAB_BOT_AUTHORS (^app/(dependabot|renovate)$: the authors whose pull requests are left alone, a closed one is never opened again).
+# LAB_BOT_AUTHORS (^app/(dependabot|renovate)$: the authors whose pull requests are left alone, a closed one is never opened again),
+# LAB_BOT_BRANCHES (^(dependabot|renovate)/: the branches that are left alone with them).
 set -euo pipefail
 
 ORG="${LAB_ORG:?set LAB_ORG to the test-bed organisation}"
@@ -26,6 +27,7 @@ export GH_TOKEN="$TOKEN"
 CHECK_TIMEOUT="${LAB_CHECK_TIMEOUT:-600}"
 REQUIRED_CHECK="${LAB_REQUIRED_CHECK:-build}"
 BOT_AUTHORS="${LAB_BOT_AUTHORS:-^app/(dependabot|renovate)\$}"
+BOT_BRANCHES="${LAB_BOT_BRANCHES:-^(dependabot|renovate)/}"
 NAME_RE='^[A-Za-z0-9][A-Za-z0-9._/-]*$'
 
 # git reads the token from the environment through this helper: it never reaches a file or the argument list
@@ -53,6 +55,9 @@ clone() {
   git -C "$dir" fetch -q --prune --tags --force origin
   echo "$dir"
 }
+
+# The identity of the lab's own commits
+lab_commit() { git -C "$1" -c user.name="lab" -c user.email="lab@users.noreply.github.com" commit -q -m "$2"; }
 
 has_seed() { git -C "$1" rev-parse -q --verify "refs/tags/lab-seed^{commit}" >/dev/null; }
 
@@ -100,7 +105,7 @@ close_pull_requests() {
 
 delete_work_branches() {
   local dir="$1"
-  for b in $(git -C "$dir" for-each-ref --format='%(refname:strip=3)' refs/remotes/origin | grep -vE "^(HEAD|$BASE|main)$|^dependabot/" || true); do
+  for b in $(git -C "$dir" for-each-ref --format='%(refname:strip=3)' refs/remotes/origin | grep -vE "^(HEAD|$BASE|main)$|$BOT_BRANCHES" || true); do
     delete_branch "$dir" "$b"
   done
 }
@@ -143,7 +148,7 @@ reset_one() {
   git -C "$dir" rm -rq --ignore-unmatch . >/dev/null
   git -C "$dir" checkout -q lab-seed -- .
   git -C "$dir" add -A
-  git -C "$dir" -c user.name="lab" -c user.email="lab@users.noreply.github.com" commit -q -m "chore(lab): restore the seed"
+  lab_commit "$dir" "chore(lab): restore the seed"
   git -C "$dir" push -q origin "$branch"
   local pr; pr=$(gh pr create -R "$ORG/$repo" --base "$BASE" --head "$branch" --title "chore(lab): restore the seed" --body "The test-bed repository goes back to its seed so that a scenario can be played again." | grep -oE '[0-9]+$')
   local head; head=$(wait_checks "$repo" "$pr")
@@ -167,10 +172,11 @@ cmd_reset() {
 #   patch: "patch" (a file next to the scenario, applied with git apply)
 plant_one() {
   local scenario="$1" index="$2" dir item repo branch title body kind
-  item=$(jq -c ".plants[$index]" "$scenario")
+  item=$(jq -c --argjson i "$index" '.plants[$i]' "$scenario")
   repo=$(jq -r .repo <<<"$item"); branch=$(jq -r .branch <<<"$item"); title=$(jq -r .title <<<"$item")
   body=$(jq -r '.body // "Planted by the lab."' <<<"$item"); kind=$(jq -r .kind <<<"$item")
   valid_name "$repo"; valid_name "$branch"
+  case "$branch" in "$BASE"|main|HEAD) echo "refused: a scenario never plants on $branch" >&2; return 1 ;; esac
   dir=$(clone "$repo")
   delete_branch "$dir" "$branch"
   git -C "$dir" checkout -q -B "$branch" "origin/$BASE"
@@ -180,21 +186,22 @@ plant_one() {
       package=$(jq -r .package <<<"$item"); from=$(jq -r .from <<<"$item"); to=$(jq -r .version <<<"$item")
       current=$(jq -r --arg p "$package" '(.dependencies[$p] // .devDependencies[$p] // "")' "$dir/package.json")
       [ "$current" = "$from" ] || { echo "$repo: $package is $current in the seed, the scenario says $from" >&2; return 1; }
-      (cd "$dir" && npm install --package-lock-only --save-exact --ignore-scripts --no-audit --no-fund "$package@$to" >/dev/null) ;;
+      # npm reads the .npmrc of the repository, which may expand environment variables: it gets none of the lab's credentials
+      (cd "$dir" && env -u GH_TOKEN -u GITHUB_TOKEN -u LAB_GIT_TOKEN npm install --package-lock-only --save-exact --ignore-scripts --no-audit --no-fund "$package@$to" >/dev/null) ;;
     patch)
       local patch; patch=$(jq -r .patch <<<"$item"); valid_name "$patch"
       git -C "$dir" apply "$(dirname "$scenario")/$patch" ;;
     *) echo "unknown kind $kind" >&2; return 1 ;;
   esac
   git -C "$dir" add -A
-  git -C "$dir" -c user.name="lab" -c user.email="lab@users.noreply.github.com" commit -q -m "$title"
+  lab_commit "$dir" "$title"
   git -C "$dir" push -q -f origin "$branch"
   local pr; pr=$(gh pr create -R "$ORG/$repo" --base "$BASE" --head "$branch" --title "$title" --body "$body" | grep -oE '[0-9]+$')
   echo "$repo: planted #$pr ($title)"
 }
 
 cmd_plant() {
-  local scenario="$1" n; n=$(jq '.plants | length' "$scenario")
+  local scenario n; scenario=$(realpath "$1"); n=$(jq '.plants | length' "$scenario")
   for i in $(seq 0 $((n - 1))); do plant_one "$scenario" "$i"; done
 }
 

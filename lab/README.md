@@ -2,7 +2,7 @@
 
 Tools to play the cases of [docs/CASE-GRID.md](../docs/CASE-GRID.md) again and again on the test-bed repositories (a public GitHub organisation of its own, never a real project).
 
-This is a **development tool, not part of the product**. It writes to the test-bed organisation only, with the token it is given: it closes pull requests, deletes branches, moves the `lab-seed` tag, pushes branches and squash-merges pull requests. It needs `git`, `gh`, `jq` and `npm`; the runner needs `node` and Playwright. Runs are serial: two at once close each other's pull requests.
+This is a **development tool, not part of the product**. It writes to the organisation named by `LAB_ORG` (the test bed: the operator checks that it is), with the token it is given, and only to repositories that have a seed: it closes pull requests, deletes branches, moves the `lab-seed` tag, pushes branches and squash-merges pull requests. It needs `git`, `gh`, `jq` and `npm`; the runner needs `node` and Playwright. Runs are serial: two at once close each other's pull requests.
 
 ```bash
 export LAB_ORG=<test-bed organisation> GH_TOKEN=<a token that may write there>
@@ -16,7 +16,7 @@ Optional: `LAB_BASE_BRANCH` (`develop`), `LAB_WORKDIR` (the clones, `~/.cache/or
 
 - The **seed** of a repository is the commit tagged `lab-seed`: the deliberately broken project as it was first published, with the maintenance that its pipeline needs to run at all.
 - A **reset** closes the open pull requests of the lab and of the agents (a bot's pull request is left alone: a closed one is never opened again by the bot), deletes the work branches, and restores the seed tree **through a pull request** that passes the repository's checks and is squash-merged. The repository rules (pull request required, no force push) are the ones of a real project and are never changed.
-- The staging virtual machines are reset by their own tool (`lab/lab.sh` of the staging lab).
+- The staging virtual machines are reset by their own tool, outside this repository (the staging lab).
 - Nothing here is a secret; the organisation and the token come from the environment.
 
 ## Playing a scenario
@@ -24,7 +24,7 @@ Optional: `LAB_BASE_BRANCH` (`develop`), `LAB_WORKDIR` (the clones, `~/.cache/or
 A scenario (`lab/scenarios/<case>.json`) names the faults to plant, the rows to tick and what must be true at the end. The runner does the whole case, the way the maintainer does it, and exits 0 only when every expectation holds:
 
 ```bash
-export LAB_URL=<control plane> LAB_USER=<account> LAB_PASSWORD_FILE=<file> LAB_ORG=<test-bed organisation> GH_TOKEN=<token>
+export LAB_URL=<control plane> LAB_USER=<account> LAB_PASSWORD_FILE=<file>   # or LAB_PASSWORD, which wins LAB_ORG=<test-bed organisation> GH_TOKEN=<token>
 export NODE_PATH=<a folder whose node_modules has playwright>
 node lab/e2e/run-scenario.cjs lab/scenarios/CASE-01.json
 ```
