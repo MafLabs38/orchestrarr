@@ -212,6 +212,38 @@ public sealed class ProblemConductorTests : IDisposable
         git.Mission!.Objective.Should().Contain("\"Replace the removed method\"").And.Contain("merged into the integration branch").And.Contain("Nothing is released at this stage");
     }
 
+    private static LeadPlan Plan(params World[] worlds) => new([.. worlds.Select(world => new PlannedStep(world, $"Do only the {world} part."))], false, null, ["because"]);
+
+    [Fact]
+    public async Task A_plan_that_stops_at_the_git_world_ends_the_problem_there_and_each_world_carries_the_instruction_written_for_it()
+    {
+        var conductor = Conductor();
+        var staging = await StartStaged(conductor, Entry() with { Plan = Plan(World.Staging, World.Git) });
+        var git = await Through(conductor, staging);
+        var closed = await Through(conductor, git);
+
+        staging.Mission!.Objective.Should().Contain("Instruction of the lead agent for this world: Do only the Staging part.");
+        git.Mission!.Objective.Should().Contain("Do only the Git part.").And.NotContain("Staging part");
+        closed.Ok.Should().BeTrue();
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.Closed);
+        _missions.ForProblem("problem-1").Should().HaveCount(2, "the plan stopped before the release world");
+    }
+
+    [Fact]
+    public async Task A_plan_that_goes_beyond_the_powers_or_does_not_start_at_the_first_world_is_refused_and_nothing_starts()
+    {
+        var conductor = Conductor();
+
+        var beyond = await StartStaged(conductor, Entry(World.Git) with { Plan = Plan(World.Staging, World.Git, World.Release) });
+        var skipsStaging = await StartStaged(conductor, Entry() with { Plan = Plan(World.Git, World.Release) });
+
+        beyond.Ok.Should().BeFalse();
+        beyond.Refusal.Should().Contain("the plan of the lead is refused").And.Contain("goes up to the Release world");
+        skipsStaging.Ok.Should().BeFalse();
+        skipsStaging.Refusal.Should().Contain("starts in the Git world");
+        _missions.ForProblem("problem-1").Should().BeEmpty();
+    }
+
     [Fact]
     public async Task Each_mandate_is_signed_for_its_runner_and_its_world_and_no_other_runner_accepts_it()
     {

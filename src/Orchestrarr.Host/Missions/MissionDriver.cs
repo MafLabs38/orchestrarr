@@ -7,7 +7,7 @@ namespace Orchestrarr.Host.Missions;
 /// Drives the crossings (FUNCTIONAL 4, steps 5 and 7): when a mission has handed over, the controller agent reads the dossier next to the facts the control plane fetched itself, and its decision is applied by the
 /// conductor, which makes its own checks first and can refuse a grant that the controller gave. A controller that cannot answer is never a grant: the mission waits and is asked again later.
 /// </summary>
-internal sealed class MissionDriver(IMissionStore missions, IDossierStore dossiers, IFactsSource facts, ControllerAgent controller, ProblemConductor conductor, MissionProgress progress, ILiveNotifier live, TimeProvider time,
+internal sealed class MissionDriver(IMissionStore missions, IProblemStore problems, IDossierStore dossiers, IFactsSource facts, ControllerAgent controller, ProblemConductor conductor, MissionProgress progress, ILiveNotifier live, TimeProvider time,
     ILogger<MissionDriver> logger) : BackgroundService
 {
     private static readonly TimeSpan Interval = TimeSpan.FromSeconds(3);
@@ -59,7 +59,7 @@ internal sealed class MissionDriver(IMissionStore missions, IDossierStore dossie
         progress.Add(mission.Id, "the controller reads the dossier and the facts");
         var observed = await facts.FactsAsync(new FactsQuery(mission.ProblemId, mission.Id, mission.World, mission.Frame, dossier, dossier.Commit), cancellationToken);
         var view = new FactsView(observed.ChangedPaths ?? [], $"checks of the head commit: {observed.CiGreenOnExactCommit?.ToString() ?? "not known"}", mission.World == World.Staging ? "not applicable in the staging world" : observed.Health ?? "not read", []);
-        var outcome = await controller.DecideAsync(new ControllerInput(mission, dossier, view), cancellationToken);
+        var outcome = await controller.DecideAsync(new ControllerInput(mission, dossier, view, problems.Get(mission.ProblemId)?.Entry.Brief), cancellationToken);
         if (outcome.Decision is not { } decision)
         {
             progress.Add(mission.Id, $"the controller gave no decision ({outcome.Failure}); it will be asked again");

@@ -65,8 +65,16 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
             return null;
         }
         var approved = entry.MaxWorld < approval.Certificate.MaxWorld ? entry.MaxWorld : approval.Certificate.MaxWorld;
+        // The plan of the lead can only stop the work earlier than the powers allow, never go further (ADR 0046)
+        if (entry.Plan is { } plan && plan.Last < approved)
+        {
+            approved = plan.Last;
+        }
         return EffectivePower.Of(approved, grants.MaxWorldFor(entry.ApplicationId));
     }
+
+    // The highest world the powers reach without the plan of the lead, which is what the plan is checked against (the plan itself narrows HighestNow)
+    private World? HighestWithoutPlan(PlanEntry entry, SignedApproval approval) => HighestNow(entry with { Plan = null }, approval);
 
     // The certificate must say at least what the entry asks: the repositories, the budget
     private static bool Covers(SignedApproval approval, PlanEntry entry) =>
@@ -120,6 +128,11 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
             if (HighestNow(entry, approval) is not { } highest || first > highest)
             {
                 return ConductResult.Fail("the powers given do not reach the first world: the grant is off until the maintainer enables it");
+            }
+            // A plan of the lead is checked before anything starts, against the powers as they are now: a plan that fails is refused, and nothing runs on a default that nobody chose
+            if (entry.Plan is not null && LeadPlanChecks.Problems(entry.Plan, first, HighestWithoutPlan(entry, approval) ?? highest) is { Count: > 0 } refused)
+            {
+                return ConductResult.Fail($"the plan of the lead is refused: {string.Join("; ", refused)}");
             }
             if (!await RequiredAsync(MissionAuditEvents.ProblemStarted, entry.ProblemId, Text($"application {entry.ApplicationId}, validated by {entry.Validation.By}, up to {highest}, staging {(usesStaging ? "used" : "declared none")}"), cancellationToken))
             {
@@ -452,7 +465,13 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
 
     // Each world is told its own part of the problem, and only that: a controller or a worker that reads "merge it and verify the release" in the Git world
     // asks it for what the release world produces. A pull request is named by its number and repository (trusted values); another problem is quoted whole.
-    private static string ObjectiveOf(World world, PlanEntry entry)
+    private static string ObjectiveOf(World world, PlanEntry entry) => WithInstruction(world, entry, StatedFor(world, entry));
+
+    // The instruction that the lead wrote for this world (ADR 0046) comes after what the control plane states itself, and is told for what it is
+    private static string WithInstruction(World world, PlanEntry entry, string stated) =>
+        entry.Plan?.InstructionFor(world) is { } instruction ? Text($"{stated} Instruction of the lead agent for this world: {instruction}") : stated;
+
+    private static string StatedFor(World world, PlanEntry entry)
     {
         if (world == World.Staging)
         {
