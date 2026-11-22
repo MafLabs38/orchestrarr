@@ -38,13 +38,16 @@ internal static class PlanEndpoints
     // A selection is a screenful, not a flood: more rows than the table can hold at once is refused
     private const int MaxRows = 400;
 
+    // The most rows of one selection that the lead is asked about: each is a run of the maintainer's subscription
+    private const int MaxPlanned = 30;
+
     public static void MapPlanEndpoints(this RouteGroupBuilder api)
     {
         // Whether the validation goes through the missions here: the screen sends the selection to the plan when it does, and says so
         api.MapGet("/plan", (IServiceProvider services) => Results.Ok(new PlanStatus(services.GetService<SandboxApprovals>() is not null))).RequireAuthorization(Permissions.FleetRead);
         api.MapPost("/plan/validate", async (ValidatePlanRequest request, HttpContext context, IApproverAccessor accessor, WorkItemCatalog catalog, IApplicationCatalog applications, RunnerRegistry runners, IBatchQueue queue,
             IProblemHistory history, IApprovalStore approvalStore, TimeProvider time, RelevancePolicy policy, InfrastructureCatalog infrastructure, ProblemConductor conductor, IServiceProvider services,
-            LeadPlanner lead, MissionProgress progress, ILiveNotifier live, CancellationToken ct) =>
+            LeadPlanner lead, MissionProgress progress, IMissionAudit audit, IStopSignal stop, ILiveNotifier live, CancellationToken ct) =>
         {
             var (approver, refusal) = ApprovalEndpoints.Authorize(accessor, context);
             if (approver is null)
@@ -66,8 +69,10 @@ internal static class PlanEndpoints
             }
             var report = await catalog.GetAsync(refresh: false, ct);
             var table = ProblemsEndpoints.VisibleTable(TableInputs.Last(report, infrastructure), applications, runners, queue, history, approvalStore, time, policy).ToDictionary(row => row.Id, StringComparer.Ordinal);
-            // The lead thinks about each problem first (two at a time), then the problems are started one after the other: nothing is started that the lead did not plan, and no approval is used for a problem that has no plan
-            var prepared = await Task.WhenAll((request.Rows ?? []).Select(chosen => PrepareAsync(chosen, table, approver.Subject, lead, time, ct)));
+            // The lead thinks about each problem first (two at a time), then the problems are started one after the other: nothing is started that the lead did not plan, and no approval is used for a problem that has no plan.
+            // A row is asked once, at most MaxPlanned rows are asked in one selection, and nothing is asked while the global stop is engaged: every question is a run of the subscription
+            var rows = (request.Rows ?? []).DistinctBy(row => row.Id, StringComparer.Ordinal).ToList();
+            var prepared = await Task.WhenAll(rows.Select((chosen, index) => PrepareAsync(chosen, table, approver.Subject, lead, audit, NotAsked(stop.Engaged, index), time, ct)));
             var started = new List<ValidatedProblem>();
             foreach (var one in prepared)
             {
@@ -80,42 +85,62 @@ internal static class PlanEndpoints
 
     internal static World CeilingOf(ValidatedRow chosen) => chosen.StopBeforeProduction ? World.Git : PlanCeiling;
 
-    // A row that is ready to start: its plan entry with the problem as read and the lead's plan, or why it will not start
+    // Why a row is not asked about at all: the global stop is engaged, or the selection is beyond what the lead is asked about at once
+    private static string? NotAsked(bool stopEngaged, int index)
+    {
+        if (stopEngaged)
+        {
+            return "stopEngaged";
+        }
+        return index >= MaxPlanned ? "tooManyToPlanAtOnce" : null;
+    }
+
+    // A row that is ready to start (its plan entry with the problem as read and the lead's plan), or why it will not start: one of the two, never both
     private sealed record Prepared(string RowId, PlanEntry? Entry, ValidatedProblem? Refused);
 
-    private static async Task<Prepared> PrepareAsync(ValidatedRow chosen, Dictionary<string, ProblemRow> table, string approver, LeadPlanner lead, TimeProvider time, CancellationToken cancellationToken)
+    private static async Task<Prepared> PrepareAsync(ValidatedRow chosen, Dictionary<string, ProblemRow> table, string approver, LeadPlanner lead, IMissionAudit audit, string? notAsked, TimeProvider time, CancellationToken cancellationToken)
     {
         var id = chosen.Id ?? string.Empty;
-        ValidatedProblem Refused(string reason, string? problemId = null) => new(id, problemId, null, null, reason);
+        Prepared Refused(string reason, string? problemId = null) => new(id, null, new ValidatedProblem(id, problemId, null, null, reason));
         if (!table.TryGetValue(id, out var row))
         {
-            return new Prepared(id, null, Refused("theTableChanged"));
+            return Refused("theTableChanged");
         }
         if (row.HeadSha is not null && !string.Equals(row.HeadSha, chosen.HeadSha, StringComparison.Ordinal))
         {
-            return new Prepared(id, null, Refused("thePullRequestMoved"));
+            return Refused("thePullRequestMoved");
         }
         // A row that nothing can act on is not started, and a stop before production that the operator ticked is carried into the plan: it narrows what the row asks for, never widens it
         if (row.GoesUpTo == Ceiling.NoAction)
         {
-            return new Prepared(id, null, Refused("notActionable"));
+            return Refused("notActionable");
         }
         var ceiling = CeilingOf(chosen);
         var entry = PlanEntryFactory.From(row, approver, time.GetUtcNow(), ceiling, SandboxBudget);
         if (entry is null)
         {
-            return new Prepared(id, null, Refused("noRepository"));
+            return Refused("noRepository");
         }
-        // The staging of the test bed is declared: the first world is the staging. The lead proposes, the conductor checks the proposal against the powers as they are when it starts
+        if (notAsked is not null)
+        {
+            return Refused(notAsked, entry.ProblemId);
+        }
+        // The staging of the test bed is declared: the first world is the staging. The lead proposes; the conductor checks the proposal against the powers as they are when the problem starts
         var brief = ProblemBrief.Of(row);
-        var outcome = await lead.PlanAsync(new LeadInput(brief, ceiling, FirstWorld), cancellationToken);
+        LeadOutcome outcome;
+        try
+        {
+            outcome = await lead.PlanAsync(new LeadInput(brief, ceiling, FirstWorld), cancellationToken);
+        }
+        catch (Exception failure) when (failure is not OperationCanceledException)
+        {
+            // One row whose lead cannot answer does not stop the others
+            outcome = new LeadOutcome(null, failure.GetType().Name);
+        }
         if (outcome.Plan is not { } plan)
         {
-            return new Prepared(id, null, Refused($"leadUnavailable: {outcome.Failure}", entry.ProblemId));
-        }
-        if (LeadPlanChecks.Problems(plan, FirstWorld, ceiling) is { Count: > 0 } refused)
-        {
-            return new Prepared(id, null, Refused($"leadPlanRefused: {string.Join("; ", refused)}", entry.ProblemId));
+            _ = await audit.RecordAsync(MissionAuditEvents.LeadRefused, entry.ProblemId, $"no plan: {outcome.Failure}", CancellationToken.None);
+            return Refused("leadUnavailable", entry.ProblemId);
         }
         return new Prepared(id, entry with { Brief = brief, Plan = plan }, null);
     }
@@ -124,11 +149,10 @@ internal static class PlanEndpoints
 
     private static async Task<ValidatedProblem> StartAsync(Prepared one, SandboxApprovals approvals, ProblemConductor conductor, MissionProgress progress, CancellationToken cancellationToken)
     {
-        if (one.Refused is { } refused)
+        if (one.Entry is not { } entry)
         {
-            return refused;
+            return one.Refused ?? new ValidatedProblem(one.RowId, null, null, null, "refused");
         }
-        var entry = one.Entry!;
         var id = one.RowId;
         if (!await approvals.PrepareAsync(entry, cancellationToken))
         {

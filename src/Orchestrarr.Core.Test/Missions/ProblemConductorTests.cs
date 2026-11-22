@@ -222,8 +222,9 @@ public sealed class ProblemConductorTests : IDisposable
         var git = await Through(conductor, staging);
         var closed = await Through(conductor, git);
 
-        staging.Mission!.Objective.Should().Contain("Instruction of the lead agent for this world: Do only the Staging part.");
-        git.Mission!.Objective.Should().Contain("Do only the Git part.").And.NotContain("Staging part");
+        staging.Mission!.Instruction.Should().Be("Do only the Staging part.");
+        staging.Mission.Objective.Should().NotContain("Do only", "the instruction of an agent is kept apart from the sentence the control plane states itself");
+        git.Mission!.Instruction.Should().Be("Do only the Git part.");
         closed.Ok.Should().BeTrue();
         _problems.Get("problem-1")!.State.Should().Be(ProblemState.Closed);
         _missions.ForProblem("problem-1").Should().HaveCount(2, "the plan stopped before the release world");

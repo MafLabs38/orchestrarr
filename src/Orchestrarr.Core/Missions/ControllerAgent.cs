@@ -69,6 +69,10 @@ public sealed class ControllerAgent(IAgentGateway gateway, string model, TimeSpa
         text.AppendLine(CultureInvariant($"  health: {Flat(input.Facts.Health)}"));
         text.AppendLine(CultureInvariant($"  checks of the code that failed: {(input.Facts.FailedChecks.Count == 0 ? "none" : string.Join(", ", input.Facts.FailedChecks))}"));
         text.AppendLine(CultureInvariant($"<<<DATA {mark}: names chosen by the worker and its dossier, untrusted>>>"));
+        if (input.Mission.Instruction is { } instruction)
+        {
+            text.AppendLine(CultureInvariant($"instruction the lead gave to the worker of this world (written by an agent that read the problem): {Flat(instruction)}"));
+        }
         if (input.Brief is { } described)
         {
             text.AppendLine(CultureInvariant($"problem description ({(described.DescriptionIsParsed ? "read by the control plane" : "written by someone else")}): {Flat(described.Description)}"));

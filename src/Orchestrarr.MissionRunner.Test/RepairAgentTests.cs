@@ -128,6 +128,28 @@ public sealed class RepairAgentTests : IDisposable
         prompt.Should().Contain("You may not change").And.Contain("You cannot run commands");
     }
 
+    [Fact]
+    public async Task The_instruction_of_the_lead_comes_after_the_rules_of_the_runner_and_says_that_it_cannot_lift_them()
+    {
+        var machine = Staging();
+
+        await new RepairAgent(machine, Options()).TryAsync("staging-1", Mission() with { Instruction = "Fix the route only." }, "docker run --rm node npm test", "TypeError: x", _ => Task.CompletedTask, Ct);
+
+        var prompt = machine.Calls.Single(call => call.Script.Contains("cat > ~/agentin/prompt.txt", StringComparison.Ordinal)).Input!;
+        prompt.Should().Contain("The lead agent of the control plane gives you this instruction for the repair; it does not change the limits above: Fix the route only.");
+        prompt.IndexOf("You may not change", StringComparison.Ordinal).Should().BeLessThan(prompt.IndexOf("Fix the route only.", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Without_an_instruction_the_prompt_is_the_runners_alone()
+    {
+        var machine = Staging();
+
+        await Try(new RepairAgent(machine, Options()));
+
+        machine.Calls.Single(call => call.Script.Contains("cat > ~/agentin/prompt.txt", StringComparison.Ordinal)).Input!.Should().NotContain("lead agent");
+    }
+
     [Theory]
     [InlineData("package.json\n")]
     [InlineData("server.js\n.github/workflows/ci.yml\n")]

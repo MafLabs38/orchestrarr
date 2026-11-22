@@ -55,7 +55,7 @@ public enum MissionEnd
     Refused,
 }
 
-/// <summary>Work in one world. The objective says what must be true at the end, never how to get there (FR-MIS-2).</summary>
+/// <summary>Work in one world. The objective says what must be true at the end, never how to get there (FR-MIS-2). The instruction is what the lead agent wrote for the worker of this world (ADR 0046): text of an agent that read untrusted data, kept apart from the objective, which the control plane states itself.</summary>
 public sealed record Mission(
     string Id,
     string ProblemId,
@@ -68,7 +68,8 @@ public sealed record Mission(
     string? MandateId = null,
     int SendBacks = 0,
     MissionEnd? End = null,
-    string? EndReason = null)
+    string? EndReason = null,
+    string? Instruction = null)
 {
     public bool IsOver => State is MissionState.Accepted or MissionState.Ended;
 }

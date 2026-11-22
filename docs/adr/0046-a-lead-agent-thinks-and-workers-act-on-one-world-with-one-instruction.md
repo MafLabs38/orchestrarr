@@ -22,11 +22,9 @@ The plan of a problem is fixed in code (staging, then Git, then release) and the
 
 ## Consequences
 
-- **Built**: the plan is asked when the maintainer validates a selection, two questions at a time; it is stored with the problem, narrows the powers read at each crossing (`HighestNow`), and gives each world's mission the instruction written for it after the sentence the control plane states itself. The reasons and the complexity mark are shown with the first mission. The judge reads the problem too, as data.
-- **Not yet**: a plan that changes after a failure (the lead re-plans), a plan that splits a problem, and the mail for a complex problem.
-
-- The objective sentences built in code (`PlanEntryFactory`, `ObjectiveOf`) become the **default instruction** that the lead may refine within its length, and the check of the facts by the controller stays the control plane's own.
-- Problems that are not pull requests become startable: the lead receives their description as data (the provenance question left open in [CASE-GRID.md](../CASE-GRID.md) is settled there).
-- The lead's plan and its reasons are in the audit trail and shown on the Missions screen.
-- A failure to run the lead, to read its answer or to validate its plan is never a grant: the problem waits and the maintainer is told after a bound (ADR 0036).
-- The lead is an interim use of the maintainer's subscription like the controller (`Agents:Enabled`); its model and budget are configuration.
+- **Built.** The plan is asked when the maintainer validates a selection (once per row, at most thirty rows, two questions at a time, nothing asked while the global stop is engaged). It is checked by the conductor when the problem starts, stored with the problem, and **narrows the powers read at each crossing** (`HighestNow`). Each world's mission carries the instruction written for it **apart from its objective**: the objective stays the sentence the control plane states itself, the instruction is data of an agent that read untrusted text, shown to the judge inside the data fence. The plan, its reasons and the complexity mark are in the audit entry of the start; a problem the lead could not plan is in the trail as `lead.refused`. The judge reads the problem too, as data.
+- **Who reads the instruction.** The one worker that is a model, the repair agent of the staging world, gets it in its prompt after the runner's own rules, with the statement that it does not lift them. The other workers are code (the staging proof, the Git world, the release world) and ignore it today; it is shown on the Missions screen for all.
+- **Not yet**: a plan that changes after a failure (the lead re-plans), a plan that splits a problem, the mail for a complex problem, and a lead of its own model and budget (it shares `Agents:ControllerModel` and `Agents:ControllerTimeoutSeconds` with the judge).
+- Problems that are not pull requests are still `NoAction` in the table; once they can be started (lot 1 of [CASE-GRID.md](../CASE-GRID.md)), their description reaches the lead as data with its source, and the provenance question is settled there.
+- A failure to run the lead, to read its answer, or a plan the conductor refuses is never a default plan: the problem does not start and no approval is used. Starting a problem through the validation therefore needs `Agents:Enabled`.
+- The lead is an interim use of the maintainer's subscription like the controller (`Agents:Enabled`).

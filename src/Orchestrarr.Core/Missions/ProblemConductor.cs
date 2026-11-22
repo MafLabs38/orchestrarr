@@ -66,11 +66,22 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
         }
         var approved = entry.MaxWorld < approval.Certificate.MaxWorld ? entry.MaxWorld : approval.Certificate.MaxWorld;
         // The plan of the lead can only stop the work earlier than the powers allow, never go further (ADR 0046)
-        if (entry.Plan is { } plan && plan.Last < approved)
+        if (entry.Plan is { Steps.Count: > 0 } plan && plan.Last < approved)
         {
             approved = plan.Last;
         }
         return EffectivePower.Of(approved, grants.MaxWorldFor(entry.ApplicationId));
+    }
+
+    // What the lead decided, for the trail of the start: the worlds, whether it marked the problem complex, and its reasons (the instructions stay with the missions)
+    private static string LeadTrail(LeadPlan? plan)
+    {
+        if (plan is null)
+        {
+            return string.Empty;
+        }
+        var complex = plan.Complex ? Text($", marked complex ({plan.ComplexReason ?? "no reason given"})") : string.Empty;
+        return Text($"; lead plan {plan.Summary}{complex}, because: {string.Join(" | ", plan.Reasons)}");
     }
 
     // The highest world the powers reach without the plan of the lead, which is what the plan is checked against (the plan itself narrows HighestNow)
@@ -134,7 +145,7 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
             {
                 return ConductResult.Fail($"the plan of the lead is refused: {string.Join("; ", refused)}");
             }
-            if (!await RequiredAsync(MissionAuditEvents.ProblemStarted, entry.ProblemId, Text($"application {entry.ApplicationId}, validated by {entry.Validation.By}, up to {highest}, staging {(usesStaging ? "used" : "declared none")}"), cancellationToken))
+            if (!await RequiredAsync(MissionAuditEvents.ProblemStarted, entry.ProblemId, Text($"application {entry.ApplicationId}, validated by {entry.Validation.By}, up to {highest}, staging {(usesStaging ? "used" : "declared none")}{LeadTrail(entry.Plan)}"), cancellationToken))
             {
                 return ConductResult.Fail("the audit trail cannot be written: no power is granted");
             }
@@ -391,7 +402,7 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
             return await FailedAsync(run, "the certificate of the approval backs no more mandates", [PreconditionFailure.ApprovalBacksNoMoreMandates]);
         }
         var frame = FrameFor(run, $"{world}:{entry.ApplicationId}");
-        var mission = new Mission(newId(), run.ProblemId, run.ApplicationId, world, ObjectiveOf(world, entry), frame, entry.Budget, MissionState.Proposed);
+        var mission = new Mission(newId(), run.ProblemId, run.ApplicationId, world, ObjectiveOf(world, entry), frame, entry.Budget, MissionState.Proposed, Instruction: entry.Plan?.InstructionFor(world));
         var now = time.GetUtcNow();
         // A mandate never outlives the approval it falls inside
         var expires = now + options.MandateLifetime < run.Approval.Certificate.ExpiresAt ? now + options.MandateLifetime : run.Approval.Certificate.ExpiresAt;
@@ -465,11 +476,7 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
 
     // Each world is told its own part of the problem, and only that: a controller or a worker that reads "merge it and verify the release" in the Git world
     // asks it for what the release world produces. A pull request is named by its number and repository (trusted values); another problem is quoted whole.
-    private static string ObjectiveOf(World world, PlanEntry entry) => WithInstruction(world, entry, StatedFor(world, entry));
-
-    // The instruction that the lead wrote for this world (ADR 0046) comes after what the control plane states itself, and is told for what it is
-    private static string WithInstruction(World world, PlanEntry entry, string stated) =>
-        entry.Plan?.InstructionFor(world) is { } instruction ? Text($"{stated} Instruction of the lead agent for this world: {instruction}") : stated;
+    private static string ObjectiveOf(World world, PlanEntry entry) => StatedFor(world, entry);
 
     private static string StatedFor(World world, PlanEntry entry)
     {
