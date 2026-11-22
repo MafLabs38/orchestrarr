@@ -231,6 +231,30 @@ public sealed class ProblemConductorTests : IDisposable
     }
 
     [Fact]
+    public async Task A_plan_that_stops_at_the_staging_closes_the_problem_there_and_the_trail_of_the_start_holds_the_plan_and_why()
+    {
+        var conductor = Conductor();
+        var plan = new LeadPlan([new PlannedStep(World.Staging, null)], true, "a risky change", ["only the proof is wanted", "a person tries it"]);
+        var staging = await StartStaged(conductor, Entry() with { Plan = plan });
+
+        var closed = await Through(conductor, staging);
+
+        closed.Ok.Should().BeTrue();
+        _missions.ForProblem("problem-1").Should().ContainSingle("the plan stopped at the staging");
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.Closed);
+        _audit.Events.Should().Contain(line => line.StartsWith("problem.started", StringComparison.Ordinal) && line.Contains("lead plan Staging") && line.Contains("marked complex (a risky change)") && line.Contains("only the proof is wanted | a person tries it"));
+    }
+
+    [Fact]
+    public void The_powers_a_problem_can_reach_are_what_was_asked_and_the_grant_of_the_application_and_never_the_plan()
+    {
+        var conductor = Conductor();
+
+        conductor.PowersFor(Entry(World.Release) with { Plan = Plan(World.Staging) }).Should().Be(World.Release);
+        conductor.PowersFor(Entry(World.Git)).Should().Be(World.Git);
+    }
+
+    [Fact]
     public async Task A_plan_that_goes_beyond_the_powers_or_does_not_start_at_the_first_world_is_refused_and_nothing_starts()
     {
         var conductor = Conductor();

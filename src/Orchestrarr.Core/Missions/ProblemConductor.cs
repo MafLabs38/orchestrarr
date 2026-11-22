@@ -84,6 +84,16 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
         return Text($"; lead plan {plan.Summary}{complex}, because: {string.Join(" | ", plan.Reasons)}");
     }
 
+    /// <summary>
+    /// The highest world a problem can reach on what the maintainer asked and the grant of its application (the certificate is checked when it starts): what the lead is told, so that it plans within what the
+    /// conductor will accept. Null: no power.
+    /// </summary>
+    public World? PowersFor(PlanEntry entry)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        return EffectivePower.Of(entry.MaxWorld, grants.MaxWorldFor(entry.ApplicationId));
+    }
+
     // The highest world the powers reach without the plan of the lead, which is what the plan is checked against (the plan itself narrows HighestNow)
     private World? HighestWithoutPlan(PlanEntry entry, SignedApproval approval) => HighestNow(entry with { Plan = null }, approval);
 

@@ -75,7 +75,7 @@ public sealed class ControllerAgent(IAgentGateway gateway, string model, TimeSpa
         }
         if (input.Brief is { } described)
         {
-            text.AppendLine(CultureInvariant($"problem description ({(described.DescriptionIsParsed ? "read by the control plane" : "written by someone else")}): {Flat(described.Description)}"));
+            text.AppendLine(CultureInvariant($"problem description ({(described.DescriptionIsParsed ? "parsed from a title by the control plane; the names and versions are still the author's words" : "written by someone else")}): {Flat(described.Description)}"));
         }
         text.AppendLine(CultureInvariant($"changed files (names chosen by the worker): {(input.Facts.ChangedFiles.Count == 0 ? "none" : string.Join(", ", input.Facts.ChangedFiles.Take(MaxListed).Select(Flat)))}{(input.Facts.ChangedFiles.Count > MaxListed ? $" … and {input.Facts.ChangedFiles.Count - MaxListed} more" : string.Empty)}"));
         text.AppendLine(CultureInvariant($"claim: {Flat(input.Dossier.Claim)}"));
@@ -158,7 +158,7 @@ public sealed class ControllerAgent(IAgentGateway gateway, string model, TimeSpa
         text.AppendLine(CultureInvariant($"PROBLEM (control plane): kind {Flat(input.Brief.Kind)}, repository {Flat(input.Brief.Repository)}{(input.Brief.PullRequest is { } number ? CultureInvariant($", pull request #{number}") : string.Empty)}"));
         AppendBriefFacts(text, input.Brief);
         text.AppendLine(CultureInvariant($"<<<DATA {mark}: the description of the problem, untrusted unless said otherwise>>>"));
-        text.AppendLine(CultureInvariant($"description ({(input.Brief.DescriptionIsParsed ? "read by the control plane" : "written by someone else")}): {Flat(input.Brief.Description)}"));
+        text.AppendLine(CultureInvariant($"description ({(input.Brief.DescriptionIsParsed ? "parsed from a title by the control plane; the names and versions are still the author's words" : "written by someone else")}): {Flat(input.Brief.Description)}"));
         text.AppendLine(CultureInvariant($"<<<END {mark}>>>"));
         return new AgentRequest(PlanPrompt, text.ToString(), model, timeout);
     }

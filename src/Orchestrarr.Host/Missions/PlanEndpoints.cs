@@ -72,7 +72,7 @@ internal static class PlanEndpoints
             // The lead thinks about each problem first (two at a time), then the problems are started one after the other: nothing is started that the lead did not plan, and no approval is used for a problem that has no plan.
             // A row is asked once, at most MaxPlanned rows are asked in one selection, and nothing is asked while the global stop is engaged: every question is a run of the subscription
             var rows = (request.Rows ?? []).DistinctBy(row => row.Id, StringComparer.Ordinal).ToList();
-            var prepared = await Task.WhenAll(rows.Select((chosen, index) => PrepareAsync(chosen, table, approver.Subject, lead, audit, NotAsked(stop.Engaged, index), time, ct)));
+            var prepared = await Task.WhenAll(rows.Select((chosen, index) => PrepareAsync(chosen, table, approver.Subject, lead, conductor, audit, NotAsked(stop.Engaged, index), time, ct)));
             var started = new List<ValidatedProblem>();
             foreach (var one in prepared)
             {
@@ -98,7 +98,7 @@ internal static class PlanEndpoints
     // A row that is ready to start (its plan entry with the problem as read and the lead's plan), or why it will not start: one of the two, never both
     private sealed record Prepared(string RowId, PlanEntry? Entry, ValidatedProblem? Refused);
 
-    private static async Task<Prepared> PrepareAsync(ValidatedRow chosen, Dictionary<string, ProblemRow> table, string approver, LeadPlanner lead, IMissionAudit audit, string? notAsked, TimeProvider time, CancellationToken cancellationToken)
+    private static async Task<Prepared> PrepareAsync(ValidatedRow chosen, Dictionary<string, ProblemRow> table, string approver, LeadPlanner lead, ProblemConductor conductor, IMissionAudit audit, string? notAsked, TimeProvider time, CancellationToken cancellationToken)
     {
         var id = chosen.Id ?? string.Empty;
         Prepared Refused(string reason, string? problemId = null) => new(id, null, new ValidatedProblem(id, problemId, null, null, reason));
@@ -127,10 +127,15 @@ internal static class PlanEndpoints
         }
         // The staging of the test bed is declared: the first world is the staging. The lead proposes; the conductor checks the proposal against the powers as they are when the problem starts
         var brief = ProblemBrief.Of(row);
+        // The lead is told how far the problem can really go (what was asked and the grant of the application), so that it plans within what the conductor accepts
+        if (conductor.PowersFor(entry) is not { } reachable || reachable < FirstWorld)
+        {
+            return Refused("noPower", entry.ProblemId);
+        }
         LeadOutcome outcome;
         try
         {
-            outcome = await lead.PlanAsync(new LeadInput(brief, ceiling, FirstWorld), cancellationToken);
+            outcome = await lead.PlanAsync(new LeadInput(brief, reachable, FirstWorld), cancellationToken);
         }
         catch (Exception failure) when (failure is not OperationCanceledException)
         {
@@ -141,6 +146,12 @@ internal static class PlanEndpoints
         {
             _ = await audit.RecordAsync(MissionAuditEvents.LeadRefused, entry.ProblemId, $"no plan: {outcome.Failure}", CancellationToken.None);
             return Refused("leadUnavailable", entry.ProblemId);
+        }
+        // A plan that cannot start is refused here, before an approval is made for it; the conductor checks it again, on the powers as they are, when the problem starts
+        if (LeadPlanChecks.Problems(plan, FirstWorld, reachable) is { Count: > 0 } refused)
+        {
+            _ = await audit.RecordAsync(MissionAuditEvents.LeadRefused, entry.ProblemId, $"plan refused: {string.Join("; ", refused)}", CancellationToken.None);
+            return Refused("leadPlanRefused", entry.ProblemId);
         }
         return new Prepared(id, entry with { Brief = brief, Plan = plan }, null);
     }
