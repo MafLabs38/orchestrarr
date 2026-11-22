@@ -241,6 +241,7 @@ public sealed class ProblemConductorTests : IDisposable
 
         closed.Ok.Should().BeTrue();
         _missions.ForProblem("problem-1").Should().ContainSingle("the plan stopped at the staging");
+        _problems.Get("problem-1")!.Note.Should().Be("done up to the Staging world, as the lead planned", "an early stop of the lead is not a limit of the powers");
         _problems.Get("problem-1")!.State.Should().Be(ProblemState.Closed);
         _audit.Events.Should().Contain(line => line.StartsWith("problem.started", StringComparison.Ordinal) && line.Contains("lead plan Staging") && line.Contains("marked complex (a risky change)") && line.Contains("only the proof is wanted | a person tries it"));
     }

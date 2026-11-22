@@ -131,7 +131,7 @@ internal static class PlanEndpoints
         LeadOutcome outcome;
         try
         {
-            outcome = await lead.PlanAsync(new LeadInput(brief, reachable, FirstWorld), cancellationToken);
+            outcome = await lead.PlanAsync(new LeadInput(brief, reachable, FirstWorld), cancellationToken, () => stop.Engaged);
         }
         catch (Exception failure) when (failure is not OperationCanceledException)
         {

@@ -10,11 +10,16 @@ internal sealed class LeadPlanner(ControllerAgent agent, int maxConcurrent = 2)
 {
     private readonly SemaphoreSlim _slots = new(Math.Max(1, maxConcurrent), Math.Max(1, maxConcurrent));
 
-    public async Task<LeadOutcome> PlanAsync(LeadInput input, CancellationToken cancellationToken)
+    /// <summary>The global stop is read once the row has its slot: a row may wait for one long after the request came.</summary>
+    public async Task<LeadOutcome> PlanAsync(LeadInput input, CancellationToken cancellationToken, Func<bool>? stopEngaged = null)
     {
         await _slots.WaitAsync(cancellationToken);
         try
         {
+            if (stopEngaged?.Invoke() == true)
+            {
+                return new LeadOutcome(null, "the global stop is engaged");
+            }
             return await agent.PlanAsync(input, cancellationToken);
         }
         finally

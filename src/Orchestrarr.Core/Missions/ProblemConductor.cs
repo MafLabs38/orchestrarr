@@ -255,8 +255,13 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
         {
             // The powers given stop here: the problem is done up to the world its powers allow, and says so (a plan validated up to the Git world ends there)
             var checks = await ClosingChecksAsync(run, mission, dossier, cancellationToken);
-            return checks.Count > 0
-                ? await RouteFailuresAsync(mission, run, checks, cancellationToken)
+            if (checks.Count > 0)
+            {
+                return await RouteFailuresAsync(mission, run, checks, cancellationToken);
+            }
+            // The work stopped because the lead planned it so, which is not a limit of the powers: the note says which
+            return run.Entry.Plan is { } plan && plan.Last == mission.World
+                ? await CloseAsync(run, mission, complex, $"done up to the {mission.World} world, as the lead planned", Text($"stopped as planned at the {mission.World} world"), "done as the lead planned")
                 : await CloseAsync(run, mission, complex, $"done up to the {highest} world, the highest that its powers allow", Text($"highest world reached: {highest}"), "done up to the highest world its powers allow");
         }
         var failures = await CheckFactsAsync(run, new FactsCheck(next, mission.Frame, mission.Id, dossier, HasPreviousDossier: dossier is not null, Commit: dossier?.Commit, Issuing: true, new FactsScope()), cancellationToken);

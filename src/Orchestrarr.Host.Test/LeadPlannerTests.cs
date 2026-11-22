@@ -36,4 +36,18 @@ public sealed class LeadPlannerTests
         outcomes.Should().OnlyContain(outcome => outcome.Plan != null);
         gateway.MostAtOnce.Should().BeInRange(1, 2);
     }
+
+    [Fact]
+    public async Task A_row_that_gets_its_slot_after_the_global_stop_is_not_asked()
+    {
+        var gateway = new CountingGateway();
+        var planner = new LeadPlanner(new ControllerAgent(gateway, "m", TimeSpan.FromMinutes(1)));
+        var input = new LeadInput(new ProblemBrief("DependencyUpdate", "example/shop", "x 1 → 2", true), World.Release, World.Staging);
+
+        var outcome = await planner.PlanAsync(input, TestContext.Current.CancellationToken, () => true);
+
+        outcome.Plan.Should().BeNull();
+        outcome.Failure.Should().Contain("global stop");
+        gateway.MostAtOnce.Should().Be(0, "nothing was asked");
+    }
 }
