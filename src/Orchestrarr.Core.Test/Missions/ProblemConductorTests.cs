@@ -243,7 +243,10 @@ public sealed class ProblemConductorTests : IDisposable
         _missions.ForProblem("problem-1").Should().ContainSingle("the plan stopped at the staging");
         _problems.Get("problem-1")!.Note.Should().Be("done up to the Staging world, as the lead planned", "an early stop of the lead is not a limit of the powers");
         _problems.Get("problem-1")!.State.Should().Be(ProblemState.Closed);
-        _audit.Events.Should().Contain(line => line.StartsWith("problem.started", StringComparison.Ordinal) && line.Contains("lead plan Staging") && line.Contains("marked complex (a risky change)") && line.Contains("only the proof is wanted | a person tries it"));
+        _audit.Events.Should().Contain(line => line.StartsWith("problem.started", StringComparison.Ordinal) && line.Contains("lead plan Staging") && line.Contains("marked complex"));
+        _audit.Events.Should().Contain(line => line.StartsWith("lead.planned", StringComparison.Ordinal) && line.Contains("reason: only the proof is wanted"));
+        _audit.Events.Should().Contain(line => line.StartsWith("lead.planned", StringComparison.Ordinal) && line.Contains("reason: a person tries it"));
+        _audit.Events.Should().Contain(line => line.StartsWith("lead.planned", StringComparison.Ordinal) && line.Contains("marked complex: a risky change"));
     }
 
     [Fact]
@@ -253,6 +256,18 @@ public sealed class ProblemConductorTests : IDisposable
 
         conductor.PowersFor(Entry(World.Release) with { Plan = Plan(World.Staging) }).Should().Be(World.Release);
         conductor.PowersFor(Entry(World.Git)).Should().Be(World.Git);
+    }
+
+    [Fact]
+    public async Task A_plan_that_ends_where_the_powers_end_closes_with_the_note_of_the_powers_when_the_lead_did_not_stop_early()
+    {
+        var conductor = Conductor();
+        var staging = await StartStaged(conductor, Entry(World.Git) with { Plan = Plan(World.Staging, World.Git) });
+        var git = await Through(conductor, staging);
+
+        await Through(conductor, git);
+
+        _problems.Get("problem-1")!.Note.Should().Be("done up to the Git world, as the lead planned", "the plan itself ends there; the powers stop at the same world");
     }
 
     [Fact]

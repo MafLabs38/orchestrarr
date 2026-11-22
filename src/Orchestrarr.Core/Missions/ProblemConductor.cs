@@ -73,15 +73,31 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
         return EffectivePower.Of(approved, grants.MaxWorldFor(entry.ApplicationId));
     }
 
-    // What the lead decided, for the trail of the start: the worlds, whether it marked the problem complex, and its reasons (the instructions stay with the missions)
-    private static string LeadTrail(LeadPlan? plan)
+    // What the lead decided, for the trail of the start: the worlds, in a few words (the audit detail is cut short; the reasons have lines of their own)
+    private static string LeadSummary(LeadPlan? plan)
     {
         if (plan is null)
         {
             return string.Empty;
         }
-        var complex = plan.Complex ? Text($", marked complex ({plan.ComplexReason ?? "no reason given"})") : string.Empty;
-        return Text($"; lead plan {plan.Summary}{complex}, because: {string.Join(" | ", plan.Reasons)}");
+        return Text($"; lead plan {plan.Summary}{(plan.Complex ? ", marked complex" : string.Empty)}");
+    }
+
+    // The reasons of the plan and the complexity mark, one line each, so that none is cut with the rest
+    private async Task RecordLeadAsync(PlanEntry entry)
+    {
+        if (entry.Plan is not { } plan)
+        {
+            return;
+        }
+        foreach (var reason in plan.Reasons)
+        {
+            await BestEffortAsync(MissionAuditEvents.LeadPlanned, entry.ProblemId, Text($"reason: {reason}"));
+        }
+        if (plan.Complex)
+        {
+            await BestEffortAsync(MissionAuditEvents.LeadPlanned, entry.ProblemId, Text($"marked complex: {plan.ComplexReason ?? "no reason given"}"));
+        }
     }
 
     /// <summary>
@@ -155,10 +171,11 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
             {
                 return ConductResult.Fail($"the plan of the lead is refused: {string.Join("; ", refused)}");
             }
-            if (!await RequiredAsync(MissionAuditEvents.ProblemStarted, entry.ProblemId, Text($"application {entry.ApplicationId}, validated by {entry.Validation.By}, up to {highest}, staging {(usesStaging ? "used" : "declared none")}{LeadTrail(entry.Plan)}"), cancellationToken))
+            if (!await RequiredAsync(MissionAuditEvents.ProblemStarted, entry.ProblemId, Text($"application {entry.ApplicationId}, validated by {entry.Validation.By}, up to {highest}, staging {(usesStaging ? "used" : "declared none")}{LeadSummary(entry.Plan)}"), cancellationToken))
             {
                 return ConductResult.Fail("the audit trail cannot be written: no power is granted");
             }
+            await RecordLeadAsync(entry);
             // The run is kept by Open once the first mandate exists: a start that fails leaves nothing in progress
             var run = new ProblemRun(entry.ProblemId, entry.ApplicationId, ProblemState.InProgress, time.GetUtcNow(), entry, highest, usesStaging, approval, first);
             if (first == World.Git)

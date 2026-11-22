@@ -44,6 +44,7 @@ public static class MissionAuditEvents
 {
     public const string ProblemStarted = "problem.started";
     public const string LeadRefused = "lead.refused";
+    public const string LeadPlanned = "lead.planned";
     public const string ProblemClosed = "problem.closed";
     public const string ProblemFailed = "problem.failed";
     public const string ProblemEscalated = "problem.escalated";
