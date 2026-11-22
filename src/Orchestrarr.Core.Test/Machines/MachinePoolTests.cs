@@ -16,7 +16,7 @@ public sealed class MachinePoolTests
         return pool;
     }
 
-    private static Qualification Passing(DateTimeOffset at) => new(at, [new MachineCheck("isolation", true, "closed"), new MachineCheck("registries", true, "open")]);
+    private static Qualification Passing(DateTimeOffset at) => new(at, [new MachineCheck("restored", true, "back"), new MachineCheck("reachable", true, "ssh"), new MachineCheck("isolation", true, "closed"), new MachineCheck("routes", true, "open")]);
 
     private static Qualification Failing(DateTimeOffset at) => new(at, [new MachineCheck("isolation", false, "the control plane answers on 5180"), new MachineCheck("registries", true, "open")]);
 
@@ -83,6 +83,50 @@ public sealed class MachinePoolTests
         pool.TryLease("leipzig", "m1").Ok.Should().BeFalse();
         pool.BeginQualification("leipzig").Machine!.State.Should().Be(MachineState.Qualifying, "a repair is followed by a new qualification");
         pool.Report("leipzig", Passing(_time.GetUtcNow())).Machine!.State.Should().Be(MachineState.Idle);
+    }
+
+    [Theory]
+    [InlineData("isolation")]
+    [InlineData("reachable")]
+    [InlineData("restored")]
+    public void A_report_that_lacks_a_check_the_control_plane_requires_does_not_qualify_a_staging_machine_whatever_else_passed(string missing)
+    {
+        var pool = Pool();
+        pool.Register("leipzig", MachineRole.Staging);
+        var checks = new[] { "restored", "reachable", "isolation", "routes" }.Where(name => name != missing).Select(name => new MachineCheck(name, true, "ok")).ToList();
+
+        var down = pool.Report("leipzig", new Qualification(_time.GetUtcNow(), checks)).Machine!;
+
+        down.State.Should().Be(MachineState.Down);
+        down.Reason.Should().Contain("lacks a passing check").And.Contain(missing);
+    }
+
+    [Fact]
+    public void A_release_machine_needs_no_restore_but_the_same_isolation()
+    {
+        var pool = Pool();
+        pool.Register("bilbao", MachineRole.Release);
+
+        var idle = pool.Report("bilbao", new Qualification(_time.GetUtcNow(), [new MachineCheck("reachable", true, "ok"), new MachineCheck("isolation", true, "closed")])).Machine!;
+        pool.BeginQualification("bilbao");
+        var down = pool.Report("bilbao", new Qualification(_time.GetUtcNow(), [new MachineCheck("reachable", true, "ok")])).Machine!;
+
+        idle.State.Should().Be(MachineState.Idle);
+        down.State.Should().Be(MachineState.Down);
+    }
+
+    [Fact]
+    public void A_machine_that_was_down_keeps_the_reason_in_the_note_of_its_new_qualification_when_the_control_plane_restarts()
+    {
+        var pool = Pool();
+        pool.Register("leipzig", MachineRole.Staging);
+        pool.Report("leipzig", Failing(_time.GetUtcNow()));
+
+        var restarted = new MachinePool(_store, _time).Register("leipzig", MachineRole.Staging);
+
+        restarted.State.Should().Be(MachineState.Qualifying);
+        restarted.Reason.Should().Contain("it was down").And.Contain("5180");
+        restarted.LastQualification.Should().NotBeNull();
     }
 
     [Fact]

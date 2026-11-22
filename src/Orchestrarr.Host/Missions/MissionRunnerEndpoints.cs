@@ -118,6 +118,11 @@ internal static partial class MissionRunnerEndpoints
             var rework = mission.State == MissionState.Running;
             if (rework && !progress.TakeRework(mission.Id, mission.SendBacks))
             {
+                // Nothing is offered after all: the lease that was just taken is given back, or the machine would be held by a mission that no runner works on
+                if (mission.World is World.Staging or World.Release && context.RequestServices.GetService<MachinePool>() is { } held && machine is not null)
+                {
+                    held.Release(machine, mission.Id, "the claim offered nothing");
+                }
                 return Results.Ok(new MissionClaimResponse(null));
             }
             var current = repairs?.Effective(mission.ProblemId, entry);

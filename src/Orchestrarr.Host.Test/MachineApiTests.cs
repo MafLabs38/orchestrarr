@@ -68,7 +68,16 @@ public sealed class MachineApiTests
         return started.Mission!.Id;
     }
 
-    private static object Checks(bool passed) => new { checks = new[] { new { name = "isolation", passed, detail = passed ? "closed" : "the control plane answers on 5180" }, new { name = "registries", passed = true, detail = "open" } } };
+    private static object Checks(bool passed) => new
+    {
+        checks = new[]
+        {
+            new { name = "restored", passed = true, detail = "back" },
+            new { name = "reachable", passed = true, detail = "ssh" },
+            new { name = "isolation", passed, detail = passed ? "closed" : "the control plane answers on 5180" },
+            new { name = "routes", passed = true, detail = "open" },
+        },
+    };
 
     private static async Task Qualify(HttpClient runner, string machine, bool passed)
     {

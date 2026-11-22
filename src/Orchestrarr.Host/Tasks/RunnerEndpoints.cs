@@ -68,11 +68,13 @@ internal static class RunnerEndpoints
             return claim.Status == ClaimStatus.Unavailable ? Results.Json(new ErrorResponse(ApiErrors.StorageUnavailable), statusCode: StatusCodes.Status503ServiceUnavailable) : Results.Ok(claim);
         });
 
+        // The lab machines of a runner (ADR 0047) have nothing to do with a mandate: their routes are there wherever the control plane has machines, so that a machine is qualified in a deployment as in the test bed
+        group.MapMachineRunnerRoutes(context => (string)context.Items[RunnerItem]!);
+
         // The routes of the missions are there only where a mandate can be issued for a runner to take: today a development host with Missions:Sandbox (ADR 0042)
         if (app.Services.GetService<SandboxApprovals>() is not null)
         {
             group.MapMissionRunnerRoutes(context => (string)context.Items[RunnerItem]!);
-            group.MapMachineRunnerRoutes(context => (string)context.Items[RunnerItem]!);
             group.MapMissionActRoutes(context => (string)context.Items[RunnerItem]!);
         }
 

@@ -33,7 +33,7 @@ public sealed class SqliteMachineStoreTests : IDisposable
         var time = new Microsoft.Extensions.Time.Testing.FakeTimeProvider(T0);
         var pool = new MachinePool(new SqliteMachineStore(_file.Open()), time);
         pool.Register("leipzig", MachineRole.Staging);
-        pool.Report("leipzig", new Qualification(T0, [new MachineCheck("isolation", true, "closed")]));
+        pool.Report("leipzig", new Qualification(T0, [new MachineCheck("restored", true, "back"), new MachineCheck("reachable", true, "ssh"), new MachineCheck("isolation", true, "closed")]));
         pool.TryLease("leipzig", "m1");
         time.Advance(TimeSpan.FromMinutes(5));
         pool.Heartbeat("leipzig", "m1").Should().BeTrue();

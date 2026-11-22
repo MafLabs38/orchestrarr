@@ -35,7 +35,8 @@ public sealed class MachinePool(IMachineStore store, TimeProvider time, MachineO
         {
             var known = store.Get(id);
             var at = time.GetUtcNow();
-            var next = new Machine(id, role, MachineState.Qualifying, at, null, "the control plane started: the machine must be qualified");
+            var was = known?.State == MachineState.Down && known.Reason is { Length: > 0 } before ? $" (it was down: {before})" : string.Empty;
+            var next = new Machine(id, role, MachineState.Qualifying, at, null, $"the control plane started: the machine must be qualified{was}", LastQualification: known?.LastQualification);
             // A machine that was in process when the control plane stopped is finished, and no mission holds it any more: it goes through a qualification all the same
             if (known is { State: MachineState.Qualifying })
             {
@@ -155,11 +156,16 @@ public sealed class MachinePool(IMachineStore store, TimeProvider time, MachineO
             {
                 return MachineResult.Refused(machine, $"the machine is {machine.State}, it is not being qualified");
             }
-            var passed = qualification.Passed;
+            var missing = MachineRules.RequiredChecks(machine.Role).Where(required => !qualification.Checks.Any(check => check.Name == required && check.Passed)).ToList();
+            var passed = qualification.Passed && missing.Count == 0;
             string? reason = null;
             if (!passed)
             {
                 reason = qualification.Checks.Count == 0 ? "the qualification made no check" : qualification.Failures;
+                if (missing.Count > 0 && reason.Length == 0)
+                {
+                    reason = $"the qualification lacks a passing check: {string.Join(", ", missing)}";
+                }
             }
             var next = machine with { State = passed ? MachineState.Idle : MachineState.Down, Since = time.GetUtcNow(), Reason = reason, LastQualification = qualification };
             result = MachineResult.Done(Write(machine, next));

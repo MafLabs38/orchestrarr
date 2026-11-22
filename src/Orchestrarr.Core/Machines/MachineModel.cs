@@ -57,6 +57,12 @@ public sealed record MachineTransition(string MachineId, MachineState? From, Mac
 /// <summary>The transitions that exist (ADR 0047): nothing else changes the state of a machine.</summary>
 public static class MachineRules
 {
+    /// <summary>
+    /// The checks without which no machine is qualified, whatever else passed: a machine is reachable, **isolated**, and a staging machine has been restored. A report that lacks one, or in which one failed, makes the machine Down:
+    /// the control plane does not take the word "qualified" of a runner that did not make the checks.
+    /// </summary>
+    public static IReadOnlyList<string> RequiredChecks(MachineRole role) => role == MachineRole.Staging ? ["restored", "reachable", "isolation"] : ["reachable", "isolation"];
+
     public static bool Allows(MachineState? from, MachineState to) => (from, to) switch
     {
         (null, MachineState.Qualifying) => true,

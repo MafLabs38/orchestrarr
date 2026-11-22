@@ -55,6 +55,12 @@ public sealed partial class MissionRunnerWorker(IMissionControlPlane controlPlan
         {
             return false;
         }
+        // The machine is worked on only if the control plane says that this mission holds it: a control plane that does not know the machine, or that gave it to another, is not a reason to work on what the last job left
+        if (machine is not null && options.RequireMachineLease && !await HoldsLeaseAsync(machine, mission.MissionId, cancellationToken))
+        {
+            LogFailure($"the control plane did not confirm that mission {mission.MissionId} holds {machine}: nothing is done on it (MissionRunner:RequireMachineLease)");
+            return false;
+        }
         try
         {
             // A mission that was sent back is already started: it goes on, told what the controller asked
@@ -141,6 +147,9 @@ public sealed partial class MissionRunnerWorker(IMissionControlPlane controlPlan
             // The work ended, or the runner is stopping
         }
     }
+
+    private async Task<bool> HoldsLeaseAsync(string machine, string missionId, CancellationToken cancellationToken) =>
+        await controlPlane.MachineStateAsync(machine, cancellationToken) is { State: "InProcess" } state && string.Equals(state.MissionId, missionId, StringComparison.Ordinal);
 
     // The machine that a world works on: the staging machine for the staging world, the deployment machine for the release world, none for the others
     private string? MachineOf(string world) => world switch

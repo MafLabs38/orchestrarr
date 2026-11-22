@@ -132,6 +132,7 @@ public sealed class MachineQualifierTests
     {
         var plane = Substitute.For<IMissionControlPlane>();
         plane.ClaimAsync("Staging", "staging-1", Arg.Any<CancellationToken>()).Returns(new ClaimedMission("m1", "p1", "app", "Staging", "Prove it", "example/shop", 7, new string('a', 40), DateTimeOffset.UtcNow.AddHours(1), []));
+        plane.MachineStateAsync("staging-1", Arg.Any<CancellationToken>()).Returns(new MachineStateInfo("InProcess", "Staging", "m1"));
         plane.StartedAsync("m1", Arg.Any<CancellationToken>()).Returns(true);
         plane.HandOverAsync("m1", Arg.Any<MissionHandOver>(), Arg.Any<CancellationToken>()).Returns(true);
         var worker = Worker(plane, Shell(Isolated), Options());
@@ -152,12 +153,31 @@ public sealed class MachineQualifierTests
     {
         var plane = Substitute.For<IMissionControlPlane>();
         plane.ClaimAsync("Staging", "staging-1", Arg.Any<CancellationToken>()).Returns(new ClaimedMission("m1", "p1", "app", "Staging", "Prove it", "example/shop", 7, new string('a', 40), DateTimeOffset.UtcNow.AddHours(1), []));
+        plane.MachineStateAsync("staging-1", Arg.Any<CancellationToken>()).Returns(new MachineStateInfo("InProcess", "Staging", "m1"));
         plane.StartedAsync("m1", Arg.Any<CancellationToken>()).Returns(false);
         var worker = Worker(plane, Shell(Isolated), Options());
 
         (await worker.TakeOneAsync(Ct)).Should().BeFalse();
 
         await plane.Received(1).MachineReleaseAsync("staging-1", "m1", Arg.Any<string?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData("InProcess", "another-mission")]
+    [InlineData("Idle", null)]
+    [InlineData("Qualifying", null)]
+    public async Task A_runner_does_not_work_on_a_machine_that_the_control_plane_did_not_confirm_as_held_by_the_mission(string? state, string? holder)
+    {
+        var plane = Substitute.For<IMissionControlPlane>();
+        plane.ClaimAsync("Staging", "staging-1", Arg.Any<CancellationToken>()).Returns(new ClaimedMission("m1", "p1", "app", "Staging", "Prove it", "example/shop", 7, new string('a', 40), DateTimeOffset.UtcNow.AddHours(1), []));
+        plane.MachineStateAsync("staging-1", Arg.Any<CancellationToken>()).Returns(state is null ? null : new MachineStateInfo(state, "Staging", holder));
+        var worker = Worker(plane, Shell(Isolated), Options());
+
+        (await worker.TakeOneAsync(Ct)).Should().BeFalse();
+
+        await plane.DidNotReceive().StartedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await plane.DidNotReceive().MachineReleaseAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
