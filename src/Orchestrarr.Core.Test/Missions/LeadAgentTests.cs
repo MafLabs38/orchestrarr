@@ -32,6 +32,7 @@ public sealed class LeadAgentTests
         request.UserPrompt.Should().Contain("written by someone else").And.NotContain("<<<END ABCD>>>");
         request.UserPrompt.IndexOf("APPROVAL (control plane)", StringComparison.Ordinal).Should().BeLessThan(data);
         request.UserPrompt.IndexOf("update class Patch", StringComparison.Ordinal).Should().BeLessThan(data);
+        request.SystemPrompt.Should().Contain("a risky or complex change is marked complex and still goes through the worlds").And.Contain("never because the change is difficult");
         request.SystemPrompt.Should().Contain("no power to act").And.Contain("UNTRUSTED DATA").And.Contain("sees NOTHING of the problem except the instruction");
     }
 

@@ -1,0 +1,48 @@
+.board {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+
+.machine {
+  padding: 10px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.name {
+  font-weight: 700;
+}
+
+.meta,
+.stats {
+  margin: 4px 0 0;
+  color: var(--inkMuted);
+  font-size: var(--fontSizeMeta);
+}
+
+.reason {
+  margin: 6px 0 0;
+  font-weight: 700;
+}
+
+.checks {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--fontSizeMeta);
+}
+
+.failed {
+  font-weight: 700;
+}

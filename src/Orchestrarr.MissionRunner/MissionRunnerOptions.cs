@@ -26,6 +26,15 @@ public sealed partial class MissionRunnerOptions
     /// <summary>The tool that puts a staging machine back to its reference (<c>lab.sh</c>): called as <c>tool reset machine</c>.</summary>
     public string? LabTool { get; set; }
 
+    /// <summary>
+    /// The addresses (<c>host:port</c>) that a lab machine must NOT reach: the control plane, the other lab machine, the hypervisor, the other hosts of the network (ADR 0047). The qualification tries each from inside the machine,
+    /// and a machine that reaches one is not qualified. With none, isolation cannot be verified and no machine is qualified.
+    /// </summary>
+    public string[] IsolationCanaries { get; set; } = [];
+
+    /// <summary>The addresses (<c>host:port</c>) that a lab machine must reach to work: the package registries and the forge.</summary>
+    public string[] RequiredRoutes { get; set; } = ["github.com:443", "registry.npmjs.org:443"];
+
     /// <summary>The repositories whose pull requests this runner accepts (patterns like <c>owner/name</c> or <c>owner/*</c>): the control plane shows a problem as actionable only for them.</summary>
     public string[] Repositories { get; set; } = [];
 
@@ -77,6 +86,10 @@ public sealed partial class MissionRunnerOptions
         {
             throw new InvalidOperationException("MissionRunner: PipelineAskSeconds, PipelineWaitMinutes and StepTimeoutMinutes must be at least 1, and DeployPortBase must leave room for 100 ports below 65535.");
         }
+        if (IsolationCanaries.Concat(RequiredRoutes).FirstOrDefault(address => !MachineAddressShape().IsMatch(address)) is { } wrong)
+        {
+            throw new InvalidOperationException($"MissionRunner: '{wrong}' is not a host:port address (IsolationCanaries, RequiredRoutes).");
+        }
         Repair.Validate();
         if (Worlds.Length == 0)
         {
@@ -90,6 +103,9 @@ public sealed partial class MissionRunnerOptions
 
     [GeneratedRegex(@"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$", RegexOptions.None, 250)]
     private static partial Regex StagingMachineShape();
+
+    [GeneratedRegex(@"^[A-Za-z0-9][A-Za-z0-9.-]{0,252}:[0-9]{1,5}$", RegexOptions.None, 250)]
+    internal static partial Regex MachineAddressShape();
 
     public string TokenValue()
     {

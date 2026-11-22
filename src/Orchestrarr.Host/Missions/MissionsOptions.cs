@@ -1,3 +1,4 @@
+using Orchestrarr.Core.Machines;
 using Orchestrarr.Core.Missions;
 
 namespace Orchestrarr.Host.Missions;
@@ -13,6 +14,12 @@ public sealed class MissionsOptions
     public string GitRunner { get; set; } = "runner-git";
 
     public string ReleaseRunner { get; set; } = "runner-release";
+
+    /// <summary>The lab machines (ADR 0047): each has a state kept by the control plane, a role, and the one runner that may take it. With none, no mission is tied to a machine.</summary>
+    public MachineSetting[] Machines { get; set; } = [];
+
+    /// <summary>How long a lease lives without a sign of life of its runner. Generous: a long troubleshooting is normal; only a runner that has disappeared must not keep a machine for ever.</summary>
+    public int MachineLeaseMinutes { get; set; } = (int)MachineOptions.Default.LeaseTimeout.TotalMinutes;
 
     public int MandateMinutes { get; set; } = (int)ConductorOptions.Default.MandateLifetime.TotalMinutes;
 
@@ -74,4 +81,14 @@ public sealed class MissionsOptions
             throw new InvalidOperationException($"{SectionName}:{name} must be a positive number, not {value}.");
         }
     }
+}
+
+/// <summary>One lab machine of the configuration: its name (the alias the runner reaches it by), its role, and the runner that works on it.</summary>
+public sealed class MachineSetting
+{
+    public string Id { get; set; } = string.Empty;
+
+    public MachineRole Role { get; set; }
+
+    public string Runner { get; set; } = string.Empty;
 }

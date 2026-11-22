@@ -77,14 +77,15 @@ same_as_seed() {
   [ "$(git -C "$1" rev-parse "origin/$BASE^{tree}")" = "$(git -C "$1" rev-parse "lab-seed^{tree}")" ]
 }
 
-# Delete a remote branch; a branch that is already gone is not an error, anything else is.
+# Delete a remote branch; a branch that is already gone (deleted by the repository when its pull request merged, or never there) is not an error, anything else is.
 delete_branch() {
   local dir="$1" branch="$2" out
   if ! out=$(git -C "$dir" push origin --delete "$branch" 2>&1); then
-    case "$out" in
-      *"remote ref does not exist"*) ;;
-      *) echo "could not delete the branch $branch: $out" >&2; return 1 ;;
-    esac
+    # The reply says it in several ways (no such ref, a lock on a ref that was just deleted): what counts is whether the branch is still there
+    if git -C "$dir" ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+      echo "could not delete the branch $branch: $out" >&2
+      return 1
+    fi
   fi
 }
 
@@ -166,7 +167,9 @@ reset_one() {
   git -C "$dir" push -q origin "$branch"
   local pr; pr=$(gh pr create -R "$ORG/$repo" --base "$BASE" --head "$branch" --title "chore(lab): restore the seed" --body "The test-bed repository goes back to its seed so that a scenario can be played again." | grep -oE '[0-9]+$')
   local head; head=$(wait_checks "$repo" "$pr")
-  gh pr merge "$pr" -R "$ORG/$repo" --squash --delete-branch --match-head-commit "$head" >/dev/null
+  gh pr merge "$pr" -R "$ORG/$repo" --squash --match-head-commit "$head" >/dev/null
+  # A repository may delete the branch of a merged pull request by itself: one that is already gone is not an error
+  delete_branch "$dir" "$branch"
   git -C "$dir" fetch -q --prune --tags origin
   same_as_seed "$dir" || { echo "$repo: restored, but $BASE still differs from the seed" >&2; return 1; }
   echo "$repo: restored through #$pr"

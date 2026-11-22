@@ -28,6 +28,7 @@ public static class MissionRunnerProgram
         builder.Services.AddSingleton(options);
         builder.Services.AddSingleton<IShell, ProcessShell>();
         builder.Services.AddSingleton<RepairAgent>();
+        builder.Services.AddSingleton<MachineQualifier>();
         builder.Services.AddSingleton<IWorldWork, StagingProof>();
         builder.Services.AddSingleton<IWorldWork, GitWorld>();
         builder.Services.AddSingleton<IWorldWork, ReleaseWorld>();

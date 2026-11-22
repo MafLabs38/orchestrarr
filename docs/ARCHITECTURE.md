@@ -172,7 +172,7 @@ erDiagram
 | **Controller decision** | The controller's verdict on a dossier | Grant, send back, end, escalate; reasons; what it read |
 | **Staging profile** | What the application needs in staging | Requirement, dependencies, how it is brought up, safe configuration |
 | **Baseline** | A proof that the staging comes up and that its dependencies and the components it needs answer (the application under change is not part of it) | Revision, date, the evidence, result |
-| **Staging slot** | A staging virtual machine of the platform | Free, reserved, in use, restoring |
+| **Staging slot** | A staging virtual machine of the platform (and, with the same states, the release machine: ADR 0047) | **Qualifying** (being restored and checked), **Idle** (qualified and free), **InProcess** (leased to one mission), **Finished** (the job is over, to be restored), **Down** (not viable: the reason is kept, it awaits a repair) |
 
 **States**
 

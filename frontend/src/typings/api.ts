@@ -396,3 +396,43 @@ export interface ValidatedProblem {
   world: string | null;
   refusal: string | null;
 }
+
+// A lab machine and its state, as for equipment in a clean room (ADR 0047), with its statistics over a window
+export type MachineStateName = 'Qualifying' | 'Idle' | 'InProcess' | 'Finished' | 'Down';
+
+export interface MachineCheckView {
+  name: string;
+  passed: boolean;
+  detail: string;
+}
+
+export interface MachineStatsView {
+  from: string;
+  to: string;
+  availability: number;
+  utilisation: number;
+  lots: number;
+  meanLotSeconds: number;
+  downEvents: number;
+  meanTimeToRepairSeconds: number;
+  secondsInState: Record<string, number>;
+}
+
+export interface MachineView {
+  id: string;
+  role: string;
+  state: MachineStateName;
+  since: string;
+  missionId: string | null;
+  reason: string | null;
+  runner: string;
+  qualifiedAt: string | null;
+  qualificationPassed: boolean | null;
+  checks: MachineCheckView[];
+  stats: MachineStatsView;
+}
+
+export interface MachinesResponse {
+  machines: MachineView[];
+  windowHours: number;
+}

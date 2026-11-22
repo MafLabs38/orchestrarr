@@ -11,14 +11,19 @@ public sealed class MissionRunnerWorkerTests
     private static ClaimedMission Mission(string world) =>
         new("m1", "p1", "app", world, "Prove it", "example/shop", 7, new string('a', 40), DateTimeOffset.UtcNow.AddHours(1), []);
 
-    private static MissionRunnerWorker Worker(IMissionControlPlane plane, IShell shell, MissionRunnerOptions options) =>
-        new(plane, [new StagingProof(shell, options)], options, NullLogger<MissionRunnerWorker>.Instance);
+    // The control plane of these tests holds the machine for mission m1, as the real one does once it has leased it
+    private static MissionRunnerWorker Worker(IMissionControlPlane plane, IShell shell, MissionRunnerOptions options)
+    {
+        plane.MachineStateAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new MachineStateInfo("InProcess", "Staging", "m1"));
+        plane.MachineHeartbeatAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
+        return new MissionRunnerWorker(plane, [new StagingProof(shell, options)], options, NullLogger<MissionRunnerWorker>.Instance);
+    }
 
     [Fact]
     public async Task With_no_mission_nothing_is_done()
     {
         var plane = Substitute.For<IMissionControlPlane>();
-        plane.ClaimAsync("Staging", Arg.Any<CancellationToken>()).Returns(Task.FromResult<ClaimedMission?>(null));
+        plane.ClaimAsync("Staging", Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(Task.FromResult<ClaimedMission?>(null));
 
         (await Worker(plane, Substitute.For<IShell>(), new MissionRunnerOptions()).TakeOneAsync(Ct)).Should().BeFalse();
 
@@ -47,7 +52,7 @@ public sealed class MissionRunnerWorkerTests
     public async Task A_mission_that_the_control_plane_does_not_let_start_is_left_alone()
     {
         var plane = Substitute.For<IMissionControlPlane>();
-        plane.ClaimAsync("Staging", Arg.Any<CancellationToken>()).Returns(Mission("Staging"));
+        plane.ClaimAsync("Staging", Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(Mission("Staging"));
         plane.StartedAsync("m1", Arg.Any<CancellationToken>()).Returns(false);
         var shell = Substitute.For<IShell>();
 
@@ -60,7 +65,7 @@ public sealed class MissionRunnerWorkerTests
     public async Task A_refused_proof_is_handed_over_like_any_dossier()
     {
         var plane = Substitute.For<IMissionControlPlane>();
-        plane.ClaimAsync("Staging", Arg.Any<CancellationToken>()).Returns(Mission("staging"));
+        plane.ClaimAsync("Staging", Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(Mission("staging"));
         plane.StartedAsync("m1", Arg.Any<CancellationToken>()).Returns(true);
         plane.HandOverAsync("m1", Arg.Any<MissionHandOver>(), Arg.Any<CancellationToken>()).Returns(true);
         var shell = Substitute.For<IShell>();
@@ -76,7 +81,7 @@ public sealed class MissionRunnerWorkerTests
     public async Task A_dossier_that_the_control_plane_refuses_does_not_stop_the_runner()
     {
         var plane = Substitute.For<IMissionControlPlane>();
-        plane.ClaimAsync("Staging", Arg.Any<CancellationToken>()).Returns(Mission("Staging"));
+        plane.ClaimAsync("Staging", Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(Mission("Staging"));
         plane.StartedAsync("m1", Arg.Any<CancellationToken>()).Returns(true);
         plane.HandOverAsync("m1", Arg.Any<MissionHandOver>(), Arg.Any<CancellationToken>()).Returns(false);
 
@@ -87,7 +92,7 @@ public sealed class MissionRunnerWorkerTests
     public async Task The_global_stop_cancels_the_work_that_is_going_on_and_nothing_is_handed_over()
     {
         var plane = Substitute.For<IMissionControlPlane>();
-        plane.ClaimAsync("Staging", Arg.Any<CancellationToken>()).Returns(Mission("Staging"));
+        plane.ClaimAsync("Staging", Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(Mission("Staging"));
         plane.StartedAsync("m1", Arg.Any<CancellationToken>()).Returns(true);
         plane.StopEngagedAsync(Arg.Any<CancellationToken>()).Returns(true);
         var shell = Substitute.For<IShell>();
@@ -113,7 +118,7 @@ public sealed class MissionRunnerWorkerTests
     public async Task A_stop_that_cannot_be_read_once_does_not_end_the_watch_and_the_next_read_stops_the_work()
     {
         var plane = Substitute.For<IMissionControlPlane>();
-        plane.ClaimAsync("Staging", Arg.Any<CancellationToken>()).Returns(Mission("Staging"));
+        plane.ClaimAsync("Staging", Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(Mission("Staging"));
         plane.StartedAsync("m1", Arg.Any<CancellationToken>()).Returns(true);
         // A read that times out (the HTTP client's own timeout is a cancellation), then the stop is engaged
         plane.StopEngagedAsync(Arg.Any<CancellationToken>()).Returns(_ => Task.FromException<bool>(new TaskCanceledException("timed out")), _ => Task.FromResult(true));
@@ -139,7 +144,7 @@ public sealed class MissionRunnerWorkerTests
     public async Task A_stop_that_stays_unreadable_stops_the_work_in_the_end()
     {
         var plane = Substitute.For<IMissionControlPlane>();
-        plane.ClaimAsync("Staging", Arg.Any<CancellationToken>()).Returns(Mission("Staging"));
+        plane.ClaimAsync("Staging", Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(Mission("Staging"));
         plane.StartedAsync("m1", Arg.Any<CancellationToken>()).Returns(true);
         plane.StopEngagedAsync(Arg.Any<CancellationToken>()).Returns<Task<bool>>(_ => throw new HttpRequestException("down"));
         var shell = Substitute.For<IShell>();
@@ -164,7 +169,7 @@ public sealed class MissionRunnerWorkerTests
     public async Task A_call_that_times_out_during_the_work_is_not_taken_for_a_stop()
     {
         var plane = Substitute.For<IMissionControlPlane>();
-        plane.ClaimAsync("Staging", Arg.Any<CancellationToken>()).Returns(Mission("Staging"));
+        plane.ClaimAsync("Staging", Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(Mission("Staging"));
         plane.StartedAsync("m1", Arg.Any<CancellationToken>()).Returns(true);
         plane.ProgressAsync("m1", Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(_ => Task.FromException(new TaskCanceledException("the line timed out")));
 
@@ -181,7 +186,7 @@ public sealed class MissionRunnerWorkerTests
     public async Task A_hand_over_that_fails_on_the_network_is_tried_again_and_a_refusal_is_final()
     {
         var plane = Substitute.For<IMissionControlPlane>();
-        plane.ClaimAsync("Staging", Arg.Any<CancellationToken>()).Returns(Mission("Staging"));
+        plane.ClaimAsync("Staging", Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(Mission("Staging"));
         plane.StartedAsync("m1", Arg.Any<CancellationToken>()).Returns(true);
         plane.HandOverAsync("m1", Arg.Any<MissionHandOver>(), Arg.Any<CancellationToken>()).Returns(_ => Task.FromException<bool>(new HttpRequestException("reset")), _ => Task.FromResult(true));
 

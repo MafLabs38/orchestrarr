@@ -36,114 +36,63 @@ public sealed partial class StagingProof(IShell shell, MissionRunnerOptions opti
         }
         var timeout = TimeSpan.FromMinutes(options.StepTimeoutMinutes);
         var evidence = new List<string>();
-        try
+        await report($"Fetching {mission.Repository} pull request #{number}");
+        var checkout = await OnMachineAsync(machine,
+            $"rm -rf ~/work && mkdir -p ~/work && cd ~/work && git clone --quiet https://github.com/{mission.Repository}.git repo && cd repo && git fetch --quiet origin pull/{number}/head:pr && git checkout --quiet pr && echo \"HEAD $(git rev-parse HEAD)\" && {MergeResult}",
+            timeout, cancellationToken);
+        Keep(evidence, "checkout", checkout);
+        var head = HeadLine().Match(checkout.Output) is { Success: true } found ? found.Groups[1].Value : null;
+        var tree = TreeLine().Match(checkout.Output) is { Success: true } treeFound ? treeFound.Groups[1].Value : null;
+        if (checkout.ExitCode != 0 || head is null || tree is null)
         {
-            await report($"Putting {machine} back to its reference snapshot");
-            if (options.LabTool is null)
-            {
-                return Refused(mission, "The runner has no tool to restore the staging machine (MissionRunner:LabTool): it does not work on a machine it cannot restore.");
-            }
-            var reset = await shell.RunAsync(options.LabTool, ["reset", machine], TimeSpan.FromMinutes(5), cancellationToken);
-            Keep(evidence, "reset", reset);
-            if (reset.ExitCode != 0)
-            {
-                return Refused(mission, $"The staging machine could not be restored: {Tail(reset.Output)}");
-            }
+            return Refused(mission, $"The pull request could not be fetched and merged on the staging machine (a conflict with the base branch): {Tail(checkout.Output)}");
+        }
+        // What is built and tested is the result of the merge, and its tree names the artifact: the release must be that tree (FR-WLD-14)
+        evidence.Add($"{MissionEvidence.ArtifactTree}{tree}");
+        if (mission.HeadSha is { Length: > 0 } expected && !head.Equals(expected, StringComparison.OrdinalIgnoreCase))
+        {
+            return Refused(mission, $"The pull request moved since it was approved (approved {Short(expected)}, found {Short(head)}): nothing was built.");
+        }
 
-            await report($"Fetching {mission.Repository} pull request #{number}");
-            var checkout = await OnMachineAsync(machine,
-                $"rm -rf ~/work && mkdir -p ~/work && cd ~/work && git clone --quiet https://github.com/{mission.Repository}.git repo && cd repo && git fetch --quiet origin pull/{number}/head:pr && git checkout --quiet pr && echo \"HEAD $(git rev-parse HEAD)\" && {MergeResult}",
-                timeout, cancellationToken);
-            Keep(evidence, "checkout", checkout);
-            var head = HeadLine().Match(checkout.Output) is { Success: true } found ? found.Groups[1].Value : null;
-            var tree = TreeLine().Match(checkout.Output) is { Success: true } treeFound ? treeFound.Groups[1].Value : null;
-            if (checkout.ExitCode != 0 || head is null || tree is null)
-            {
-                return Refused(mission, $"The pull request could not be fetched and merged on the staging machine (a conflict with the base branch): {Tail(checkout.Output)}");
-            }
-            // What is built and tested is the result of the merge, and its tree names the artifact: the release must be that tree (FR-WLD-14)
-            evidence.Add($"{MissionEvidence.ArtifactTree}{tree}");
-            if (mission.HeadSha is { Length: > 0 } expected && !head.Equals(expected, StringComparison.OrdinalIgnoreCase))
-            {
-                return Refused(mission, $"The pull request moved since it was approved (approved {Short(expected)}, found {Short(head)}): nothing was built.");
-            }
+        var recipe = await OnMachineAsync(machine, "cd ~/work/repo && ls -1", timeout, cancellationToken);
+        var files = recipe.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToHashSet(StringComparer.Ordinal);
+        var (kind, command) = Recipe(files);
+        if (command is null)
+        {
+            return new MissionHandOver($"Pull request #{number} was fetched at {Short(head)} but this runner knows no way to build and test it.",
+                $"Fetched {mission.Repository}#{number} at {head}. Nothing recognised to build (no package.json, requirements.txt or compose file).",
+                evidence, ["No build recipe for this repository."], Complex: true, "No build recipe for this repository.", head);
+        }
 
-            var recipe = await OnMachineAsync(machine, "cd ~/work/repo && ls -1", timeout, cancellationToken);
-            var files = recipe.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToHashSet(StringComparer.Ordinal);
-            var (kind, command) = Recipe(files);
-            if (command is null)
+        await report($"Building and testing ({kind}) in a container");
+        var build = await OnMachineAsync(machine, $"cd ~/work/repo && {command}", timeout, cancellationToken);
+        Keep(evidence, kind, build);
+        var passed = build.ExitCode == 0 && !build.TimedOut;
+        // A change that does not pass is repaired by the worker agent when there is one (a build that timed out is not: nothing says what to repair)
+        if (!passed && !build.TimedOut && repair is { IsConfigured: true })
+        {
+            var repaired = await repair.TryAsync(machine, mission, command, build.Output, report, cancellationToken);
+            evidence.AddRange(repaired.Evidence);
+            if (repaired.Repaired && repaired.Tree is { } fixedTree)
             {
-                return new MissionHandOver($"Pull request #{number} was fetched at {Short(head)} but this runner knows no way to build and test it.",
-                    $"Fetched {mission.Repository}#{number} at {head}. Nothing recognised to build (no package.json, requirements.txt or compose file).",
-                    evidence, ["No build recipe for this repository."], Complex: true, "No build recipe for this repository.", head);
+                // What was proved is now the merge result with the repair: its tree is the artifact that the release must be
+                evidence.RemoveAll(entry => entry.StartsWith(MissionEvidence.ArtifactTree, StringComparison.Ordinal));
+                evidence.Add($"{MissionEvidence.ArtifactTree}{fixedTree}");
+                await report($"Repaired: {repaired.Files.Count} file(s) changed, and the steps pass");
+                return new MissionHandOver(
+                    $"Pull request #{number} of {mission.Repository} at {Short(head)} did not pass on the staging machine ({kind}); a worker agent repaired the source ({string.Join(", ", repaired.Files.Select(file => file.Path))}) and with that repair it builds and its tests pass.",
+                    $"Fetched at {head}; as it is, it failed: {Tail(build.Output)}. A worker agent changed {repaired.Files.Count} file(s) ({string.Join(", ", repaired.Files.Select(file => file.Path))}); the agent cannot run commands, so the runner ran the steps again itself on the repaired source, and they passed: {Tail(repaired.LastOutput)}. What the agent said: {repaired.Summary}", evidence, [], Complex: false, ComplexReason: null, head, repaired.Files);
             }
-
-            await report($"Building and testing ({kind}) in a container");
-            var build = await OnMachineAsync(machine, $"cd ~/work/repo && {command}", timeout, cancellationToken);
-            Keep(evidence, kind, build);
-            var passed = build.ExitCode == 0 && !build.TimedOut;
-            // A change that does not pass is repaired by the worker agent when there is one (a build that timed out is not: nothing says what to repair)
-            if (!passed && !build.TimedOut && repair is { IsConfigured: true })
-            {
-                var repaired = await repair.TryAsync(machine, mission, command, build.Output, report, cancellationToken);
-                evidence.AddRange(repaired.Evidence);
-                if (repaired.Repaired && repaired.Tree is { } fixedTree)
-                {
-                    // What was proved is now the merge result with the repair: its tree is the artifact that the release must be
-                    evidence.RemoveAll(entry => entry.StartsWith(MissionEvidence.ArtifactTree, StringComparison.Ordinal));
-                    evidence.Add($"{MissionEvidence.ArtifactTree}{fixedTree}");
-                    await report($"Repaired: {repaired.Files.Count} file(s) changed, and the steps pass");
-                    return new MissionHandOver(
-                        $"Pull request #{number} of {mission.Repository} at {Short(head)} did not pass on the staging machine ({kind}); a worker agent repaired the source ({string.Join(", ", repaired.Files.Select(file => file.Path))}) and with that repair it builds and its tests pass.",
-                        $"Fetched at {head}; as it is, it failed: {Tail(build.Output)}. A worker agent changed {repaired.Files.Count} file(s) ({string.Join(", ", repaired.Files.Select(file => file.Path))}); the agent cannot run commands, so the runner ran the steps again itself on the repaired source, and they passed: {Tail(repaired.LastOutput)}. What the agent said: {repaired.Summary}", evidence, [], Complex: false, ComplexReason: null, head, repaired.Files);
-                }
-                evidence.Add("repair:none");
-                await report($"The agent could not repair it: {repaired.Summary}");
-            }
-            var outcome = build.TimedOut ? "timed out" : $"exit {build.ExitCode}";
-            await report(passed ? "Build and tests passed" : $"Build or tests failed ({outcome})");
-            var claim = passed
-                ? $"Pull request #{number} of {mission.Repository} at {Short(head)} builds and its tests pass on a staging machine restored to its reference ({kind})."
-                : $"Pull request #{number} of {mission.Repository} at {Short(head)} does NOT pass on the staging machine ({kind}): {outcome}.";
-            return new MissionHandOver(claim, $"Fetched at {head}; changes: {FirstLines(checkout.Output, 4)}. Output tail: {Tail(build.Output)}", evidence,
-                passed ? [] : [Tail(build.Output)], Complex: false, ComplexReason: null, head);
+            evidence.Add("repair:none");
+            await report($"The agent could not repair it: {repaired.Summary}");
         }
-        finally
-        {
-            // The machine is given back clean whatever happened, first; what is said about it comes after and cannot skip it (a stop or a lost connection must not leave the work behind)
-            var restored = await RestoreAsync(machine);
-            await ReportQuietlyAsync(report, restored);
-        }
-    }
-
-    private async Task<string> RestoreAsync(string machine)
-    {
-        if (options.LabTool is null)
-        {
-            return $"{machine} was not restored: the runner has no tool to do it";
-        }
-        try
-        {
-            var back = await shell.RunAsync(options.LabTool, ["reset", machine], TimeSpan.FromMinutes(5), CancellationToken.None);
-            return back.ExitCode == 0 ? $"{machine} restored" : $"Restoring {machine} FAILED: {Tail(back.Output)}";
-        }
-        catch (Exception failure) when (failure is System.ComponentModel.Win32Exception or IOException or InvalidOperationException)
-        {
-            // What is said replaces nothing: the dossier or the stop that the work ended with is still the answer
-            return $"Restoring {machine} FAILED: {failure.Message}";
-        }
-    }
-
-    private static async Task ReportQuietlyAsync(Func<string, Task> report, string line)
-    {
-        try
-        {
-            await report(line);
-        }
-        catch (Exception failure) when (failure is HttpRequestException or OperationCanceledException or InvalidOperationException)
-        {
-            // The machine is restored; a line that cannot be sent is lost, not an error of the work
-        }
+        var outcome = build.TimedOut ? "timed out" : $"exit {build.ExitCode}";
+        await report(passed ? "Build and tests passed" : $"Build or tests failed ({outcome})");
+        var claim = passed
+            ? $"Pull request #{number} of {mission.Repository} at {Short(head)} builds and its tests pass on a staging machine that was restored to its reference and qualified before the job ({kind})."
+            : $"Pull request #{number} of {mission.Repository} at {Short(head)} does NOT pass on the staging machine ({kind}): {outcome}.";
+        return new MissionHandOver(claim, $"Fetched at {head}; changes: {FirstLines(checkout.Output, 4)}. Output tail: {Tail(build.Output)}", evidence,
+            passed ? [] : [Tail(build.Output)], Complex: false, ComplexReason: null, head);
     }
 
     internal static (string Kind, string? Command) Recipe(IReadOnlySet<string> files)

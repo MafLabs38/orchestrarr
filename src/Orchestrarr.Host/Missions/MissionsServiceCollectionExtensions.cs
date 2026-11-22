@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using Orchestrarr.Core.Approvals;
 using Orchestrarr.Core.Launch;
+using Orchestrarr.Core.Machines;
 using Orchestrarr.Core.Missions;
 using Orchestrarr.Host.Agents;
 using Orchestrarr.Host.Storage;
@@ -59,10 +60,37 @@ internal static class MissionsServiceCollectionExtensions
             .AddSingleton(provider => new ProblemConductor(
                 provider.GetRequiredService<MandateSigner>(), provider.GetRequiredService<MissionStores>(), provider.GetRequiredService<PowerSources>(), provider.GetRequiredService<ConductorServices>(), options.Conductor(), provider.GetRequiredService<ProblemLocks>()));
         services.AddSingleton<MissionProgress>();
+        if (options.Machines.Length > 0)
+        {
+            services.AddMachines(options, storage);
+        }
         if (options.Sandbox)
         {
             services.AddSandboxMissions(configuration, isDevelopment).AddHostedService<MissionDriver>();
         }
         return services;
+    }
+
+    private static void AddMachines(this IServiceCollection services, MissionsOptions options, IStorageSettings storage)
+    {
+        if (options.Machines.Any(machine => string.IsNullOrWhiteSpace(machine.Id) || string.IsNullOrWhiteSpace(machine.Runner)) || options.Machines.Select(machine => machine.Id).Distinct(StringComparer.Ordinal).Count() != options.Machines.Length)
+        {
+            throw new InvalidOperationException("Missions:Machines: each machine needs a distinct Id and a Runner.");
+        }
+        if (options.MachineLeaseMinutes < 1)
+        {
+            throw new InvalidOperationException("Missions:MachineLeaseMinutes must be at least 1.");
+        }
+        if (storage is SqliteStorage)
+        {
+            services.AddSingleton<IMachineStore>(provider => new SqliteMachineStore(provider.GetRequiredService<SqliteDatabase>()));
+        }
+        else
+        {
+            services.AddSingleton<IMachineStore, InMemoryMachineStore>();
+        }
+        services
+            .AddSingleton(provider => new MachinePool(provider.GetRequiredService<IMachineStore>(), provider.GetRequiredService<TimeProvider>(), new MachineOptions(TimeSpan.FromMinutes(options.MachineLeaseMinutes))))
+            .AddHostedService<MachineKeeper>();
     }
 }

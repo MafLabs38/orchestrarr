@@ -246,7 +246,7 @@ public sealed class SqliteDatabase : IDisposable
     // A new step is appended here, and SchemaVersion goes up with it.
     private delegate void Step(SqliteConnection connection, bool created, bool startEngagedWhenNew, TimeProvider time);
 
-    private static readonly Step[] Steps = [CreateVersion1, CreateVersion2, CreateVersion3, CreateVersion4, CreateVersion5, CreateVersion6, CreateVersion7, CreateVersion8];
+    private static readonly Step[] Steps = [CreateVersion1, CreateVersion2, CreateVersion3, CreateVersion4, CreateVersion5, CreateVersion6, CreateVersion7, CreateVersion8, CreateVersion9];
 
     private static int SchemaVersion => Steps.Length;
 
@@ -494,6 +494,16 @@ public sealed class SqliteDatabase : IDisposable
             CREATE TABLE IF NOT EXISTS problems (problem_id TEXT PRIMARY KEY, state TEXT NOT NULL, body TEXT NOT NULL);
             CREATE INDEX IF NOT EXISTS problems_by_state ON problems (state);
             CREATE TABLE IF NOT EXISTS dossiers (mission_id TEXT PRIMARY KEY, body TEXT NOT NULL);
+            """);
+    }
+
+    private static void CreateVersion9(SqliteConnection connection, bool created, bool startEngagedWhenNew, TimeProvider time)
+    {
+        // The lab machines and their state, and every change of state for ever (the time up, down and in process is computed from them)
+        Run(connection, """
+            CREATE TABLE IF NOT EXISTS machines (id TEXT PRIMARY KEY, body TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS machine_transitions (id INTEGER PRIMARY KEY AUTOINCREMENT, machine_id TEXT NOT NULL, at TEXT NOT NULL, body TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS machine_transitions_by_machine ON machine_transitions (machine_id, id);
             """);
     }
 

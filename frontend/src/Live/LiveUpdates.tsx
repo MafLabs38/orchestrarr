@@ -14,6 +14,8 @@ const topicPaths: Readonly<Record<string, readonly string[]>> = {
   runs: ['/api/v1/runs', '/api/v1/problems'],
   // A mission that moves changes what the table offers for its pull request
   missions: ['/api/v1/missions', '/api/v1/problems'],
+  // A machine that changes state is told at once: what holds it, whether it is fit to work
+  machines: ['/api/v1/machines'],
   approvals: ['/api/v1/approvals'],
   audit: ['/api/v1/audit'],
   status: ['/api/v1/system/status'],
