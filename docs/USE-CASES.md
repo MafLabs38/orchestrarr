@@ -60,7 +60,9 @@ One repository (private) of **deliberately broken projects**, one or more for ea
 
 The staging machine is a **spare machine running a hypervisor**, separate from production, with a small disk and **two virtual machines at once**, so that two stagings can run at the same time. The size of a staging virtual machine is bounded by its disk. Both figures (the number of slots and the size) are configuration of the platform, not facts of the product.
 
-Open: the shape of the laboratory (one repository or one per family of cases, how the faults are reset between runs, how much of production's pipeline it copies).
+The status of each case, and what "ticked" means, is [CASE-GRID.md](CASE-GRID.md). Faults are reset between runs by restoring the seed of each repository through a pull request (`lab/`).
+
+Open: the shape of the laboratory beyond the four repositories of the test bed (one per family of cases, how much of production's pipeline it copies).
 
 ## 5. The cases in detail
 
@@ -173,7 +175,7 @@ Open: which of these Portarr reports and which Orchestrarr reads directly. Not a
 - The agent never does alone: **handle a secret, delete data, or act outside the repositories and the declared acts of its mandate** (acting on a node, a database or a machine, as in CASE-11, 12 and 18, is a **declared act under a release-world mandate**, never a free command). A database migration (CASE-12) is allowed only with a backup taken first and a way back.
 - A serious advisory (CASE-03) goes through the same staging as the others, but first in the queue and with an immediate email.
 - A deployment on a machine without GitOps (CASE-04) is a **declared action** run through a configured connection, never a free command.
-- The laboratory is **one repository** with a folder per case, reset by git between runs.
+- The laboratory is **a set of repositories** (four today, in a public test-bed organisation: [CASE-GRID.md](CASE-GRID.md)), each put back to a pinned seed between runs through a pull request (ADR 0045), with the staging virtual machines reset by their own tool.
 
 **Still open, because it depends on what is built**
 

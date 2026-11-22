@@ -22,3 +22,7 @@ An agent that decides alone that its work is good cannot be the only judge. The 
 - Independence rests on **inputs the worker did not write** (the facts fetched by the control plane, the runner's own evidence), not on the lack of tools alone. The worker and the controller use the same model, so their errors can be correlated: the mechanical checks come first.
 - It adds a model run per crossing: budgets and the quota are watched.
 - A decision can be wrong: the audit trail, the evidence and the maintainer's notifications are the net behind it.
+
+## Amendment (2026-11-22, [ADR 0045](0045-a-case-is-ticked-by-a-replayable-scenario.md))
+
+The first replays of a case showed that the controller, given the whole problem in each world ("merge it and verify the release"), sometimes asked the Git world for the health of the release. The conductor now states for each world its own part of a pull request (staging: the objective of the plan; Git: merged into the integration branch with every pipeline green, nothing released; release: runs in production and its health check answers), and the controller's prompt says that a world is judged on its own objective and never asked for what a later world produces. The sentence of the objective that the controller reads as the control plane's own is built from trusted values only: a pull request's own title (text of the forge) stays out of it unless it is a plain "package from → to" bump.

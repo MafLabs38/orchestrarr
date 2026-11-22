@@ -2,3 +2,5 @@
 1d3c543c76c33b825067f52bdc1466a606748fcc:src/Orchestrarr.Host.Test/ExecutorApiTests.cs:generic-api-key:15
 # The same made-up token, in the squashed commit of the pull request that introduced the executor (the line has since been replaced by a repeated letter).
 8d71661dcccd8edc17e7076749f392c8c3673e17:src/Orchestrarr.Host.Test/ExecutorApiTests.cs:generic-api-key:15
+# The commit that a test-bed repository is pinned to in lab/seeds.json (a git commit hash is public, not a secret). The file now uses a form the rule does not read as a key; this fingerprint names the commit that first held it.
+f34a30c1ec566647cd6f146456c96b71a980061a:lab/seeds.json:generic-api-key:2

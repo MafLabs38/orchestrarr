@@ -189,6 +189,30 @@ public sealed class ProblemConductorTests : IDisposable
     }
 
     [Fact]
+    public async Task Each_world_is_told_its_own_part_of_a_pull_request_and_the_git_world_is_never_asked_to_verify_the_release()
+    {
+        var conductor = Conductor();
+        var entry = Entry() with { Objective = "Prove pull request #7 of example/shop (lodash 4.17.4 → 4.17.21) in staging, then merge it and verify the release.", PullRequest = 7 };
+        var staging = await StartStaged(conductor, entry);
+        var git = await Through(conductor, staging);
+        var release = await Through(conductor, git);
+
+        staging.Mission!.Objective.Should().Contain("verify the release");
+        git.Mission!.Objective.Should().Contain("pull request #7 of example/shop").And.Contain("merged into the integration branch").And.NotContain("verify the release").And.NotContain("production");
+        release.Mission!.Objective.Should().Contain("pull request #7 of example/shop").And.Contain("runs in production").And.Contain("answers with a success").And.NotContain("merge it");
+    }
+
+    [Fact]
+    public async Task A_problem_that_is_not_a_pull_request_is_quoted_whole_to_the_later_worlds()
+    {
+        var conductor = Conductor();
+        var staging = await StartStaged(conductor);
+        var git = await Through(conductor, staging);
+
+        git.Mission!.Objective.Should().Contain("\"Replace the removed method\"").And.Contain("merged into the integration branch").And.Contain("Nothing is released at this stage");
+    }
+
+    [Fact]
     public async Task Each_mandate_is_signed_for_its_runner_and_its_world_and_no_other_runner_accepts_it()
     {
         var conductor = Conductor();
