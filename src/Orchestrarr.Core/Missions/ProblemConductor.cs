@@ -518,7 +518,7 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
         }
         var change = entry.PullRequest is { } number && entry.Repositories.Count == 1 ? Text($"pull request #{number} of {entry.Repositories[0]}") : Text($"\"{entry.Objective}\"");
         return world == World.Git
-            ? Text($"The change of {change} is merged into the integration branch with every pipeline green. Nothing is released at this stage.")
-            : Text($"The change of {change} runs in production and is verified: its health check answers with a success.");
+            ? Text($"The change of {change} is merged into the integration branch with every pipeline green. If it had to be repaired in staging, the pull request that replaces it is the one merged. Nothing is released at this stage.")
+            : Text($"The change of {change}, or of the pull request that replaced it after a repair, runs in production and is verified: its health check answers with a success.");
     }
 }

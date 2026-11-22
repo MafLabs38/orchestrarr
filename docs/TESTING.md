@@ -2,7 +2,7 @@
 
 > Same strategy as Portarr's ([TESTING.md](https://github.com/MafLabs38/portarr/blob/develop/docs/TESTING.md)), scaled to what exists. The three products share conventions.
 
-> **Partly built**: the cases of [USE-CASES.md](USE-CASES.md) are the end-to-end tests of the restructured product (the laboratory of FUNCTIONAL section 8), and the laboratory is being built case by case: [CASE-GRID.md](CASE-GRID.md) says which cases are ticked, and `lab/` holds the reset of the test-bed repositories and the runner that plays a scenario through the interface (the first one, CASE-01, runs; the verdict is the final state read on the forge). A section on the lane and the threshold of these runs is written when a second lane needs it.
+> **Partly built**: the cases of [USE-CASES.md](USE-CASES.md) are the end-to-end tests of the restructured product (the laboratory of FUNCTIONAL section 8), and the laboratory is being built case by case: [CASE-GRID.md](CASE-GRID.md) says which cases are ticked, and `lab/` holds the reset of the test-bed repositories and the runner that plays a scenario through the interface (two scenarios run, CASE-01 and CASE-02; the verdict is the final state read on the forge). A section on the lane and the threshold of these runs is written when a second lane needs it.
 
 ## 1. What is tested, and where
 

@@ -1,0 +1,36 @@
+{
+  "case": "CASE-02",
+  "title": "A dependency changes and the code must change",
+  "plants": [
+    {
+      "repo": "shop-api",
+      "branch": "lab/case-02-express",
+      "kind": "npm-bump",
+      "package": "express",
+      "from": "4.16.0",
+      "version": "5.1.0",
+      "title": "build(deps): Bump express from 4.16.0 to 5.1.0 and the base image to node 22",
+      "body": "A major bump that removes the catch-all route syntax the application uses, with the base image it needs (express 5 requires a recent node): the build fails until the code changes.",
+      "patches": [
+        "CASE-02-node-22.patch"
+      ]
+    }
+  ],
+  "tick": [
+    "5.1.0"
+  ],
+  "expect": {
+    "pullRequests": [
+      {
+        "repo": "shop-api",
+        "branch": "lab/case-02-express",
+        "state": "CLOSED"
+      },
+      {
+        "repo": "shop-api",
+        "title": "fix: repair #{0} so that it passes",
+        "state": "MERGED"
+      }
+    ]
+  }
+}

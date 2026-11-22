@@ -1,0 +1,9 @@
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -1,5 +1,5 @@
+ # End-of-life base image, on purpose
+-FROM node:14-alpine
++FROM node:22-alpine
+ WORKDIR /app
+ COPY . .
+ RUN npm install

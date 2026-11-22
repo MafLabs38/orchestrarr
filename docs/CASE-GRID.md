@@ -19,7 +19,7 @@ A demonstration played once by hand proves that a path exists, not that the case
 | Case | What the table does today | Planted in the sandbox | Replayable scenario | Status |
 |---|---|---|---|---|
 | 01 Routine bump | Row bound to a pull request, selectable | `lab/scenarios/CASE-01.json`: a lodash patch bump on `shop-api` | **yes** (`lab/e2e/run-scenario.cjs`) | **ticked** (2026-11-22): reset, plant, sign in, refresh, tick, validate; staging, controller, merge, release; the pull request is read as merged on the forge; reset again |
-| 02 Deprecated API, code must change | A failing pull request goes to *Repair* | Express 5 bump (`shop-api`) | no | **manual**: repaired once by the worker agent, carried into a pull request, merged |
+| 02 Deprecated API, code must change | A failing pull request goes to *Repair* | `lab/scenarios/CASE-02.json`: Express 5 and the base image it needs, on `shop-api` | **yes** | **ticked** (2026-11-22): the staging fails, the agent repairs the route, the gateway opens the repair pull request and merges it, the original is closed and the release answers |
 | 03 Security advisory | Row shown, **not selectable** (`NoAction`) | Vulnerable pins exist; no case with and without a fixed version | no | open |
 | 04 Newer image | Row shown, **not selectable** | Old images in `edge-stack` | no | open |
 | 05 Floating tag | Row shown, **not selectable** | `latest` in `edge-stack` | no | open |
@@ -40,7 +40,7 @@ A demonstration played once by hand proves that a path exists, not that the case
 | 20 Staging proved healthy first | not verified | none | no | open, not verified |
 | 21 GitOps and write credentials | a workflow change is refused by the controller | none | no | **manual**, in part |
 
-**Ticked: 1 of 21** (01). Played by hand in whole or in part: 02, 06, 14, 15, 21.
+**Ticked: 2 of 21** (01, 02). Played by hand in whole or in part: 06, 14, 15, 21.
 
 ## What the grid shows about the structure
 
@@ -48,9 +48,10 @@ A demonstration played once by hand proves that a path exists, not that the case
 - **The repair policy is narrower than the cases.** The worker agent may not touch tests, dependencies, the build or the pipelines (ADR 0044). Cases 03, 04, 05 and 09 are changes to a dependency, a Dockerfile or a compose file. The policy has to be widened case by case, with the environment still enforcing the frame (ADR 0035).
 - **The sandbox is replayable now.** `develop` cannot be force-pushed (the repository rules are the same as a real project's, and stay), so a reset restores the seed tree **through a pull request**, and the faults are planted by the lab itself, not waited for from a bot. A bot's pull requests are never closed by the lab (a closed one is not opened again), and the bot opens new ones when `develop` goes back: a scenario names its own pull request by what it planted.
 - **What the first replays found.** The table keeps what it read (the reading of the forge is kept 5 minutes, `GitHubOptions.CacheSeconds`, and the work-item catalog 30 seconds), so after a reset it still offered closed pull requests, and the merge was refused on them (405, 409): the runner now asks for a fresh reading and waits until the table shows the pull requests it planted. Nothing was merged on a closed pull request (the forge refused), so the failure is safe, but a row that cannot be acted on is offered until the next fresh reading, up to five minutes: to settle with the cases that follow (07, many pull requests at once, will meet it harder).
+- **What CASE-02 found.** The objective of the Git and release worlds named the original pull request, so the controller refused the merge of the repair that replaces it: the objectives now say that a repair replaces the pull request. And a major bump of a runtime library can need a newer runtime than the image of the seed (Express 5 on `node:14`): the planted change carries the base image that its author would bump, because the repair agent does not touch build or container files; an obsolete image on its own is case 09.
 - **A problem that is not a pull request** has no description in the sentence the controller reads as the control plane's own, on purpose; its description now reaches the lead agent as untrusted data with its source (ADR 0046). No such row can be started yet (they are `NoAction`): the lot that makes them actionable (1) gives them their paths.
 - **A seed whose pipeline is red on purpose** (the pipelines of case 08) cannot be restored through a pull request that must pass its checks: the required check is a global setting today and becomes one per repository with that case (lot 3). The reset of a repository that is already at its seed does not need it.
-- **A tick is one verdict of a model** (the controller): it is not deterministic. A case is ticked when its scenario passed three times in a row since the last change to the code it runs through; CASE-01 passed six replays in a row after its last change (2026-11-22).
+- **A tick is one verdict of a model** (the controller): it is not deterministic. A case is ticked when its scenario passed three times in a row since the last change to the code it runs through; CASE-01 passed six replays in a row after its last change, and CASE-02 three (2026-11-22).
 - **Not yet built at all**: grouping and ordering (07), the report and the mail (14 and the complex marking), the cases that need more lab (11, 12, 18, 19).
 
 ## Order of work

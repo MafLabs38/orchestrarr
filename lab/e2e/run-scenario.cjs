@@ -27,10 +27,20 @@ const repos = [...new Set((scenario.plants ?? []).map((p) => p.repo))];
 const failures = [];
 const expect = (ok, text) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${text}`); if (!ok) failures.push(text); };
 
-// The state of a pull request on the forge, or NOT_FOUND when there is none (never an exception: the run goes on and reports)
-function prState(repo, branch) {
+// The state of a pull request on the forge, or NOT_FOUND when there is none (never an exception on that: the run goes on and reports).
+// A pull request is named by its branch, or by its title when the lab did not choose it (a repair's number is only known along the way): "{0}" is the number of the first planted pull request
+let plantedNumbers = [];
+function prState(want) {
   try {
-    return execFileSync('gh', ['pr', 'view', branch, '-R', `${org}/${repo}`, '--json', 'state', '--jq', '.state'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+    if (want.title) {
+      const title = want.title.replace(/\{(\d+)\}/g, (_, index) => {
+        if (plantedNumbers[Number(index)] === undefined) throw new Error(`the title of an expectation names the planted pull request {${index}}, which the scenario did not plant`);
+        return String(plantedNumbers[Number(index)]);
+      });
+      const found = JSON.parse(execFileSync('gh', ['pr', 'list', '-R', `${org}/${want.repo}`, '--state', 'all', '--search', `"${title}" in:title`, '--json', 'state,title', '--limit', '20'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }));
+      return found.find((candidate) => candidate.title === title)?.state ?? 'NOT_FOUND';
+    }
+    return execFileSync('gh', ['pr', 'view', want.branch, '-R', `${org}/${want.repo}`, '--json', 'state', '--jq', '.state'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
   } catch (error) {
     // only "there is no such pull request" is a state; a bad token or a network error is a failure of the run
     if (/no pull requests found/i.test(String(error.stderr ?? ''))) return 'NOT_FOUND';
@@ -97,7 +107,7 @@ async function followMissions(page, known) {
   await page.getByRole('link', { name: UI.missions }).click();
   const begin = Date.now();
   const wanted = scenario.expect?.pullRequests ?? [];
-  const reached = () => wanted.every((w) => prState(w.repo, w.branch) === w.state);
+  const reached = () => wanted.every((w) => prState(w) === w.state);
   let last = '', outcome = 'timeout', mine = [];
   while ((Date.now() - begin) / 1000 < maxSeconds) {
     mine = (await missionsOf(page)).filter((m) => !known.has(m.id));
@@ -121,6 +131,7 @@ async function followMissions(page, known) {
       const output = sandbox('plant', scenarioPath);
       console.log(output);
       planted = [...output.matchAll(/planted #(\d+)/g)].map((m) => Number(m[1]));
+      plantedNumbers = planted;
     }
 
     browser = await chromium.launch({ headless: true });
@@ -144,8 +155,8 @@ async function followMissions(page, known) {
       await followMissions(page, known);
     }
     for (const want of scenario.expect?.pullRequests ?? []) {
-      const state = prState(want.repo, want.branch);
-      expect(state === want.state, `${want.repo} ${want.branch} is ${want.state} (is ${state})`);
+      const state = prState(want);
+      expect(state === want.state, `${want.repo} ${want.title ?? want.branch} is ${want.state} (is ${state})`);
     }
     expect(problems.length === 0, problems.length ? 'page errors: ' + problems.join(' | ') : 'no page error, no failing API call');
   } catch (error) {
