@@ -212,6 +212,92 @@ public sealed class ProblemConductorTests : IDisposable
         git.Mission!.Objective.Should().Contain("\"Replace the removed method\"").And.Contain("merged into the integration branch").And.Contain("Nothing is released at this stage");
     }
 
+    private static LeadPlan Plan(params World[] worlds) => new([.. worlds.Select(world => new PlannedStep(world, $"Do only the {world} part."))], false, null, ["because"]);
+
+    [Fact]
+    public async Task A_plan_that_stops_at_the_git_world_ends_the_problem_there_and_each_world_carries_the_instruction_written_for_it()
+    {
+        var conductor = Conductor();
+        var staging = await StartStaged(conductor, Entry() with { Plan = Plan(World.Staging, World.Git) });
+        var git = await Through(conductor, staging);
+        var closed = await Through(conductor, git);
+
+        staging.Mission!.Instruction.Should().Be("Do only the Staging part.");
+        staging.Mission.Objective.Should().NotContain("Do only", "the instruction of an agent is kept apart from the sentence the control plane states itself");
+        git.Mission!.Instruction.Should().Be("Do only the Git part.");
+        closed.Ok.Should().BeTrue();
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.Closed);
+        _missions.ForProblem("problem-1").Should().HaveCount(2, "the plan stopped before the release world");
+    }
+
+    [Fact]
+    public async Task A_plan_that_stops_at_the_staging_closes_the_problem_there_and_the_trail_of_the_start_holds_the_plan_and_why()
+    {
+        var conductor = Conductor();
+        var plan = new LeadPlan([new PlannedStep(World.Staging, null)], true, "a risky change", ["only the proof is wanted", "a person tries it"]);
+        var staging = await StartStaged(conductor, Entry() with { Plan = plan });
+
+        var closed = await Through(conductor, staging);
+
+        closed.Ok.Should().BeTrue();
+        _missions.ForProblem("problem-1").Should().ContainSingle("the plan stopped at the staging");
+        _problems.Get("problem-1")!.Note.Should().Be("done up to the Staging world, as the lead planned", "an early stop of the lead is not a limit of the powers");
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.Closed);
+        _audit.Events.Should().Contain(line => line.StartsWith("problem.started", StringComparison.Ordinal) && line.Contains("lead plan Staging") && line.Contains("marked complex"));
+        _audit.Events.Should().Contain(line => line.StartsWith("lead.planned", StringComparison.Ordinal) && line.Contains("reason: only the proof is wanted"));
+        _audit.Events.Should().Contain(line => line.StartsWith("lead.planned", StringComparison.Ordinal) && line.Contains("reason: a person tries it"));
+        _audit.Events.Should().Contain(line => line.StartsWith("lead.planned", StringComparison.Ordinal) && line.Contains("marked complex: a risky change"));
+    }
+
+    [Fact]
+    public void The_powers_a_problem_can_reach_are_what_was_asked_and_the_grant_of_the_application_and_never_the_plan()
+    {
+        var conductor = Conductor();
+
+        conductor.PowersFor(Entry(World.Release) with { Plan = Plan(World.Staging) }).Should().Be(World.Release);
+        conductor.PowersFor(Entry(World.Git)).Should().Be(World.Git);
+    }
+
+    [Fact]
+    public async Task A_plan_that_ends_where_the_powers_end_closes_with_the_note_of_the_powers_when_the_lead_did_not_stop_early()
+    {
+        var conductor = Conductor();
+        var staging = await StartStaged(conductor, Entry(World.Git) with { Plan = Plan(World.Staging, World.Git) });
+        var git = await Through(conductor, staging);
+
+        await Through(conductor, git);
+
+        _problems.Get("problem-1")!.Note.Should().Be("done up to the Git world, as the lead planned", "the plan itself ends there; the powers stop at the same world");
+    }
+
+    [Fact]
+    public async Task A_grant_lowered_between_the_plan_and_the_start_refuses_a_plan_that_now_goes_beyond_the_powers()
+    {
+        var conductor = Conductor();
+        _grants.Max = World.Git;
+
+        var result = await StartStaged(conductor, Entry() with { Plan = Plan(World.Staging, World.Git, World.Release) });
+
+        result.Ok.Should().BeFalse();
+        result.Refusal.Should().Contain("the plan of the lead is refused").And.Contain("goes up to the Release world");
+        _missions.ForProblem("problem-1").Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_plan_that_goes_beyond_the_powers_or_does_not_start_at_the_first_world_is_refused_and_nothing_starts()
+    {
+        var conductor = Conductor();
+
+        var beyond = await StartStaged(conductor, Entry(World.Git) with { Plan = Plan(World.Staging, World.Git, World.Release) });
+        var skipsStaging = await StartStaged(conductor, Entry() with { Plan = Plan(World.Git, World.Release) });
+
+        beyond.Ok.Should().BeFalse();
+        beyond.Refusal.Should().Contain("the plan of the lead is refused").And.Contain("goes up to the Release world");
+        skipsStaging.Ok.Should().BeFalse();
+        skipsStaging.Refusal.Should().Contain("starts in the Git world");
+        _missions.ForProblem("problem-1").Should().BeEmpty();
+    }
+
     [Fact]
     public async Task Each_mandate_is_signed_for_its_runner_and_its_world_and_no_other_runner_accepts_it()
     {

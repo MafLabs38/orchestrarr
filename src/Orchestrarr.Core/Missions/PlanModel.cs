@@ -20,6 +20,7 @@ public sealed record Validation(string By, string? RuleId);
 /// A problem in the plan with the limits it may be solved within (FR-PLAN-2): how far it may go, the budget, the repository (**exactly one**: a problem is on one codebase, and a problem on several repositories is as many problems, ADR 0041). The plan entry is the first source of power; the
 /// grant of the application and the certificate are the others (see <see cref="EffectivePower"/>).
 /// </summary>
+// Brief: the problem as the control plane read it (only the control plane and its lead agent see it). Plan: what the lead proposed and the conductor accepted; it can only stop the work earlier than the powers allow (ADR 0046).
 public sealed record PlanEntry(
     string ProblemId,
     string ApplicationId,
@@ -31,7 +32,9 @@ public sealed record PlanEntry(
     Validation Validation,
     DateTimeOffset ValidatedAt,
     int? PullRequest = null,
-    string? HeadSha = null);
+    string? HeadSha = null,
+    ProblemBrief? Brief = null,
+    LeadPlan? Plan = null);
 
 /// <summary>What the control plane keeps about one problem while it is worked on: its plan entry, the certificate of the approval, the highest world its powers reached when it started (a display: the power is read again at each crossing), and whether its application has a staging.</summary>
 public sealed record ProblemRun(string ProblemId, string ApplicationId, ProblemState State, DateTimeOffset StartedAt, PlanEntry Entry, World HighestAllowed, bool UsesStaging, SignedApproval Approval, World? CurrentWorld = null, string? Note = null);

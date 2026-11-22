@@ -115,7 +115,7 @@ internal static partial class MissionRunnerEndpoints
             }
             var current = repairs?.Effective(mission.ProblemId, entry);
             return Results.Ok(new MissionClaimResponse(new ClaimedMission(mission.Id, mission.ProblemId, mission.ApplicationId, mission.World.ToString(), mission.Objective, entry.Repositories[0], current?.Number ?? entry.PullRequest, current?.Head ?? entry.HeadSha,
-                mandate.Mandate.ExpiresAt, [.. mandate.Mandate.Acts.Select(act => act.ToString())], conductor.AcceptedCommit(mission.Id) ?? entry.HeadSha, rework, rework ? progress.RemarksOf(mission.Id) : null, repairs?.FixOf(mission.ProblemId) is not null ? entry.PullRequest : null)));
+                mandate.Mandate.ExpiresAt, [.. mandate.Mandate.Acts.Select(act => act.ToString())], conductor.AcceptedCommit(mission.Id) ?? entry.HeadSha, rework, rework ? progress.RemarksOf(mission.Id) : null, repairs?.FixOf(mission.ProblemId) is not null ? entry.PullRequest : null, mission.Instruction)));
         });
 
         group.MapPost("/missions/{id}/started", async (string id, HttpContext context, IMissionStore missions, IMandateLedger mandates, ProblemConductor conductor, ILiveNotifier live, CancellationToken ct) =>

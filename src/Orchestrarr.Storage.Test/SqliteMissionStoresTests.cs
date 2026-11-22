@@ -121,6 +121,25 @@ public sealed class SqliteMissionStoresTests : IDisposable
     }
 
     [Fact]
+    public void The_plan_of_the_lead_and_the_problem_it_read_are_kept_with_the_problem_and_an_old_entry_without_them_still_reads()
+    {
+        using var authority = new Authority(new FakeTimeProvider(new DateTimeOffset(2026, 11, 13, 12, 0, 0, TimeSpan.Zero)));
+        var plan = new LeadPlan([new PlannedStep(World.Staging, "Build and test."), new PlannedStep(World.Git, null)], true, "a risky change", ["because"]);
+        var brief = new ProblemBrief("DependencyUpdate", "example/shop", "lodash 4.17.4 → 4.17.21", true, PullRequest: 7);
+        var entry = new PlanEntry("p1", "shop", "deprecated", "Replace", ["example/shop"], World.Release, new MissionBudget(20, 3, 50), new Validation("alice", null), new DateTimeOffset(2026, 11, 13, 11, 0, 0, TimeSpan.Zero), Brief: brief, Plan: plan);
+        var store = new SqliteProblemStore(_file.Open());
+        store.Save(new ProblemRun("p1", "shop", ProblemState.InProgress, new DateTimeOffset(2026, 11, 13, 12, 0, 0, TimeSpan.Zero), entry, World.Git, true, authority.For(entry)!));
+
+        var read = new SqliteProblemStore(_file.Open()).Get("p1")!.Entry;
+
+        read.Plan!.Summary.Should().Be("Staging → Git");
+        read.Plan.InstructionFor(World.Staging).Should().Be("Build and test.");
+        read.Plan.Complex.Should().BeTrue();
+        read.Brief!.Description.Should().Be("lodash 4.17.4 → 4.17.21");
+        read.Brief.DescriptionIsParsed.Should().BeTrue();
+    }
+
+    [Fact]
     public void A_revocation_and_a_problem_that_failed_stay_so_after_a_restart()
     {
         using var authority = new Authority(new FakeTimeProvider(new DateTimeOffset(2026, 11, 13, 12, 0, 0, TimeSpan.Zero)));
