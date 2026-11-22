@@ -6,6 +6,7 @@ using Orchestrarr.Core.Infrastructure;
 using Orchestrarr.Core.Missions;
 using Orchestrarr.Core.Tasks;
 using Orchestrarr.Core.WorkItems;
+using Orchestrarr.Host.Agents;
 using Orchestrarr.Host.Approvals;
 using Orchestrarr.Host.Decisions;
 using Orchestrarr.Host.Live;
@@ -38,16 +39,13 @@ internal static class PlanEndpoints
     // A selection is a screenful, not a flood: more rows than the table can hold at once is refused
     private const int MaxRows = 400;
 
-    // The most rows of one selection that the lead is asked about: each is a run of the maintainer's subscription
-    private const int MaxPlanned = 30;
-
     public static void MapPlanEndpoints(this RouteGroupBuilder api)
     {
         // Whether the validation goes through the missions here: the screen sends the selection to the plan when it does, and says so
         api.MapGet("/plan", (IServiceProvider services) => Results.Ok(new PlanStatus(services.GetService<SandboxApprovals>() is not null))).RequireAuthorization(Permissions.FleetRead);
         api.MapPost("/plan/validate", async (ValidatePlanRequest request, HttpContext context, IApproverAccessor accessor, WorkItemCatalog catalog, IApplicationCatalog applications, RunnerRegistry runners, IBatchQueue queue,
             IProblemHistory history, IApprovalStore approvalStore, TimeProvider time, RelevancePolicy policy, InfrastructureCatalog infrastructure, ProblemConductor conductor, IServiceProvider services,
-            LeadPlanner lead, MissionProgress progress, IMissionAudit audit, IStopSignal stop, ILiveNotifier live, CancellationToken ct) =>
+            LeadPlanner lead, AgentsOptions agents, MissionProgress progress, IMissionAudit audit, IStopSignal stop, ILiveNotifier live, CancellationToken ct) =>
         {
             var (approver, refusal) = ApprovalEndpoints.Authorize(accessor, context);
             if (approver is null)
@@ -70,9 +68,9 @@ internal static class PlanEndpoints
             var report = await catalog.GetAsync(refresh: false, ct);
             var table = ProblemsEndpoints.VisibleTable(TableInputs.Last(report, infrastructure), applications, runners, queue, history, approvalStore, time, policy).ToDictionary(row => row.Id, StringComparer.Ordinal);
             // The lead thinks about each problem first (two at a time), then the problems are started one after the other: nothing is started that the lead did not plan, and no approval is used for a problem that has no plan.
-            // A row is asked once, at most MaxPlanned rows are asked in one selection, and nothing is asked while the global stop is engaged: every question is a run of the subscription
+            // A row is asked once, at most Agents:LeadMaxRows rows are asked in one selection, and the global stop is read again before each question: every question is a run of the subscription
             var rows = (request.Rows ?? []).DistinctBy(row => row.Id, StringComparer.Ordinal).ToList();
-            var prepared = await Task.WhenAll(rows.Select((chosen, index) => PrepareAsync(chosen, table, approver.Subject, lead, conductor, audit, NotAsked(stop.Engaged, index), time, ct)));
+            var prepared = await Task.WhenAll(rows.Select((chosen, index) => PrepareAsync(chosen, table, approver.Subject, lead, conductor, audit, stop, NotAsked(index, agents.LeadMaxRows), time, ct)));
             var started = new List<ValidatedProblem>();
             foreach (var one in prepared)
             {
@@ -85,20 +83,13 @@ internal static class PlanEndpoints
 
     internal static World CeilingOf(ValidatedRow chosen) => chosen.StopBeforeProduction ? World.Git : PlanCeiling;
 
-    // Why a row is not asked about at all: the global stop is engaged, or the selection is beyond what the lead is asked about at once
-    private static string? NotAsked(bool stopEngaged, int index)
-    {
-        if (stopEngaged)
-        {
-            return "stopEngaged";
-        }
-        return index >= MaxPlanned ? "tooManyToPlanAtOnce" : null;
-    }
+    // Why a row is not asked about at all: the selection is beyond what the lead is asked about at once (Agents:LeadMaxRows)
+    private static string? NotAsked(int index, int maxRows) => index >= maxRows ? "tooManyToPlanAtOnce" : null;
 
     // A row that is ready to start (its plan entry with the problem as read and the lead's plan), or why it will not start: one of the two, never both
     private sealed record Prepared(string RowId, PlanEntry? Entry, ValidatedProblem? Refused);
 
-    private static async Task<Prepared> PrepareAsync(ValidatedRow chosen, Dictionary<string, ProblemRow> table, string approver, LeadPlanner lead, ProblemConductor conductor, IMissionAudit audit, string? notAsked, TimeProvider time, CancellationToken cancellationToken)
+    private static async Task<Prepared> PrepareAsync(ValidatedRow chosen, Dictionary<string, ProblemRow> table, string approver, LeadPlanner lead, ProblemConductor conductor, IMissionAudit audit, IStopSignal stop, string? notAsked, TimeProvider time, CancellationToken cancellationToken)
     {
         var id = chosen.Id ?? string.Empty;
         Prepared Refused(string reason, string? problemId = null) => new(id, null, new ValidatedProblem(id, problemId, null, null, reason));
@@ -127,6 +118,11 @@ internal static class PlanEndpoints
         }
         // The staging of the test bed is declared: the first world is the staging. The lead proposes; the conductor checks the proposal against the powers as they are when the problem starts
         var brief = ProblemBrief.Of(row);
+        // The global stop is read again for each question: a row that waits for a free slot may be asked long after the request came
+        if (stop.Engaged)
+        {
+            return Refused("stopEngaged", entry.ProblemId);
+        }
         // The lead is told how far the problem can really go (what was asked and the grant of the application), so that it plans within what the conductor accepts
         if (conductor.PowersFor(entry) is not { } reachable || reachable < FirstWorld)
         {

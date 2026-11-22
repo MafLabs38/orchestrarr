@@ -255,6 +255,19 @@ public sealed class ProblemConductorTests : IDisposable
     }
 
     [Fact]
+    public async Task A_grant_lowered_between_the_plan_and_the_start_refuses_a_plan_that_now_goes_beyond_the_powers()
+    {
+        var conductor = Conductor();
+        _grants.Max = World.Git;
+
+        var result = await StartStaged(conductor, Entry() with { Plan = Plan(World.Staging, World.Git, World.Release) });
+
+        result.Ok.Should().BeFalse();
+        result.Refusal.Should().Contain("the plan of the lead is refused").And.Contain("goes up to the Release world");
+        _missions.ForProblem("problem-1").Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task A_plan_that_goes_beyond_the_powers_or_does_not_start_at_the_first_world_is_refused_and_nothing_starts()
     {
         var conductor = Conductor();

@@ -20,7 +20,7 @@ internal static class MissionsServiceCollectionExtensions
         var controllerTimeout = agents.ControllerTimeoutSeconds >= 10 ? TimeSpan.FromSeconds(agents.ControllerTimeoutSeconds) : throw new InvalidOperationException($"Agents:ControllerTimeoutSeconds must be at least 10 seconds, not {agents.ControllerTimeoutSeconds}.");
         services.AddSingleton(agents).AddSingleton<IAgentGateway>(provider => agents.Enabled ? new ClaudeCliGateway(agents, provider.GetRequiredService<ILogger<ClaudeCliGateway>>()) : new DisabledGateway())
             .AddSingleton(provider => new ControllerAgent(provider.GetRequiredService<IAgentGateway>(), agents.ControllerModel, controllerTimeout))
-            .AddSingleton<LeadPlanner>();
+            .AddSingleton(provider => new LeadPlanner(provider.GetRequiredService<ControllerAgent>(), agents.LeadMaxConcurrent >= 1 ? agents.LeadMaxConcurrent : throw new InvalidOperationException("Agents:LeadMaxConcurrent must be at least 1.")));
         if (storage is SqliteStorage)
         {
             services

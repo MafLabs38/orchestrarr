@@ -22,6 +22,12 @@ public sealed class AgentsOptions
 
     public int ControllerTimeoutSeconds { get; set; } = 180;
 
+    /// <summary>At most this many questions to the lead agent at once: each is a run of the subscription.</summary>
+    public int LeadMaxConcurrent { get; set; } = 2;
+
+    /// <summary>The most rows of one selection that the lead is asked about: each is a run of the subscription, and the validation waits for the answers.</summary>
+    public int LeadMaxRows { get; set; } = 10;
+
     /// <summary>A file with the subscription token, given to the program as an environment variable and never in an argument. Unset: the program uses the login of the user it runs as.</summary>
     public string? TokenFile { get; set; }
 
