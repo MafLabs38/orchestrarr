@@ -143,7 +143,8 @@ public sealed record ProblemRow(
     string? Icon = null,
     string? Source = null,
     IReadOnlyList<CodeLocation>? Locations = null,
-    IReadOnlyList<RepositoryProblem>? Warnings = null);
+    IReadOnlyList<RepositoryProblem>? Warnings = null,
+    string? ParsedChange = null);
 
 /// <summary>What a connected runner accepts, as it reported it. The table never promises more than they would run: with none connected, nothing can be run, and every row says so.</summary>
 public sealed record RunnerAcceptance(IReadOnlyList<TaskKind> Kinds, IReadOnlyList<string> Repositories)
@@ -267,10 +268,12 @@ public static class DecisionTable
                 .OrderByDescending(row => row.At).ToList();
             (ceiling, why, canStop) = WorkshopWord(item, pullRequest, ceiling, why, canStop, runners, mine);
             var change = pullRequest.Changes.Count == 1 ? pullRequest.Changes[0] : null;
-            var description = change is { From: not null, To: not null } ? $"{change.Package} {change.From} → {change.To}" : pullRequest.Title;
+            // What the control plane read from the title (package, from, to), apart from the title itself: only this is a statement of its own
+            var parsedChange = change is { From: not null, To: not null } ? $"{change.Package} {change.From} → {change.To}" : null;
+            var description = parsedChange ?? pullRequest.Title;
             rows.Add(new ProblemRow(
                 $"{PullRequestRowPrefix}{item.RepositoryFullName}#{pullRequest.Number}", item.Id, item.RepositoryFullName, ProblemKind.DependencyUpdate, description,
-                null, null, change?.Kind ?? UpdateKind.Unknown, pullRequest.Checks, pullRequest.Url, pullRequest.Number, pullRequest.HeadSha, ceiling, why, canStop, VerdictOf(mine)));
+                null, null, change?.Kind ?? UpdateKind.Unknown, pullRequest.Checks, pullRequest.Url, pullRequest.Number, pullRequest.HeadSha, ceiling, why, canStop, VerdictOf(mine), ParsedChange: parsedChange));
         }
     }
 
