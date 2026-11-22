@@ -1,5 +1,6 @@
 using Orchestrarr.Core.Accounts;
 using Orchestrarr.Core.Machines;
+using Orchestrarr.Core.Missions;
 using Orchestrarr.Host.Approvals;
 using Orchestrarr.Host.Live;
 
@@ -42,7 +43,7 @@ internal static class MachineEndpoints
             var options = services.GetRequiredService<MissionsOptions>();
             var window = Math.Clamp(hours ?? DefaultWindowHours, 1, MaxWindowHours);
             var now = time.GetUtcNow();
-            var machines = pool.All().Select(machine => ViewOf(machine, options, pool.Transitions(machine.Id), now, window)).ToList();
+            var machines = pool.All().Select(machine => ViewOf(machine, options, pool.Transitions(machine.Id, now.AddHours(-window)), now, window)).ToList();
             return Results.Ok(new MachinesResponse(machines, window));
         }).RequireAuthorization(Permissions.FleetRead);
 
@@ -61,6 +62,11 @@ internal static class MachineEndpoints
             if (services.GetService<MachinePool>() is not { } pool)
             {
                 return Results.NotFound();
+            }
+            // A machine is put out of service only by a failure: a person asks again for one that is down or finished, never for one that is idle or in process
+            if (pool.Get(id) is not { State: MachineState.Down or MachineState.Finished })
+            {
+                return Results.Json(new ErrorResponse("notDownOrFinished"), statusCode: StatusCodes.Status409Conflict);
             }
             var result = pool.BeginQualification(id, $"a qualification asked by {approver.Subject}");
             return result.Ok ? Results.Ok(new { state = result.Machine!.State.ToString() }) : Results.Json(new ErrorResponse(result.Refusal ?? "refused"), statusCode: StatusCodes.Status409Conflict);
@@ -122,11 +128,17 @@ internal static class MachineEndpoints
         return setting is not null && string.Equals(setting.Runner, runnerName(context), StringComparison.Ordinal) ? pool : null;
     }
 
-    internal static bool MayLease(MachinePool pool, MissionsOptions options, string? machine, string runner, Orchestrarr.Core.Missions.Mission mission)
+    /// <summary>Takes the lease of the machine for the mission, if the machine is the runner's, of the role of the world, and Idle. <c>Taken</c>: the lease is new (a claim repeated by the holder keeps what it has).</summary>
+    internal static (bool Leased, bool Taken) TryLeaseFor(MachinePool pool, MissionsOptions options, string? machine, string runner, Mission mission)
     {
-        var role = mission.World == Orchestrarr.Core.Missions.World.Staging ? MachineRole.Staging : MachineRole.Release;
+        var role = mission.World == World.Staging ? MachineRole.Staging : MachineRole.Release;
         var setting = options.Machines.FirstOrDefault(candidate => string.Equals(candidate.Id, machine, StringComparison.Ordinal));
-        return setting is not null && setting.Role == role && string.Equals(setting.Runner, runner, StringComparison.Ordinal) && pool.TryLease(setting.Id, mission.Id).Ok;
+        if (setting is null || setting.Role != role || !string.Equals(setting.Runner, runner, StringComparison.Ordinal))
+        {
+            return (false, false);
+        }
+        var result = pool.TryLease(setting.Id, mission.Id);
+        return (result.Ok, result.Taken);
     }
 
     private static object StateOf(Machine machine) => new { state = machine.State.ToString(), role = machine.Role.ToString(), missionId = machine.MissionId };

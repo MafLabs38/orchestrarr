@@ -53,9 +53,13 @@ public sealed class MachineQualifier(IShell shell, MissionRunnerOptions options)
     {
         var canaries = options.IsolationCanaries;
         var routes = options.RequiredRoutes;
-        // Every address was checked to be host:port in plain characters when the settings were read; nothing else goes into the script
+        // Every address was checked to be host:port in plain characters when the settings were read; nothing else goes into the script.
+        // A connection that gets through is OPEN; one that is refused is OPEN too (something answered: the path is not blocked); only a connection that times out, or finds no route, is CLOSED; anything else (no bash, no timeout, a name
+        // that does not resolve) is ERROR and the probe proves nothing: it never counts as "out of reach"
         var script = "for t in " + string.Join(' ', canaries.Select(address => "C:" + address).Concat(routes.Select(address => "R:" + address))) + "; do kind=${t%%:*}; a=${t#*:}; h=${a%%:*}; p=${a##*:}; "
-            + "if timeout 3 bash -c \"</dev/tcp/$h/$p\" 2>/dev/null; then echo \"OPEN $kind $a\"; else echo \"CLOSED $kind $a\"; fi; done";
+            + "out=$(timeout 3 bash -c \"exec 3<>/dev/tcp/$h/$p\" 2>&1); rc=$?; "
+            + "if [ $rc -eq 0 ]; then echo \"OPEN $kind $a\"; elif [ $rc -eq 124 ]; then echo \"CLOSED $kind $a\"; "
+            + "elif echo \"$out\" | grep -qi 'refused'; then echo \"OPEN $kind $a\"; elif echo \"$out\" | grep -qiE 'no route|unreachable'; then echo \"CLOSED $kind $a\"; else echo \"ERROR $kind $a\"; fi; done";
         ShellResult result;
         try
         {
@@ -66,10 +70,10 @@ public sealed class MachineQualifier(IShell shell, MissionRunnerOptions options)
             return [new MachineCheck("reachable", false, $"the machine could not be reached: {failure.Message}")];
         }
         var lines = result.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        var seen = lines.Select(line => line.Split(' ', 3)).Where(parts => parts.Length == 3 && parts[0] is "OPEN" or "CLOSED").ToList();
-        if (result.ExitCode != 0 || result.TimedOut || seen.Count != canaries.Length + routes.Length)
+        var seen = lines.Select(line => line.Split(' ', 3)).Where(parts => parts.Length == 3 && parts[0] is "OPEN" or "CLOSED" or "ERROR").ToList();
+        if (result.ExitCode != 0 || result.TimedOut || seen.Count != canaries.Length + routes.Length || seen.Any(parts => parts[0] == "ERROR"))
         {
-            return [new MachineCheck("reachable", false, result.TimedOut ? "the probe timed out" : $"the probe did not answer ({Tail(result.Output)})")];
+            return [new MachineCheck("reachable", false, result.TimedOut ? "the probe timed out" : $"the probe could not be run or did not try every address ({Tail(result.Output)}): it proves nothing")];
         }
         var checks = new List<MachineCheck> { new("reachable", true, "answers over ssh") };
         var open = seen.Where(parts => parts[0] == "OPEN" && parts[1] == "C").Select(parts => parts[2]).ToList();

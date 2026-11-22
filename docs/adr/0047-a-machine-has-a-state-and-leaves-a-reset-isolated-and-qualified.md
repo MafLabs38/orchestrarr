@@ -35,3 +35,10 @@ The specification had half of it: a slot status and a restore before reuse (FR-S
 - A new mission on a machine that is not Idle waits, which is the clean-room rule and also what makes two problems at once safe.
 - The qualification can fail for a reason that is nobody's fault (the firewall flag lost by a restore of an old snapshot): the machine goes Down and says why, instead of working open.
 - Not built here: more than two machines, and a machine that is repaired by itself (re-applying the setting). A person or the platform step asks the requalification.
+
+## Trust and limits
+
+- The runner is the platform side: it makes the restore and the probe, and **the control plane takes its report** (it requires the checks `reachable`, `isolation` and, for a staging machine, `restored`, and it cannot see which addresses were tried: the canaries are the runner's configuration). A probe that cannot run, or that gets an answer it does not understand, is not "out of reach": it proves nothing and the machine is not qualified; a refused connection counts as a way out (something answered).
+- The state routes and the request to qualify again are available wherever `Missions:Machines` is configured, a deployment included: they move a state and grant no power over a repository or a machine; the runner restores and checks.
+- The release machine is not restored before its probe: what runs on it could answer the probe falsely. The isolation of that machine is the hypervisor's, and the probe is a check, not a proof against a hostile release.
+- A lease is returned by the runner when its mission ends in any way; the control plane ends it only when the runner gives no sign of life. A heartbeat that is answered "no longer yours" stops the work.

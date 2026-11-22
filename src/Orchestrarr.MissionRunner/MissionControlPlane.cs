@@ -14,24 +14,24 @@ public interface IMissionControlPlane
     Task<ClaimedMission?> ClaimAsync(string world, CancellationToken cancellationToken);
 
     /// <summary>
-    /// The same, for a world that works on a lab machine (ADR 0047): the mission is offered only with a lease on that machine, which must be Idle. By default the machine is ignored (a control plane without machines).
+    /// The same, for a world that works on a lab machine (ADR 0047): the mission is offered only with a lease on that machine, which must be Idle.
     /// </summary>
-    Task<ClaimedMission?> ClaimAsync(string world, string? machine, CancellationToken cancellationToken) => ClaimAsync(world, cancellationToken);
+    Task<ClaimedMission?> ClaimAsync(string world, string? machine, CancellationToken cancellationToken);
 
     /// <summary>The state of a machine that this runner works on, or null when the control plane does not know it.</summary>
-    Task<MachineStateInfo?> MachineStateAsync(string machine, CancellationToken cancellationToken) => Task.FromResult<MachineStateInfo?>(null);
+    Task<MachineStateInfo?> MachineStateAsync(string machine, CancellationToken cancellationToken);
 
-    /// <summary>A sign of life while the machine is held: the lease goes on.</summary>
-    Task MachineHeartbeatAsync(string machine, string missionId, CancellationToken cancellationToken) => Task.CompletedTask;
+    /// <summary>A sign of life while the machine is held: the lease goes on. False when the control plane says that the mission no longer holds the machine (the lease expired or was given back): the work must stop.</summary>
+    Task<bool> MachineHeartbeatAsync(string machine, string missionId, CancellationToken cancellationToken);
 
     /// <summary>The mission is over: the machine is given back (Finished, to be restored and qualified).</summary>
-    Task MachineReleaseAsync(string machine, string missionId, string? reason, CancellationToken cancellationToken) => Task.CompletedTask;
+    Task MachineReleaseAsync(string machine, string missionId, string? reason, CancellationToken cancellationToken);
 
     /// <summary>The restore and the checks of a machine begin.</summary>
-    Task MachineQualifyingAsync(string machine, CancellationToken cancellationToken) => Task.CompletedTask;
+    Task MachineQualifyingAsync(string machine, CancellationToken cancellationToken);
 
     /// <summary>The checks that were made on the machine: Idle if all passed, Down with why if one failed.</summary>
-    Task MachineQualifiedAsync(string machine, IReadOnlyList<MachineCheck> checks, CancellationToken cancellationToken) => Task.CompletedTask;
+    Task MachineQualifiedAsync(string machine, IReadOnlyList<MachineCheck> checks, CancellationToken cancellationToken);
 
     /// <summary>Asks the act gateway to merge the pull request of the mission: the control plane checks the facts itself and merges with its own credential.</summary>
     Task<MissionActResponse> MergeAsync(string missionId, CancellationToken cancellationToken);
@@ -94,25 +94,35 @@ public sealed class MissionControlPlane : IMissionControlPlane
         return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<MachineStateInfo>(MissionWire.Json, cancellationToken) : null;
     }
 
-    public async Task MachineHeartbeatAsync(string machine, string missionId, CancellationToken cancellationToken)
+    public async Task<bool> MachineHeartbeatAsync(string machine, string missionId, CancellationToken cancellationToken)
     {
         using var response = await _http.PostAsJsonAsync($"/api/v1/runner/machines/{Uri.EscapeDataString(machine)}/heartbeat", new { missionId }, MissionWire.Json, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<MachineOk>(MissionWire.Json, cancellationToken))?.Ok ?? false;
     }
 
     public async Task MachineReleaseAsync(string machine, string missionId, string? reason, CancellationToken cancellationToken)
     {
         using var response = await _http.PostAsJsonAsync($"/api/v1/runner/machines/{Uri.EscapeDataString(machine)}/release", new { missionId, reason }, MissionWire.Json, cancellationToken);
+        response.EnsureSuccessStatusCode();
     }
 
     public async Task MachineQualifyingAsync(string machine, CancellationToken cancellationToken)
     {
         using var response = await _http.PostAsync($"/api/v1/runner/machines/{Uri.EscapeDataString(machine)}/qualifying", content: null, cancellationToken);
+        response.EnsureSuccessStatusCode();
     }
 
     public async Task MachineQualifiedAsync(string machine, IReadOnlyList<MachineCheck> checks, CancellationToken cancellationToken)
     {
         using var response = await _http.PostAsJsonAsync($"/api/v1/runner/machines/{Uri.EscapeDataString(machine)}/qualification",
             new { checks = checks.Select(check => new { name = check.Name, passed = check.Passed, detail = check.Detail }) }, MissionWire.Json, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        // The control plane takes the report only from a machine that is being qualified: a report that it refused is said, not lost
+        if ((await response.Content.ReadFromJsonAsync<MachineOk>(MissionWire.Json, cancellationToken))?.Ok != true)
+        {
+            throw new InvalidOperationException($"the control plane did not take the qualification of {machine}");
+        }
     }
 
     public async Task<bool> StartedAsync(string missionId, CancellationToken cancellationToken)
@@ -177,3 +187,5 @@ public sealed class MissionControlPlane : IMissionControlPlane
 
 /// <summary>What the control plane says of a machine of this runner: its state, its role, and the mission that holds it.</summary>
 public sealed record MachineStateInfo(string State, string Role, string? MissionId);
+
+internal sealed record MachineOk(bool Ok);

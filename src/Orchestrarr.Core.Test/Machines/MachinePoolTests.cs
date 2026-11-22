@@ -60,6 +60,15 @@ public sealed class MachinePoolTests
     }
 
     [Fact]
+    public void A_lease_says_whether_it_was_just_taken_and_a_repeated_claim_of_the_holder_takes_nothing_new()
+    {
+        var pool = Qualified();
+
+        pool.TryLease("leipzig", "m1").Taken.Should().BeTrue();
+        pool.TryLease("leipzig", "m1").Taken.Should().BeFalse("the holder asking again keeps what it has: a release for that claim would take a machine that is being worked on");
+    }
+
+    [Fact]
     public void Only_the_holder_gives_a_machine_back()
     {
         var pool = Qualified();
@@ -280,5 +289,16 @@ public sealed class MachineMetricsTests
         stats.InState[MachineState.Idle].Should().Be(TimeSpan.FromMinutes(20));
         stats.InState[MachineState.InProcess].Should().Be(TimeSpan.FromMinutes(30));
         MachineMetrics.Compute([], T0, T0.AddHours(1)).Availability.Should().Be(0);
+    }
+
+    [Fact]
+    public void A_lot_that_began_before_the_window_counts_in_it_for_the_time_it_has_inside()
+    {
+        var transitions = new[] { At(0, MachineState.Idle), At(20, MachineState.InProcess), At(80, MachineState.Finished) };
+
+        var stats = MachineMetrics.Compute(transitions, T0.AddMinutes(50), T0.AddMinutes(100));
+
+        stats.Lots.Should().Be(1);
+        stats.MeanLot.Should().Be(TimeSpan.FromMinutes(30), "the time of the lot that is inside the window, not the whole lot");
     }
 }

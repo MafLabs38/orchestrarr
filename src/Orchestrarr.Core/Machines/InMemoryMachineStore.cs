@@ -43,4 +43,14 @@ public sealed class InMemoryMachineStore : IMachineStore
             return [.. _transitions.Where(transition => transition.MachineId == id)];
         }
     }
+
+    public IReadOnlyList<MachineTransition> Transitions(string id, DateTimeOffset since)
+    {
+        lock (_gate)
+        {
+            var mine = _transitions.Where(transition => transition.MachineId == id).ToList();
+            var first = mine.FindLastIndex(transition => transition.At < since);
+            return first < 0 ? mine : mine.Skip(first).ToList();
+        }
+    }
 }

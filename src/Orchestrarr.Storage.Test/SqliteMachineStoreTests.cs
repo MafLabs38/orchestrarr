@@ -44,4 +44,27 @@ public sealed class SqliteMachineStoreTests : IDisposable
         restarted.Get("leipzig")!.LeaseRenewedAt.Should().Be(T0.AddMinutes(5));
         restarted.Transitions("leipzig").Should().HaveCount(3, "qualifying, idle and in process: a renewal is no transition");
     }
+
+    [Fact]
+    public void A_window_of_the_history_starts_at_the_last_transition_before_it_and_the_two_stores_agree()
+    {
+        var sqlite = new SqliteMachineStore(_file.Open());
+        var memory = new InMemoryMachineStore();
+        var machine = new Machine("leipzig", MachineRole.Staging, MachineState.Idle, T0);
+        MachineState[] states = [MachineState.Qualifying, MachineState.Idle, MachineState.InProcess, MachineState.Finished, MachineState.Qualifying, MachineState.Idle];
+        MachineState? previous = null;
+        for (var index = 0; index < states.Length; index++)
+        {
+            var transition = new MachineTransition("leipzig", previous, states[index], T0.AddMinutes(index * 10), null, null);
+            sqlite.Save(machine with { State = states[index] }, transition);
+            memory.Save(machine with { State = states[index] }, transition);
+            previous = states[index];
+        }
+
+        var window = T0.AddMinutes(25);
+
+        sqlite.Transitions("leipzig", window).Select(transition => transition.To).Should().Equal(MachineState.InProcess, MachineState.Finished, MachineState.Qualifying, MachineState.Idle);
+        memory.Transitions("leipzig", window).Select(transition => transition.To).Should().Equal(sqlite.Transitions("leipzig", window).Select(transition => transition.To));
+        sqlite.Transitions("leipzig", T0.AddDays(-1)).Should().HaveCount(6, "a window that starts before the first transition holds them all");
+    }
 }

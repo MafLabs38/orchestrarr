@@ -32,12 +32,6 @@ public sealed partial class MissionRunnerOptions
     /// </summary>
     public string[] IsolationCanaries { get; set; } = [];
 
-    /// <summary>
-    /// Whether the runner works on a machine only after the control plane has confirmed that this mission holds its lease (ADR 0047). **On by default**: the proof no longer restores the machine itself, so a control plane that does not
-    /// know the machine (no <c>Missions:Machines</c>) would leave the work on what the last job left. Off only for a test.
-    /// </summary>
-    public bool RequireMachineLease { get; set; } = true;
-
     /// <summary>The addresses (<c>host:port</c>) that a lab machine must reach to work: the package registries and the forge.</summary>
     public string[] RequiredRoutes { get; set; } = ["github.com:443", "registry.npmjs.org:443"];
 

@@ -1,9 +1,9 @@
 namespace Orchestrarr.Core.Machines;
 
 /// <summary>What a request on a machine gave: the machine as it is now, or why nothing was done.</summary>
-public sealed record MachineResult(bool Ok, Machine? Machine, string? Refusal)
+public sealed record MachineResult(bool Ok, Machine? Machine, string? Refusal, bool Taken = false)
 {
-    public static MachineResult Done(Machine machine) => new(true, machine, null);
+    public static MachineResult Done(Machine machine, bool taken = false) => new(true, machine, null, taken);
 
     public static MachineResult Refused(Machine? machine, string why) => new(false, machine, why);
 }
@@ -25,6 +25,8 @@ public sealed class MachinePool(IMachineStore store, TimeProvider time, MachineO
     public Machine? Get(string id) => store.Get(id);
 
     public IReadOnlyList<MachineTransition> Transitions(string id) => store.Transitions(id);
+
+    public IReadOnlyList<MachineTransition> Transitions(string id, DateTimeOffset since) => store.Transitions(id, since);
 
     /// <summary>At the start of the control plane: a machine it knows is put to qualify, because a machine is Idle only after a qualification **by this control plane**; one it does not know is created.</summary>
     public Machine Register(string id, MachineRole role)
@@ -75,7 +77,7 @@ public sealed class MachinePool(IMachineStore store, TimeProvider time, MachineO
             else
             {
                 var at = time.GetUtcNow();
-                result = MachineResult.Done(Write(machine, machine with { State = MachineState.InProcess, Since = at, MissionId = missionId, Reason = null, LeaseRenewedAt = at }));
+                result = MachineResult.Done(Write(machine, machine with { State = MachineState.InProcess, Since = at, MissionId = missionId, Reason = null, LeaseRenewedAt = at }), taken: true);
             }
         }
         Changed?.Invoke(result.Machine!);

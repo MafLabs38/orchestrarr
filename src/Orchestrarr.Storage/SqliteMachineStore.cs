@@ -37,7 +37,7 @@ public sealed class SqliteMachineStore(SqliteDatabase database) : IMachineStore
                     using var command = connection.CreateCommand();
                     command.CommandText = "INSERT INTO machine_transitions (machine_id, at, body) VALUES ($machine, $at, $body);";
                     command.Parameters.AddWithValue("$machine", transition.MachineId);
-                    command.Parameters.AddWithValue("$at", transition.At.ToString("O", System.Globalization.CultureInfo.InvariantCulture));
+                    command.Parameters.AddWithValue("$at", transition.At.ToUniversalTime().ToString("O", System.Globalization.CultureInfo.InvariantCulture));
                     command.Parameters.AddWithValue("$body", MissionJson.Write(transition));
                     command.ExecuteNonQuery();
                 }
@@ -52,6 +52,20 @@ public sealed class SqliteMachineStore(SqliteDatabase database) : IMachineStore
         using var command = connection.CreateCommand();
         command.CommandText = "SELECT body FROM machine_transitions WHERE machine_id = $machine ORDER BY id;";
         command.Parameters.AddWithValue("$machine", id);
+        return Read<MachineTransition>(command);
+    });
+
+    public IReadOnlyList<MachineTransition> Transitions(string id, DateTimeOffset since) => SqliteDatabase.Guard(() =>
+    {
+        using var connection = database.ConnectShared();
+        using var command = connection.CreateCommand();
+        // From the last transition before the window (the state at its start) on; the times are ISO 8601 in UTC, which sort as text
+        command.CommandText = """
+            SELECT body FROM machine_transitions WHERE machine_id = $machine AND id >= COALESCE(
+              (SELECT MAX(id) FROM machine_transitions WHERE machine_id = $machine AND at < $since), 0) ORDER BY id;
+            """;
+        command.Parameters.AddWithValue("$machine", id);
+        command.Parameters.AddWithValue("$since", since.ToUniversalTime().ToString("O", System.Globalization.CultureInfo.InvariantCulture));
         return Read<MachineTransition>(command);
     });
 

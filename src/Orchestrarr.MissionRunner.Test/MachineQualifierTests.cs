@@ -100,6 +100,31 @@ public sealed class MachineQualifierTests
     }
 
     [Fact]
+    public async Task A_connection_that_is_refused_counts_as_a_way_out_because_something_answered_and_a_probe_that_could_not_run_proves_nothing()
+    {
+        // The script puts a refusal in the same OPEN as a success (the host answered: the path is not blocked); only a timeout or "no route" is CLOSED
+        var scripts = await Capture(Isolated);
+        var script = scripts[^1];
+        script.Should().Contain("refused").And.Contain("[ $rc -eq 124 ]").And.Contain("ERROR");
+
+        var broken = await new MachineQualifier(Shell("ERROR C 10.0.0.1:22\nCLOSED C 10.0.0.1:5180\nOPEN R registry.example:443\n"), Options()).QualifyAsync("staging-1", restore: true, Ct);
+
+        broken.Single(check => check.Name == "reachable").Passed.Should().BeFalse("an error is not a closed door");
+        broken.Single(check => check.Name == "reachable").Detail.Should().Contain("proves nothing");
+        broken.Should().NotContain(check => check.Name == "isolation");
+    }
+
+    private static async Task<IReadOnlyList<string>> Capture(string probe)
+    {
+        var scripts = new List<string>();
+        var shell = Substitute.For<IShell>();
+        shell.RunAsync("/lab/lab.sh", Arg.Any<IReadOnlyList<string>>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>()).Returns(new ShellResult(0, "back", TimedOut: false));
+        shell.RunAsync("ssh", Arg.Do<IReadOnlyList<string>>(arguments => scripts.Add(arguments[^1])), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>()).Returns(new ShellResult(0, probe, TimedOut: false));
+        await new MachineQualifier(shell, Options()).QualifyAsync("staging-1", restore: true, Ct);
+        return scripts;
+    }
+
+    [Fact]
     public async Task A_release_machine_is_checked_and_never_restored_because_it_keeps_what_it_runs()
     {
         var shell = Shell(Isolated);
@@ -124,8 +149,11 @@ public sealed class MachineQualifierTests
         validate.Should().Throw<InvalidOperationException>().WithMessage("*host:port*");
     }
 
-    private static MissionRunnerWorker Worker(IMissionControlPlane plane, IShell shell, MissionRunnerOptions options) =>
-        new(plane, [new StagingProof(shell, options)], options, NullLogger<MissionRunnerWorker>.Instance, new MachineQualifier(shell, options));
+    private static MissionRunnerWorker Worker(IMissionControlPlane plane, IShell shell, MissionRunnerOptions options)
+    {
+        plane.MachineHeartbeatAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
+        return new MissionRunnerWorker(plane, [new StagingProof(shell, options)], options, NullLogger<MissionRunnerWorker>.Instance, new MachineQualifier(shell, options));
+    }
 
     [Fact]
     public async Task A_mission_takes_its_machine_when_it_is_claimed_and_gives_it_back_and_qualifies_it_when_it_is_over()

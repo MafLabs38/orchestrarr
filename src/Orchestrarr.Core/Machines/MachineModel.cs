@@ -87,6 +87,9 @@ public interface IMachineStore
 
     /// <summary>The transitions of a machine, oldest first.</summary>
     IReadOnlyList<MachineTransition> Transitions(string id);
+
+    /// <summary>The transitions from <paramref name="since"/> on, **and the last one before it** (the state at the start of the window): what the statistics of a window need, without reading the history of the machine for ever.</summary>
+    IReadOnlyList<MachineTransition> Transitions(string id, DateTimeOffset since);
 }
 
 /// <summary>How long a lease lives without a sign of life of its runner. Generous: a long troubleshooting is normal, only a runner that has disappeared must not keep a machine for ever.</summary>

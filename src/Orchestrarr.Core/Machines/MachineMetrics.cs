@@ -46,24 +46,19 @@ public static class MachineMetrics
                 inState[current.To] += length;
                 if (current.To == MachineState.InProcess)
                 {
+                    // A lot is a spell in process that has some time inside the window, whenever it began: the mean is the time in process over those lots
                     lotTime += length;
+                    lots++;
                 }
             }
             // The events are counted when they begin inside the window; a repair is the time of a Down spell that ended inside it
-            if (current.At >= start && current.At <= to)
+            if (current.At >= start && current.At <= to && current.To == MachineState.Down)
             {
-                if (current.To == MachineState.InProcess)
+                downEvents++;
+                if (index + 1 < transitions.Count && transitions[index + 1].At <= to)
                 {
-                    lots++;
-                }
-                if (current.To == MachineState.Down)
-                {
-                    downEvents++;
-                    if (index + 1 < transitions.Count && transitions[index + 1].At <= to)
-                    {
-                        repairTime += transitions[index + 1].At - current.At;
-                        repairs++;
-                    }
+                    repairTime += transitions[index + 1].At - current.At;
+                    repairs++;
                 }
             }
         }

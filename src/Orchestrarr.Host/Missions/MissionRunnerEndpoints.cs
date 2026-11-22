@@ -110,18 +110,23 @@ internal static partial class MissionRunnerEndpoints
                 return Results.Ok(new MissionClaimResponse(null));
             }
             // A mission of a world that works on a lab machine is claimed with a lease on its machine (ADR 0047): one holder, and only an Idle machine. No machine free, the mission waits
-            if (mission.World is World.Staging or World.Release && context.RequestServices.GetService<MachinePool>() is { } pool
-                && !MachineEndpoints.MayLease(pool, context.RequestServices.GetRequiredService<MissionsOptions>(), machine, name, mission))
+            var leaseTaken = false;
+            if (mission.World is World.Staging or World.Release && context.RequestServices.GetService<MachinePool>() is { } pool)
             {
-                return Results.Ok(new MissionClaimResponse(null));
+                var (leased, taken) = MachineEndpoints.TryLeaseFor(pool, context.RequestServices.GetRequiredService<MissionsOptions>(), machine, name, mission);
+                if (!leased)
+                {
+                    return Results.Ok(new MissionClaimResponse(null));
+                }
+                leaseTaken = taken;
             }
             var rework = mission.State == MissionState.Running;
             if (rework && !progress.TakeRework(mission.Id, mission.SendBacks))
             {
-                // Nothing is offered after all: the lease that was just taken is given back, or the machine would be held by a mission that no runner works on
-                if (mission.World is World.Staging or World.Release && context.RequestServices.GetService<MachinePool>() is { } held && machine is not null)
+                // Nothing is offered after all: a lease that was just taken is given back (one that the mission already held is not touched: its runner is working on it)
+                if (leaseTaken && machine is not null)
                 {
-                    held.Release(machine, mission.Id, "the claim offered nothing");
+                    context.RequestServices.GetRequiredService<MachinePool>().Release(machine, mission.Id, "the claim offered nothing");
                 }
                 return Results.Ok(new MissionClaimResponse(null));
             }

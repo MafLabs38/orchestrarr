@@ -56,9 +56,9 @@ public sealed partial class MissionRunnerWorker(IMissionControlPlane controlPlan
             return false;
         }
         // The machine is worked on only if the control plane says that this mission holds it: a control plane that does not know the machine, or that gave it to another, is not a reason to work on what the last job left
-        if (machine is not null && options.RequireMachineLease && !await HoldsLeaseAsync(machine, mission.MissionId, cancellationToken))
+        if (machine is not null && !await HoldsLeaseAsync(machine, mission.MissionId, cancellationToken))
         {
-            LogFailure($"the control plane did not confirm that mission {mission.MissionId} holds {machine}: nothing is done on it (MissionRunner:RequireMachineLease)");
+            LogFailure($"the control plane did not confirm that mission {mission.MissionId} holds {machine}: nothing is done on it");
             return false;
         }
         try
@@ -132,7 +132,11 @@ public sealed partial class MissionRunnerWorker(IMissionControlPlane controlPlan
             while (!work.IsCancellationRequested)
             {
                 await Task.Delay(TimeSpan.FromSeconds(Math.Max(1, options.StopPollSeconds)), work.Token);
-                await HeartbeatAsync(machine, missionId, work.Token);
+                if (!await HeartbeatAsync(machine, missionId, work.Token))
+                {
+                    LogFailure($"the lease of {machine} is gone: the work of mission {missionId} stops");
+                    await work.CancelAsync();
+                }
                 var engaged = await ReadStopAsync(work.Token);
                 unread = engaged is null ? unread + 1 : 0;
                 // A stop that has not been readable for a while is a stop that cannot be confirmed: the work does not go on blind
@@ -160,19 +164,21 @@ public sealed partial class MissionRunnerWorker(IMissionControlPlane controlPlan
     };
 
     // A sign of life while the work goes on, so that the lease is not taken for the lease of a runner that has gone; a heartbeat that fails is lost, not a reason to stop
-    private async Task HeartbeatAsync(string? machine, string missionId, CancellationToken cancellationToken)
+    // Returns false only when the control plane says that the mission no longer holds the machine: the work must stop then (nothing can be handed over safely from a machine that is not ours any more)
+    private async Task<bool> HeartbeatAsync(string? machine, string missionId, CancellationToken cancellationToken)
     {
         if (machine is null)
         {
-            return;
+            return true;
         }
         try
         {
-            await controlPlane.MachineHeartbeatAsync(machine, missionId, cancellationToken);
+            return await controlPlane.MachineHeartbeatAsync(machine, missionId, cancellationToken);
         }
         catch (Exception failure) when (failure is HttpRequestException || (failure is TaskCanceledException && !cancellationToken.IsCancellationRequested))
         {
             LogFailure(failure.Message);
+            return true;
         }
     }
 

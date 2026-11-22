@@ -186,6 +186,19 @@ public sealed class MachineApiTests
     }
 
     [Fact]
+    public async Task A_person_cannot_pull_a_machine_that_is_idle_or_in_process_out_of_service()
+    {
+        using var factory = new MachineFactory();
+        using var runner = Runner(factory, Token);
+        using var person = await SignedIn(factory);
+        await Qualify(runner, "leipzig", passed: true);
+
+        (await person.PostAsync("/api/v1/machines/leipzig/requalify", null, Ct)).StatusCode.Should().Be(HttpStatusCode.Conflict);
+
+        (await MachineOf(person, "leipzig")).GetProperty("state").GetString().Should().Be("Idle");
+    }
+
+    [Fact]
     public async Task Without_machines_in_the_configuration_the_list_is_empty_and_nothing_is_tied_to_a_machine()
     {
         using var factory = new AccountsApiFactory();

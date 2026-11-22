@@ -11,8 +11,13 @@ public sealed class MissionRunnerWorkerTests
     private static ClaimedMission Mission(string world) =>
         new("m1", "p1", "app", world, "Prove it", "example/shop", 7, new string('a', 40), DateTimeOffset.UtcNow.AddHours(1), []);
 
-    private static MissionRunnerWorker Worker(IMissionControlPlane plane, IShell shell, MissionRunnerOptions options) =>
-        new(plane, [new StagingProof(shell, options)], options, NullLogger<MissionRunnerWorker>.Instance);
+    // The control plane of these tests holds the machine for mission m1, as the real one does once it has leased it
+    private static MissionRunnerWorker Worker(IMissionControlPlane plane, IShell shell, MissionRunnerOptions options)
+    {
+        plane.MachineStateAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new MachineStateInfo("InProcess", "Staging", "m1"));
+        plane.MachineHeartbeatAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
+        return new MissionRunnerWorker(plane, [new StagingProof(shell, options)], options, NullLogger<MissionRunnerWorker>.Instance);
+    }
 
     [Fact]
     public async Task With_no_mission_nothing_is_done()
@@ -65,7 +70,7 @@ public sealed class MissionRunnerWorkerTests
         plane.HandOverAsync("m1", Arg.Any<MissionHandOver>(), Arg.Any<CancellationToken>()).Returns(true);
         var shell = Substitute.For<IShell>();
         // No restoring tool: the work is refused inside the proof, and that refusal is handed over like any other dossier
-        var worker = Worker(plane, shell, new MissionRunnerOptions { StagingMachine = "staging-1", RequireMachineLease = false, LabTool = null });
+        var worker = Worker(plane, shell, new MissionRunnerOptions { StagingMachine = "staging-1", LabTool = null });
 
         (await worker.TakeOneAsync(Ct)).Should().BeTrue();
 
@@ -80,7 +85,7 @@ public sealed class MissionRunnerWorkerTests
         plane.StartedAsync("m1", Arg.Any<CancellationToken>()).Returns(true);
         plane.HandOverAsync("m1", Arg.Any<MissionHandOver>(), Arg.Any<CancellationToken>()).Returns(false);
 
-        (await Worker(plane, Substitute.For<IShell>(), new MissionRunnerOptions { StagingMachine = "staging-1", RequireMachineLease = false }).TakeOneAsync(Ct)).Should().BeTrue();
+        (await Worker(plane, Substitute.For<IShell>(), new MissionRunnerOptions { StagingMachine = "staging-1" }).TakeOneAsync(Ct)).Should().BeTrue();
     }
 
     [Fact]
@@ -101,7 +106,7 @@ public sealed class MissionRunnerWorkerTests
             await Task.Delay(Timeout.Infinite, call.ArgAt<CancellationToken>(3));
             return new ShellResult(0, string.Empty, TimedOut: false);
         });
-        var options = new MissionRunnerOptions { StagingMachine = "staging-1", RequireMachineLease = false, LabTool = "/lab/lab.sh", StopPollSeconds = 1, Repositories = ["example/*"] };
+        var options = new MissionRunnerOptions { StagingMachine = "staging-1", LabTool = "/lab/lab.sh", StopPollSeconds = 1, Repositories = ["example/*"] };
 
         (await Worker(plane, shell, options).TakeOneAsync(Ct)).Should().BeTrue();
 
@@ -127,7 +132,7 @@ public sealed class MissionRunnerWorkerTests
             await Task.Delay(Timeout.Infinite, call.ArgAt<CancellationToken>(3));
             return new ShellResult(0, string.Empty, TimedOut: false);
         });
-        var options = new MissionRunnerOptions { StagingMachine = "staging-1", RequireMachineLease = false, LabTool = "/lab/lab.sh", StopPollSeconds = 1, Repositories = ["example/*"] };
+        var options = new MissionRunnerOptions { StagingMachine = "staging-1", LabTool = "/lab/lab.sh", StopPollSeconds = 1, Repositories = ["example/*"] };
 
         (await Worker(plane, shell, options).TakeOneAsync(Ct)).Should().BeTrue();
 
@@ -152,7 +157,7 @@ public sealed class MissionRunnerWorkerTests
             await Task.Delay(Timeout.Infinite, call.ArgAt<CancellationToken>(3));
             return new ShellResult(0, string.Empty, TimedOut: false);
         });
-        var options = new MissionRunnerOptions { StagingMachine = "staging-1", RequireMachineLease = false, LabTool = "/lab/lab.sh", StopPollSeconds = 1, StopReadFailuresAllowed = 2, Repositories = ["example/*"] };
+        var options = new MissionRunnerOptions { StagingMachine = "staging-1", LabTool = "/lab/lab.sh", StopPollSeconds = 1, StopReadFailuresAllowed = 2, Repositories = ["example/*"] };
 
         (await Worker(plane, shell, options).TakeOneAsync(Ct)).Should().BeTrue();
 
@@ -171,7 +176,7 @@ public sealed class MissionRunnerWorkerTests
         var shell = Substitute.For<IShell>();
         shell.RunAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>()).Returns(new ShellResult(0, string.Empty, TimedOut: false));
 
-        var work = () => Worker(plane, shell, new MissionRunnerOptions { StagingMachine = "staging-1", RequireMachineLease = false, LabTool = "/lab/lab.sh", Repositories = ["example/*"] }).TakeOneAsync(Ct);
+        var work = () => Worker(plane, shell, new MissionRunnerOptions { StagingMachine = "staging-1", LabTool = "/lab/lab.sh", Repositories = ["example/*"] }).TakeOneAsync(Ct);
 
         await work.Should().ThrowAsync<TaskCanceledException>("it is the loop of the runner that says why, not the stop");
         await plane.DidNotReceive().ProgressAsync("m1", Arg.Is<string>(line => line.Contains("global stop", StringComparison.Ordinal)), Arg.Any<CancellationToken>());
@@ -185,7 +190,7 @@ public sealed class MissionRunnerWorkerTests
         plane.StartedAsync("m1", Arg.Any<CancellationToken>()).Returns(true);
         plane.HandOverAsync("m1", Arg.Any<MissionHandOver>(), Arg.Any<CancellationToken>()).Returns(_ => Task.FromException<bool>(new HttpRequestException("reset")), _ => Task.FromResult(true));
 
-        (await Worker(plane, Substitute.For<IShell>(), new MissionRunnerOptions { StagingMachine = "staging-1", RequireMachineLease = false, PollSeconds = 1 }).TakeOneAsync(Ct)).Should().BeTrue();
+        (await Worker(plane, Substitute.For<IShell>(), new MissionRunnerOptions { StagingMachine = "staging-1", PollSeconds = 1 }).TakeOneAsync(Ct)).Should().BeTrue();
 
         await plane.Received(2).HandOverAsync("m1", Arg.Any<MissionHandOver>(), Arg.Any<CancellationToken>());
     }
@@ -193,13 +198,13 @@ public sealed class MissionRunnerWorkerTests
     [Fact]
     public void The_options_name_what_is_missing_and_refuse_a_machine_that_is_not_an_alias()
     {
-        var ready = () => new MissionRunnerOptions { ControlPlaneUrl = new Uri("http://127.0.0.1:5180"), Token = "t", StagingMachine = "staging-1", RequireMachineLease = false, LabTool = "/lab/lab.sh" }.Validate();
+        var ready = () => new MissionRunnerOptions { ControlPlaneUrl = new Uri("http://127.0.0.1:5180"), Token = "t", StagingMachine = "staging-1", LabTool = "/lab/lab.sh" }.Validate();
         ready.Should().NotThrow();
-        var noUrl = () => new MissionRunnerOptions { Token = "t", StagingMachine = "staging-1", RequireMachineLease = false, LabTool = "/lab/lab.sh" }.Validate();
+        var noUrl = () => new MissionRunnerOptions { Token = "t", StagingMachine = "staging-1", LabTool = "/lab/lab.sh" }.Validate();
         noUrl.Should().Throw<InvalidOperationException>().WithMessage("*ControlPlaneUrl*");
         var noMachine = () => new MissionRunnerOptions { ControlPlaneUrl = new Uri("http://127.0.0.1:5180"), Token = "t", LabTool = "/lab/lab.sh" }.Validate();
         noMachine.Should().Throw<InvalidOperationException>().WithMessage("*StagingMachine*");
-        var noTool = () => new MissionRunnerOptions { ControlPlaneUrl = new Uri("http://127.0.0.1:5180"), Token = "t", StagingMachine = "staging-1", RequireMachineLease = false }.Validate();
+        var noTool = () => new MissionRunnerOptions { ControlPlaneUrl = new Uri("http://127.0.0.1:5180"), Token = "t", StagingMachine = "staging-1" }.Validate();
         noTool.Should().Throw<InvalidOperationException>().WithMessage("*LabTool*");
         var injected = () => new MissionRunnerOptions { ControlPlaneUrl = new Uri("http://127.0.0.1:5180"), Token = "t", StagingMachine = "a; rm -rf ~", LabTool = "/lab/lab.sh" }.Validate();
         injected.Should().Throw<InvalidOperationException>().WithMessage("*alias*");
@@ -213,7 +218,7 @@ public sealed class MissionRunnerWorkerTests
     [InlineData("http://8.8.8.8", false)]
     public void The_token_goes_over_plain_http_only_inside_the_local_network(string url, bool accepted)
     {
-        var options = new MissionRunnerOptions { ControlPlaneUrl = new Uri(url), Token = "t", StagingMachine = "staging-1", RequireMachineLease = false };
+        var options = new MissionRunnerOptions { ControlPlaneUrl = new Uri(url), Token = "t", StagingMachine = "staging-1" };
 
         var make = () => new MissionControlPlane(new HttpClient(), options);
 
