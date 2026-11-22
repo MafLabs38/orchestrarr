@@ -1,6 +1,6 @@
 # The case grid: what decides that the work is finished
 
-> **Status**: v0.1 (2026-11-22). This grid is the definition of done of the product, set by the maintainer: the work is finished when every case of [USE-CASES.md](USE-CASES.md) is **ticked for real**. It is updated by every pull request that moves a case. Where a status is not verified, it says so.
+> **Status**: v0.1 (2026-11-22). This grid is the definition of done of the product, set by the maintainer: the work is finished when every case of [USE-CASES.md](USE-CASES.md) is **ticked for real** (D-99, [ADR 0045](adr/0045-a-case-is-ticked-by-a-replayable-scenario.md)). It is updated by every pull request that moves a case. Where a status is not verified, it says so.
 
 ## What "ticked" means
 
@@ -47,7 +47,7 @@ A demonstration played once by hand proves that a path exists, not that the case
 - **Only the pull request is actionable.** Every row that is not a pull request is created with `Ceiling.NoAction` ([DecisionTable.cs](../src/Orchestrarr.Core/Decisions/DecisionTable.cs)): alerts, exposed secrets, failing CI, outdated and floating images, dormant repositories can be read and cannot be ticked. Cases 03, 04, 05, 08, 09 and 13 need a path from such a row to a mission.
 - **The repair policy is narrower than the cases.** The worker agent may not touch tests, dependencies, the build or the pipelines (ADR 0044). Cases 03, 04, 05 and 09 are changes to a dependency, a Dockerfile or a compose file. The policy has to be widened case by case, with the environment still enforcing the frame (ADR 0035).
 - **The sandbox is replayable now.** `develop` cannot be force-pushed (the repository rules are the same as a real project's, and stay), so a reset restores the seed tree **through a pull request**, and the faults are planted by the lab itself, not waited for from a bot. A bot's pull requests are never closed by the lab (a closed one is not opened again), and the bot opens new ones when `develop` goes back: a scenario names its own pull request by what it planted.
-- **What the first replays found.** The table keeps what it read for five minutes, so after a reset it still offered closed pull requests, and the merge was refused on them (405, 409): the runner now asks for a fresh reading and waits until the table shows exactly the pull requests it planted. This is a property of the product to keep in mind for the cases that follow.
+- **What the first replays found.** The table keeps what it read for five minutes, so after a reset it still offered closed pull requests, and the merge was refused on them (405, 409): the runner now asks for a fresh reading and waits until the table shows the pull requests it planted. Nothing was merged on a closed pull request (the forge refused), so the failure is safe, but a row that cannot be acted on is offered for up to five minutes: to settle with the cases that follow (07, many pull requests at once, will meet it harder).
 - **Not yet built at all**: grouping and ordering (07), the report and the mail (14 and the complex marking), the cases that need more lab (11, 12, 18, 19).
 
 ## Order of work

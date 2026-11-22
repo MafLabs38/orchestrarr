@@ -9,7 +9,18 @@
       "package": "lodash",
       "version": "4.17.21",
       "title": "build(deps): Bump lodash from 4.17.4 to 4.17.21",
-      "body": "A safe patch bump of a library, as a bot would open it."
+      "body": "A safe patch bump of a library, as a bot would open it.",
+      "from": "4.17.4"
+    },
+    {
+      "repo": "shop-api",
+      "branch": "lab/case-01-decoy-minimist",
+      "kind": "npm-bump",
+      "package": "minimist",
+      "from": "0.0.8",
+      "version": "1.2.8",
+      "title": "build(deps): Bump minimist from 0.0.8 to 1.2.8",
+      "body": "A second bump that nobody validates: it must stay open (nothing is merged without an explicit approval)."
     }
   ],
   "expect": {
@@ -18,6 +29,11 @@
         "repo": "shop-api",
         "branch": "lab/case-01-lodash",
         "state": "MERGED"
+      },
+      {
+        "repo": "shop-api",
+        "branch": "lab/case-01-decoy-minimist",
+        "state": "OPEN"
       }
     ]
   },
