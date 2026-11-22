@@ -18,7 +18,7 @@ A demonstration played once by hand proves that a path exists, not that the case
 
 | Case | What the table does today | Planted in the sandbox | Replayable scenario | Status |
 |---|---|---|---|---|
-| 01 Routine bump | Row bound to a pull request, selectable | Real Dependabot pull requests (consumed by the earlier runs) | no | **manual**: staging, controller, merge, deploy and check proven on `shop-api` |
+| 01 Routine bump | Row bound to a pull request, selectable | `lab/scenarios/CASE-01.json`: a lodash patch bump on `shop-api` | **yes** (`lab/e2e/run-scenario.cjs`) | **ticked** (2026-11-22): reset, plant, sign in, refresh, tick, validate; staging, controller, merge, release; the pull request is read as merged on the forge; reset again |
 | 02 Deprecated API, code must change | A failing pull request goes to *Repair* | Express 5 bump (`shop-api`) | no | **manual**: repaired once by the worker agent, carried into a pull request, merged |
 | 03 Security advisory | Row shown, **not selectable** (`NoAction`) | Vulnerable pins exist; no case with and without a fixed version | no | open |
 | 04 Newer image | Row shown, **not selectable** | Old images in `edge-stack` | no | open |
@@ -40,13 +40,14 @@ A demonstration played once by hand proves that a path exists, not that the case
 | 20 Staging proved healthy first | not verified | none | no | open, not verified |
 | 21 GitOps and write credentials | a workflow change is refused by the controller | none | no | **manual**, in part |
 
-**Ticked: 0 of 21.** Played by hand in whole or in part: 01, 02, 06, 14, 15, 21.
+**Ticked: 1 of 21** (01). Played by hand in whole or in part: 02, 06, 14, 15, 21.
 
 ## What the grid shows about the structure
 
 - **Only the pull request is actionable.** Every row that is not a pull request is created with `Ceiling.NoAction` ([DecisionTable.cs](../src/Orchestrarr.Core/Decisions/DecisionTable.cs)): alerts, exposed secrets, failing CI, outdated and floating images, dormant repositories can be read and cannot be ticked. Cases 03, 04, 05, 08, 09 and 13 need a path from such a row to a mission.
 - **The repair policy is narrower than the cases.** The worker agent may not touch tests, dependencies, the build or the pipelines (ADR 0044). Cases 03, 04, 05 and 09 are changes to a dependency, a Dockerfile or a compose file. The policy has to be widened case by case, with the environment still enforcing the frame (ADR 0035).
-- **The sandbox cannot be replayed.** The merged runs consumed the green pull requests, and `develop` cannot be force-pushed (the repository rules are the same as a real project's, and stay). A reset therefore restores the seed tree **through a pull request**, and the faults are planted by the lab itself, not waited for from a bot.
+- **The sandbox is replayable now.** `develop` cannot be force-pushed (the repository rules are the same as a real project's, and stay), so a reset restores the seed tree **through a pull request**, and the faults are planted by the lab itself, not waited for from a bot. A bot's pull requests are never closed by the lab (a closed one is not opened again), and the bot opens new ones when `develop` goes back: a scenario names its own pull request by what it planted.
+- **What the first replays found.** The table keeps what it read for five minutes, so after a reset it still offered closed pull requests, and the merge was refused on them (405, 409): the runner now asks for a fresh reading and waits until the table shows exactly the pull requests it planted. This is a property of the product to keep in mind for the cases that follow.
 - **Not yet built at all**: grouping and ordering (07), the report and the mail (14 and the complex marking), the cases that need more lab (11, 12, 18, 19).
 
 ## Order of work

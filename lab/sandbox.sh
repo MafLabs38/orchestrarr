@@ -4,6 +4,7 @@
 #   lab/sandbox.sh status [repo...]     what differs from the seed, the open pull requests
 #   lab/sandbox.sh mark-seed <repo> <ref>   mark a commit as the seed of a repository (tag "lab-seed")
 #   lab/sandbox.sh reset [repo...]      close the open pull requests, delete the work branches, restore the seed tree
+#   lab/sandbox.sh plant <scenario.json> plant the faults of a scenario: a branch and a pull request for each (lab/scenarios/)
 #
 # The repository rules stay what they are (pull request required, no force push): the seed tree is restored by a pull request
 # that goes through the same checks as any other, never by rewriting history. Nothing here is a secret: the token comes from
@@ -122,9 +123,39 @@ cmd_reset() {
   return $failed
 }
 
+# A scenario lists faults to plant: {"plants": [{"repo", "branch", "title", "body", "kind": "npm-bump"|"patch", ...}]}
+#   npm-bump: "package", "version"  (the lock file follows)        patch: "patch" (a file next to the scenario, applied with git apply)
+plant_one() {
+  local scenario="$1" index="$2" dir; local item; item=$(jq -c ".plants[$index]" "$scenario")
+  local repo branch title body kind
+  repo=$(jq -r .repo <<<"$item"); branch=$(jq -r .branch <<<"$item"); title=$(jq -r .title <<<"$item")
+  body=$(jq -r '.body // "Planted by the lab."' <<<"$item"); kind=$(jq -r .kind <<<"$item")
+  dir=$(clone "$repo")
+  git -C "$dir" push -q origin --delete "$branch" 2>/dev/null || true
+  git -C "$dir" checkout -q -B "$branch" "origin/$BASE"
+  case "$kind" in
+    npm-bump)
+      (cd "$dir" && npm install --package-lock-only --save-exact --ignore-scripts --no-audit --no-fund "$(jq -r .package <<<"$item")@$(jq -r .version <<<"$item")" >/dev/null) ;;
+    patch)
+      git -C "$dir" apply "$(dirname "$scenario")/$(jq -r .patch <<<"$item")" ;;
+    *) echo "unknown kind $kind" >&2; return 1 ;;
+  esac
+  git -C "$dir" add -A
+  git -C "$dir" -c user.name="lab" -c user.email="lab@users.noreply.github.com" commit -q -m "$title"
+  git -C "$dir" push -q -f origin "$branch"
+  local pr; pr=$(gh pr create -R "$ORG/$repo" --base "$BASE" --head "$branch" --title "$title" --body "$body" | grep -oE '[0-9]+$')
+  echo "$repo: planted #$pr ($title)"
+}
+
+cmd_plant() {
+  local scenario="$1" n; n=$(jq '.plants | length' "$scenario")
+  for i in $(seq 0 $((n - 1))); do plant_one "$scenario" "$i"; done
+}
+
 case "${1:-}" in
   status) shift; cmd_status "$@" ;;
   mark-seed) shift; [ $# -eq 2 ] || { echo "usage: mark-seed <repo> <ref>" >&2; exit 2; }; cmd_mark_seed "$@" ;;
   reset) shift; cmd_reset "$@" ;;
-  *) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+  plant) shift; [ $# -eq 1 ] || { echo "usage: plant <scenario.json>" >&2; exit 2; }; cmd_plant "$1" ;;
+  *) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac
