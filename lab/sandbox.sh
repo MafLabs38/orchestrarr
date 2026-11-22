@@ -98,7 +98,8 @@ cmd_mark_seed() {
 close_pull_requests() {
   local repo="$1"
   # A closed bot pull request is never opened again by the bot: only the pull requests of the lab and of the agents are closed
-  for n in $(gh pr list -R "$ORG/$repo" --state open --json number,author | jq -r --arg re "$BOT_AUTHORS" '.[] | select(.author.login | test($re) | not) | .number'); do
+  local numbers; mapfile -t numbers < <(gh pr list -R "$ORG/$repo" --state open --json number,author | jq -r --arg re "$BOT_AUTHORS" '.[] | select(.author.login | test($re) | not) | .number')
+  for n in "${numbers[@]}"; do
     gh pr close "$n" -R "$ORG/$repo" -c "Lab reset: the repository goes back to its seed." >/dev/null
   done
 }
@@ -178,6 +179,7 @@ plant_one() {
   valid_name "$repo"; valid_name "$branch"
   case "$branch" in "$BASE"|main|HEAD) echo "refused: a scenario never plants on $branch" >&2; return 1 ;; esac
   dir=$(clone "$repo")
+  has_seed "$dir" || { echo "$repo: no seed, the lab does not plant here" >&2; return 1; }
   delete_branch "$dir" "$branch"
   git -C "$dir" checkout -q -B "$branch" "origin/$BASE"
   case "$kind" in
@@ -186,8 +188,9 @@ plant_one() {
       package=$(jq -r .package <<<"$item"); from=$(jq -r .from <<<"$item"); to=$(jq -r .version <<<"$item")
       current=$(jq -r --arg p "$package" '(.dependencies[$p] // .devDependencies[$p] // "")' "$dir/package.json")
       [ "$current" = "$from" ] || { echo "$repo: $package is $current in the seed, the scenario says $from" >&2; return 1; }
-      # npm reads the .npmrc of the repository, which may expand environment variables: it gets none of the lab's credentials
-      (cd "$dir" && env -u GH_TOKEN -u GITHUB_TOKEN -u LAB_GIT_TOKEN npm install --package-lock-only --save-exact --ignore-scripts --no-audit --no-fund "$package@$to" >/dev/null) ;;
+      # npm reads the .npmrc of the repository, which may expand environment variables: it runs with an empty environment, none of the lab's credentials
+      mkdir -p "$WORK/.npm-home"
+      (cd "$dir" && env -i PATH="$PATH" HOME="$WORK/.npm-home" npm install --package-lock-only --save-exact --ignore-scripts --no-audit --no-fund "$package@$to" >/dev/null) ;;
     patch)
       local patch; patch=$(jq -r .patch <<<"$item"); valid_name "$patch"
       git -C "$dir" apply "$(dirname "$scenario")/$patch" ;;

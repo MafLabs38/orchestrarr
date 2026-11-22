@@ -72,18 +72,24 @@ async function waitForPlantedRows(page, planted) {
 }
 
 async function tickAndValidate(page) {
+  let selectionOk = true;
   for (const pattern of scenario.tick ?? []) {
+    // the table fills in after the page has loaded
+    await page.waitForFunction((text) => document.body.innerText.includes(text), pattern, { timeout: 60000 }).catch(() => {});
     const row = page.locator('tbody tr', { hasText: pattern }).first();
     const matching = await page.locator('tbody tr', { hasText: pattern }).count();
     expect(matching === 1, `the table lists exactly one problem with "${pattern}" (lists ${matching})`);
-    if (matching > 0) await row.getByRole('checkbox').first().check();
+    if (matching === 1) await row.getByRole('checkbox').first().check(); else selectionOk = false;
   }
+  // a wrong or partial selection is never validated: it would start a real chain that the scenario cannot judge
+  if (!selectionOk) return false;
   await page.getByRole('button', { name: UI.validate }).click();
   const started = page.getByText(UI.started).first();
   await started.waitFor({ timeout: 30000 }).catch(() => {});
   const answer = (await started.innerText().catch(() => '')) || '(no answer)';
   console.log('answer:', answer);
   expect(/started/.test(answer) && !/Nothing was started/.test(answer), 'the validation started the problem');
+  return true;
 }
 
 // Follows the missions this validation created until the expected pull requests are in their final state and released, or one ends
@@ -106,17 +112,17 @@ async function followMissions(page, known) {
 }
 
 (async () => {
-  // 1 and 2. the sandbox goes back to its seed, and the faults of the scenario are planted
-  let planted = [];
-  if (setup) {
-    console.log(sandbox('reset', ...repos));
-    const output = sandbox('plant', scenarioPath);
-    console.log(output);
-    planted = [...output.matchAll(/planted #(\d+)/g)].map((m) => Number(m[1]));
-  }
-
   let browser;
   try {
+    // 1 and 2. the sandbox goes back to its seed, and the faults of the scenario are planted
+    let planted = [];
+    if (setup) {
+      console.log(sandbox('reset', ...repos));
+      const output = sandbox('plant', scenarioPath);
+      console.log(output);
+      planted = [...output.matchAll(/planted #(\d+)/g)].map((m) => Number(m[1]));
+    }
+
     browser = await chromium.launch({ headless: true });
     const page = await (await browser.newContext({ viewport: { width: 1700, height: 1000 } })).newPage();
     const problems = [];
@@ -133,10 +139,10 @@ async function followMissions(page, known) {
       const shown = await waitForPlantedRows(page, planted);
       expect(shown, `the table shows the planted pull requests (${planted.map((n) => '#' + n).join(', ')})`);
     }
-    await tickAndValidate(page);
-
-    // 4. the missions go on, and the final state is read from the forge, not from the interface
-    await followMissions(page, known);
+    if (await tickAndValidate(page)) {
+      // 4. the missions go on, and the final state is read from the forge, not from the interface
+      await followMissions(page, known);
+    }
     for (const want of scenario.expect?.pullRequests ?? []) {
       const state = prState(want.repo, want.branch);
       expect(state === want.state, `${want.repo} ${want.branch} is ${want.state} (is ${state})`);

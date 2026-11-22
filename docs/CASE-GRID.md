@@ -9,7 +9,7 @@ A case is ticked only when its **scenario** runs without anyone, from a sandbox 
 1. the sandbox is reset to its seed (`lab/sandbox.sh reset`, see [lab/README.md](../lab/README.md));
 2. the fault of the case is planted (`lab/sandbox.sh plant <case>`);
 3. the fake Portarr lists the problem and the interface is driven the way the maintainer drives it (sign in, tick the row, validate);
-4. the final state is checked by a program (the pull request merged or closed, the file changed, the deployment answering, the mail sent, the audit trail), not by eye;
+4. the final state is checked by a program, not by eye: what the forge says (the pull request merged or closed, the file changed) and what the missions say; the health of the deployed application is read by the release world's own verification, and an independent read of it, of the mail and of the audit trail is added with the cases that need them;
 5. the sandbox is reset again.
 
 A demonstration played once by hand proves that a path exists, not that the case is handled; it is marked *manual* below and does not tick the case. A case that cannot resolve is a defect of the product (USE-CASES §4).
