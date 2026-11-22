@@ -6,7 +6,7 @@
 
 ## Context
 
-The first verticals were cut around one demonstration (a bot's dependency bump), and the other families of problems were left to the end. Looking at the 21 cases of USE-CASES, two were proven, by hand, once. **The maintainer decided in the chat of 2026-11-22** that the table of the cases is what says whether the work is finished: the fake Portarr must reproduce every case, and every box must be ticked for real. He does not want to test or to be asked along the way; he is consulted for a major architecture change, to validate a pull request and for a serious finding of the security agent.
+The first verticals were cut around one demonstration (a bot's dependency bump), and the other families of problems were left to the end. Looking at the 21 cases of USE-CASES, two were proven, by hand, once. **The maintainer decided in the chat of 2026-11-22** that the table of the cases is what says whether the work is finished: the fake Portarr must reproduce every case, and every box must be ticked for real. He does not want to test or to be asked along the way; he is consulted for a major architecture change, to validate a pull request and for a serious finding of the review agents (CLAUDE.md rule 13).
 
 Two things made a case impossible to replay: the pull requests that a bot opens are consumed by a run (and a closed one is never opened again), and the repositories of the test bed follow the rules of a real project (a pull request is required, no force push), so `develop` cannot be put back by rewriting it.
 
@@ -21,6 +21,6 @@ Two things made a case impossible to replay: the pull requests that a bot opens 
 ## Consequences
 
 - The work is organised in lots of cases that share a mechanism, one pull request at a time; the order is in the grid.
-- A scenario can find a defect of the product (the first replays found that the table offers, for up to five minutes, pull requests closed since): it is written in the grid and fixed with the case that needs it.
+- A scenario can find a defect of the product (the first replays found that the table offers, until its next fresh reading and for up to five minutes, pull requests closed since): it is written in the grid and fixed with the case that needs it.
 - The runner needs a live test bed and runs by hand, not in CI.
-- The replays found, besides the stale rows of the table, a defect of the controller: it received the whole problem in every world and sometimes asked the Git world for the health of the release, which only the release world produces, and refused a good merge. Its prompt now says what each world proves (staging: built and tested; Git: merged with green pipelines; release: deployed and healthy). The judging rule of the controller (ADR 0032) is unchanged otherwise.
+- The replays found, besides the stale rows of the table, a defect of the controller: it received the whole problem in every world and sometimes asked the Git world for the health of the release, which only the release world produces, and refused a good merge. The conductor now tells each world its own part of the problem (a pull request is named by its number and repository, and the Git world is told that nothing is released at its stage), and the controller's prompt says that a world is judged on its own objective and never asked for what a later world produces. The judging rule of the controller (ADR 0032) is unchanged otherwise.

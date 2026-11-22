@@ -66,14 +66,11 @@ public sealed class ControllerAgentTests
     }
 
     [Fact]
-    public void Each_world_is_judged_on_its_own_part_of_the_objective()
+    public void A_world_is_judged_on_its_own_objective_and_never_asked_for_what_a_later_world_produces()
     {
         var prompt = new ControllerAgent(new FakeGateway(string.Empty), "m", TimeSpan.FromMinutes(1)).Build(Input()).SystemPrompt;
 
-        // The objective quotes the whole problem; a world is never asked for what a later world produces (the release health in the Git world)
-        prompt.Should().Contain("never ask a world for what a later world produces")
-            .And.Contain("- Staging:").And.Contain("- Git:").And.Contain("- Release:")
-            .And.Contain("\"health: not read\" is normal here");
+        prompt.Should().Contain("never ask a world for what a later world produces").And.Contain("\"health: not read\" is normal everywhere else");
     }
 
     [Fact]

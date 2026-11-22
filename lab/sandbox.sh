@@ -17,6 +17,8 @@
 # LAB_BOT_AUTHORS (^app/(dependabot|renovate)$: the authors whose pull requests are left alone, a closed one is never opened again),
 # LAB_BOT_BRANCHES (^(dependabot|renovate)/: the branches that are left alone with them).
 set -euo pipefail
+# command substitutions keep set -e (clone, wait_checks...); a function run on the left of || would lose it, so a repository is reset by a process of its own
+shopt -s inherit_errexit
 
 ORG="${LAB_ORG:?set LAB_ORG to the test-bed organisation}"
 BASE="${LAB_BASE_BRANCH:-develop}"
@@ -60,7 +62,8 @@ lab_commit() { git -C "$1" -c user.name="lab" -c user.email="lab@users.noreply.g
 # The seed of a repository is pinned in lab/seeds.json (repository -> commit): the tag of the remote is only where the commit is fetched from.
 # A moved tag, or a repository that is not pinned, is no seed: nothing is restored or planted there.
 SEEDS_FILE="${LAB_SEEDS_FILE:-$HERE/seeds.json}"
-pinned_seed() { jq -r --arg r "$1" '.[$r] // empty' "$SEEDS_FILE" 2>/dev/null; }
+pinned_seed() { jq -r --arg r "$1" '.[] | select(.repository == $r) | .seed' "$SEEDS_FILE" 2>/dev/null; }
+pinned_repositories() { jq -r '.[].repository' "$SEEDS_FILE"; }
 has_seed() {
   local dir="$1" repo="$2" pin tag
   pin=$(pinned_seed "$repo"); [ -n "$pin" ] || return 1
@@ -85,7 +88,7 @@ delete_branch() {
 }
 
 cmd_status() {
-  local repos=("$@"); [ ${#repos[@]} -gt 0 ] || mapfile -t repos < <(jq -r 'keys[]' "$SEEDS_FILE")
+  local repos=("$@"); [ ${#repos[@]} -gt 0 ] || mapfile -t repos < <(pinned_repositories)
   for repo in "${repos[@]}"; do
     local dir; dir=$(clone "$repo")
     if ! has_seed "$dir" "$repo"; then echo "$repo: no seed (pin one with mark-seed)"; continue; fi
@@ -100,7 +103,7 @@ cmd_mark_seed() {
   git -C "$dir" tag -f lab-seed "$ref"
   git -C "$dir" push -q --force origin refs/tags/lab-seed
   local sha; sha=$(git -C "$dir" rev-parse "lab-seed^{commit}")
-  local tmp; tmp=$(mktemp); jq --arg r "$repo" --arg s "$sha" '.[$r] = $s' "$SEEDS_FILE" > "$tmp" && mv "$tmp" "$SEEDS_FILE"
+  local tmp; tmp=$(mktemp); jq --arg r "$repo" --arg s "$sha" 'map(select(.repository != $r)) + [{repository: $r, seed: $s}]' "$SEEDS_FILE" > "$tmp" && mv "$tmp" "$SEEDS_FILE"
   echo "$repo: seed is now ${sha:0:7}, pinned in $SEEDS_FILE (commit that file)"
 }
 
@@ -170,10 +173,10 @@ reset_one() {
 
 cmd_reset() {
   local repos=("$@")
-  if [ "${repos[0]:-}" = "--all" ]; then mapfile -t repos < <(jq -r 'keys[]' "$SEEDS_FILE"); fi
+  if [ "${repos[0]:-}" = "--all" ]; then mapfile -t repos < <(pinned_repositories); fi
   [ ${#repos[@]} -gt 0 ] || { echo "usage: reset <repo...> | --all" >&2; return 2; }
   local failed=0
-  for repo in "${repos[@]}"; do reset_one "$repo" || failed=1; done
+  for repo in "${repos[@]}"; do "$0" reset-one "$repo" || failed=1; done
   return $failed
 }
 
@@ -221,6 +224,7 @@ case "${1:-}" in
   status) shift; cmd_status "$@" ;;
   mark-seed) shift; [ $# -eq 2 ] || { echo "usage: mark-seed <repo> <ref>" >&2; exit 2; }; cmd_mark_seed "$@" ;;
   reset) shift; cmd_reset "$@" ;;
+  reset-one) shift; reset_one "$1" ;;  # one repository, in a process of its own so that set -e applies to every step
   plant) shift; [ $# -eq 1 ] || { echo "usage: plant <scenario.json>" >&2; exit 2; }; cmd_plant "$1" ;;
   *) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac

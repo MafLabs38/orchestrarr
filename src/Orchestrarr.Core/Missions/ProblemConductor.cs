@@ -450,10 +450,17 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
 
     private static string Text(FormattableString text) => text.ToString(CultureInfo.InvariantCulture);
 
-    private static string ObjectiveOf(World world, PlanEntry entry) => world switch
+    // Each world is told its own part of the problem, and only that: a controller or a worker that reads "merge it and verify the release" in the Git world
+    // asks it for what the release world produces. A pull request is named by its number and repository (trusted values); another problem is quoted whole.
+    private static string ObjectiveOf(World world, PlanEntry entry)
     {
-        World.Staging => entry.Objective,
-        World.Git => $"The change for \"{entry.Objective}\" is merged into the integration branch with every pipeline green.",
-        _ => $"The change for \"{entry.Objective}\" runs in production and is verified.",
-    };
+        if (world == World.Staging)
+        {
+            return entry.Objective;
+        }
+        var change = entry.PullRequest is { } number && entry.Repositories.Count == 1 ? Text($"pull request #{number} of {entry.Repositories[0]}") : Text($"\"{entry.Objective}\"");
+        return world == World.Git
+            ? Text($"The change of {change} is merged into the integration branch with every pipeline green. Nothing is released at this stage.")
+            : Text($"The change of {change} runs in production and its health check answers.");
+    }
 }
