@@ -38,8 +38,6 @@ export LAB_GIT_TOKEN="$TOKEN"
 umask 077
 mkdir -p "$WORK"
 
-all_repos() { gh repo list "$ORG" --limit 100 --json name --jq '.[].name'; }
-
 valid_name() { [[ "$1" =~ $NAME_RE ]] && [[ "$1" != *..* ]] || { echo "refused: '$1' is not a plain repository or branch name" >&2; return 1; }; }
 
 # A clone of the repository, clean and up to date, with the seed tag.
@@ -52,14 +50,23 @@ clone() {
   git -C "$dir" remote set-url origin "https://github.com/${ORG}/${repo}.git"
   git -C "$dir" reset -q --hard
   git -C "$dir" clean -qfdx
-  git -C "$dir" fetch -q --prune --tags --force origin
+  git -C "$dir" fetch -q --prune --tags origin
   echo "$dir"
 }
 
 # The identity of the lab's own commits
 lab_commit() { git -C "$1" -c user.name="lab" -c user.email="lab@users.noreply.github.com" commit -q -m "$2"; }
 
-has_seed() { git -C "$1" rev-parse -q --verify "refs/tags/lab-seed^{commit}" >/dev/null; }
+# The seed of a repository is pinned in lab/seeds.json (repository -> commit): the tag of the remote is only where the commit is fetched from.
+# A moved tag, or a repository that is not pinned, is no seed: nothing is restored or planted there.
+SEEDS_FILE="${LAB_SEEDS_FILE:-$HERE/seeds.json}"
+pinned_seed() { jq -r --arg r "$1" '.[$r] // empty' "$SEEDS_FILE" 2>/dev/null; }
+has_seed() {
+  local dir="$1" repo="$2" pin tag
+  pin=$(pinned_seed "$repo"); [ -n "$pin" ] || return 1
+  tag=$(git -C "$dir" rev-parse -q --verify "refs/tags/lab-seed^{commit}") || return 1
+  [ "$tag" = "$pin" ] || { echo "$repo: the tag lab-seed is $tag, the pinned seed is $pin: refused" >&2; return 1; }
+}
 
 # Same files as the seed? (trees, not history)
 same_as_seed() {
@@ -78,10 +85,10 @@ delete_branch() {
 }
 
 cmd_status() {
-  local repos=("$@"); [ ${#repos[@]} -gt 0 ] || mapfile -t repos < <(all_repos)
+  local repos=("$@"); [ ${#repos[@]} -gt 0 ] || mapfile -t repos < <(jq -r 'keys[]' "$SEEDS_FILE")
   for repo in "${repos[@]}"; do
     local dir; dir=$(clone "$repo")
-    if ! has_seed "$dir"; then echo "$repo: no seed (mark one with mark-seed)"; continue; fi
+    if ! has_seed "$dir" "$repo"; then echo "$repo: no seed (pin one with mark-seed)"; continue; fi
     local state="at the seed"; same_as_seed "$dir" || state="DIFFERS from the seed"
     local prs; prs=$(gh pr list -R "$ORG/$repo" --state open --json number --jq 'length')
     echo "$repo: $BASE $state, $prs open pull request(s)"
@@ -92,7 +99,9 @@ cmd_mark_seed() {
   local repo="$1" ref="$2" dir; dir=$(clone "$repo")
   git -C "$dir" tag -f lab-seed "$ref"
   git -C "$dir" push -q --force origin refs/tags/lab-seed
-  echo "$repo: seed is now $(git -C "$dir" rev-parse --short lab-seed)"
+  local sha; sha=$(git -C "$dir" rev-parse "lab-seed^{commit}")
+  local tmp; tmp=$(mktemp); jq --arg r "$repo" --arg s "$sha" '.[$r] = $s' "$SEEDS_FILE" > "$tmp" && mv "$tmp" "$SEEDS_FILE"
+  echo "$repo: seed is now ${sha:0:7}, pinned in $SEEDS_FILE (commit that file)"
 }
 
 close_pull_requests() {
@@ -138,10 +147,10 @@ wait_checks() {
 
 reset_one() {
   local repo="$1" dir; dir=$(clone "$repo")
-  has_seed "$dir" || { echo "$repo: no seed, nothing to restore" >&2; return 1; }
+  has_seed "$dir" "$repo" || { echo "$repo: no seed, nothing to restore" >&2; return 1; }
   close_pull_requests "$repo"
   delete_work_branches "$dir"
-  git -C "$dir" fetch -q --prune --tags --force origin
+  git -C "$dir" fetch -q --prune --tags origin
   if same_as_seed "$dir"; then echo "$repo: already at the seed"; return 0; fi
 
   local branch="lab/restore-$(date +%Y%m%d%H%M%S)"
@@ -154,14 +163,14 @@ reset_one() {
   local pr; pr=$(gh pr create -R "$ORG/$repo" --base "$BASE" --head "$branch" --title "chore(lab): restore the seed" --body "The test-bed repository goes back to its seed so that a scenario can be played again." | grep -oE '[0-9]+$')
   local head; head=$(wait_checks "$repo" "$pr")
   gh pr merge "$pr" -R "$ORG/$repo" --squash --delete-branch --match-head-commit "$head" >/dev/null
-  git -C "$dir" fetch -q --prune --tags --force origin
+  git -C "$dir" fetch -q --prune --tags origin
   same_as_seed "$dir" || { echo "$repo: restored, but $BASE still differs from the seed" >&2; return 1; }
   echo "$repo: restored through #$pr"
 }
 
 cmd_reset() {
   local repos=("$@")
-  if [ "${repos[0]:-}" = "--all" ]; then mapfile -t repos < <(all_repos); fi
+  if [ "${repos[0]:-}" = "--all" ]; then mapfile -t repos < <(jq -r 'keys[]' "$SEEDS_FILE"); fi
   [ ${#repos[@]} -gt 0 ] || { echo "usage: reset <repo...> | --all" >&2; return 2; }
   local failed=0
   for repo in "${repos[@]}"; do reset_one "$repo" || failed=1; done
@@ -179,7 +188,7 @@ plant_one() {
   valid_name "$repo"; valid_name "$branch"
   case "$branch" in "$BASE"|main|HEAD) echo "refused: a scenario never plants on $branch" >&2; return 1 ;; esac
   dir=$(clone "$repo")
-  has_seed "$dir" || { echo "$repo: no seed, the lab does not plant here" >&2; return 1; }
+  has_seed "$dir" "$repo" || { echo "$repo: no seed, the lab does not plant here" >&2; return 1; }
   delete_branch "$dir" "$branch"
   git -C "$dir" checkout -q -B "$branch" "origin/$BASE"
   case "$kind" in
