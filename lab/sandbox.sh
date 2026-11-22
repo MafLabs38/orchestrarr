@@ -62,7 +62,8 @@ lab_commit() { git -C "$1" -c user.name="lab" -c user.email="lab@users.noreply.g
 # The seed of a repository is pinned in lab/seeds.json (repository -> commit): the tag of the remote is only where the commit is fetched from.
 # A moved tag, or a repository that is not pinned, is no seed: nothing is restored or planted there.
 SEEDS_FILE="${LAB_SEEDS_FILE:-$HERE/seeds.json}"
-pinned_seed() { jq -r --arg r "$1" '.[] | select(.repository == $r) | .seed' "$SEEDS_FILE" 2>/dev/null; }
+[ -r "$SEEDS_FILE" ] && jq -e 'type == "array"' "$SEEDS_FILE" >/dev/null 2>&1 || { echo "$SEEDS_FILE is missing or is not a list of {repository, seed}" >&2; exit 2; }
+pinned_seed() { jq -r --arg r "$1" '.[] | select(.repository == $r) | .seed' "$SEEDS_FILE"; }
 pinned_repositories() { jq -r '.[].repository' "$SEEDS_FILE"; }
 has_seed() {
   local dir="$1" repo="$2" pin tag
@@ -103,7 +104,7 @@ cmd_mark_seed() {
   git -C "$dir" tag -f lab-seed "$ref"
   git -C "$dir" push -q --force origin refs/tags/lab-seed
   local sha; sha=$(git -C "$dir" rev-parse "lab-seed^{commit}")
-  local tmp; tmp=$(mktemp); jq --arg r "$repo" --arg s "$sha" 'map(select(.repository != $r)) + [{repository: $r, seed: $s}]' "$SEEDS_FILE" > "$tmp" && mv "$tmp" "$SEEDS_FILE"
+  local tmp; tmp=$(mktemp); jq --arg r "$repo" --arg s "$sha" 'map(select(.repository != $r)) + [{repository: $r, seed: $s}]' "$SEEDS_FILE" > "$tmp" && cat "$tmp" > "$SEEDS_FILE" && rm -f "$tmp"
   echo "$repo: seed is now ${sha:0:7}, pinned in $SEEDS_FILE (commit that file)"
 }
 
@@ -198,6 +199,9 @@ plant_one() {
     npm-bump)
       local package from to current
       package=$(jq -r .package <<<"$item"); from=$(jq -r .from <<<"$item"); to=$(jq -r .version <<<"$item")
+      # what npm is given is a package name and a version, never an option
+      [[ "$package" =~ ^(@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*$ ]] || { echo "refused: '$package' is not a package name" >&2; return 1; }
+      [[ "$to" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]] || { echo "refused: '$to' is not a version" >&2; return 1; }
       current=$(jq -r --arg p "$package" '(.dependencies[$p] // .devDependencies[$p] // "")' "$dir/package.json")
       [ "$current" = "$from" ] || { echo "$repo: $package is $current in the seed, the scenario says $from" >&2; return 1; }
       # npm reads the .npmrc of the repository, which may expand environment variables: it runs with an empty environment, none of the lab's credentials

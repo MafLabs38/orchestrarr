@@ -461,6 +461,6 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
         var change = entry.PullRequest is { } number && entry.Repositories.Count == 1 ? Text($"pull request #{number} of {entry.Repositories[0]}") : Text($"\"{entry.Objective}\"");
         return world == World.Git
             ? Text($"The change of {change} is merged into the integration branch with every pipeline green. Nothing is released at this stage.")
-            : Text($"The change of {change} runs in production and its health check answers.");
+            : Text($"The change of {change} runs in production and is verified: its health check answers with a success.");
     }
 }

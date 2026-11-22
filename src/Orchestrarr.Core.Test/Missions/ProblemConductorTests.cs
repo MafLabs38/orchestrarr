@@ -199,7 +199,17 @@ public sealed class ProblemConductorTests : IDisposable
 
         staging.Mission!.Objective.Should().Contain("verify the release");
         git.Mission!.Objective.Should().Contain("pull request #7 of example/shop").And.Contain("merged into the integration branch").And.NotContain("verify the release").And.NotContain("production");
-        release.Mission!.Objective.Should().Contain("pull request #7 of example/shop").And.Contain("runs in production").And.NotContain("merge it");
+        release.Mission!.Objective.Should().Contain("pull request #7 of example/shop").And.Contain("runs in production").And.Contain("answers with a success").And.NotContain("merge it");
+    }
+
+    [Fact]
+    public async Task A_problem_that_is_not_a_pull_request_is_quoted_whole_to_the_later_worlds()
+    {
+        var conductor = Conductor();
+        var staging = await StartStaged(conductor);
+        var git = await Through(conductor, staging);
+
+        git.Mission!.Objective.Should().Contain("\"Replace the removed method\"").And.Contain("merged into the integration branch").And.Contain("Nothing is released at this stage");
     }
 
     [Fact]

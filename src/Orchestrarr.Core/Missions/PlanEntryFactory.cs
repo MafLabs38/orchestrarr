@@ -13,7 +13,7 @@ public static partial class PlanEntryFactory
 {
     // The sentence of the objective is read by the controller as the control plane's own. The description of a row is text of the forge (a pull request's
     // own title when it is not a parsed bump), so only "package from → to" in plain characters is a fact; anything else stays out of that sentence.
-    [GeneratedRegex(@"^[A-Za-z0-9@/._\-]{1,100} [A-Za-z0-9.+_\-]{1,50} → [A-Za-z0-9.+_\-]{1,50}$", RegexOptions.CultureInvariant, 250)]
+    [GeneratedRegex(@"^[A-Za-z0-9@/._\-]{1,100} [A-Za-z0-9.+_\-]{1,50} → [A-Za-z0-9.+_\-]{1,50}\z", RegexOptions.CultureInvariant, 250)]
     private static partial Regex PlainChange();
 
     private static string Described(ProblemRow row) => PlainChange().IsMatch(row.Description) ? row.Description : "a change described by the forge";
