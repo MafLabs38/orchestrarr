@@ -31,3 +31,5 @@ node lab/e2e/run-scenario.cjs lab/scenarios/CASE-01.json
 
 1. reset the repositories of the scenario to their seed; 2. plant the faults; 3. sign in, refresh the table until it shows the planted pull requests, tick, validate; 4. follow the missions of this validation, and read the final state on the forge (not in the interface); 5. reset again, whatever happened.
 `LAB_KEEP=1` leaves what the run made, `LAB_SKIP_SETUP=1` plays on what is there, `LAB_MAX_SECONDS` bounds the wait.
+
+After the control plane of the test bed is restarted, check that its mission runner still claims (the table says `noRunner` when it does not) and restart it if it does not.

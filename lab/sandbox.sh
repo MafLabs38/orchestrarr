@@ -182,7 +182,7 @@ cmd_reset() {
 }
 
 # A scenario lists faults to plant: {"plants": [{"repo", "branch", "title", "body", "kind": "npm-bump"|"patch", ...}]}
-#   npm-bump: "package", "from", "version"  (the version the seed holds, checked; the lock file follows)
+#   npm-bump: "package", "from", "version"  (the version the seed holds, checked; the lock file follows), "patches" (optional: files next to the scenario, applied with git apply)
 #   patch: "patch" (a file next to the scenario, applied with git apply)
 plant_one() {
   local scenario="$1" index="$2" dir item repo branch title body kind
@@ -206,7 +206,12 @@ plant_one() {
       [ "$current" = "$from" ] || { echo "$repo: $package is $current in the seed, the scenario says $from" >&2; return 1; }
       # npm reads the .npmrc of the repository, which may expand environment variables: it runs with an empty environment, none of the lab's credentials
       mkdir -p "$WORK/.npm-home"
-      (cd "$dir" && env -i PATH="$PATH" HOME="$WORK/.npm-home" npm install --package-lock-only --save-exact --ignore-scripts --no-audit --no-fund "$package@$to" >/dev/null) ;;
+      (cd "$dir" && env -i PATH="$PATH" HOME="$WORK/.npm-home" npm install --package-lock-only --save-exact --ignore-scripts --no-audit --no-fund "$package@$to" >/dev/null)
+      # what else the author of the change touched with it (a file next to the scenario, applied with git apply)
+      for patch in $(jq -r '.patches[]? // empty' <<<"$item"); do
+        valid_name "$patch"
+        git -C "$dir" apply "$(dirname "$scenario")/$patch"
+      done ;;
     patch)
       local patch; patch=$(jq -r .patch <<<"$item"); valid_name "$patch"
       git -C "$dir" apply "$(dirname "$scenario")/$patch" ;;

@@ -198,7 +198,7 @@ public sealed class ProblemConductorTests : IDisposable
         var release = await Through(conductor, git);
 
         staging.Mission!.Objective.Should().Contain("verify the release");
-        git.Mission!.Objective.Should().Contain("pull request #7 of example/shop").And.Contain("merged into the integration branch").And.NotContain("verify the release").And.NotContain("production");
+        git.Mission!.Objective.Should().Contain("pull request #7 of example/shop").And.Contain("merged into the integration branch").And.Contain("the pull request that replaces it is the one merged").And.NotContain("verify the release").And.NotContain("production");
         release.Mission!.Objective.Should().Contain("pull request #7 of example/shop").And.Contain("runs in production").And.Contain("answers with a success").And.NotContain("merge it");
     }
 
