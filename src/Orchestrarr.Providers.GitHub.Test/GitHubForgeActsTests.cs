@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using Orchestrarr.Core.Forge;
+using Orchestrarr.Core.Missions;
 
 namespace Orchestrarr.Providers.GitHub.Test;
 
@@ -105,5 +106,107 @@ public sealed class GitHubForgeActsTests
     private sealed class Throwing : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) => throw new HttpRequestException("down");
+    }
+
+    // A forge in a few lines: what each call answers, in the order that the calls are made
+    private sealed class Script : HttpMessageHandler
+    {
+        public List<(HttpMethod Method, string Path, string Body)> Requests { get; } = [];
+
+        public Dictionary<string, (HttpStatusCode Status, string Body)> Answers { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            Requests.Add((request.Method, path, request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync(cancellationToken)));
+            var (status, body) = Answers.GetValueOrDefault($"{request.Method} {path}", (HttpStatusCode.NotFound, """{ "message": "Not Found" }"""));
+            return new HttpResponseMessage(status) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
+        }
+    }
+
+    private static readonly string Tip = new('1', 40);
+    private static readonly string Merged = new('2', 40);
+    private static readonly string TreeOfMerge = new('3', 40);
+    private static readonly string NewTree = new('4', 40);
+    private static readonly string Repair = new('5', 40);
+
+    private static Script Forge()
+    {
+        var script = new Script();
+        script.Answers["GET /repos/example/shop/git/ref/heads/develop"] = (HttpStatusCode.OK, $$"""{ "object": { "sha": "{{Tip}}" } }""");
+        script.Answers["POST /repos/example/shop/git/refs"] = (HttpStatusCode.Created, "{}");
+        script.Answers["POST /repos/example/shop/merges"] = (HttpStatusCode.Created, $$"""{ "sha": "{{Merged}}" }""");
+        script.Answers[$"GET /repos/example/shop/git/commits/{Merged}"] = (HttpStatusCode.OK, $$"""{ "tree": { "sha": "{{TreeOfMerge}}" } }""");
+        script.Answers["POST /repos/example/shop/git/trees"] = (HttpStatusCode.Created, $$"""{ "sha": "{{NewTree}}" }""");
+        script.Answers["POST /repos/example/shop/git/commits"] = (HttpStatusCode.Created, $$"""{ "sha": "{{Repair}}" }""");
+        script.Answers["PATCH /repos/example/shop/git/refs/heads/orchestrarr/p-1-abc123"] = (HttpStatusCode.OK, "{}");
+        script.Answers["POST /repos/example/shop/pulls"] = (HttpStatusCode.Created, """{ "number": 17 }""");
+        return script;
+    }
+
+    private static readonly IReadOnlyList<PatchedFile> Files = [new PatchedFile("server.js", "fixed();")];
+
+    [Fact]
+    public async Task A_repair_is_a_branch_from_the_base_with_the_change_merged_in_and_one_commit_on_top_and_a_pull_request()
+    {
+        var script = Forge();
+
+        var opened = await GitHubForgeActs.Create(new GitHubOptions { Token = "ghp_secret" }, script).OpenPullRequestAsync("example/shop", "develop", Head, "orchestrarr/p-1-abc123", Files, "fix: repair #6", "body", TestContext.Current.CancellationToken);
+
+        opened.Should().Be(new OpenedPullRequest(true, 17, Repair, null));
+        script.Requests.Select(request => $"{request.Method} {request.Path}").Should().Equal(
+            "GET /repos/example/shop/git/ref/heads/develop", "POST /repos/example/shop/git/refs", "POST /repos/example/shop/merges", $"GET /repos/example/shop/git/commits/{Merged}", "POST /repos/example/shop/git/trees",
+            "POST /repos/example/shop/git/commits", "PATCH /repos/example/shop/git/refs/heads/orchestrarr/p-1-abc123", "POST /repos/example/shop/pulls");
+        script.Requests.Single(request => request.Path.EndsWith("/merges", StringComparison.Ordinal)).Body.Should().Contain(Head);
+        script.Requests.Single(request => request.Path.EndsWith("/git/trees", StringComparison.Ordinal)).Body.Should().Contain(TreeOfMerge).And.Contain("server.js").And.Contain("fixed();");
+        script.Requests.Single(request => request.Path.EndsWith("/git/commits", StringComparison.Ordinal) && request.Method == HttpMethod.Post).Body.Should().Contain(Merged, "the repair is on top of the merge");
+    }
+
+    [Fact]
+    public async Task A_conflict_with_the_base_or_a_name_that_exists_stops_the_opening_and_says_why()
+    {
+        var conflict = Forge();
+        conflict.Answers["POST /repos/example/shop/merges"] = (HttpStatusCode.Conflict, """{ "message": "Merge conflict" }""");
+        var exists = Forge();
+        exists.Answers["POST /repos/example/shop/git/refs"] = (HttpStatusCode.UnprocessableEntity, """{ "message": "Reference already exists" }""");
+
+        var first = await GitHubForgeActs.Create(new GitHubOptions { Token = "ghp_secret" }, conflict).OpenPullRequestAsync("example/shop", "develop", Head, "orchestrarr/p-1-abc123", Files, "t", "b", TestContext.Current.CancellationToken);
+        var second = await GitHubForgeActs.Create(new GitHubOptions { Token = "ghp_secret" }, exists).OpenPullRequestAsync("example/shop", "develop", Head, "orchestrarr/p-1-abc123", Files, "t", "b", TestContext.Current.CancellationToken);
+
+        first.Opened.Should().BeFalse();
+        first.Error.Should().Contain("conflict").And.Contain("409");
+        second.Opened.Should().BeFalse();
+        second.Error.Should().Contain("Reference already exists");
+        conflict.Requests.Should().NotContain(request => request.Path.EndsWith("/pulls", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("../../etc", "develop", "orchestrarr/p-1-abc123")]
+    [InlineData("example/shop", "develop", "main")]
+    [InlineData("example/shop", "develop", "orchestrarr/../main")]
+    [InlineData("example/shop", "", "orchestrarr/p-1-abc123")]
+    public async Task What_is_not_well_formed_opens_nothing(string repository, string baseBranch, string branch)
+    {
+        var script = Forge();
+
+        var opened = await GitHubForgeActs.Create(new GitHubOptions { Token = "ghp_secret" }, script).OpenPullRequestAsync(repository, baseBranch, Head, branch, Files, "t", "b", TestContext.Current.CancellationToken);
+
+        opened.Opened.Should().BeFalse();
+        script.Requests.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_pull_request_that_another_replaces_is_closed_with_a_comment()
+    {
+        var script = new Script();
+        script.Answers["POST /repos/example/shop/issues/6/comments"] = (HttpStatusCode.Created, "{}");
+        script.Answers["PATCH /repos/example/shop/pulls/6"] = (HttpStatusCode.OK, "{}");
+
+        var closed = await GitHubForgeActs.Create(new GitHubOptions { Token = "ghp_secret" }, script).ClosePullRequestAsync("example/shop", 6, "Replaced by #17", TestContext.Current.CancellationToken);
+
+        closed.Should().BeTrue();
+        script.Requests.Select(request => $"{request.Method} {request.Path}").Should().Equal("POST /repos/example/shop/issues/6/comments", "PATCH /repos/example/shop/pulls/6");
+        script.Requests[1].Body.Should().Contain("closed");
+        (await GitHubForgeActs.Create(new GitHubOptions { Token = "ghp_secret" }, new Script()).ClosePullRequestAsync("../x", 6, "c", TestContext.Current.CancellationToken)).Should().BeFalse();
     }
 }

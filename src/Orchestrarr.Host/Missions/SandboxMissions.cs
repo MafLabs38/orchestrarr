@@ -70,7 +70,7 @@ internal sealed class SandboxWithdrawals : IApprovalWithdrawals
 /// of a deployment would read from the rulesets and the workflows (merging does not deploy, no tag, no credential in reach of the agent) is **declared here to hold**, because the test bed has no agent identity to
 /// confine; it is said in the log at start (`SandboxNotice`).
 /// </summary>
-internal sealed class SandboxFacts(IProblemStore problems, IPullRequestFacts pulls, IMissionStore missions, IDossierStore dossiers, ISandboxHealth? health = null) : IFactsSource
+internal sealed class SandboxFacts(IProblemStore problems, IPullRequestFacts pulls, IMissionStore missions, IDossierStore dossiers, ISandboxHealth? health = null, RepairRegistry? repairs = null) : IFactsSource
 {
     private static readonly TimeSpan ForgeDeadline = TimeSpan.FromSeconds(20);
 
@@ -94,11 +94,21 @@ internal sealed class SandboxFacts(IProblemStore problems, IPullRequestFacts pul
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(ForgeDeadline);
         PullRequestFacts? read = null;
-        if (entry is { PullRequest: { } number } && entry.Repositories.Count == 1)
+        // The pull request that the problem is about: the one that carries its repair once there is one, else the one it started from
+        (int Number, string Head)? current = null;
+        if (entry is not null)
+        {
+            current = repairs?.Effective(query.ProblemId, entry);
+            if (current is null && entry is { PullRequest: { } started, HeadSha: { } startedHead })
+            {
+                current = (started, startedHead);
+            }
+        }
+        if (entry is not null && current is { } target && entry.Repositories.Count == 1)
         {
             try
             {
-                read = await pulls.ReadAsync(entry.Repositories[0], number, deadline.Token);
+                read = await pulls.ReadAsync(entry.Repositories[0], target.Number, deadline.Token);
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
@@ -113,13 +123,17 @@ internal sealed class SandboxFacts(IProblemStore problems, IPullRequestFacts pul
         // Once the pull request is merged, what runs is the commit that the merge made on the base branch: the commit, the checks and the tree that the later worlds are about
         var commit = read.Merged && read.MergeCommit is { } merged ? merged : read.HeadSha;
         var checks = read.Merged ? read.MergeChecks : read.Checks;
+        // Only at the crossing into the Git world (no repository is named): an act (the merge) is judged on the pipeline of the pull request that it is about, never on this declaration
+        var repairWaiting = query.Repository is null && repairs?.PendingOf(query.ProblemId) is not null && repairs.FixOf(query.ProblemId) is null;
         return new ObservedFacts(
             BudgetAvailable: true,
             DiffIsClean: read.PathsComplete,
-            CiGreenOnExactCommit: checks switch { ChecksState.Passing => true, ChecksState.Failing => false, _ => null },
+            // A repair that is not in a pull request yet has no commit for a pipeline to have run on: the pipeline of the pull request that will carry it is what the merge checks, and what the staging proved is what the release checks
+            CiGreenOnExactCommit: repairWaiting ? true : checks switch { ChecksState.Passing => true, ChecksState.Failing => false, _ => null },
             ArtifactIsTheOneProvedInStaging: ArtifactProvedInStaging(query.ProblemId, read),
             WayBackKnown: true,
-            WorkerClaimMatchesFacts: query.Dossier?.Commit is { } claimed && string.Equals(claimed, commit, StringComparison.Ordinal),
+            // The dossier of the staging world names the commit that the repair started from, which is not the head of the pull request that carries the repair
+            WorkerClaimMatchesFacts: query.Dossier?.Commit is { } claimed && (string.Equals(claimed, commit, StringComparison.Ordinal) || string.Equals(claimed, repairs?.FixOf(query.ProblemId)?.OriginalHead, StringComparison.Ordinal)),
             MergeMayDeploy: false,
             ExecutedFilesTouched: read.ChangedPaths.Any(path => path.StartsWith(".github/", StringComparison.Ordinal)),
             TagCreationBlocked: true,
@@ -133,13 +147,23 @@ internal sealed class SandboxFacts(IProblemStore problems, IPullRequestFacts pul
     }
 }
 
-/// <summary>The merge on the repositories that the settings name and no other: the gateway does not merge where it was not told it may, whatever a row says.</summary>
+/// <summary>What the gateway writes (a merge, a branch and a pull request, the closing of a pull request) is done on the repositories that the settings name and no other: the gateway does not write where it was not told it may, whatever a row says.</summary>
 internal sealed class GuardedForgeActs(IForgeActs inner, IReadOnlyList<string> allowed) : IForgeActs
 {
     public Task<MergeResult> MergePullRequestAsync(string repositoryFullName, int number, string expectedHeadSha, CancellationToken cancellationToken) =>
-        allowed.Any(pattern => Orchestrarr.Core.Tasks.RepositoryPattern.Matches(pattern, repositoryFullName))
+        Allowed(repositoryFullName)
             ? inner.MergePullRequestAsync(repositoryFullName, number, expectedHeadSha, cancellationToken)
             : Task.FromResult(new MergeResult(false, null, "the gateway may not merge on this repository (Missions:SandboxMergeRepositories)"));
+
+    public Task<OpenedPullRequest> OpenPullRequestAsync(string repositoryFullName, string baseBranch, string parentSha, string branch, IReadOnlyList<PatchedFile> files, string title, string body, CancellationToken cancellationToken) =>
+        Allowed(repositoryFullName)
+            ? inner.OpenPullRequestAsync(repositoryFullName, baseBranch, parentSha, branch, files, title, body, cancellationToken)
+            : Task.FromResult(new OpenedPullRequest(false, 0, null, "the gateway may not write on this repository (Missions:SandboxMergeRepositories)"));
+
+    public Task<bool> ClosePullRequestAsync(string repositoryFullName, int number, string comment, CancellationToken cancellationToken) =>
+        Allowed(repositoryFullName) ? inner.ClosePullRequestAsync(repositoryFullName, number, comment, cancellationToken) : Task.FromResult(false);
+
+    private bool Allowed(string repository) => allowed.Any(pattern => Orchestrarr.Core.Tasks.RepositoryPattern.Matches(pattern, repository));
 }
 
 /// <summary>The health of a deployed application, read by the control plane itself (never the worker's word): a sentence for the controller, or null when it is not read.</summary>
@@ -213,6 +237,7 @@ internal static class SandboxMissionsExtensions
         }
         return services
             .AddSingleton<SandboxApprovals>()
+            .AddSingleton<RepairRegistry>()
             .AddSingleton<IApprovalSource>(provider => provider.GetRequiredService<SandboxApprovals>())
             .AddSingleton(provider => provider.GetRequiredService<SandboxApprovals>().Verifier)
             .AddSingleton<IApprovalWithdrawals, SandboxWithdrawals>()

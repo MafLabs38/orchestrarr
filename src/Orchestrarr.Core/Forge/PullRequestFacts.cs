@@ -44,10 +44,27 @@ public sealed record MergeResult(bool Merged, string? Commit, string? Error);
 public interface IForgeActs
 {
     Task<MergeResult> MergePullRequestAsync(string repositoryFullName, int number, string expectedHeadSha, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Opens a pull request that carries a repair: a branch of the given name is made from <paramref name="parentSha"/> with the files written whole into one commit, and a pull request is opened from it on <paramref name="baseBranch"/>. The branch is
+    /// the only thing written; nothing existing is changed.
+    /// </summary>
+    Task<OpenedPullRequest> OpenPullRequestAsync(string repositoryFullName, string baseBranch, string parentSha, string branch, IReadOnlyList<Orchestrarr.Core.Missions.PatchedFile> files, string title, string body, CancellationToken cancellationToken);
+
+    /// <summary>Closes a pull request that another one replaces, saying so. False when the forge did not do it (it is said, not hidden).</summary>
+    Task<bool> ClosePullRequestAsync(string repositoryFullName, int number, string comment, CancellationToken cancellationToken);
 }
+
+/// <summary>What the forge answered to the opening of a pull request: its number and the head of its branch, or why not.</summary>
+public sealed record OpenedPullRequest(bool Opened, int Number, string? HeadSha, string? Error);
 
 public sealed class NoForgeActs : IForgeActs
 {
     public Task<MergeResult> MergePullRequestAsync(string repositoryFullName, int number, string expectedHeadSha, CancellationToken cancellationToken) =>
         Task.FromResult(new MergeResult(false, null, "no forge is connected"));
+
+    public Task<OpenedPullRequest> OpenPullRequestAsync(string repositoryFullName, string baseBranch, string parentSha, string branch, IReadOnlyList<Orchestrarr.Core.Missions.PatchedFile> files, string title, string body, CancellationToken cancellationToken) =>
+        Task.FromResult(new OpenedPullRequest(false, 0, null, "no forge is connected"));
+
+    public Task<bool> ClosePullRequestAsync(string repositoryFullName, int number, string comment, CancellationToken cancellationToken) => Task.FromResult(false);
 }

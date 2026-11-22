@@ -9,13 +9,20 @@ public sealed record ShellResult(int ExitCode, string Output, bool TimedOut);
 public interface IShell
 {
     Task<ShellResult> RunAsync(string file, IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken cancellationToken);
+
+    /// <summary>The same, with a text written to the standard input of the program: what must reach it without being in an argument (a secret) or in a quoted script (a long text).</summary>
+    Task<ShellResult> RunAsync(string file, IReadOnlyList<string> arguments, string input, TimeSpan timeout, CancellationToken cancellationToken) => throw new NotSupportedException("this shell takes no input");
 }
 
 public sealed class ProcessShell : IShell
 {
     private const int MaxOutputCharacters = 200_000;
 
-    public async Task<ShellResult> RunAsync(string file, IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken cancellationToken)
+    public Task<ShellResult> RunAsync(string file, IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken cancellationToken) => RunCoreAsync(file, arguments, null, timeout, cancellationToken);
+
+    public Task<ShellResult> RunAsync(string file, IReadOnlyList<string> arguments, string input, TimeSpan timeout, CancellationToken cancellationToken) => RunCoreAsync(file, arguments, input, timeout, cancellationToken);
+
+    private static async Task<ShellResult> RunCoreAsync(string file, IReadOnlyList<string> arguments, string? input, TimeSpan timeout, CancellationToken cancellationToken)
     {
         var start = new ProcessStartInfo(file) { RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = true, UseShellExecute = false };
         foreach (var argument in arguments)
@@ -41,6 +48,10 @@ public sealed class ProcessShell : IShell
         process.OutputDataReceived += (_, e) => Collect(e.Data);
         process.ErrorDataReceived += (_, e) => Collect(e.Data);
         process.Start();
+        if (input is not null)
+        {
+            await process.StandardInput.WriteAsync(input.AsMemory(), cancellationToken);
+        }
         process.StandardInput.Close();
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();

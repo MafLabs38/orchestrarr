@@ -91,7 +91,7 @@ internal static partial class MissionRunnerEndpoints
 {
     public static void MapMissionRunnerRoutes(this RouteGroupBuilder group, Func<HttpContext, string> runnerName)
     {
-        group.MapPost("/missions/claim", (ClaimRequest? request, string? world, HttpContext context, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, ProblemConductor conductor, IDossierStore dossiers, MissionProgress progress, TimeProvider time, RunnerRegistry registry) =>
+        group.MapPost("/missions/claim", (ClaimRequest? request, string? world, HttpContext context, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, ProblemConductor conductor, IDossierStore dossiers, MissionProgress progress, RepairRegistry? repairs, TimeProvider time, RunnerRegistry registry) =>
         {
             var name = runnerName(context);
             if (request?.Hello is { } hello)
@@ -113,8 +113,9 @@ internal static partial class MissionRunnerEndpoints
             {
                 return Results.Ok(new MissionClaimResponse(null));
             }
-            return Results.Ok(new MissionClaimResponse(new ClaimedMission(mission.Id, mission.ProblemId, mission.ApplicationId, mission.World.ToString(), mission.Objective, entry.Repositories[0], entry.PullRequest, entry.HeadSha,
-                mandate.Mandate.ExpiresAt, [.. mandate.Mandate.Acts.Select(act => act.ToString())], conductor.AcceptedCommit(mission.Id) ?? entry.HeadSha, rework, rework ? progress.RemarksOf(mission.Id) : null)));
+            var current = repairs?.Effective(mission.ProblemId, entry);
+            return Results.Ok(new MissionClaimResponse(new ClaimedMission(mission.Id, mission.ProblemId, mission.ApplicationId, mission.World.ToString(), mission.Objective, entry.Repositories[0], current?.Number ?? entry.PullRequest, current?.Head ?? entry.HeadSha,
+                mandate.Mandate.ExpiresAt, [.. mandate.Mandate.Acts.Select(act => act.ToString())], conductor.AcceptedCommit(mission.Id) ?? entry.HeadSha, rework, rework ? progress.RemarksOf(mission.Id) : null, repairs?.FixOf(mission.ProblemId) is not null ? entry.PullRequest : null)));
         });
 
         group.MapPost("/missions/{id}/started", async (string id, HttpContext context, IMissionStore missions, IMandateLedger mandates, ProblemConductor conductor, ILiveNotifier live, CancellationToken ct) =>
@@ -139,11 +140,29 @@ internal static partial class MissionRunnerEndpoints
             return Results.Ok();
         });
 
-        group.MapPost("/missions/{id}/handover", async (string id, MissionHandOver request, HttpContext context, IMissionStore missions, IMandateLedger mandates, ProblemConductor conductor, ILiveNotifier live, CancellationToken ct) =>
+        group.MapPost("/missions/{id}/handover", async (string id, MissionHandOver request, HttpContext context, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, ProblemConductor conductor, RepairRegistry? repairs, ILiveNotifier live, CancellationToken ct) =>
         {
             if (!Owns(id, runnerName(context), missions, mandates) || string.IsNullOrWhiteSpace(request.Claim) || string.IsNullOrWhiteSpace(request.WhatChangedAndWhy))
             {
                 return Results.NotFound();
+            }
+            // The files of a repair are the staging world's, and are checked before anything keeps them: the policy is the control plane's own, whatever the runner did
+            if (request.Files is { Count: > 0 } files)
+            {
+                if (missions.Get(id) is not { World: World.Staging } || repairs is null || problems.Get(missions.Get(id)!.ProblemId)?.Entry is not { HeadSha: { } originalHead })
+                {
+                    return Results.Json(new { error = "only the staging world hands over a repair, on a pull request" }, statusCode: StatusCodes.Status409Conflict);
+                }
+                if (RepairPolicy.Refusal(files, missions.Get(id)!.Frame.ForbiddenPaths) is { } refusal)
+                {
+                    return Results.Json(new { error = refusal }, statusCode: StatusCodes.Status422UnprocessableEntity);
+                }
+                repairs.Keep(missions.Get(id)!.ProblemId, originalHead, files);
+            }
+            else if (repairs is not null && missions.Get(id) is { World: World.Staging } staged)
+            {
+                // A staging pass that repaired nothing is the last word on the problem: a repair that an earlier pass held is not the one that this pass proved
+                repairs.Forget(staged.ProblemId);
             }
             var dossier = new Dossier(id, Cut(request.Claim), Cut(request.WhatChangedAndWhy), Bounded(request.EvidenceDigests), Bounded(request.OpenPoints), request.Complex, request.ComplexReason is null ? null : Cut(request.ComplexReason),
                 request.Commit is { } commit && CommitShape().IsMatch(commit) ? commit : null);

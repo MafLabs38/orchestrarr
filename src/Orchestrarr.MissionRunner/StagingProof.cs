@@ -10,7 +10,7 @@ namespace Orchestrarr.MissionRunner;
 /// The work of the staging world for a pull request: the staging machine is put back to its reference, the pull request is fetched there at the commit that the mandate names,
 /// built and tested in a container, and what was seen is handed over as a dossier. The machine is put back again when the work ends (ADR 0041): the next job never works in what this one left.
 /// </summary>
-public sealed partial class StagingProof(IShell shell, MissionRunnerOptions options) : IWorldWork
+public sealed partial class StagingProof(IShell shell, MissionRunnerOptions options, RepairAgent? repair = null) : IWorldWork
 {
     public string World => "Staging";
 
@@ -82,6 +82,24 @@ public sealed partial class StagingProof(IShell shell, MissionRunnerOptions opti
             var build = await OnMachineAsync(machine, $"cd ~/work/repo && {command}", timeout, cancellationToken);
             Keep(evidence, kind, build);
             var passed = build.ExitCode == 0 && !build.TimedOut;
+            // A change that does not pass is repaired by the worker agent when there is one (a build that timed out is not: nothing says what to repair)
+            if (!passed && !build.TimedOut && repair is { IsConfigured: true })
+            {
+                var repaired = await repair.TryAsync(machine, mission, command, build.Output, report, cancellationToken);
+                evidence.AddRange(repaired.Evidence);
+                if (repaired.Repaired && repaired.Tree is { } fixedTree)
+                {
+                    // What was proved is now the merge result with the repair: its tree is the artifact that the release must be
+                    evidence.RemoveAll(entry => entry.StartsWith(MissionEvidence.ArtifactTree, StringComparison.Ordinal));
+                    evidence.Add($"{MissionEvidence.ArtifactTree}{fixedTree}");
+                    await report($"Repaired: {repaired.Files.Count} file(s) changed, and the steps pass");
+                    return new MissionHandOver(
+                        $"Pull request #{number} of {mission.Repository} at {Short(head)} did not pass on the staging machine ({kind}); a worker agent repaired the source ({string.Join(", ", repaired.Files.Select(file => file.Path))}) and with that repair it builds and its tests pass.",
+                        $"Fetched at {head}; as it is, it failed: {Tail(build.Output)}. A worker agent changed {repaired.Files.Count} file(s) ({string.Join(", ", repaired.Files.Select(file => file.Path))}); the agent cannot run commands, so the runner ran the steps again itself on the repaired source, and they passed: {Tail(repaired.LastOutput)}. What the agent said: {repaired.Summary}", evidence, [], Complex: false, ComplexReason: null, head, repaired.Files);
+                }
+                evidence.Add("repair:none");
+                await report($"The agent could not repair it: {repaired.Summary}");
+            }
             var outcome = build.TimedOut ? "timed out" : $"exit {build.ExitCode}";
             await report(passed ? "Build and tests passed" : $"Build or tests failed ({outcome})");
             var claim = passed
@@ -133,11 +151,11 @@ public sealed partial class StagingProof(IShell shell, MissionRunnerOptions opti
         if (files.Contains("package.json"))
         {
             var install = files.Contains("package-lock.json") ? "npm ci" : "npm install";
-            return ("node", $"docker run --rm --cap-drop ALL --security-opt no-new-privileges --pids-limit 512 --memory 2g --cpus 2 -v \"$PWD\":/app -w /app node:22-alpine sh -c \"{install} --no-audit --no-fund && npm test\"");
+            return ("node", $"docker run --rm --cap-drop ALL --security-opt no-new-privileges --pids-limit 512 --memory 2g --cpus 2 -v \"$PWD\":/app -v \"$PWD/.git\":/app/.git:ro -w /app node:22-alpine sh -c \"{install} --no-audit --no-fund && npm test\"");
         }
         if (files.Contains("requirements.txt"))
         {
-            return ("python", "docker run --rm --cap-drop ALL --security-opt no-new-privileges --pids-limit 512 --memory 2g --cpus 2 -v \"$PWD\":/app -w /app python:3.12-slim sh -c \"pip install -q -r requirements.txt pytest && python -m pytest -q\"");
+            return ("python", "docker run --rm --cap-drop ALL --security-opt no-new-privileges --pids-limit 512 --memory 2g --cpus 2 -v \"$PWD\":/app -v \"$PWD/.git\":/app/.git:ro -w /app python:3.12-slim sh -c \"pip install -q -r requirements.txt pytest && python -m pytest -q\"");
         }
         var compose = new[] { "docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml" }.FirstOrDefault(files.Contains);
         return compose is null ? ("none", null) : ("compose", $"docker compose -f {compose} config -q");

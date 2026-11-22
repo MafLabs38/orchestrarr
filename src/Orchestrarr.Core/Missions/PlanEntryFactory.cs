@@ -28,7 +28,7 @@ public static class PlanEntryFactory
         }
         var application = row.ApplicationId ?? repository[(repository.IndexOf('/', StringComparison.Ordinal) + 1)..];
         var objective = row.PullRequest is { } number
-            ? $"Prove pull request #{number} of {repository} ({row.Description}) in staging, then merge it and verify the release."
+            ? $"Prove pull request #{number} of {repository} ({row.Description}) in staging, then merge it and verify the release. If it does not pass as it is, the worker agent may repair the source of the application so that it does (never the tests, the dependencies, the build or the pipelines): that repair is expected and is part of the objective, and it is merged and released with the change. The change of the pull request itself (a new version in the manifests and the lock file) is what is being proved: it touches those files, the repair does not."
             : $"Solve the problem \"{row.Description}\" ({row.Kind}) of {repository}.";
         return new PlanEntry(ProblemIdOf(row.Id), application, row.Kind.ToString(), objective, [repository], maxWorld, budget, new Validation(approver, null), at, row.PullRequest, row.HeadSha);
     }

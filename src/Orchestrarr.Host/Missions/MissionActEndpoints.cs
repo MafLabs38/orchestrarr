@@ -14,11 +14,16 @@ internal static class MissionActEndpoints
     public static void MapMissionActRoutes(this RouteGroupBuilder group, Func<HttpContext, string> runnerName)
     {
         group.MapPost("/missions/{id}/acts/merge", async (string id, HttpContext context, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, IPullRequestFacts pulls, IForgeActs forge,
-            ProblemConductor conductor, MissionProgress progress, ILiveNotifier live, CancellationToken ct) =>
+            ProblemConductor conductor, MissionProgress progress, RepairRegistry? repairs, IDossierStore dossiers, ILiveNotifier live, CancellationToken ct) =>
         {
-            if (!Gate(id, runnerName(context), missions, mandates, problems, out var entry) || entry.PullRequest is not { } number || entry.HeadSha is not { } head)
+            if (!Gate(id, runnerName(context), missions, mandates, problems, out var entry) || Effective(repairs, missions.Get(id)!.ProblemId, entry) is not var (number, head))
             {
                 return Results.NotFound();
+            }
+            // A repair that was made and is not in a pull request (it has not been opened, or what held it was lost) is not merged around: the pull request that the problem started from is the one that did not pass
+            if (RepairIsOutstanding(repairs, missions, dossiers, missions.Get(id)!.ProblemId))
+            {
+                return Results.Ok(new MissionActResponse(false, "the repair of this problem is not in a pull request: it is opened first, and a repair that was lost goes back to staging", [], Retry: false, null));
             }
             var repository = entry.Repositories[0];
             if (await pulls.ReadAsync(repository, number, ct) is not { } read)
@@ -49,16 +54,81 @@ internal static class MissionActEndpoints
             {
                 progress.Add(id, "the audit trail could not be written after the merge");
             }
+            // A pull request that carried a repair replaced the one the problem started from: that one is closed, saying where it went
+            if (merged.Merged && repairs?.FixOf(missions.Get(id)!.ProblemId) is { } fix && entry.PullRequest is { } original)
+            {
+                var closed = await forge.ClosePullRequestAsync(repository, original, $"Replaced by #{fix.Number}, which carries the same change with the repair that it needed, and is merged.", ct);
+                progress.Add(id, closed ? $"closed pull request #{original}, replaced by #{fix.Number}" : $"pull request #{original} could not be closed");
+                if (!await conductor.RecordActPerformedAsync(id, GatedAct.MergePullRequest, closed ? $"{repository}#{original} closed, replaced by #{fix.Number}" : $"{repository}#{original} could not be closed (replaced by #{fix.Number})", ct))
+                {
+                    progress.Add(id, "the audit trail could not be written after the close");
+                }
+            }
             live.Publish(LiveTopics.Missions, id);
             return Results.Ok(new MissionActResponse(merged.Merged, merged.Merged ? null : merged.Error, [], Retry: false, merged.Commit));
         });
 
-        group.MapPost("/missions/{id}/acts/deploy", async (string id, HttpContext context, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, IPullRequestFacts pulls, ProblemConductor conductor,
-            MissionProgress progress, ILiveNotifier live, CancellationToken ct) =>
+        // The pull request that carries the repair of a staging runner: the gateway makes the branch and the commit itself from the files that it checked, so that the runner never holds a credential that writes to a repository
+        group.MapPost("/missions/{id}/acts/open-pull-request", async (string id, HttpContext context, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, IPullRequestFacts pulls, IForgeActs forge,
+            ProblemConductor conductor, MissionProgress progress, RepairRegistry? repairs, IDossierStore dossiers, ILiveNotifier live, CancellationToken ct) =>
         {
-            if (!Gate(id, runnerName(context), missions, mandates, problems, out var entry) || entry.PullRequest is not { } number)
+            if (!Gate(id, runnerName(context), missions, mandates, problems, out var entry) || entry.PullRequest is not { } original || repairs is null)
             {
                 return Results.NotFound();
+            }
+            var problemId = missions.Get(id)!.ProblemId;
+            var repository = entry.Repositories[0];
+            if (repairs.FixOf(problemId) is { } already)
+            {
+                return Results.Ok(new MissionPullRequestResponse(true, already.Number, already.Head, null, already.OriginalHead));
+            }
+            if (repairs.PendingOf(problemId) is not { } repair)
+            {
+                // A repair that the staging dossier says was made and that is not kept any more (a restart) is lost, and is not replaced by the pull request that did not pass; else nothing was repaired
+                return Results.Ok(new MissionPullRequestResponse(false, 0, null, RepairWasMade(missions, dossiers, problemId) ? "the repair was made but is no longer held (the control plane restarted): the problem goes back to staging" : null));
+            }
+            if (await pulls.ReadAsync(repository, original, ct) is not { TargetsDefaultBranch: true, DefaultBranch: { } baseBranch } read || !string.Equals(read.HeadSha, repair.OriginalHead, StringComparison.Ordinal))
+            {
+                return Results.Ok(new MissionPullRequestResponse(false, 0, null, "the pull request cannot be read, does not target the default branch, or moved since the repair was made"));
+            }
+            // The frame of the mission applies to what is written, not only to what was read: the paths that the maintainer's certificate forbids too
+            if (RepairPolicy.Refusal(repair.Files, missions.Get(id)!.Frame.ForbiddenPaths) is { } forbidden)
+            {
+                return Results.Ok(new MissionPullRequestResponse(false, 0, null, forbidden));
+            }
+            var authorisation = await conductor.AuthoriseActAsync(id, GatedAct.OpenPullRequest, null, ct, repository);
+            if (!authorisation.Allowed)
+            {
+                progress.Add(id, $"the pull request is not allowed now: {Describe(authorisation)}");
+                return Results.Ok(new MissionPullRequestResponse(false, 0, null, authorisation.Refusal));
+            }
+            // A branch name that is new at each attempt: the same problem can be repaired again after a loop, and a name that exists is refused by the forge
+            var branch = $"orchestrarr/{problemId}-{Guid.NewGuid().ToString("N")[..6]}";
+            var opened = await forge.OpenPullRequestAsync(repository, baseBranch, repair.OriginalHead, branch, repair.Files,
+                $"fix: repair #{original} so that it passes", $"Opened by Orchestrarr for pull request #{original}, which did not pass in staging. The change of #{original} is carried here with a repair of the source of the application ({repair.Files.Count} file(s)), proved in staging.", ct);
+            progress.Add(id, opened.Opened ? $"opened pull request #{opened.Number} for the repair ({Short(opened.HeadSha)})" : $"the forge refused the pull request: {opened.Error}");
+            if (opened.Opened && opened.HeadSha is { } head)
+            {
+                repairs.Opened(problemId, opened.Number, head, repair.OriginalHead);
+            }
+            if (!await conductor.RecordActPerformedAsync(id, GatedAct.OpenPullRequest, opened.Opened ? $"{repository}#{opened.Number} opened for the repair of #{original}, head {opened.HeadSha}" : $"{repository}: refused by the forge: {opened.Error}", ct))
+            {
+                progress.Add(id, "the audit trail could not be written after the pull request");
+            }
+            live.Publish(LiveTopics.Missions, id);
+            return Results.Ok(new MissionPullRequestResponse(opened.Opened, opened.Number, opened.HeadSha, opened.Opened ? null : opened.Error, repair.OriginalHead));
+        });
+
+        group.MapPost("/missions/{id}/acts/deploy", async (string id, HttpContext context, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, IPullRequestFacts pulls, ProblemConductor conductor,
+            MissionProgress progress, RepairRegistry? repairs, IDossierStore dossiers, ILiveNotifier live, CancellationToken ct) =>
+        {
+            if (!Gate(id, runnerName(context), missions, mandates, problems, out var entry) || Effective(repairs, missions.Get(id)!.ProblemId, entry) is not var (number, _))
+            {
+                return Results.NotFound();
+            }
+            if (RepairIsOutstanding(repairs, missions, dossiers, missions.Get(id)!.ProblemId))
+            {
+                return Results.Ok(new MissionActResponse(false, "the repair of this problem is not in a pull request", [], Retry: false, null));
             }
             var repository = entry.Repositories[0];
             if (conductor.AcceptedCommit(id) is not { } commit || await pulls.ReadAsync(repository, number, ct) is not { } read)
@@ -71,9 +141,10 @@ internal static class MissionActEndpoints
             return Results.Ok(new MissionActResponse(authorisation.Allowed, authorisation.Refusal, [.. authorisation.Failures.Select(failure => failure.ToString())], Retry: false, authorisation.Allowed ? commit : null));
         });
 
-        group.MapGet("/missions/{id}/pipeline", async (string id, HttpContext context, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, IPullRequestFacts pulls, CancellationToken ct) =>
+        group.MapGet("/missions/{id}/pipeline", async (string id, HttpContext context, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, IPullRequestFacts pulls, RepairRegistry? repairs, CancellationToken ct) =>
         {
-            if (!MissionRunnerEndpoints.Owns(id, runnerName(context), missions, mandates) || problems.Get(missions.Get(id)?.ProblemId ?? string.Empty)?.Entry is not { PullRequest: { } number, Repositories.Count: 1 } entry)
+            if (!MissionRunnerEndpoints.Owns(id, runnerName(context), missions, mandates) || problems.Get(missions.Get(id)?.ProblemId ?? string.Empty)?.Entry is not { Repositories.Count: 1 } entry
+                || Effective(repairs, missions.Get(id)!.ProblemId, entry) is not var (number, _))
             {
                 return Results.NotFound();
             }
@@ -84,6 +155,18 @@ internal static class MissionActEndpoints
             return Results.Ok(read.Merged ? new MissionPipelineResponse(MissionPipelineState.Of(read.MergeChecks), read.MergeCommit) : new MissionPipelineResponse(MissionPipelineState.Of(read.Checks), read.HeadSha));
         });
     }
+
+    // The staging dossier of the problem says that a repair was made (the evidence says it, whatever the control plane still holds)
+    private static bool RepairWasMade(IMissionStore missions, IDossierStore dossiers, string problemId) =>
+        missions.ForProblem(problemId).Where(mission => mission.World == World.Staging).Select(mission => dossiers.Get(mission.Id)).LastOrDefault(dossier => dossier is not null)
+            ?.EvidenceDigests.Any(digest => digest.StartsWith(MissionEvidence.Repair, StringComparison.Ordinal)) == true;
+
+    // A repair was made and no pull request carries it
+    private static bool RepairIsOutstanding(RepairRegistry? repairs, IMissionStore missions, IDossierStore dossiers, string problemId) =>
+        repairs?.FixOf(problemId) is null && RepairWasMade(missions, dossiers, problemId);
+
+    private static (int Number, string Head)? Effective(RepairRegistry? repairs, string problemId, PlanEntry entry) =>
+        repairs?.Effective(problemId, entry) ?? (entry is { PullRequest: { } number, HeadSha: { } head } ? (number, head) : null);
 
     // The mission is the runner's, it has started, and its problem is a pull request on one repository
     private static bool Gate(string id, string runner, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, out PlanEntry entry)

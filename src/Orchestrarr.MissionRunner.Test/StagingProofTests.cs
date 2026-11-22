@@ -281,4 +281,82 @@ public sealed class StagingProofTests
     [InlineData("README.md", "none")]
     public void The_recipe_follows_the_files_of_the_repository(string file, string kind) =>
         StagingProof.Recipe(new HashSet<string> { file }).Kind.Should().Be(kind);
+
+    [Fact]
+    public async Task A_change_that_does_not_pass_is_repaired_by_the_agent_and_the_dossier_carries_the_files_and_the_tree_of_the_repaired_state()
+    {
+        var repaired = new string('6', 40);
+        var shell = new RepairingShell(Tree, repaired);
+        var options = Options();
+        options.Repair = new RepairSettings { DockerfileFile = WriteTemp("FROM scratch"), TokenFile = WriteTemp("token"), Attempts = 1 };
+
+        var dossier = await new StagingProof(shell, options, new RepairAgent(shell, options)).RunAsync(Mission(), _ => Task.CompletedTask, Ct);
+
+        dossier.Claim.Should().Contain("did not pass").And.Contain("worker agent repaired").And.Contain("server.js");
+        dossier.Files.Should().ContainSingle().Which.Path.Should().Be("server.js");
+        dossier.EvidenceDigests.Should().Contain($"artifact:tree={repaired}").And.NotContain($"artifact:tree={Tree}", "the artifact is the repaired state");
+        dossier.WhatChangedAndWhy.Should().Contain("the runner ran the steps again itself").And.Contain("4 passing");
+        dossier.Commit.Should().Be(Head, "the repair starts from the commit that was approved");
+    }
+
+    [Fact]
+    public async Task Without_an_agent_or_with_a_build_that_timed_out_nothing_is_repaired()
+    {
+        var shell = Machine("package.json\n", buildExit: 1);
+
+        var plain = await new StagingProof(shell, Options()).RunAsync(Mission(), _ => Task.CompletedTask, Ct);
+
+        plain.Files.Should().BeNull();
+        plain.Claim.Should().Contain("does NOT pass");
+    }
+
+    private static string WriteTemp(string content)
+    {
+        var path = Path.GetTempFileName();
+        File.WriteAllText(path, content);
+        return path;
+    }
+
+    // A staging machine on which the first build fails, the agent changes server.js, and the steps then pass
+    private sealed class RepairingShell(string firstTree, string repairedTree) : IShell
+    {
+        private bool _agentRan;
+
+        public Task<ShellResult> RunAsync(string file, IReadOnlyList<string> arguments, TimeSpan timeout, CancellationToken cancellationToken) => RunAsync(file, arguments, null!, timeout, cancellationToken);
+
+        public Task<ShellResult> RunAsync(string file, IReadOnlyList<string> arguments, string input, TimeSpan timeout, CancellationToken cancellationToken)
+        {
+            if (file != "ssh")
+            {
+                return Task.FromResult(new ShellResult(0, string.Empty, TimedOut: false));
+            }
+            var script = arguments[^1];
+            if (script.Contains("git clone", StringComparison.Ordinal))
+            {
+                return Task.FromResult(new ShellResult(0, $"HEAD {new string('a', 40)}\nTREE {firstTree}\n", TimedOut: false));
+            }
+            if (script.Contains("ls -1", StringComparison.Ordinal))
+            {
+                return Task.FromResult(new ShellResult(0, "package.json\n", TimedOut: false));
+            }
+            if (script.Contains("docker run --rm -i", StringComparison.Ordinal))
+            {
+                _agentRan = true;
+                return Task.FromResult(new ShellResult(0, "I changed server.js", TimedOut: false));
+            }
+            if (script.Contains("-newer", StringComparison.Ordinal))
+            {
+                return Task.FromResult(new ShellResult(0, "server.js\n", TimedOut: false));
+            }
+            if (script.Contains("base64 -w0", StringComparison.Ordinal))
+            {
+                return Task.FromResult(new ShellResult(0, $"FILE server.js {Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes("fixed();"))}\nTREE {repairedTree}\n", TimedOut: false));
+            }
+            if (script.Contains("npm test", StringComparison.Ordinal))
+            {
+                return Task.FromResult(_agentRan ? new ShellResult(0, "4 passing", TimedOut: false) : new ShellResult(1, "TypeError: Missing parameter name", TimedOut: false));
+            }
+            return Task.FromResult(new ShellResult(0, string.Empty, TimedOut: false));
+        }
+    }
 }
