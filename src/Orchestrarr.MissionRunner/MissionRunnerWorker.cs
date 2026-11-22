@@ -190,11 +190,15 @@ public sealed partial class MissionRunnerWorker(IMissionControlPlane controlPlan
             await controlPlane.MachineReleaseAsync(machine, missionId, null, CancellationToken.None);
             await QualifyAsync(machine, cancellationToken);
         }
-        catch (Exception failure) when (failure is HttpRequestException or InvalidOperationException or System.ComponentModel.Win32Exception or IOException)
+        catch (Exception failure) when (!IsShutdown(failure, cancellationToken))
         {
+            // The give-back runs in a finally: nothing it meets may hide what the mission ended with. A machine that was not given back or qualified is taken up again by the maintenance of the idle runner
             LogFailure($"{machine}: {failure.Message}");
         }
     }
+
+    // A failure that is the runner stopping is not swallowed; any other is a failure of one operation
+    private static bool IsShutdown(Exception failure, CancellationToken cancellationToken) => failure is OperationCanceledException && cancellationToken.IsCancellationRequested;
 
     // The restore and the checks of one machine, and what they found told to the control plane: Idle if every check passed, Down with why if one failed
     private async Task QualifyAsync(string machine, CancellationToken cancellationToken)
@@ -214,19 +218,32 @@ public sealed partial class MissionRunnerWorker(IMissionControlPlane controlPlan
     {
         foreach (var machine in new[] { options.StagingMachine, options.DeployMachine }.Where(known => !string.IsNullOrWhiteSpace(known)).Distinct(StringComparer.Ordinal).Select(known => known!))
         {
-            var served = options.Worlds.Contains(machine == options.StagingMachine ? "Staging" : "Release", StringComparer.OrdinalIgnoreCase);
-            if (!served || await controlPlane.MachineStateAsync(machine, cancellationToken) is not { } state)
+            // One machine that fails is told and does not keep the other from being maintained
+            try
             {
-                continue;
+                await MaintainAsync(machine, cancellationToken);
             }
-            if (state.State == "InProcess" && state.MissionId is { } held)
+            catch (Exception failure) when (!IsShutdown(failure, cancellationToken))
             {
-                await controlPlane.MachineReleaseAsync(machine, held, "the runner that held the machine is no longer working on it", cancellationToken);
+                LogFailure($"{machine}: {failure.Message}");
             }
-            else if (state.State is "Finished" or "Qualifying")
-            {
-                await QualifyAsync(machine, cancellationToken);
-            }
+        }
+    }
+
+    private async Task MaintainAsync(string machine, CancellationToken cancellationToken)
+    {
+        var served = options.Worlds.Contains(machine == options.StagingMachine ? "Staging" : "Release", StringComparer.OrdinalIgnoreCase);
+        if (!served || await controlPlane.MachineStateAsync(machine, cancellationToken) is not { } state)
+        {
+            return;
+        }
+        if (state.State == "InProcess" && state.MissionId is { } held)
+        {
+            await controlPlane.MachineReleaseAsync(machine, held, "the runner that held the machine is no longer working on it", cancellationToken);
+        }
+        else if (state.State is "Finished" or "Qualifying")
+        {
+            await QualifyAsync(machine, cancellationToken);
         }
     }
 

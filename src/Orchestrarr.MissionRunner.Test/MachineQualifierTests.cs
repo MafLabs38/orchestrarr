@@ -237,4 +237,35 @@ public sealed class MachineQualifierTests
 
         await plane.DidNotReceive().MachineQualifyingAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
+
+    [Fact]
+    public async Task One_machine_that_fails_to_be_maintained_does_not_keep_the_other_from_being_maintained()
+    {
+        var plane = Substitute.For<IMissionControlPlane>();
+        plane.MachineStateAsync("staging-1", Arg.Any<CancellationToken>()).Returns<MachineStateInfo?>(_ => throw new HttpRequestException("gone"));
+        plane.MachineStateAsync("release-1", Arg.Any<CancellationToken>()).Returns(new MachineStateInfo("Finished", "Release", null));
+        var options = Options();
+        options.Worlds = ["Staging", "Release"];
+        var worker = Worker(plane, Shell(Isolated), options);
+
+        await worker.MaintainMachinesAsync(Ct);
+
+        await plane.Received(1).MachineQualifiedAsync("release-1", Arg.Any<IReadOnlyList<MachineCheck>>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task A_timeout_while_giving_a_machine_back_is_told_and_hides_nothing_of_how_the_mission_ended()
+    {
+        var plane = Substitute.For<IMissionControlPlane>();
+        plane.ClaimAsync("Staging", "staging-1", Arg.Any<CancellationToken>()).Returns(new ClaimedMission("m1", "p1", "app", "Staging", "Prove it", "example/shop", 7, new string('a', 40), DateTimeOffset.UtcNow.AddHours(1), []));
+        plane.MachineStateAsync("staging-1", Arg.Any<CancellationToken>()).Returns(new MachineStateInfo("InProcess", "Staging", "m1"));
+        plane.StartedAsync("m1", Arg.Any<CancellationToken>()).Returns(true);
+        plane.HandOverAsync("m1", Arg.Any<MissionHandOver>(), Arg.Any<CancellationToken>()).Returns(true);
+        plane.MachineReleaseAsync("staging-1", "m1", Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(Task.FromException(new TaskCanceledException("timed out")));
+        var worker = Worker(plane, Shell(Isolated), Options());
+
+        (await worker.TakeOneAsync(Ct)).Should().BeTrue("the mission was handed over; a machine that could not be given back is taken up again by the maintenance");
+
+        await plane.Received(1).HandOverAsync("m1", Arg.Any<MissionHandOver>(), Arg.Any<CancellationToken>());
+    }
 }
