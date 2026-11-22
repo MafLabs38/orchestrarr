@@ -175,7 +175,7 @@ Open: which of these Portarr reports and which Orchestrarr reads directly. Not a
 - The agent never does alone: **handle a secret, delete data, or act outside the repositories and the declared acts of its mandate** (acting on a node, a database or a machine, as in CASE-11, 12 and 18, is a **declared act under a release-world mandate**, never a free command). A database migration (CASE-12) is allowed only with a backup taken first and a way back.
 - A serious advisory (CASE-03) goes through the same staging as the others, but first in the queue and with an immediate email.
 - A deployment on a machine without GitOps (CASE-04) is a **declared action** run through a configured connection, never a free command.
-- The laboratory is **one repository** with a folder per case, reset by git between runs.
+- The laboratory is **a set of repositories** (four today, in a public test-bed organisation: [CASE-GRID.md](CASE-GRID.md)), each put back to a pinned seed between runs through a pull request (ADR 0045), with the staging virtual machines reset by their own tool.
 
 **Still open, because it depends on what is built**
 
