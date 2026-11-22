@@ -89,7 +89,7 @@ public sealed partial class StagingProof(IShell shell, MissionRunnerOptions opti
         var outcome = build.TimedOut ? "timed out" : $"exit {build.ExitCode}";
         await report(passed ? "Build and tests passed" : $"Build or tests failed ({outcome})");
         var claim = passed
-            ? $"Pull request #{number} of {mission.Repository} at {Short(head)} builds and its tests pass on a staging machine restored to its reference ({kind})."
+            ? $"Pull request #{number} of {mission.Repository} at {Short(head)} builds and its tests pass on a staging machine that was restored to its reference and qualified before the job ({kind})."
             : $"Pull request #{number} of {mission.Repository} at {Short(head)} does NOT pass on the staging machine ({kind}): {outcome}.";
         return new MissionHandOver(claim, $"Fetched at {head}; changes: {FirstLines(checkout.Output, 4)}. Output tail: {Tail(build.Output)}", evidence,
             passed ? [] : [Tail(build.Output)], Complex: false, ComplexReason: null, head);

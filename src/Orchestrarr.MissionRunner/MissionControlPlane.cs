@@ -97,6 +97,11 @@ public sealed class MissionControlPlane : IMissionControlPlane
     public async Task<bool> MachineHeartbeatAsync(string machine, string missionId, CancellationToken cancellationToken)
     {
         using var response = await _http.PostAsJsonAsync($"/api/v1/runner/machines/{Uri.EscapeDataString(machine)}/heartbeat", new { missionId }, MissionWire.Json, cancellationToken);
+        // "No such machine of yours" is an answer, not a network error: the work must not go on as if it were still the holder
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            return false;
+        }
         response.EnsureSuccessStatusCode();
         return (await response.Content.ReadFromJsonAsync<MachineOk>(MissionWire.Json, cancellationToken))?.Ok ?? false;
     }

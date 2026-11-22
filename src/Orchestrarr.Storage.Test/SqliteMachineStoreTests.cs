@@ -55,7 +55,7 @@ public sealed class SqliteMachineStoreTests : IDisposable
         MachineState? previous = null;
         for (var index = 0; index < states.Length; index++)
         {
-            var transition = new MachineTransition("leipzig", previous, states[index], T0.AddMinutes(index * 10), null, null);
+            var transition = new MachineTransition("leipzig", previous, states[index], T0.AddMinutes(index * 10.0), null, null);
             sqlite.Save(machine with { State = states[index] }, transition);
             memory.Save(machine with { State = states[index] }, transition);
             previous = states[index];

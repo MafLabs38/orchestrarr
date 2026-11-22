@@ -79,10 +79,20 @@ internal static class MachineEndpoints
         group.MapGet("/machines/{id}", (string id, HttpContext context, IServiceProvider services) =>
             Owned(context, id, services, runnerName) is { } pool ? Results.Ok(StateOf(pool.Get(id)!)) : Results.NotFound());
 
-        group.MapPost("/machines/{id}/heartbeat", (string id, MachineLeaseRequest? request, HttpContext context, IServiceProvider services) =>
-            Owned(context, id, services, runnerName) is { } pool && request?.MissionId is { Length: > 0 } mission
-                ? Results.Ok(new { ok = pool.Heartbeat(id, mission) })
-                : Results.NotFound());
+        group.MapPost("/machines/{id}/heartbeat", (string id, MachineLeaseRequest? request, HttpContext context, IServiceProvider services, IMissionStore missions) =>
+        {
+            if (Owned(context, id, services, runnerName) is not { } pool || request?.MissionId is not { Length: > 0 } mission)
+            {
+                return Results.NotFound();
+            }
+            // A lease belongs to a mission that is going on: when the control plane has ended the mission (a mandate that expired, a stop, a withdrawn grant), the machine is given back and the runner is told to stop
+            if (missions.Get(mission) is not { IsOver: false })
+            {
+                pool.Release(id, mission, "the mission is over");
+                return Results.Ok(new { ok = false });
+            }
+            return Results.Ok(new { ok = pool.Heartbeat(id, mission) });
+        });
 
         group.MapPost("/machines/{id}/release", (string id, MachineLeaseRequest? request, HttpContext context, IServiceProvider services) =>
         {

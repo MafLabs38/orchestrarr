@@ -134,6 +134,25 @@ public sealed class MachineApiTests
     }
 
     [Fact]
+    public async Task A_heartbeat_made_after_the_control_plane_ended_the_mission_says_it_is_no_longer_the_holders_and_gives_the_machine_back()
+    {
+        using var factory = new MachineFactory();
+        var missionId = await StartProblemAsync(factory);
+        using var runner = Runner(factory, Token);
+        using var person = await SignedIn(factory);
+        await Qualify(runner, "leipzig", passed: true);
+        (await ClaimAsync(runner, "leipzig")).GetProperty("missionId").GetString().Should().Be(missionId);
+        var missions = factory.Services.GetRequiredService<IMissionStore>();
+
+        (await (await runner.PostAsJsonAsync("/api/v1/runner/machines/leipzig/heartbeat", new { missionId }, Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("ok").GetBoolean().Should().BeTrue();
+        missions.Save(missions.Get(missionId)! with { State = MissionState.Ended, End = MissionEnd.Stopped });
+
+        (await (await runner.PostAsJsonAsync("/api/v1/runner/machines/leipzig/heartbeat", new { missionId }, Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("ok").GetBoolean().Should().BeFalse();
+        (await MachineOf(person, "leipzig")).GetProperty("state").GetString().Should().Be("Finished");
+        (await runner.PostAsJsonAsync("/api/v1/runner/machines/elsewhere/heartbeat", new { missionId }, Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound, "a machine that is not the runner's is an answer the runner must read as 'not yours'");
+    }
+
+    [Fact]
     public async Task A_claim_with_no_machine_or_with_the_machine_of_another_world_is_refused_and_a_machine_that_failed_its_qualification_is_down_with_why()
     {
         using var factory = new MachineFactory();
