@@ -33,7 +33,10 @@ let plantedNumbers = [];
 function prState(want) {
   try {
     if (want.title) {
-      const title = want.title.replace(/\{(\d+)\}/g, (_, index) => String(plantedNumbers[Number(index)] ?? ''));
+      const title = want.title.replace(/\{(\d+)\}/g, (_, index) => {
+        if (plantedNumbers[Number(index)] === undefined) throw new Error(`the title of an expectation names the planted pull request {${index}}, which the scenario did not plant`);
+        return String(plantedNumbers[Number(index)]);
+      });
       const found = JSON.parse(execFileSync('gh', ['pr', 'list', '-R', `${org}/${want.repo}`, '--state', 'all', '--search', `"${title}" in:title`, '--json', 'state,title', '--limit', '20'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }));
       return found.find((candidate) => candidate.title === title)?.state ?? 'NOT_FOUND';
     }
