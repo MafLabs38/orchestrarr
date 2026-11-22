@@ -26,6 +26,7 @@ public static class LiveTopics
     public const string Accounts = "accounts";
     public const string Options = "options";
     public const string Missions = "missions";
+    public const string Machines = "machines";
 }
 
 public interface ILiveNotifier

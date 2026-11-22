@@ -134,6 +134,17 @@ describe('invalidateTopic', () => {
     expect(stale()).toEqual(['/api/v1/problems', '/api/v1/runs', '/api/v1/runs/run-1', '/api/v1/runs/run-2']);
   });
 
+  it('reads again the machines when one changes state', async () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(['/api/v1/machines'], { machines: [], windowHours: 24 });
+    queryClient.setQueryData(['/api/v1/missions'], []);
+
+    await invalidateTopic(queryClient, 'machines', 'leipzig');
+
+    expect(queryClient.getQueryState(['/api/v1/machines'])?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(['/api/v1/missions'])?.isInvalidated).toBe(false);
+  });
+
   it('reads again the missions, and what the table offers, when a mission moves', async () => {
     const { queryClient, stale } = setup();
     queryClient.setQueryData(['/api/v1/missions'], []);

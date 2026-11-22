@@ -1,3 +1,4 @@
+using Orchestrarr.Core.Machines;
 using Orchestrarr.Core.Missions;
 using Orchestrarr.Core.Tasks;
 using Orchestrarr.Host.Live;
@@ -91,7 +92,7 @@ internal static partial class MissionRunnerEndpoints
 {
     public static void MapMissionRunnerRoutes(this RouteGroupBuilder group, Func<HttpContext, string> runnerName)
     {
-        group.MapPost("/missions/claim", (ClaimRequest? request, string? world, HttpContext context, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, ProblemConductor conductor, IDossierStore dossiers, MissionProgress progress, RepairRegistry? repairs, TimeProvider time, RunnerRegistry registry) =>
+        group.MapPost("/missions/claim", (ClaimRequest? request, string? world, string? machine, HttpContext context, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, ProblemConductor conductor, IDossierStore dossiers, MissionProgress progress, RepairRegistry? repairs, TimeProvider time, RunnerRegistry registry) =>
         {
             var name = runnerName(context);
             if (request?.Hello is { } hello)
@@ -105,6 +106,12 @@ internal static partial class MissionRunnerEndpoints
                 // The later worlds first: what is on its way to production is finished before something new is started
                 .OrderByDescending(candidate => candidate.World).ThenBy(candidate => candidate.Id, StringComparer.Ordinal).FirstOrDefault();
             if (mission is null || MandateOf(mission, mandates) is not { } mandate || problems.Get(mission.ProblemId)?.Entry is not { Repositories.Count: 1 } entry)
+            {
+                return Results.Ok(new MissionClaimResponse(null));
+            }
+            // A mission of a world that works on a lab machine is claimed with a lease on its machine (ADR 0047): one holder, and only an Idle machine. No machine free, the mission waits
+            if (mission.World is World.Staging or World.Release && context.RequestServices.GetService<MachinePool>() is { } pool
+                && !MachineEndpoints.MayLease(pool, context.RequestServices.GetRequiredService<MissionsOptions>(), machine, name, mission))
             {
                 return Results.Ok(new MissionClaimResponse(null));
             }

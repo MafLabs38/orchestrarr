@@ -26,6 +26,7 @@ public sealed class PlanEntryFactoryTests
         entry.MaxWorld.Should().Be(World.Release);
         entry.Validation.By.Should().Be("alice");
         entry.Objective.Should().Contain("#3").And.Contain("example/shop");
+        entry.Objective.Should().Contain("in staging: build it and run its tests there").And.NotContain("verify the release", "the objective of the staging world is the staging world's: merging and releasing are the next worlds'");
     }
 
     [Fact]

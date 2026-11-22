@@ -153,6 +153,7 @@ api.MapProblemsEndpoints();
 api.MapRunEndpoints();
 api.MapMissionEndpoints();
 api.MapPlanEndpoints();
+api.MapMachineEndpoints();
 if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Testing"))
 {
     // Fake agents and fake facts, no power: for the sandbox and the tests, never for a deployment

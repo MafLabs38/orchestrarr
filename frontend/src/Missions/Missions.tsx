@@ -9,6 +9,7 @@ import type { MissionView } from 'typings/api';
 import { describeMissionEnd, describeMissionWorld } from 'Utilities/describe';
 import translate from 'Utilities/translate';
 
+import MachineBoard from './MachineBoard';
 import styles from './Missions.module.css';
 import { useMissions } from './useMissions';
 
@@ -40,6 +41,7 @@ export default function Missions() {
     <PageContent title={translate('Missions')}>
       <PageContentBody>
         <PageHeading title={translate('Missions')} description={translate('MissionsDescription')} />
+        <MachineBoard />
         {isPending ? <CapabilityHint>{translate('Loading')}</CapabilityHint> : null}
         {error ? <Alert kind={kinds.DANGER}>{translate('CannotReadMissions', { error: error.message })}</Alert> : null}
         {missions?.length === 0 ? <CapabilityHint>{translate('MissionsEmpty')}</CapabilityHint> : null}

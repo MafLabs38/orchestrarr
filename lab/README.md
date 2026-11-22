@@ -16,7 +16,7 @@ Optional: `LAB_BASE_BRANCH` (`develop`), `LAB_WORKDIR` (the clones, `~/.cache/or
 
 - The **seed** of a repository is the commit pinned in `lab/seeds.json` and tagged `lab-seed` on the forge (the tag is only where the commit is fetched from): the deliberately broken project as it was first published, with the maintenance that its pipeline needs to run at all.
 - A **reset** closes the open pull requests of the lab and of the agents (a bot's pull request is left alone: a closed one is never opened again by the bot), deletes the work branches, and restores the seed tree **through a pull request** that passes the repository's checks and is squash-merged. The repository rules (pull request required, no force push) are the ones of a real project and are never changed.
-- The staging virtual machines are reset by their own tool, outside this repository (the staging lab).
+- The staging virtual machines are reset by their own tool, outside this repository (the staging lab), which also puts their hypervisor firewall back **before** a machine starts, because a restore brings back the network settings of the snapshot (ADR 0047); their state and their isolation are checked by the runner at each qualification and shown on the Missions screen.
 - Nothing here is a secret; the organisation and the token come from the environment.
 
 ## Playing a scenario

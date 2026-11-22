@@ -2,7 +2,7 @@
 
 - **Status**: proposed (accepted when the pull request that carries it is merged)
 - **Date**: 2026-11-22
-- **Spec**: D-101 ([SPEC.md](../SPEC.md), to be added with the code). Makes FR-STG-8 and FR-STG-9 mandatory ([FUNCTIONAL.md](../FUNCTIONAL.md)); builds on [ADR 0034](0034-staging-is-a-prerequisite-per-application.md), [ADR 0035](0035-the-frame-is-enforced-by-the-environment.md) and [ADR 0041](0041-a-problem-is-on-one-repository-and-the-staging-is-held-only-while-it-is-needed.md).
+- **Spec**: D-101 ([SPEC.md](../SPEC.md)). Makes FR-STG-8 and FR-STG-9 mandatory ([FUNCTIONAL.md](../FUNCTIONAL.md)); builds on [ADR 0034](0034-staging-is-a-prerequisite-per-application.md), [ADR 0035](0035-the-frame-is-enforced-by-the-environment.md) and [ADR 0041](0041-a-problem-is-on-one-repository-and-the-staging-is-held-only-while-it-is-needed.md).
 
 ## Context
 
@@ -20,6 +20,13 @@ The specification had half of it: a slot status and a restore before reuse (FR-S
 4. **Isolation is set by the environment and is part of the baseline.** The hypervisor firewall of the machine denies its way to the local network (IPv4 and IPv6) and allows the Internet, name resolution and the platform channel in; the setting is in the reference snapshot, so that **a machine that comes out of a reset is isolated by construction**, and the qualification proves it each time. Inside the machine the agent has every freedom, root included; what it does there is judged on what leaves (the carried change, the dossier), by the rest of the architecture.
 5. **The release machine has the same states without the reset.** What it runs must stay after the job: its qualification is isolation, reachability and health, never a restore, and it is Idle between deployments.
 6. **The status is visible**: the control plane exposes the machines and their state, and the Missions screen shows them (live), with the reason when one is Down.
+
+## Built
+
+- The pool (`MachinePool`), the transitions that exist (`MachineRules`), the lease with one holder, the expiry of a lease whose runner gave no sign of life (generous: `Missions:MachineLeaseMinutes`), and the statistics (`MachineMetrics`: time in each state, availability, utilisation, lots, down events, mean time to repair), kept in the SQLite file with every transition.
+- A claim of a staging or release mission carries the machine of the runner and is offered only with a lease on an Idle one. The runner gives the machine back when the mission is over, then **restores it (staging) and probes it from inside** (`MachineQualifier`); when it is idle it restores a machine that is Finished or Qualifying (the control plane started, a person asked) and gives back a lease that nobody works on.
+- The hypervisor firewall of both lab machines denies their way to the local network and is **re-applied by the lab tool before a machine starts after any restore**, because a restore brings back the network settings of the snapshot. A machine whose rules are missing is not started: the restore fails and the machine is Down with the reason.
+- The Missions screen shows the machines live (the `machines` topic of the live channel), with the checks of the last qualification, the reason when one is down, the statistics, and a button to qualify again.
 
 ## Consequences
 

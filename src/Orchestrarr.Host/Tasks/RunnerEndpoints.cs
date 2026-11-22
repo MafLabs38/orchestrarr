@@ -72,6 +72,7 @@ internal static class RunnerEndpoints
         if (app.Services.GetService<SandboxApprovals>() is not null)
         {
             group.MapMissionRunnerRoutes(context => (string)context.Items[RunnerItem]!);
+            group.MapMachineRunnerRoutes(context => (string)context.Items[RunnerItem]!);
             group.MapMissionActRoutes(context => (string)context.Items[RunnerItem]!);
         }
 
