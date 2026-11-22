@@ -60,7 +60,9 @@ One repository (private) of **deliberately broken projects**, one or more for ea
 
 The staging machine is a **spare machine running a hypervisor**, separate from production, with a small disk and **two virtual machines at once**, so that two stagings can run at the same time. The size of a staging virtual machine is bounded by its disk. Both figures (the number of slots and the size) are configuration of the platform, not facts of the product.
 
-Open: the shape of the laboratory (one repository or one per family of cases, how the faults are reset between runs, how much of production's pipeline it copies).
+The status of each case, and what "ticked" means, is [CASE-GRID.md](CASE-GRID.md). Faults are reset between runs by restoring the seed of each repository through a pull request (`lab/`).
+
+Open: the shape of the laboratory beyond the four repositories of the test bed (one per family of cases, how much of production's pipeline it copies).
 
 ## 5. The cases in detail
 
