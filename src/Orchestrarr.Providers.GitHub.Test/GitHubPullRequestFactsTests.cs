@@ -203,6 +203,31 @@ public sealed class GitHubPullRequestFactsTests
         (await Facts().CompareAsync("example/app", "develop", Head, token))!.BehindBy.Should().Be(3);
     }
 
+    [Fact]
+    public async Task The_default_branch_is_read_with_its_head_and_what_cannot_be_read_is_null()
+    {
+        var token = TestContext.Current.CancellationToken;
+        (await Facts().ReadAsync("example/app", token)).Should().BeNull("the forge does not answer");
+        _routes["/repos/example/app"] = """{ "default_branch": "main" }""";
+        (await Facts().ReadAsync("example/app", token)).Should().BeNull("the branch cannot be read");
+        _routes["/repos/example/app/branches/main"] = $$"""{ "commit": { "sha": "{{Head}}" } }""";
+
+        (await Facts().ReadAsync("example/app", token)).Should().Be(new DefaultBranchHead("main", Head));
+        (await Facts().ReadAsync("../x", token)).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_list_of_a_hundred_files_may_be_cut_and_a_missing_behind_count_counts_as_behind()
+    {
+        var files = string.Join(",", Enumerable.Range(0, 100).Select(index => $$"""{ "filename": "f{{index}}.txt", "status": "added", "changes": 1, "patch": "@@\n+x" }"""));
+        _routes[$"/repos/example/app/compare/develop...{Head}"] = $$"""{ "merge_base_commit": { "sha": "{{Base}}" }, "ahead_by": 1, "files": [ {{files}} ] }""";
+
+        var change = (await Facts().CompareAsync("example/app", "develop", Head, TestContext.Current.CancellationToken))!;
+
+        change.FilesComplete.Should().BeFalse("a hundred is a full page: the list may have been cut");
+        change.BehindBy.Should().Be(1, "a forge that does not say how far behind it is counts as behind");
+    }
+
     private sealed class Handler(Dictionary<string, string> routes) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)

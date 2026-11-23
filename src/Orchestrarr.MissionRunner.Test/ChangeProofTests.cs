@@ -37,6 +37,7 @@ public sealed class ChangeProofTests : IDisposable
         public bool Pushes { get; set; } = true;
         public int AgentExit { get; set; }
         public int BuildExit { get; set; }
+        public bool LeakTokens { get; set; }
         public string? Prompt { get; private set; }
         public string? Setup { get; private set; }
         public string? AgentInput { get; private set; }
@@ -70,7 +71,7 @@ public sealed class ChangeProofTests : IDisposable
             if (script.Contains("claude -p", StringComparison.Ordinal))
             {
                 AgentInput = input;
-                return new ShellResult(AgentExit, "I updated lodash, ran the tests and pushed.", false);
+                return new ShellResult(AgentExit, LeakTokens ? "pushed with the-git-token and the-token" : "I updated lodash, ran the tests and pushed.", false);
             }
             if (script.Contains("git ls-remote", StringComparison.Ordinal))
             {
@@ -127,7 +128,8 @@ public sealed class ChangeProofTests : IDisposable
         var steps = machine.Scripts.FindIndex(script => script.Contains("npm ci", StringComparison.Ordinal) || script.Contains("docker run --rm --cap-drop", StringComparison.Ordinal));
         reset.Should().BeGreaterThan(-1);
         reset.Should().BeLessThan(removed);
-        removed.Should().BeLessThan(steps);
+        removed.Should().BeGreaterThan(-1);
+        steps.Should().BeGreaterThan(removed, "the steps run after the containers are gone, and after the commit is checked out");
     }
 
     [Fact]
@@ -139,10 +141,20 @@ public sealed class ChangeProofTests : IDisposable
             .And.Contain("Update lodash to 4.17.21").And.Contain("Show the exact versions.").And.Contain("production is built from it")
             .And.Contain("git push origin HEAD:agent/").And.Contain("pushing does not finish anything").And.Contain("do not open or merge a pull request").And.Contain(".npmrc");
         machine.Prompt.Should().NotContain("the-token").And.NotContain("the-git-token");
-        machine.Setup.Should().Contain("credential.helper").And.Contain("$AGENT_GIT_TOKEN").And.NotContain("the-git-token", "git is given the token by a helper that reads the environment, in no file");
+        machine.Setup.Should().Contain("credential.https://github.com.helper", "only the forge's host receives the token").And.Contain("$AGENT_GIT_TOKEN").And.NotContain("the-git-token", "git is given the token by a helper that reads the environment, in no file");
         machine.AgentInput.Should().Be("the-token\nthe-git-token\n", "both tokens go by the standard input of the connection, never in an argument");
         machine.Scripts.Where(script => !script.Contains("read -r", StringComparison.Ordinal)).Should().OnlyContain(script => !script.Contains("the-token", StringComparison.Ordinal) && !script.Contains("the-git-token", StringComparison.Ordinal));
         machine.Scripts.Single(script => script.Contains("claude -p", StringComparison.Ordinal)).Should().Contain("-e AGENT_GIT_TOKEN").And.Contain("--dangerously-skip-permissions");
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(2)]
+    public async Task What_the_agent_says_never_carries_a_token_into_the_dossier_whether_it_succeeded_or_not(int agentExit)
+    {
+        var (dossier, _, lines) = await Run(new Machine { LeakTokens = true, AgentExit = agentExit });
+
+        string.Join(" ", dossier.Claim, dossier.WhatChangedAndWhy, string.Join(" ", dossier.OpenPoints ?? []), string.Join(" ", lines)).Should().NotContain("the-git-token").And.NotContain("the-token");
     }
 
     [Fact]

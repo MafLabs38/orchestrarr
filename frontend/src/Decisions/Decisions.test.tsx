@@ -353,6 +353,14 @@ describe('Decisions', () => {
           goesUpTo: 'noAction',
         }),
         problem({
+          id: 'finding:repository:example/shop:DependencyAlerts',
+          kind: 'dependencyAlert',
+          application: 'example/shop',
+          pullRequest: null,
+          headSha: null,
+          goesUpTo: 'noAction',
+        }),
+        problem({
           id: 'pr:example/shop#9',
           application: 'example/shop',
           description: 'lodash 4.17.4 → 4.18.1',
@@ -366,7 +374,7 @@ describe('Decisions', () => {
 
     const boxes = await screen.findAllByLabelText(/Select example\/shop/);
 
-    expect(boxes).toHaveLength(2);
+    expect(boxes).toHaveLength(3);
     for (const box of boxes) {
       expect(box).toBeDisabled();
     }

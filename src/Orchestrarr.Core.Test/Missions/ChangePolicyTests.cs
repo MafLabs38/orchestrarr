@@ -83,12 +83,35 @@ public sealed class ChangePolicyTests
     }
 
     [Fact]
-    public void A_file_with_no_patch_is_not_text_or_too_big_unless_a_tool_wrote_it()
+    public void A_file_that_the_forge_could_not_show_is_not_integrated_a_lock_file_included()
     {
-        ChangePolicy.Refusal(Change(File("logo.png", "added", 0, null))).Should().BeNull("a binary file has no change count and no patch: nothing says it is not text");
+        ChangePolicy.Refusal(Change(File("logo.png", "added", 0, null))).Should().Contain("too big, or is not text");
+        ChangePolicy.Refusal(Change(File("empty.txt", "added", 0, null))).Should().Contain("too big, or is not text");
         ChangePolicy.Refusal(Change(File("data.bin", "added", 40, null))).Should().Contain("too big, or is not text");
-        ChangePolicy.Refusal(Change(File("package-lock.json", "modified", 5000, null))).Should().BeNull("the forge gives no patch for a very large generated file");
-        ChangePolicy.Refusal(Change(File("big.txt", "modified", 1, new string('x', ChangePolicy.MaxFileBytes + 1)))).Should().Contain("too big");
+        ChangePolicy.Refusal(Change(File("package-lock.json", "modified", 5000, null))).Should().Contain("too big, or is not text", "nobody could read it");
+        ChangePolicy.Refusal(Change(File("big.txt", "modified", 1, new string('x', ChangePolicy.MaxFilePatch + 1)))).Should().Contain("too big");
+    }
+
+    [Theory]
+    [InlineData("package-lock.json")]
+    [InlineData("frontend/yarn.lock")]
+    [InlineData("pnpm-lock.yaml")]
+    public void A_lock_file_may_only_name_registries_where_it_says_that_a_package_comes_from(string lockFile)
+    {
+        const string good = "@@\n+      \"resolved\": \"https://registry.npmjs.org/lodash/-/lodash-4.18.1.tgz\",\n+      \"funding\": { \"url\": \"https://github.com/sponsors/x\" }";
+        ChangePolicy.Refusal(Change(File(lockFile, "modified", 3, good))).Should().BeNull("a funding link is not where a package is fetched from");
+        ChangePolicy.Refusal(Change(File(lockFile, "modified", 3, "@@\n+      \"resolved\": \"https://evil.example/lodash.tgz\","))).Should().Contain("evil.example");
+        ChangePolicy.Refusal(Change(File(lockFile, "modified", 3, "@@\n+      \"resolved\": \"git+ssh://git@github.com/someone/lodash.git#abc\","))).Should().Contain("github.com");
+        ChangePolicy.Refusal(Change(File(lockFile, "modified", 3, "@@\n-      \"resolved\": \"https://evil.example/old.tgz\",\n+      \"resolved\": \"https://registry.npmjs.org/a/-/a-1.tgz\","))).Should().BeNull("a line that is removed is not where anything comes from now");
+    }
+
+    [Fact]
+    public void A_generated_file_is_one_that_a_tool_writes_by_its_name_not_by_the_end_of_it()
+    {
+        ChangePolicy.IsGenerated("package-lock.json").Should().BeTrue();
+        ChangePolicy.IsGenerated("a/b/poetry.lock").Should().BeTrue();
+        ChangePolicy.IsGenerated("notapackage-lock.json").Should().BeFalse();
+        ChangePolicy.IsGenerated("src/unlock.json").Should().BeFalse();
     }
 
     [Fact]
@@ -106,7 +129,7 @@ public sealed class ChangePolicyTests
             File("package.json", patch: "@@ -1 +1 @@\n-\"lodash\": \"4.17.4\"\n+\"lodash\": \"4.18.1\""),
             File("package-lock.json", "modified", 900, "@@\n-x\n+y")));
 
-        reading.Should().Contain("package.json (modified, 2 lines)").And.Contain("package-lock.json").And.Contain("\"lodash\": \"4.18.1\"").And.Contain("Generated files changed too (their lines are not shown): package-lock.json");
+        reading.Should().Contain("package.json (modified, 2 lines)").And.Contain("package-lock.json").And.Contain("\"lodash\": \"4.18.1\"").And.Contain("Generated files changed too (their lines are not shown, the control plane checked that every address in them is a registry): package-lock.json");
         reading.Should().NotContain("[CUT");
         ChangePolicy.Reading(Change([.. Enumerable.Range(0, 41).Select(index => File($"f{index}.txt"))])).Should().Contain("[CUT: the rest is not shown]");
     }
@@ -116,5 +139,32 @@ public sealed class ChangePolicyTests
     {
         ChangePolicy.IsProtected(".github/workflows/x.yml").Should().BeTrue();
         ChangePolicy.IsProtected("src/server.js").Should().BeFalse();
+    }
+}
+
+public sealed class AgentBranchTests
+{
+    [Theory]
+    [InlineData("p-4afd49f588f8", "agent/p-4afd49f588f8-")]
+    [InlineData("P_X/../y", "agent/p-x-y-")]
+    [InlineData("-lead", "agent/lead-")]
+    [InlineData("!!!", "agent/p-")]
+    public void A_branch_is_named_after_its_problem_made_plain(string problemId, string prefix)
+    {
+        AgentBranch.PrefixOf(problemId).Should().Be(prefix);
+        AgentBranch.IsName(AgentBranch.Create(problemId, "1a2b3c")).Should().BeTrue();
+    }
+
+    [Fact]
+    public void Even_a_very_long_problem_gives_a_name_that_the_gateway_accepts_and_a_branch_belongs_to_one_problem_only()
+    {
+        var name = AgentBranch.Create(new string('x', 200), "1a2b3c");
+
+        AgentBranch.IsName(name).Should().BeTrue();
+        AgentBranch.Belongs(name, new string('x', 200)).Should().BeTrue();
+        AgentBranch.Belongs(AgentBranch.Create("p-1", "aaaaaa"), "p-2").Should().BeFalse("another problem's branch is not audited for this one");
+        AgentBranch.IsName("main").Should().BeFalse();
+        AgentBranch.IsName("agent/../x").Should().BeFalse();
+        AgentBranch.IsName(null).Should().BeFalse();
     }
 }

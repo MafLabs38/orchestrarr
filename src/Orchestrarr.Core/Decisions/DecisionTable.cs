@@ -146,8 +146,10 @@ public sealed record ProblemRow(
     IReadOnlyList<RepositoryProblem>? Warnings = null,
     string? ParsedChange = null);
 
-/// <summary>What a connected runner accepts, as it reported it. The table never promises more than they would run: with none connected, nothing can be run, and every row says so.</summary>
-/// <summary>What a connected runner accepts. <c>FreeAgent</c>: it has a free agent for a problem that has no pull request (ADR 0048), which no kind of task says.</summary>
+/// <summary>
+/// What a connected runner accepts, as it reported it. The table never promises more than they would run: with none connected, nothing can be run, and every row says so. <c>FreeAgent</c>: it has a free agent for a problem that has
+/// no pull request (ADR 0048), which no kind of task says (an interim on the typed-task hello: mission capabilities will be announced on the mission claim).
+/// </summary>
 public sealed record RunnerAcceptance(IReadOnlyList<TaskKind> Kinds, IReadOnlyList<string> Repositories, bool FreeAgent = false)
 {
     public bool Accepts(TaskKind kind, string repository) => Kinds.Contains(kind) && Repositories.Any(pattern => RepositoryPattern.Matches(pattern, repository));

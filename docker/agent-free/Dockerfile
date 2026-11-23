@@ -1,6 +1,6 @@
 # The image of the FREE agent of the staging world (ADR 0048): Claude Code with the tools of a developer (git, a shell, the docker client), run as root in a container of a
 # staging machine, which is isolated from the local network and thrown away after the job. The socket of the machine's own rootless docker is mounted by the Runner, so the agent can
-# build and run what it needs. The only secret in it at run time is the token of the subscription. Build it where the Runner runs: docker build -t orchestrarr-agent-free docker/agent-free
+# build and run what it needs. The secrets in it at run time are the token of the subscription and the token that pushes branches (ADR 0048). Build it where the Runner runs: docker build -t orchestrarr-agent-free docker/agent-free
 FROM node:22-bookworm-slim@sha256:5ec23b7c622b00547753bc6ffd78085dd868a68aeb41c8e0a1418f033e13d96d
 ARG CLAUDE_CODE_VERSION=2.1.322
 ARG DOCKER_VERSION=27.3.1

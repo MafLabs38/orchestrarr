@@ -173,25 +173,36 @@ internal static partial class MissionRunnerEndpoints
                 {
                     return Results.Json(new { error = "only the staging world of a problem with no pull request hands over a branch" }, statusCode: StatusCodes.Status409Conflict);
                 }
-                if (!BranchShape().IsMatch(branch) || request.Commit is not { } pushed || !CommitShape().IsMatch(pushed))
+                if (!AgentBranch.Belongs(branch, staged.ProblemId) || request.Commit is not { } pushed || !CommitShape().IsMatch(pushed))
                 {
                     return Results.Json(new { error = "the branch or the commit it finished at is not well formed" }, statusCode: StatusCodes.Status409Conflict);
                 }
                 var repository = entry.Repositories[0];
+                // What the control plane cannot accept is **not lost**: the dossier is kept with the reason as an open point, no branch is kept, and the controller (and the maintainer, on the Missions screen) read it and send the work back
+                string? refused = null;
                 if (await branches.HeadOfAsync(repository, branch, ct) is not { } onForge || !string.Equals(onForge, pushed, StringComparison.Ordinal))
                 {
-                    return Results.Json(new { error = "the branch is not at the commit it was said to finish at, or cannot be read on the forge" }, statusCode: StatusCodes.Status409Conflict);
+                    refused = "the branch is not at the commit it was said to finish at, or cannot be read on the forge";
                 }
-                if (await defaults.ReadAsync(repository, ct) is not { } current || await branches.CompareAsync(repository, current.Branch, pushed, ct) is not { } change)
+                else if (await defaults.ReadAsync(repository, ct) is not { } current || await branches.CompareAsync(repository, current.Branch, pushed, ct) is not { } change)
                 {
-                    return Results.Json(new { error = "the change cannot be read on the forge" }, statusCode: StatusCodes.Status409Conflict);
+                    refused = "the change cannot be read on the forge";
                 }
-                if (ChangePolicy.Refusal(change, staged.Frame.ForbiddenPaths) is { } refused)
+                else if (ChangePolicy.Refusal(change, staged.Frame.ForbiddenPaths) is { } policy)
                 {
-                    return Results.Json(new { error = refused }, statusCode: StatusCodes.Status422UnprocessableEntity);
+                    refused = policy;
                 }
-                // What is shown to the controller is what the forge says, not what the agent or the runner wrote about it
-                repairs.KeepBranch(staged.ProblemId, change.MergeBase, new PendingBranch(branch, pushed, [.. change.Files.Select(file => file.Path)], ChangePolicy.Reading(change)));
+                else
+                {
+                    // What is shown to the controller is what the forge says, not what the agent or the runner wrote about it
+                    repairs.KeepBranch(staged.ProblemId, change.MergeBase, new PendingBranch(branch, pushed, [.. change.Files.Select(file => file.Path)], ChangePolicy.Reading(change)));
+                }
+                if (refused is not null)
+                {
+                    repairs.Forget(staged.ProblemId);
+                    var note = $"The control plane did not accept the branch {branch}: {refused}.";
+                    request = request with { WhatChangedAndWhy = $"{note} {request.WhatChangedAndWhy}", OpenPoints = [.. request.OpenPoints ?? [], note], Commit = null };
+                }
             }
             // The files of a repair are the staging world's, and are checked before anything keeps them: the policy is the control plane's own, whatever the runner did
             else if (request.Files is { Count: > 0 } files)
@@ -227,9 +238,6 @@ internal static partial class MissionRunnerEndpoints
             return result.Ok ? Results.Ok() : Results.Conflict(new { error = result.Refusal });
         });
     }
-
-    [System.Text.RegularExpressions.GeneratedRegex(@"^agent/[a-z0-9][a-z0-9-]{0,79}$", System.Text.RegularExpressions.RegexOptions.None, 250)]
-    private static partial System.Text.RegularExpressions.Regex BranchShape();
 
     private static bool IsSentBack(Mission candidate, IDossierStore dossiers) => candidate.State == MissionState.Running && candidate.SendBacks > 0 && dossiers.Get(candidate.Id) is not null;
 

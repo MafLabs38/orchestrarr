@@ -109,6 +109,18 @@ public sealed class LeadAgentTests
     }
 
     [Fact]
+    public void The_findings_are_shown_to_the_judge_of_the_staging_world_only()
+    {
+        ControllerInput For(World world) => new(
+            new Mission("m1", "p1", "shop", world, "Do the world", new MissionFrame(["example/shop"], [], "slot-1"), new MissionBudget(20, 3, 50), MissionState.HandingOver),
+            new Dossier("m1", "done", "changed", ["sha256:aa"], [], false, null), new FactsView([], "green", "not read", []), Brief("2 alerts", parsed: true) with { Details = ["advisory on lodash; fixed in 4.18.1"] });
+
+        Agent().Build(For(World.Staging), boundary: "B5").UserPrompt.Should().Contain("fixed in 4.18.1");
+        Agent().Build(For(World.Git), boundary: "B6").UserPrompt.Should().NotContain("fixed in 4.18.1");
+        Agent().Build(For(World.Release), boundary: "B7").UserPrompt.Should().NotContain("fixed in 4.18.1");
+    }
+
+    [Fact]
     public void The_instruction_of_the_lead_is_data_for_the_judge_and_never_in_the_line_of_the_control_plane()
     {
         var input = new ControllerInput(

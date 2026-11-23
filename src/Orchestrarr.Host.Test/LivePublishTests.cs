@@ -153,4 +153,20 @@ public sealed class LivePublishTests
         registry.Touch("runner-1");
         announced.Should().Be(2, "it came back after a silence");
     }
+
+    [Fact]
+    public void The_hello_of_a_runner_says_whether_it_has_a_free_agent_and_a_change_of_it_is_news()
+    {
+        var time = new FakeTimeProvider(new DateTimeOffset(2026, 11, 11, 12, 0, 0, TimeSpan.Zero));
+        var registry = new RunnerRegistry(time);
+        var announced = 0;
+        registry.Changed += () => announced++;
+
+        registry.Seen("runner-1", Hello());
+        registry.Snapshot().Single().FreeAgent.Should().BeFalse("a runner that does not say it has one has none");
+        registry.Seen("runner-1", Hello() with { FreeAgent = true });
+
+        registry.Snapshot().Single().FreeAgent.Should().BeTrue();
+        announced.Should().Be(2, "what a runner can do changed");
+    }
 }

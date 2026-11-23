@@ -15,7 +15,13 @@ public sealed partial class GitHubForgeActs : IForgeActs
 {
     private readonly HttpClient _http;
 
-    private GitHubForgeActs(HttpClient http) => _http = http;
+    private readonly TimeSpan _retryDelay;
+
+    private GitHubForgeActs(HttpClient http, TimeSpan retryDelay)
+    {
+        _http = http;
+        _retryDelay = retryDelay;
+    }
 
     [GeneratedRegex(@"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9._-]{1,100}$", RegexOptions.None, 250)]
     private static partial Regex RepositoryName();
@@ -23,7 +29,7 @@ public sealed partial class GitHubForgeActs : IForgeActs
     [GeneratedRegex("^[0-9a-f]{40}$", RegexOptions.None, 250)]
     private static partial Regex Sha();
 
-    public static GitHubForgeActs Create(GitHubOptions options, HttpMessageHandler? handler = null)
+    public static GitHubForgeActs Create(GitHubOptions options, HttpMessageHandler? handler = null, TimeSpan? retryDelay = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         if (string.IsNullOrWhiteSpace(options.Token))
@@ -35,7 +41,7 @@ public sealed partial class GitHubForgeActs : IForgeActs
         http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
         http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("orchestrarr", "1"));
         http.DefaultRequestHeaders.Add("X-GitHub-Api-Version", "2022-11-28");
-        return new GitHubForgeActs(http);
+        return new GitHubForgeActs(http, retryDelay ?? TimeSpan.FromSeconds(2));
     }
 
     public async Task<MergeResult> MergePullRequestAsync(string repositoryFullName, int number, string expectedHeadSha, CancellationToken cancellationToken)
@@ -122,12 +128,9 @@ public sealed partial class GitHubForgeActs : IForgeActs
         }
     }
 
-    [GeneratedRegex(@"^agent/[a-z0-9][a-z0-9-]{0,79}$", RegexOptions.None, 250)]
-    private static partial Regex AgentBranchName();
-
     public async Task<OpenedPullRequest> OpenPullRequestFromBranchAsync(string repositoryFullName, string baseBranch, string branch, string expectedSha, string title, string body, CancellationToken cancellationToken)
     {
-        if (!RepositoryName().IsMatch(repositoryFullName) || !Sha().IsMatch(expectedSha) || !AgentBranchName().IsMatch(branch) || string.IsNullOrWhiteSpace(baseBranch) || baseBranch.Length > 100)
+        if (!RepositoryName().IsMatch(repositoryFullName) || !Sha().IsMatch(expectedSha) || !AgentBranch.IsName(branch) || string.IsNullOrWhiteSpace(baseBranch) || baseBranch.Length > 100)
         {
             return new OpenedPullRequest(false, 0, null, "the repository, the branch or the commit is not well formed");
         }
@@ -140,8 +143,34 @@ public sealed partial class GitHubForgeActs : IForgeActs
             {
                 return new OpenedPullRequest(false, 0, null, "the branch is not at the commit that was audited: the agent pushed again, or the branch is gone");
             }
-            using var pull = await SendAsync(HttpMethod.Post, $"repos/{repositoryFullName}/pulls", new { title, head = branch, @base = baseBranch, body }, cancellationToken);
-            return pull.Ok && pull.Body?.RootElement.TryGetProperty("number", out var number) == true && number.TryGetInt32(out var n) ? new OpenedPullRequest(true, n, expectedSha, null) : Failed("the pull request cannot be opened", pull);
+            // The forge answers a 5xx now and then, and the pull request may even have been made before the answer was lost: a few tries, each preceded by a look for the pull request that the branch already carries
+            Answer pull = await SendAsync(HttpMethod.Post, $"repos/{repositoryFullName}/pulls", new { title, head = branch, @base = baseBranch, body }, cancellationToken);
+            for (var attempt = 1; attempt < OpenAttempts && pull.Status >= 500; attempt++)
+            {
+                pull.Dispose();
+                await Task.Delay(_retryDelay * attempt, cancellationToken);
+                var owner = repositoryFullName[..repositoryFullName.IndexOf('/', StringComparison.Ordinal)];
+                using var existing = await SendAsync(HttpMethod.Get, $"repos/{repositoryFullName}/pulls?state=open&head={Uri.EscapeDataString($"{owner}:{branch}")}", null, cancellationToken);
+                if (existing.Ok && existing.Body?.RootElement is { ValueKind: JsonValueKind.Array } list && list.GetArrayLength() > 0)
+                {
+                    pull = new Answer(true, 200, JsonDocument.Parse(list[0].GetRawText()));
+                    break;
+                }
+                pull = await SendAsync(HttpMethod.Post, $"repos/{repositoryFullName}/pulls", new { title, head = branch, @base = baseBranch, body }, cancellationToken);
+            }
+            using var held = pull;
+            if (!pull.Ok || pull.Body?.RootElement.TryGetProperty("number", out var number) != true || !number.TryGetInt32(out var n))
+            {
+                return Failed("the pull request cannot be opened", pull);
+            }
+            // The agent could have pushed between the read of the branch and the opening: the pull request is of the commit that was audited or it is closed at once
+            var opened = pull.Body.RootElement.TryGetProperty("head", out var head) && head.TryGetProperty("sha", out var openedSha) ? openedSha.GetString() : null;
+            if (!string.Equals(opened, expectedSha, StringComparison.Ordinal))
+            {
+                using var closed = await SendAsync(new HttpMethod("PATCH"), $"repos/{repositoryFullName}/pulls/{n}", new { state = "closed" }, cancellationToken);
+                return new OpenedPullRequest(false, 0, null, "the branch moved while the pull request was opened: it was closed, the commit is not the one that was audited");
+            }
+            return new OpenedPullRequest(true, n, expectedSha, null);
         }
         catch (Exception failure) when (failure is HttpRequestException or TaskCanceledException or JsonException)
         {
@@ -166,6 +195,8 @@ public sealed partial class GitHubForgeActs : IForgeActs
             return false;
         }
     }
+
+    private const int OpenAttempts = 3;
 
     private sealed record Answer(bool Ok, int Status, JsonDocument? Body) : IDisposable
     {

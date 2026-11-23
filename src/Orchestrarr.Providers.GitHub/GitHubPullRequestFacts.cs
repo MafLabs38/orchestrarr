@@ -73,7 +73,7 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefault
             return new PullRequestFacts(head, baseSha, draft, checks, paths, complete, Merged: true, mergeCommit, await TreeOfAsync(repositoryFullName, mergeCommit, cancellationToken), await ChecksOfAsync(repositoryFullName, mergeCommit, [], cancellationToken), baseRef, defaultBranch);
             // The checks of the commit that the merge made are those that ran on it (a push), not the checks that the rules require of a pull request, which may run on pull requests only
         }
-        catch (Exception failure) when (failure is HttpRequestException or JsonException or KeyNotFoundException or TaskCanceledException or InvalidOperationException)
+        catch (Exception failure) when (failure is HttpRequestException or JsonException or KeyNotFoundException or InvalidOperationException || failure is TaskCanceledException && !cancellationToken.IsCancellationRequested)
         {
             return null;
         }
@@ -97,21 +97,18 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefault
                 ? new DefaultBranchHead(branch, headSha)
                 : null;
         }
-        catch (Exception failure) when (failure is HttpRequestException or JsonException or KeyNotFoundException or TaskCanceledException or InvalidOperationException)
+        catch (Exception failure) when (failure is HttpRequestException or JsonException or KeyNotFoundException or InvalidOperationException || failure is TaskCanceledException && !cancellationToken.IsCancellationRequested)
         {
             return null;
         }
     }
-
-    [GeneratedRegex(@"^agent/[a-z0-9][a-z0-9-]{0,79}$", RegexOptions.None, 250)]
-    private static partial Regex AgentBranch();
 
     [GeneratedRegex("^[0-9a-f]{40}$", RegexOptions.None, 250)]
     private static partial Regex Sha();
 
     public async Task<string?> HeadOfAsync(string repositoryFullName, string branch, CancellationToken cancellationToken)
     {
-        if (!RepositoryName().IsMatch(repositoryFullName) || !AgentBranch().IsMatch(branch))
+        if (!RepositoryName().IsMatch(repositoryFullName) || !Orchestrarr.Core.Missions.AgentBranch.IsName(branch))
         {
             return null;
         }

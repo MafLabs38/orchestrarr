@@ -63,9 +63,9 @@ public sealed partial class ChangeProof(IShell shell, MissionRunnerOptions optio
             return Refused(mission, "A token file is empty.");
         }
         // A branch name that is new at each try: a name that exists is another try's
-        var agentBranch = $"agent/{BranchPart().Replace(mission.ProblemId.ToLowerInvariant(), "-")}-{Guid.NewGuid().ToString("N")[..6]}";
+        var agentBranch = AgentBranch.Create(mission.ProblemId, Guid.NewGuid().ToString("N")[..6]);
         var written = await OnMachineAsync(machine, "cat > ~/agentin/prompt.txt", quick, cancellationToken, input: Prompt(mission, head, branch, agentBranch));
-        var configured = written.ExitCode != 0 ? written : await OnMachineAsync(machine, "cat > ~/agentin/setup.sh", quick, cancellationToken, input: GitSetup);
+        var configured = written.ExitCode != 0 ? written : await OnMachineAsync(machine, "cat > ~/agentin/setup.sh", quick, cancellationToken, input: GitSetup(settings));
         if (configured.ExitCode != 0)
         {
             return Refused(mission, $"The task of the agent could not be written on the machine: {Last(configured.Output)}");
@@ -156,9 +156,13 @@ public sealed partial class ChangeProof(IShell shell, MissionRunnerOptions optio
         + $"docker run --rm -i --user 0 --memory 7g --cpus 3 -e CLAUDE_CODE_OAUTH_TOKEN -e AGENT_GIT_TOKEN -e IS_SANDBOX=1 -v ~/work/repo:/work -v ~/agentin:/in:ro -v /run/user/$(id -u)/docker.sock:/var/run/docker.sock -w /work {image} "
         + $"sh -c 'sh /in/setup.sh && exec claude -p \"$(cat /in/prompt.txt)\" --model {settings.Model} --dangerously-skip-permissions --max-turns {settings.FreeMaxTurns.ToString(CultureInfo.InvariantCulture)}'";
 
-    // What git needs in the agent's container to push a branch: who it is, and the token given to git by a helper, so that it is in no command line and in no file
-    private const string GitSetup = "git config --global user.name orchestrarr-agent\ngit config --global user.email agent@orchestrarr.invalid\ngit config --global --add safe.directory /work\n"
-        + "git config --global credential.helper '!f() { echo username=x-access-token; echo password=$AGENT_GIT_TOKEN; }; f'\n";
+    // What git needs in the agent's container to push a branch: who it is, and the token given to git by a helper that is for the forge's host only (a clone from any other host never receives it), so that the token is in no command line and in no file
+    private static string GitSetup(RepairSettings settings)
+    {
+        var host = new Uri(string.Format(CultureInfo.InvariantCulture, settings.FreeRepositoryUrl, "owner/name")).Host;
+        return "git config --global user.name orchestrarr-agent\ngit config --global user.email agent@orchestrarr.invalid\ngit config --global --add safe.directory /work\n"
+            + $"git config --global credential.https://{host}.helper '!f() {{ echo username=x-access-token; echo password=$AGENT_GIT_TOKEN; }}; f'\n";
+    }
 
     private Task<ShellResult> OnMachineAsync(string machine, string script, TimeSpan timeout, CancellationToken cancellationToken, string? input = null) =>
         input is null
@@ -202,6 +206,4 @@ public sealed partial class ChangeProof(IShell shell, MissionRunnerOptions optio
     [GeneratedRegex(@"^([0-9a-f]{40})\s+refs/heads/", RegexOptions.Multiline, 250)]
     private static partial Regex RemoteHead();
 
-    [GeneratedRegex(@"[^a-z0-9-]+", RegexOptions.None, 250)]
-    private static partial Regex BranchPart();
 }

@@ -79,7 +79,8 @@ public sealed class ControllerAgent(IAgentGateway gateway, string model, TimeSpa
         {
             text.AppendLine(CultureInvariant($"problem description ({(described.DescriptionIsParsed ? "parsed from a title by the control plane; the names and versions are still the author's words" : "written by someone else")}): {Flat(described.Description)}"));
         }
-        foreach (var detail in input.Brief?.Details ?? [])
+        // The findings are what the staging world is judged on: the worlds after it judge the merge and the release, and a list of findings in front of them is a list that they would judge the problem on
+        foreach (var detail in input.Mission.World == World.Staging ? input.Brief?.Details ?? [] : [])
         {
             text.AppendLine(CultureInvariant($"finding (from the source of findings): {Flat(detail)}"));
         }

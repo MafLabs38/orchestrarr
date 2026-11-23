@@ -465,6 +465,7 @@ public sealed class MissionWorldsApiTests
         forge.Closed.Should().BeEmpty("there is no pull request to replace");
         var merge = await (await runner.PostAsync($"/api/v1/runner/missions/{git}/acts/merge", null, Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct);
         merge.GetProperty("allowed").GetBoolean().Should().BeTrue(merge.ToString());
+        forge.Merged.Should().BeTrue("the pull request that carries the audited commit is merged on that commit");
     }
 
     [Fact]
@@ -548,8 +549,10 @@ public sealed class MissionWorldsApiTests
         factory.Services.GetRequiredService<RepairRegistry>().PendingOf("p-worlds").Should().BeNull();
     }
 
+    private static string DossierOf(AccountsApiFactory factory, string missionId) => factory.Services.GetRequiredService<IDossierStore>().Get(missionId)!.WhatChangedAndWhy;
+
     [Fact]
-    public async Task A_branch_that_is_not_where_the_runner_said_or_that_the_forge_cannot_read_is_refused_at_the_handover()
+    public async Task A_branch_that_is_not_where_the_runner_said_or_that_the_forge_cannot_read_is_kept_as_a_dossier_with_its_reason_and_no_branch()
     {
         var forge = new FakeForge { BranchHead = new string('c', 40) };
         using var factory = new WorldsFactory(forge);
@@ -557,10 +560,24 @@ public sealed class MissionWorldsApiTests
         using var runner = Runner(factory);
         var staging = (await ClaimAsync(runner, "Staging")).GetProperty("missionId").GetString()!;
 
-        (await HandOverBranchAsync(runner, staging)).StatusCode.Should().Be(System.Net.HttpStatusCode.Conflict);
-        forge.BranchHead = AgentSha;
-        forge.Change = null;
-        (await HandOverBranchAsync(runner, staging, start: false)).StatusCode.Should().Be(System.Net.HttpStatusCode.Conflict);
+        (await HandOverBranchAsync(runner, staging)).EnsureSuccessStatusCode();
+
+        DossierOf(factory, staging).Should().Contain("The control plane did not accept the branch").And.Contain("not at the commit");
+        factory.Services.GetRequiredService<RepairRegistry>().PendingOf("p-worlds").Should().BeNull("nothing is kept of a branch that was not accepted");
+    }
+
+    [Fact]
+    public async Task A_change_that_the_forge_cannot_show_is_not_lost_either()
+    {
+        var forge = new FakeForge { Change = null };
+        using var factory = new WorldsFactory(forge);
+        _ = await StartChangeProblemAsync(factory);
+        using var runner = Runner(factory);
+        var staging = (await ClaimAsync(runner, "Staging")).GetProperty("missionId").GetString()!;
+
+        (await HandOverBranchAsync(runner, staging)).EnsureSuccessStatusCode();
+
+        DossierOf(factory, staging).Should().Contain("cannot be read on the forge");
         factory.Services.GetRequiredService<RepairRegistry>().PendingOf("p-worlds").Should().BeNull();
     }
 
@@ -569,7 +586,7 @@ public sealed class MissionWorldsApiTests
     [InlineData(".env")]
     [InlineData("CLAUDE.md")]
     [InlineData(".npmrc")]
-    public async Task A_branch_that_changes_what_a_change_may_never_touch_is_refused_at_the_handover_on_what_the_forge_says(string path)
+    public async Task A_branch_that_changes_what_a_change_may_never_touch_is_not_integrated_and_the_reason_is_in_the_dossier_the_controller_reads(string path)
     {
         var forge = new FakeForge { Change = new BranchChange(Head, 0, 1, [new BranchFile(path, "added", 1, "@@\n+x")], true) };
         using var factory = new WorldsFactory(forge);
@@ -577,9 +594,22 @@ public sealed class MissionWorldsApiTests
         using var runner = Runner(factory);
         var staging = (await ClaimAsync(runner, "Staging")).GetProperty("missionId").GetString()!;
 
-        var refused = await HandOverBranchAsync(runner, staging);
+        (await HandOverBranchAsync(runner, staging)).EnsureSuccessStatusCode();
 
-        refused.StatusCode.Should().Be(System.Net.HttpStatusCode.UnprocessableEntity);
+        DossierOf(factory, staging).Should().Contain("The control plane did not accept the branch").And.MatchRegex("protected|forbidden");
+        factory.Services.GetRequiredService<RepairRegistry>().PendingOf("p-worlds").Should().BeNull();
+    }
+
+    [Fact]
+    public async Task The_branch_of_another_problem_is_not_audited_for_this_one()
+    {
+        var forge = new FakeForge();
+        using var factory = new WorldsFactory(forge);
+        _ = await StartChangeProblemAsync(factory);
+        using var runner = Runner(factory);
+        var staging = (await ClaimAsync(runner, "Staging")).GetProperty("missionId").GetString()!;
+
+        (await HandOverBranchAsync(runner, staging, branch: "agent/p-other-1a2b3c")).StatusCode.Should().Be(System.Net.HttpStatusCode.Conflict);
         factory.Services.GetRequiredService<RepairRegistry>().PendingOf("p-worlds").Should().BeNull();
     }
 
