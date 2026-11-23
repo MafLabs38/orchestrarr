@@ -110,7 +110,9 @@ internal sealed class SandboxFacts(IProblemStore problems, IPullRequestFacts pul
             return new ObservedFacts(
                 BudgetAvailable: true,
                 DiffIsClean: true,
-                CiGreenOnExactCommit: true,
+                // No pipeline has run on a change that is not in a pull request yet: at the crossing into the Git world it is declared green (as a repair that waits is: the pipeline of the pull request that will carry it is what the merge
+                // is judged on), and at an act it is not known, which the act of opening a pull request accepts and nothing else does
+                CiGreenOnExactCommit: query.Repository is null ? true : null,
                 ArtifactIsTheOneProvedInStaging: null,
                 WayBackKnown: true,
                 WorkerClaimMatchesFacts: query.Dossier?.Commit is { } stated && string.Equals(stated, change.OriginalHead, StringComparison.Ordinal),

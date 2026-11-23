@@ -56,6 +56,7 @@ public sealed class RunnerRegistry(TimeProvider time)
     private static bool Same(RunnerHello before, RunnerHello now) =>
         before.Version == now.Version
         && before.SecondFactorRequired == now.SecondFactorRequired
+        && before.FreeAgent == now.FreeAgent
         && before.Kinds.SequenceEqual(now.Kinds)
         && before.Repositories.SequenceEqual(now.Repositories, StringComparer.Ordinal)
         && before.Delegations.SequenceEqual(now.Delegations);
@@ -71,8 +72,9 @@ public sealed class RunnerRegistry(TimeProvider time)
             pair.Value.Hello.Kinds,
             pair.Value.Hello.Repositories,
             pair.Value.Hello.Delegations,
-            pair.Value.Hello.SecondFactorRequired))];
+            pair.Value.Hello.SecondFactorRequired,
+            pair.Value.Hello.FreeAgent))];
     }
 }
 
-public sealed record RunnerStatus(string Name, string Version, DateTimeOffset LastSeen, bool Connected, IReadOnlyList<TaskKind> Kinds, IReadOnlyList<string> Repositories, IReadOnlyList<DelegationInfo> Delegations, bool SecondFactorRequired);
+public sealed record RunnerStatus(string Name, string Version, DateTimeOffset LastSeen, bool Connected, IReadOnlyList<TaskKind> Kinds, IReadOnlyList<string> Repositories, IReadOnlyList<DelegationInfo> Delegations, bool SecondFactorRequired, bool FreeAgent);

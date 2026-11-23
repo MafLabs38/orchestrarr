@@ -28,6 +28,10 @@ public sealed class ChangePolicyTests
     [InlineData("CLAUDE.md")]
     [InlineData(".claude/settings.json")]
     [InlineData(".git/config")]
+    [InlineData(".npmrc")]
+    [InlineData("frontend/.yarnrc.yml")]
+    [InlineData("pip.conf")]
+    [InlineData(".gitattributes")]
     public void Never_the_pipelines_the_files_that_hold_a_secret_or_the_files_that_instruct_an_agent(string path)
     {
         ChangePolicy.Refusal([File(path)]).Should().Contain("protected");

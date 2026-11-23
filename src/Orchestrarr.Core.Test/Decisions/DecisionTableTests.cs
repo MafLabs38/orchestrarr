@@ -39,7 +39,7 @@ public sealed class DecisionTableTests
     private static IReadOnlyList<ProblemRow> Table(WorkItem item, IApplicationCatalog? applications = null, IReadOnlyList<RunnerAcceptance>? runners = null, IReadOnlyList<TaskResultRow>? results = null) =>
         DecisionTable.Build([item], applications ?? Described(), runners ?? [Everything], results, policy: Acting);
 
-    private static readonly RunnerAcceptance Everything = new([TaskKind.ValidatePullRequest, TaskKind.MergePullRequest], ["example/*"]);
+    private static readonly RunnerAcceptance Everything = new([TaskKind.ValidatePullRequest, TaskKind.MergePullRequest], ["example/*"], FreeAgent: true);
 
     private static readonly RunnerAcceptance Repairing = new([TaskKind.ValidatePullRequest, TaskKind.MergePullRequest, TaskKind.RepairPullRequest], ["example/*"]);
 
@@ -491,7 +491,8 @@ public sealed class DecisionTableTests
     {
         Row(Described(mode: "none")).Should().Match<ProblemRow>(row => row.GoesUpTo == Ceiling.Qualification && row.Why == CeilingReason.QualificationNotDescribed);
         Row(Described(check: false)).Should().Match<ProblemRow>(row => row.GoesUpTo == Ceiling.MergeIntoDevelop && row.Why == CeilingReason.NoCheckAfterDeployDescribed);
-        Row(Described(), [new RunnerAcceptance([TaskKind.ValidatePullRequest], ["example/*"])]).Should().Match<ProblemRow>(row => row.GoesUpTo == Ceiling.Qualification && row.Why == CeilingReason.NoRunner);
+        Row(Described(), [new RunnerAcceptance([TaskKind.ValidatePullRequest], ["example/*"], FreeAgent: true)]).Should().Match<ProblemRow>(row => row.GoesUpTo == Ceiling.Qualification && row.Why == CeilingReason.NoRunner);
+        Row(Described(), [new RunnerAcceptance([TaskKind.ValidatePullRequest, TaskKind.MergePullRequest], ["example/*"])]).Should().Match<ProblemRow>(row => row.GoesUpTo == Ceiling.NoAction && row.Why == CeilingReason.NoRunner, "a runner with no free agent cannot solve a problem with no pull request");
         Row(Described(), [Everything], withRepository: false).GoesUpTo.Should().Be(Ceiling.NoAction, "a row with no repository cannot be solved");
 
         static ProblemRow Row(IApplicationCatalog applications, IReadOnlyList<RunnerAcceptance>? runners = null, bool withRepository = true) =>

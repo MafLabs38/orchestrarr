@@ -132,7 +132,9 @@ public sealed partial class ChangeProof(IShell shell, MissionRunnerOptions optio
             ? new ShellResult(0, string.Empty, false)
             : await OnMachineAsync(machine, $"cd ~/work/repo && git diff --no-color -U0 HEAD -- {string.Join(' ', shown)} | grep -E '^[-+@]' | head -c {DiffCharacters + 1}", quick, cancellationToken);
         var lines = diff.ExitCode == 0 ? diff.Output.Trim() : string.Empty;
-        var cut = lines.Length > DiffCharacters || changed.Count > shown.Count && shown.Count == MaxShownFiles;
+        var linesCut = lines.Length > DiffCharacters;
+        var filesCut = changed.Count > shown.Count && shown.Count == MaxShownFiles;
+        var cut = linesCut || filesCut;
         var lockNote = shown.Count < changed.Count ? $" Generated files changed too (their lines are not shown): {string.Join(", ", changed.Except(shown))}." : string.Empty;
         var changeText = $"{(stat.ExitCode == 0 && stat.Output.Trim().Length > 0 ? stat.Output.Trim() : "size not read")}. Lines: {(lines.Length > 0 ? lines[..Math.Min(lines.Length, DiffCharacters)] : "none that are not generated")}{(cut ? " [CUT: the rest of the lines is not shown]" : string.Empty)}";
         return new MissionHandOver(

@@ -147,7 +147,8 @@ public sealed record ProblemRow(
     string? ParsedChange = null);
 
 /// <summary>What a connected runner accepts, as it reported it. The table never promises more than they would run: with none connected, nothing can be run, and every row says so.</summary>
-public sealed record RunnerAcceptance(IReadOnlyList<TaskKind> Kinds, IReadOnlyList<string> Repositories)
+/// <summary>What a connected runner accepts. <c>FreeAgent</c>: it has a free agent for a problem that has no pull request (ADR 0048), which no kind of task says.</summary>
+public sealed record RunnerAcceptance(IReadOnlyList<TaskKind> Kinds, IReadOnlyList<string> Repositories, bool FreeAgent = false)
 {
     public bool Accepts(TaskKind kind, string repository) => Kinds.Contains(kind) && Repositories.Any(pattern => RepositoryPattern.Matches(pattern, repository));
 }
@@ -335,10 +336,12 @@ public static class DecisionTable
         pullRequest.Changes is [{ To: { } to } change] && policy.EvenMajorOnlyPackages.Contains(change.Package, StringComparer.OrdinalIgnoreCase)
         && int.TryParse(to.TrimStart('v', 'V').Split('-')[0].Split('.')[0], System.Globalization.CultureInfo.InvariantCulture, out var major) && major % 2 == 1;
 
-    private static (Ceiling Ceiling, CeilingReason Why, bool CanStop) CeilingOf(WorkItem item, PullRequestInfo pullRequest, IApplicationCatalog applications, IReadOnlyList<RunnerAcceptance> runners)
+    private static (Ceiling Ceiling, CeilingReason Why, bool CanStop) CeilingOf(WorkItem item, PullRequestInfo? pullRequest, IApplicationCatalog applications, IReadOnlyList<RunnerAcceptance> runners)
     {
+        // One chain of gates for a pull request and for a problem with no pull request (a dependency alert, ADR 0048): the second has no pull request, so no checks, no merge state and no class of update,
+        // and what its change will be is not known before the agent has made it, so it is taken for a major one
         var repository = item.RepositoryFullName!;
-        if (item.PullRequests.Stale || item.PullRequests.Status != PullRequestsStatus.Read || string.IsNullOrEmpty(pullRequest.HeadSha))
+        if (pullRequest is not null && (item.PullRequests.Stale || item.PullRequests.Status != PullRequestsStatus.Read || string.IsNullOrEmpty(pullRequest.HeadSha)))
         {
             return (Ceiling.NoAction, CeilingReason.PullRequestsNotCurrent, false);
         }
@@ -370,25 +373,31 @@ public static class DecisionTable
         {
             return (Ceiling.Qualification, CeilingReason.NoRunner, false);
         }
-        if (pullRequest.Checks == ChecksState.Failing)
+        if (pullRequest is not null)
         {
-            return (Ceiling.Qualification, CeilingReason.ChecksFailing, false);
-        }
-        if (pullRequest.Checks == ChecksState.NotRun)
-        {
-            return (Ceiling.Qualification, CeilingReason.ChecksNotRun, false);
-        }
-        if (pullRequest.Checks != ChecksState.Passing)
-        {
-            return (Ceiling.Qualification, CeilingReason.ChecksNotPassing, false);
+            if (pullRequest.Checks == ChecksState.Failing)
+            {
+                return (Ceiling.Qualification, CeilingReason.ChecksFailing, false);
+            }
+            if (pullRequest.Checks == ChecksState.NotRun)
+            {
+                return (Ceiling.Qualification, CeilingReason.ChecksNotRun, false);
+            }
+            if (pullRequest.Checks != ChecksState.Passing)
+            {
+                return (Ceiling.Qualification, CeilingReason.ChecksNotPassing, false);
+            }
+            if (pullRequest.Merge != MergeState.Clean)
+            {
+                return (Ceiling.Qualification, CeilingReason.CannotBeMergedNow, false);
+            }
         }
 
-        if (pullRequest.Merge != MergeState.Clean)
+        var kind = UpdateKind.Major;
+        if (pullRequest is not null)
         {
-            return (Ceiling.Qualification, CeilingReason.CannotBeMergedNow, false);
+            kind = pullRequest.Changes.Count == 1 ? pullRequest.Changes[0].Kind : UpdateKind.Unknown;
         }
-
-        var kind = pullRequest.Changes.Count == 1 ? pullRequest.Changes[0].Kind : UpdateKind.Unknown;
         if (!description.CanRollBack)
         {
             return (Ceiling.MergeIntoDevelop, CeilingReason.NoRollbackDescribed, false);
@@ -412,51 +421,15 @@ public static class DecisionTable
             {
                 continue;
             }
-            var (ceiling, why, canStop) = CeilingOfProblem(item, applications, runners);
+            // A problem that has no pull request needs a runner that has a free agent: a row that no runner could solve is not offered
+            if (!runners.Any(runner => runner.FreeAgent && runner.Accepts(TaskKind.ValidatePullRequest, item.RepositoryFullName)))
+            {
+                rows[index] = rows[index] with { Why = CeilingReason.NoRunner };
+                continue;
+            }
+            var (ceiling, why, canStop) = CeilingOf(item, null, applications, runners);
             rows[index] = rows[index] with { GoesUpTo = ceiling, Why = why, CanStopBeforeProduction = canStop, UpdateClass = null };
         }
-    }
-
-    private static (Ceiling Ceiling, CeilingReason Why, bool CanStop) CeilingOfProblem(WorkItem item, IApplicationCatalog applications, IReadOnlyList<RunnerAcceptance> runners)
-    {
-        var repository = item.RepositoryFullName!;
-        if (item.Plan.FirstOrDefault(step => step.Kind == StepKind.Validate && step.EnvironmentId is null) is not { Available: true, Granted: true })
-        {
-            return (Ceiling.NoAction, CeilingReason.NotGranted, false);
-        }
-        if (applications.Find(item.Id) is not { } description)
-        {
-            return (Ceiling.NoAction, CeilingReason.NoDescription, false);
-        }
-        if (!runners.Any(runner => runner.Accepts(TaskKind.ValidatePullRequest, repository)))
-        {
-            return (Ceiling.NoAction, CeilingReason.NoRunner, false);
-        }
-        if (description.Qualify is QualifyMode.Unknown or QualifyMode.None)
-        {
-            return (Ceiling.Qualification, CeilingReason.QualificationNotDescribed, false);
-        }
-        if (item.Plan.FirstOrDefault(step => step.Kind == StepKind.MergePullRequests && step.EnvironmentId is null) is not { Available: true, Granted: true })
-        {
-            return (Ceiling.Qualification, CeilingReason.NotGranted, false);
-        }
-        if (!runners.Any(runner => runner.Accepts(TaskKind.MergePullRequest, repository)))
-        {
-            return (Ceiling.Qualification, CeilingReason.NoRunner, false);
-        }
-        if (!description.CanRollBack)
-        {
-            return (Ceiling.MergeIntoDevelop, CeilingReason.NoRollbackDescribed, false);
-        }
-        if (!description.HasCheckAfterDeploy)
-        {
-            return (Ceiling.MergeIntoDevelop, CeilingReason.NoCheckAfterDeployDescribed, false);
-        }
-        // What the free agent will write is not known in advance (a bump, or a library replaced and its calls migrated): the change is taken for as large as it can be, so it goes to production by itself only for an
-        // application that promotes even a major change by itself
-        return description.PromotesAutomatically.Contains(UpdateKind.Major)
-            ? (Ceiling.Production, CeilingReason.None, true)
-            : (Ceiling.MergeIntoDevelop, CeilingReason.UpdateClassStopsBeforeProduction, false);
     }
 
     // What has no action yet (an alert, a secret, a failing build, an image): shown, with "no action defined" (SPEC Q-30)

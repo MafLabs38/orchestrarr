@@ -16,7 +16,9 @@ public static class ChangePolicy
     public static readonly IReadOnlyList<string> ProtectedPaths =
     [
         ".github/**", ".gitlab-ci.yml", ".circleci/**", "**/Jenkinsfile*", "azure-pipelines.yml", "**/.travis.yml", "**/bitbucket-pipelines.yml",
-        ".git/**", "**/.git/**", "**/.gitmodules",
+        ".git/**", "**/.git/**", "**/.gitmodules", "**/.gitattributes",
+        // Where the dependencies come from: a registry that a change points elsewhere is a change of what is installed, not of what is asked for
+        "**/.npmrc", "**/.yarnrc", "**/.yarnrc.yml", "**/pip.conf", "**/.pypirc", "**/.netrc",
         "**/.claude/**", "**/CLAUDE.md", "**/CLAUDE.local.md", "**/AGENTS.md", "**/.cursorrules", "**/.cursor/**", "**/.mcp.json",
         "**/.env", "**/.env.*", "**/*.pem", "**/*.key", "**/*.p12", "**/*.pfx", "**/id_rsa*", "**/id_ed25519*", "**/*.enc.yaml", "**/*.enc.yml", "**/*.enc.json", "**/secrets/**", "**/credentials*",
     ];

@@ -429,6 +429,8 @@ public sealed class MissionRunnerApiTests
         var made = await facts.FactsAsync(query, Ct);
 
         made.WorkerClaimMatchesFacts.Should().BeTrue("the dossier names the commit that the change was made from");
+        made.CiGreenOnExactCommit.Should().BeTrue("at the crossing the pipeline of the pull request that will carry the change is what counts");
+        (await facts.FactsAsync(query with { Repository = "example/shop" }, Ct)).CiGreenOnExactCommit.Should().BeNull("at an act nothing has run on the change, and that is not declared");
         made.HeadCommit.Should().Be(Head);
         made.ChangedPaths.Should().BeEquivalentTo("package.json", ".github/workflows/ci.yml");
         made.ExecutedFilesTouched.Should().BeTrue("the facts say what the files are, whatever a policy refused earlier");

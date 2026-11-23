@@ -40,7 +40,7 @@ A demonstration played once by hand proves that a path exists, not that the case
 | 20 Staging proved healthy first | not verified | none | no | open, not verified |
 | 21 GitOps and write credentials | a workflow change is refused by the controller | none | no | **manual**, in part |
 
-**Ticked: 4 of 21** (01, 02, 03, 16). Played by hand in whole or in part: 06, 14, 15, 21.
+**Ticked: 4 of 21** (01, 02, 03, 16): CASE-03, CASE-03b and CASE-16 passed three times in a row on the code of 2026-11-23 (the replays were played again after each change of the lead's bounds and of the controller's rules). Played by hand in whole or in part: 06, 14, 15, 21.
 
 ## What the grid shows about the structure
 
