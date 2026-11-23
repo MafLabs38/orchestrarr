@@ -44,7 +44,13 @@ public sealed class ChangeProofTests : IDisposable
         /// <summary>A path whose content is longer than one slice of what a call may bring back.</summary>
         public string? BigPath { get; set; }
 
+        /// <summary>A path whose content is not text.</summary>
+        public string? BinaryPath { get; set; }
+
         public List<int> SliceLengths { get; } = [];
+
+        /// <summary>The lines of the change are longer than what the dossier keeps.</summary>
+        public bool LongDiff { get; set; }
 
         // The file that a script of the runner names: base64 -w0 "<path>"
         private static string PathOf(string script)
@@ -53,7 +59,15 @@ public sealed class ChangeProofTests : IDisposable
             return script[start..script.IndexOf('"', start)];
         }
 
-        private string Encoded(string path) => Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(path == BigPath ? new string('a', 200_000) : $"content of {path}"));
+        private string Encoded(string path)
+        {
+            if (path == BinaryPath)
+            {
+                return Convert.ToBase64String([0x89, 0x50, 0xFF, 0xFE, 0x01]);
+            }
+            var text = path == BigPath ? new string('a', 200_000) : $"content of {path}";
+            return Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(text));
+        }
 
         private ShellResult Answer(string script, string? input)
         {
@@ -89,9 +103,13 @@ public sealed class ChangeProofTests : IDisposable
                 SliceLengths.Add(Math.Min(to, text.Length) - from);
                 return new ShellResult(0, text[from..Math.Min(to, text.Length)] + "\n", false);
             }
+            if (script.Contains("--stat", StringComparison.Ordinal))
+            {
+                return new ShellResult(0, " package.json | 2 +-\n 1 file changed\n", false);
+            }
             if (script.Contains("git diff --no-color", StringComparison.Ordinal))
             {
-                return new ShellResult(0, "-    \"lodash\": \"4.17.4\"\n+    \"lodash\": \"4.17.21\"\n", false);
+                return new ShellResult(0, LongDiff ? string.Join('\n', Enumerable.Range(0, 2000).Select(line => $"+    \"package{line}\": \"1.0.0\"")) : "-    \"lodash\": \"4.17.4\"\n+    \"lodash\": \"4.17.21\"\n", false);
             }
             if (script.Contains("git write-tree", StringComparison.Ordinal))
             {
@@ -117,6 +135,48 @@ public sealed class ChangeProofTests : IDisposable
     }
 
     [Fact]
+    public async Task A_tracked_file_in_a_folder_that_a_build_would_fill_is_a_change_and_an_untracked_one_is_what_the_build_left()
+    {
+        var machine = new Machine { Status = " M bin/cli.js\n M package.json\n?? node_modules/\n?? dist/bundle.js\n" };
+
+        var (dossier, _, _) = await Run(machine);
+
+        dossier.Files!.Select(file => file.Path).Should().Equal("bin/cli.js", "package.json");
+    }
+
+    [Fact]
+    public async Task A_file_that_is_not_text_is_not_carried()
+    {
+        var (dossier, _, _) = await Run(new Machine { Status = " M package.json\n?? logo.png\n", BinaryPath = "logo.png" });
+
+        dossier.Files.Should().BeNull("only text can be carried without being altered");
+        dossier.WhatChangedAndWhy.Should().Contain("not a text file");
+    }
+
+    [Fact]
+    public async Task The_image_follows_the_dockerfile_the_tree_is_made_with_a_separator_and_the_containers_of_the_agent_are_gone_before_the_steps_run_again()
+    {
+        var machine = new Machine();
+
+        _ = await Run(machine);
+
+        machine.Scripts.Should().Contain(script => script.Contains("docker build -q -t orchestrarr-agent-free:", StringComparison.Ordinal) && !script.EndsWith("orchestrarr-agent-free -", StringComparison.Ordinal));
+        machine.Scripts.Should().Contain(script => script.Contains("git update-index --add -- ", StringComparison.Ordinal));
+        var removed = machine.Scripts.FindIndex(script => script.Contains("docker rm -f", StringComparison.Ordinal));
+        var steps = machine.Scripts.FindIndex(script => script.Contains("npm ci", StringComparison.Ordinal) || script.Contains("docker run --rm --cap-drop", StringComparison.Ordinal));
+        removed.Should().BeGreaterThan(-1);
+        removed.Should().BeLessThan(steps);
+    }
+
+    [Fact]
+    public async Task The_dossier_says_when_the_lines_of_the_change_are_cut()
+    {
+        var (dossier, _, _) = await Run(new Machine { LongDiff = true });
+
+        dossier.WhatChangedAndWhy.Should().Contain("[CUT: the rest of the lines is not shown]").And.Contain("package.json | 2 +-");
+    }
+
+    [Fact]
     public async Task A_file_longer_than_what_one_call_may_bring_back_is_read_in_slices_and_handed_over_whole()
     {
         var machine = new Machine { BigPath = "package-lock.json" };
@@ -137,7 +197,7 @@ public sealed class ChangeProofTests : IDisposable
         dossier.Commit.Should().Be(Head);
         dossier.EvidenceDigests.Should().Contain($"artifact:tree={Tree}").And.Contain("repair:files=2");
         dossier.Claim.Should().Contain("a free agent made a change").And.Contain("package.json");
-        dossier.WhatChangedAndWhy.Should().Contain("\"lodash\": \"4.17.21\"", "the lines that changed are read by the runner, not told by the agent").And.Contain("Generated files changed too: package-lock.json");
+        dossier.WhatChangedAndWhy.Should().Contain("\"lodash\": \"4.17.21\"", "the lines that changed are read by the runner, not told by the agent").And.Contain("Generated files changed too (their lines are not shown): package-lock.json");
         dossier.Complex.Should().BeFalse();
         machine.Scripts.Should().Contain(script => script.Contains("npm ci", StringComparison.Ordinal), "the runner runs the steps again itself");
     }

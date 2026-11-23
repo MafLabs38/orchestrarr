@@ -28,6 +28,12 @@ public sealed class MissionWorldsApiTests
         /// <summary>The head of the default branch, as the forge says it now.</summary>
         public string DefaultHead { get; set; } = Head;
 
+        /// <summary>False: the forge cannot say what the default branch is.</summary>
+        public bool DefaultReadable { get; set; } = true;
+
+        /// <summary>The title and the body of each pull request that the gateway opened.</summary>
+        public List<(string Title, string Body)> Texts { get; } = [];
+
         public bool Merged { get; private set; }
 
         public ChecksState HeadChecks { get; set; } = ChecksState.Passing;
@@ -42,7 +48,7 @@ public sealed class MissionWorldsApiTests
             Task.FromResult<PullRequestFacts?>(new PullRequestFacts(Opened.Count > 0 && number == RepairNumber ? RepairHead : Head, "base", false, Opened.Count > 0 && number == RepairNumber ? ChecksState.Passing : HeadChecks, ["package.json"], PathsComplete: true, Merged, Merged ? MergeCommit : null, Merged ? TreeOfTheMerge : null, Merged ? MergeChecks : ChecksState.Unknown, BaseRef: BaseRef, DefaultBranch: "main"));
 
         public Task<DefaultBranchHead?> ReadAsync(string repositoryFullName, CancellationToken cancellationToken) =>
-            Task.FromResult<DefaultBranchHead?>(new DefaultBranchHead("main", DefaultHead));
+            Task.FromResult<DefaultBranchHead?>(DefaultReadable ? new DefaultBranchHead("main", DefaultHead) : null);
 
         public List<(string Branch, string Parent, IReadOnlyList<PatchedFile> Files)> Opened { get; } = [];
 
@@ -56,6 +62,7 @@ public sealed class MissionWorldsApiTests
         public Task<OpenedPullRequest> OpenPullRequestAsync(string repositoryFullName, string baseBranch, string parentSha, string branch, IReadOnlyList<PatchedFile> files, string title, string body, CancellationToken cancellationToken)
         {
             Opened.Add((branch, parentSha, files));
+            Texts.Add((title, body));
             return Task.FromResult(new OpenedPullRequest(true, RepairNumber, RepairHead, null));
         }
 
@@ -409,6 +416,7 @@ public sealed class MissionWorldsApiTests
 
         opened.GetProperty("opened").GetBoolean().Should().BeTrue(opened.ToString());
         forge.Opened.Should().ContainSingle().Which.Parent.Should().Be(Head);
+        forge.Texts.Single().Title.Should().Be("fix: dependency update of example/shop", "the class of the problem is made into words");
         forge.Closed.Should().BeEmpty("there is no pull request to replace");
         var merge = await (await runner.PostAsync($"/api/v1/runner/missions/{git}/acts/merge", null, Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct);
         merge.GetProperty("allowed").GetBoolean().Should().BeTrue(merge.ToString());
@@ -431,6 +439,43 @@ public sealed class MissionWorldsApiTests
 
         opened.GetProperty("opened").GetBoolean().Should().BeFalse();
         forge.Opened.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_change_with_no_pull_request_is_not_opened_when_the_forge_cannot_say_what_the_default_branch_is()
+    {
+        var forge = new FakeForge { DefaultReadable = false };
+        using var factory = new WorldsFactory(forge);
+        _ = await StartChangeProblemAsync(factory);
+        using var runner = Runner(factory);
+        var staging = (await ClaimAsync(runner, "Staging")).GetProperty("missionId").GetString()!;
+        (await HandOverWithFilesAsync(runner, staging, [new { path = "package.json", content = "{}" }])).EnsureSuccessStatusCode();
+        var git = await NextMissionAsync(factory, runner, "Git");
+        (await runner.PostAsync($"/api/v1/runner/missions/{git}/started", null, Ct)).EnsureSuccessStatusCode();
+
+        var opened = await (await runner.PostAsync($"/api/v1/runner/missions/{git}/acts/open-pull-request", null, Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct);
+
+        opened.GetProperty("opened").GetBoolean().Should().BeFalse("nothing is written on a head that was not read");
+        forge.Opened.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("not-a-commit")]
+    public async Task A_change_with_no_pull_request_that_names_no_commit_is_refused_at_the_handover(string? commit)
+    {
+        var forge = new FakeForge();
+        using var factory = new WorldsFactory(forge);
+        _ = await StartChangeProblemAsync(factory);
+        using var runner = Runner(factory);
+        var staging = (await ClaimAsync(runner, "Staging")).GetProperty("missionId").GetString()!;
+        (await runner.PostAsync($"/api/v1/runner/missions/{staging}/started", null, Ct)).EnsureSuccessStatusCode();
+
+        var refused = await runner.PostAsJsonAsync($"/api/v1/runner/missions/{staging}/handover",
+            new { claim = "made", whatChangedAndWhy = "the source", evidenceDigests = new[] { $"artifact:tree={Tree}", "repair:files=1" }, openPoints = Array.Empty<string>(), complex = false, commit, files = new[] { new { path = "package.json", content = "{}" } } }, Ct);
+
+        refused.StatusCode.Should().Be(System.Net.HttpStatusCode.Conflict);
+        factory.Services.GetRequiredService<RepairRegistry>().PendingOf("p-worlds").Should().BeNull();
     }
 
     [Theory]

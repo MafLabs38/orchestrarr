@@ -25,6 +25,9 @@ public sealed class RepairSettings
 
     public string FreeImage { get; set; } = "orchestrarr-agent-free";
 
+    /// <summary>Where the free agent's clone comes from: <c>{0}</c> is the repository (owner/name). Plain https, no credential in it.</summary>
+    public string FreeRepositoryUrl { get; set; } = "https://github.com/{0}.git";
+
     public int FreeMaxTurns { get; set; } = 120;
 
     /// <summary>How long the free agent may work. Generous: a long troubleshooting is normal, and the machine is its own.</summary>
@@ -64,6 +67,10 @@ public sealed class RepairSettings
             || !System.Text.RegularExpressions.Regex.IsMatch(Model, "^[A-Za-z0-9._-]{1,40}$", System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromMilliseconds(250)))
         {
             throw new InvalidOperationException("MissionRunner:Repair: the free agent's image and the model must be plain names.");
+        }
+        if (!FreeRepositoryUrl.StartsWith("https://", StringComparison.Ordinal) || !FreeRepositoryUrl.Contains("{0}", StringComparison.Ordinal) || FreeRepositoryUrl.Contains('@', StringComparison.Ordinal) || FreeRepositoryUrl.Any(char.IsWhiteSpace) || FreeRepositoryUrl.IndexOfAny(['\'', '"', '`', '$', ';', '&', '|']) >= 0)
+        {
+            throw new InvalidOperationException("MissionRunner:Repair:FreeRepositoryUrl must be a plain https address with {0} for the repository and no credential.");
         }
         if (FreeMaxTurns is < 1 or > 1000 || FreeTimeoutMinutes is < 1 or > 600 || !File.Exists(FreeDockerfileFile) || !File.Exists(TokenFile))
         {

@@ -351,6 +351,7 @@ User interface, deferred: the light theme (its accent text color is ready, nothi
 
 | Date | Change |
 |---|---|
+| 2026-11-22 | v0.35: a problem with no pull request is solved by a free agent in staging and the gateway carries what it made (D-102, ADR 0048): a dependency alert row can be ticked (on a host that can start it), the lead plans from the findings, the runner reads the change back, the controller judges the named findings |
 | 2026-11-22 | v0.34: the lab machines have a state, a lease, a qualification that proves their isolation, and a live board (D-101, ADR 0047). |
 | 2026-11-22 | v0.33: a lead agent plans the problem, the conductor checks the plan and the plan can only stop the work earlier, a worker gets the instruction of its world (D-100, ADR 0046). |
 | 2026-11-22 | v0.32: a case is ticked only by a replayable scenario; the test bed is restored through a pull request (D-99, ADR 0045). |

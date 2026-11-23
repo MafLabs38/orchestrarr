@@ -118,8 +118,8 @@ internal static class PlanEndpoints
         }
         // The staging of the test bed is declared: the first world is the staging. The lead proposes; the conductor checks the proposal against the powers as they are when the problem starts
         var brief = ProblemBrief.Of(row);
-        // A problem with no pull request is about dependencies: what the source knows of them goes to the lead, as data, with the problem
-        if (row.PullRequest is null && entry.Repositories.Count == 1)
+        // A dependency alert is about dependencies: what the source knows of them goes to the lead, as data, with the problem
+        if (row.Kind == ProblemKind.DependencyAlert && entry.Repositories.Count == 1)
         {
             var known = await findings.ReadAsync(entry.Repositories[0], cancellationToken);
             brief = brief with { Details = [.. known.Select(finding => finding.Line)] };

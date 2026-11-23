@@ -180,7 +180,10 @@ public static class DecisionTable
             }
             AddDependencyUpdates(rows, item, applications, runners, results ?? [], policy);
             AddOtherProblems(rows, item, policy, infrastructure);
-            ActOnDependencyAlerts(rows, before, item, applications, runners);
+            if (policy.ActOnProblems)
+            {
+                ActOnDependencyAlerts(rows, before, item, applications, runners);
+            }
             NameApplication(rows, before, item, applicationNames ?? []);
             Warn(rows, before, infrastructure);
         }
@@ -410,7 +413,7 @@ public static class DecisionTable
                 continue;
             }
             var (ceiling, why, canStop) = CeilingOfProblem(item, applications, runners);
-            rows[index] = rows[index] with { GoesUpTo = ceiling, Why = why, CanStopBeforeProduction = canStop, UpdateClass = UpdateKind.Patch };
+            rows[index] = rows[index] with { GoesUpTo = ceiling, Why = why, CanStopBeforeProduction = canStop, UpdateClass = null };
         }
     }
 
@@ -449,8 +452,9 @@ public static class DecisionTable
         {
             return (Ceiling.MergeIntoDevelop, CeilingReason.NoCheckAfterDeployDescribed, false);
         }
-        // The fix of an alert is a small change like a patch bump: the update classes that the application promotes by itself decide whether it goes to production
-        return description.PromotesAutomatically.Contains(UpdateKind.Patch)
+        // What the free agent will write is not known in advance (a bump, or a library replaced and its calls migrated): the change is taken for as large as it can be, so it goes to production by itself only for an
+        // application that promotes even a major change by itself
+        return description.PromotesAutomatically.Contains(UpdateKind.Major)
             ? (Ceiling.Production, CeilingReason.None, true)
             : (Ceiling.MergeIntoDevelop, CeilingReason.UpdateClassStopsBeforeProduction, false);
     }

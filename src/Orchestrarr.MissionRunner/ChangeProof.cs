@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using Orchestrarr.Core.Missions;
@@ -37,7 +38,7 @@ public sealed partial class ChangeProof(IShell shell, MissionRunnerOptions optio
         var quick = TimeSpan.FromMinutes(5);
 
         await report($"Fetching {mission.Repository} (its default branch)");
-        var clone = await OnMachineAsync(machine, $"rm -rf ~/work ~/agentin && mkdir -p ~/work ~/agentin && cd ~/work && git clone --quiet https://github.com/{mission.Repository}.git repo && cd repo && echo \"HEAD $(git rev-parse HEAD)\" && echo \"BRANCH $(git rev-parse --abbrev-ref HEAD)\"", quick, cancellationToken);
+        var clone = await OnMachineAsync(machine, $"rm -rf ~/work ~/agentin && mkdir -p ~/work ~/agentin && cd ~/work && git clone --quiet {string.Format(CultureInfo.InvariantCulture, settings.FreeRepositoryUrl, mission.Repository)} repo && cd repo && echo \"HEAD $(git rev-parse HEAD)\" && echo \"BRANCH $(git rev-parse --abbrev-ref HEAD)\"", quick, cancellationToken);
         var head = HeadLine().Match(clone.Output) is { Success: true } headFound ? headFound.Groups[1].Value : null;
         var branch = BranchLine().Match(clone.Output) is { Success: true } branchFound ? branchFound.Groups[1].Value : null;
         Keep(evidence, "clone", clone);
@@ -48,7 +49,9 @@ public sealed partial class ChangeProof(IShell shell, MissionRunnerOptions optio
 
         await report("Preparing the free agent on the staging machine");
         var dockerfile = await File.ReadAllTextAsync(settings.FreeDockerfileFile!, cancellationToken);
-        var image = await OnMachineAsync(machine, $"docker image inspect {settings.FreeImage} >/dev/null 2>&1 || docker build -q -t {settings.FreeImage} -", TimeSpan.FromMinutes(20), cancellationToken, input: dockerfile);
+        // The tag follows the content of the Dockerfile: a new Dockerfile is a new image, an old one is never run by mistake
+        var tag = $"{settings.FreeImage}:{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(dockerfile)))[..12].ToLowerInvariant()}";
+        var image = await OnMachineAsync(machine, $"docker image inspect {tag} >/dev/null 2>&1 || docker build -q -t {tag} -", TimeSpan.FromMinutes(20), cancellationToken, input: dockerfile);
         if (image.ExitCode != 0)
         {
             return Refused(mission, $"The free agent's image could not be built: {Last(image.Output)}");
@@ -65,7 +68,7 @@ public sealed partial class ChangeProof(IShell shell, MissionRunnerOptions optio
         }
 
         await report("The free agent works on the staging machine");
-        var run = await OnMachineAsync(machine, AgentScript(settings), TimeSpan.FromMinutes(settings.FreeTimeoutMinutes), cancellationToken, input: token + "\n");
+        var run = await OnMachineAsync(machine, AgentScript(settings, tag), TimeSpan.FromMinutes(settings.FreeTimeoutMinutes), cancellationToken, input: token + "\n");
         // What the agent said is its own words, kept short; the token is never in what comes back
         var said = Last(run.Output.Replace(token, "***", StringComparison.Ordinal));
         evidence.Add($"agent:exit={run.ExitCode}");
@@ -109,6 +112,8 @@ public sealed partial class ChangeProof(IShell shell, MissionRunnerOptions optio
         {
             return Unfinished(mission, "The runner knows no way to build and test this repository, so the change was not proved.", evidence, head, complex: true);
         }
+        // What the agent left running or tagged on the docker of the machine is not part of the proof: the containers are removed before the steps are run again
+        _ = await OnMachineAsync(machine, "docker ps -aq | xargs -r docker rm -f >/dev/null 2>&1; true", quick, cancellationToken);
         var build = await OnMachineAsync(machine, $"cd ~/work/repo && {command}", TimeSpan.FromMinutes(options.StepTimeoutMinutes), cancellationToken);
         Keep(evidence, kind, build);
         if (build.ExitCode != 0 || build.TimedOut)
@@ -120,15 +125,19 @@ public sealed partial class ChangeProof(IShell shell, MissionRunnerOptions optio
         evidence.Add($"{MissionEvidence.ArtifactTree}{tree}");
         evidence.Add($"{MissionEvidence.Repair}{files.Count}");
         await report($"The change passes: {files.Count} file(s), the steps of the repository pass");
-        // What changed, as the runner reads it in the repository (the agent's account is not evidence): the lines of the files that are not generated, bounded
-        var shown = changed.Where(path => !path.EndsWith("lock.json", StringComparison.Ordinal) && !path.EndsWith(".lock", StringComparison.Ordinal) && !path.EndsWith("lock.yaml", StringComparison.Ordinal)).Take(10).ToList();
+        // What changed, as the runner reads it in the repository (the agent's account is not evidence): the size of the change of every file, then the lines of the files that are not generated. A cut is said, never silent
+        var shown = changed.Where(path => !path.EndsWith("lock.json", StringComparison.Ordinal) && !path.EndsWith(".lock", StringComparison.Ordinal) && !path.EndsWith("lock.yaml", StringComparison.Ordinal)).Take(MaxShownFiles).ToList();
+        var stat = await OnMachineAsync(machine, $"cd ~/work/repo && git add -N -- {string.Join(' ', changed)} && git diff --no-color --stat=120 HEAD -- {string.Join(' ', changed)} | head -c {StatCharacters}", quick, cancellationToken);
         var diff = shown.Count == 0
             ? new ShellResult(0, string.Empty, false)
-            : await OnMachineAsync(machine, $"cd ~/work/repo && git diff --no-color -U0 HEAD -- {string.Join(' ', shown)} | grep -E '^[-+@]' | head -c {DiffCharacters}", quick, cancellationToken);
-        var lockNote = shown.Count < changed.Count ? $" Generated files changed too: {string.Join(", ", changed.Except(shown))}." : string.Empty;
+            : await OnMachineAsync(machine, $"cd ~/work/repo && git diff --no-color -U0 HEAD -- {string.Join(' ', shown)} | grep -E '^[-+@]' | head -c {DiffCharacters + 1}", quick, cancellationToken);
+        var lines = diff.ExitCode == 0 ? diff.Output.Trim() : string.Empty;
+        var cut = lines.Length > DiffCharacters || changed.Count > shown.Count && shown.Count == MaxShownFiles;
+        var lockNote = shown.Count < changed.Count ? $" Generated files changed too (their lines are not shown): {string.Join(", ", changed.Except(shown))}." : string.Empty;
+        var changeText = $"{(stat.ExitCode == 0 && stat.Output.Trim().Length > 0 ? stat.Output.Trim() : "size not read")}. Lines: {(lines.Length > 0 ? lines[..Math.Min(lines.Length, DiffCharacters)] : "none that are not generated")}{(cut ? " [CUT: the rest of the lines is not shown]" : string.Empty)}";
         return new MissionHandOver(
             $"{mission.Repository}: a free agent made a change ({string.Join(", ", files.Select(file => file.Path))}) and the steps of the repository ({kind}) pass on a staging machine that was restored to its reference and qualified before the job.",
-            $"Made against {Short(head)} of {branch}. The agent said: {said}. The steps were run again by the runner on the files it read back: {Last(build.Output)}. The lines that changed, read by the runner in the repository: {(diff.ExitCode == 0 && diff.Output.Trim().Length > 0 ? diff.Output.Trim() : "none that are not generated")}.{lockNote}", evidence, [], Complex: false, ComplexReason: null, head, files);
+            $"Made against {Short(head)} of {branch}. The agent said: {said}. The steps were run again by the runner on the files it read back: {Last(build.Output)}. What changed, read by the runner in the repository: {changeText}.{lockNote}", evidence, [], Complex: false, ComplexReason: null, head, files);
     }
 
     // What is told to the agent: the frame of the runner (what the machine is, what must not leave it, how the work is handed over), then the task of the lead, then what the controller said of a try that was sent back
@@ -153,9 +162,9 @@ public sealed partial class ChangeProof(IShell shell, MissionRunnerOptions optio
 
     // The agent is root in its container (the container of a rootless docker is the machine's own user, which is what lets it use the socket of the docker of the machine), the permissions of the tool are off because the machine is
     // the boundary, and the token of the subscription reaches it by the standard input of the connection, never in an argument
-    private static string AgentScript(RepairSettings settings) =>
+    private static string AgentScript(RepairSettings settings, string image) =>
         "read -r CLAUDE_CODE_OAUTH_TOKEN && export CLAUDE_CODE_OAUTH_TOKEN && "
-        + $"docker run --rm -i --user 0 --memory 7g --cpus 3 -e CLAUDE_CODE_OAUTH_TOKEN -e IS_SANDBOX=1 -v ~/work/repo:/work -v ~/agentin:/in:ro -v /run/user/$(id -u)/docker.sock:/var/run/docker.sock -w /work {settings.FreeImage} "
+        + $"docker run --rm -i --user 0 --memory 7g --cpus 3 -e CLAUDE_CODE_OAUTH_TOKEN -e IS_SANDBOX=1 -v ~/work/repo:/work -v ~/agentin:/in:ro -v /run/user/$(id -u)/docker.sock:/var/run/docker.sock -w /work {image} "
         + $"sh -c 'exec claude -p \"$(cat /in/prompt.txt)\" --model {settings.Model} --dangerously-skip-permissions --max-turns {settings.FreeMaxTurns.ToString(CultureInfo.InvariantCulture)}'";
 
     // `git status --porcelain`: two letters, a space, the path. Only added and modified files are carried; what a build or an install leaves in the folder is not part of the change
@@ -170,7 +179,8 @@ public sealed partial class ChangeProof(IShell shell, MissionRunnerOptions optio
             }
             var code = line[..2];
             var path = line[3..].Trim();
-            if (ChangePolicy.IsArtifact(path) || ChangePolicy.IsArtifact(path.TrimEnd('/') + "/x"))
+            // What the build leaves is not a change, but only a file that git does not track yet is taken for it: a tracked file under a folder named bin or build is source, and a change to it is carried
+            if (code == "??" && (ChangePolicy.IsArtifact(path) || ChangePolicy.IsArtifact(path.TrimEnd('/') + "/x")))
             {
                 continue;
             }
@@ -188,7 +198,12 @@ public sealed partial class ChangeProof(IShell shell, MissionRunnerOptions optio
     }
 
     private const int SliceCharacters = 120_000;
-    private const int DiffCharacters = 3_000;
+    private const int DiffCharacters = 8_000;
+    private const int StatCharacters = 3_000;
+    private const int MaxShownFiles = 40;
+
+    // The base64 text of n bytes: four characters for each three bytes, rounded up
+    private static long Base64Length(long bytes) => (bytes + 2) / 3 * 4;
 
     private sealed record FilesRead(List<PatchedFile> Files, string? Tree, string? Failure);
 
@@ -199,7 +214,7 @@ public sealed partial class ChangeProof(IShell shell, MissionRunnerOptions optio
         foreach (var path in changed)
         {
             var size = await OnMachineAsync(machine, $"cd ~/work/repo && base64 -w0 \"{path}\" | wc -c", timeout, cancellationToken);
-            if (size.ExitCode != 0 || !long.TryParse(size.Output.Trim(), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var characters) || characters > ChangePolicy.MaxFileBytes * 2)
+            if (size.ExitCode != 0 || !long.TryParse(size.Output.Trim(), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var characters) || characters > Base64Length(ChangePolicy.MaxFileBytes))
             {
                 return new FilesRead(files, null, $"{path} could not be measured");
             }
@@ -207,6 +222,10 @@ public sealed partial class ChangeProof(IShell shell, MissionRunnerOptions optio
             for (long from = 0; from < characters; from += SliceCharacters)
             {
                 var slice = await OnMachineAsync(machine, $"cd ~/work/repo && base64 -w0 \"{path}\" | cut -c{from + 1}-{from + SliceCharacters}", timeout, cancellationToken);
+                if (slice.ExitCode != 0)
+                {
+                    return new FilesRead(files, null, $"{path} could not be read back");
+                }
                 try
                 {
                     bytes.AddRange(Convert.FromBase64String(slice.Output.Trim()));
@@ -215,14 +234,18 @@ public sealed partial class ChangeProof(IShell shell, MissionRunnerOptions optio
                 {
                     return new FilesRead(files, null, $"{path} could not be read back");
                 }
-                if (slice.ExitCode != 0)
-                {
-                    return new FilesRead(files, null, $"{path} could not be read back");
-                }
             }
-            files.Add(new PatchedFile(path, Encoding.UTF8.GetString([.. bytes])));
+            // A change is carried as text: a file that is not valid text (an image, a font) cannot be carried without altering it
+            try
+            {
+                files.Add(new PatchedFile(path, new UTF8Encoding(false, true).GetString([.. bytes])));
+            }
+            catch (DecoderFallbackException)
+            {
+                return new FilesRead(files, null, $"{path} is not a text file, and only text can be carried");
+            }
         }
-        var tree = await OnMachineAsync(machine, $"cd ~/work/repo && export GIT_INDEX_FILE=$(mktemp -u) && git read-tree HEAD && git update-index --add {string.Join(' ', changed)} && echo \"TREE $(git write-tree)\"", timeout, cancellationToken);
+        var tree = await OnMachineAsync(machine, $"cd ~/work/repo && export GIT_INDEX_FILE=$(mktemp -u) && git read-tree HEAD && git update-index --add -- {string.Join(' ', changed)} && echo \"TREE $(git write-tree)\"", timeout, cancellationToken);
         var found = TreeLine().Match(tree.Output);
         return new FilesRead(files, tree.ExitCode == 0 && found.Success ? found.Groups[1].Value : null, tree.ExitCode == 0 ? null : Last(tree.Output));
     }

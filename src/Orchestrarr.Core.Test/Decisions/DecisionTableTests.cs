@@ -33,8 +33,11 @@ public sealed class DecisionTableTests
               "update": { "promote": [{{promote}}] } } ] }
             """);
 
+    // A host that can start a problem with no pull request (the test bed): a dependency alert has an action there
+    private static readonly RelevancePolicy Acting = RelevancePolicy.Default with { ActOnProblems = true };
+
     private static IReadOnlyList<ProblemRow> Table(WorkItem item, IApplicationCatalog? applications = null, IReadOnlyList<RunnerAcceptance>? runners = null, IReadOnlyList<TaskResultRow>? results = null) =>
-        DecisionTable.Build([item], applications ?? Described(), runners ?? [Everything], results);
+        DecisionTable.Build([item], applications ?? Described(), runners ?? [Everything], results, policy: Acting);
 
     private static readonly RunnerAcceptance Everything = new([TaskKind.ValidatePullRequest, TaskKind.MergePullRequest], ["example/*"]);
 
@@ -455,7 +458,6 @@ public sealed class DecisionTableTests
         rows.Select(row => row.Kind).Should().Equal(ProblemKind.DependencyAlert, ProblemKind.CodeScanningAlert, ProblemKind.ExposedSecret, ProblemKind.FailingCi, ProblemKind.ImageUpdate, ProblemKind.DependencyScanUnavailable);
         rows.Should().OnlyContain(row => row.PullRequest == null);
         rows.Where(row => row.Kind != ProblemKind.DependencyAlert).Should().OnlyContain(row => row.GoesUpTo == Ceiling.NoAction && row.Why == CeilingReason.NoActionDefined && !row.CanStopBeforeProduction);
-        rows.Single(row => row.Kind == ProblemKind.DependencyAlert).GoesUpTo.Should().NotBe(Ceiling.NoAction, "an alert has an action now: a worker agent solves it in staging (ADR 0048)");
         rows.Single(row => row.Kind == ProblemKind.DependencyAlert).Should().Match<ProblemRow>(row => row.Count == 2 && row.Severity == Severity.Danger);
         rows.Single(row => row.Kind == ProblemKind.ImageUpdate).Description.Should().Be("ghcr.io/example/app:1 → 2");
         rows.Select(row => row.Id).Should().OnlyHaveUniqueItems();
@@ -466,13 +468,34 @@ public sealed class DecisionTableTests
     [Fact]
     public void A_dependency_alert_has_no_pull_request_and_goes_as_far_as_the_chain_of_its_application_goes()
     {
-        var row = Table(Item(pulls: [], findings: Alerts, read: PullRequestsRead.NotNeeded), Described(), [Everything]).Single(candidate => candidate.Kind == ProblemKind.DependencyAlert);
+        var row = Table(Item(pulls: [], findings: Alerts, read: PullRequestsRead.NotNeeded), Described(promote: "\"patch\", \"minor\", \"major\""), [Everything]).Single(candidate => candidate.Kind == ProblemKind.DependencyAlert);
 
         row.GoesUpTo.Should().Be(Ceiling.Production);
         row.Why.Should().Be(CeilingReason.None);
         row.CanStopBeforeProduction.Should().BeTrue();
+        row.UpdateClass.Should().BeNull("the size of the change is not known before the agent has made it");
         row.PullRequest.Should().BeNull("a problem with no pull request is solved by a change that the staging makes");
         row.HeadSha.Should().BeNull();
+    }
+
+    [Fact]
+    public void A_dependency_alert_has_no_action_on_a_host_that_cannot_start_a_problem_with_no_pull_request()
+    {
+        var rows = DecisionTable.Build([Item(pulls: [], findings: Alerts, read: PullRequestsRead.NotNeeded)], Described(), [Everything]);
+
+        rows.Single(row => row.Kind == ProblemKind.DependencyAlert).Should().Match<ProblemRow>(row => row.GoesUpTo == Ceiling.NoAction && row.Why == CeilingReason.NoActionDefined);
+    }
+
+    [Fact]
+    public void A_dependency_alert_stops_at_the_qualification_or_the_merge_where_a_step_cannot_be_done()
+    {
+        Row(Described(mode: "none")).Should().Match<ProblemRow>(row => row.GoesUpTo == Ceiling.Qualification && row.Why == CeilingReason.QualificationNotDescribed);
+        Row(Described(check: false)).Should().Match<ProblemRow>(row => row.GoesUpTo == Ceiling.MergeIntoDevelop && row.Why == CeilingReason.NoCheckAfterDeployDescribed);
+        Row(Described(), [new RunnerAcceptance([TaskKind.ValidatePullRequest], ["example/*"])]).Should().Match<ProblemRow>(row => row.GoesUpTo == Ceiling.Qualification && row.Why == CeilingReason.NoRunner);
+        Row(Described(), [Everything], withRepository: false).GoesUpTo.Should().Be(Ceiling.NoAction, "a row with no repository cannot be solved");
+
+        static ProblemRow Row(IApplicationCatalog applications, IReadOnlyList<RunnerAcceptance>? runners = null, bool withRepository = true) =>
+            Table(Item(pulls: [], findings: Alerts, read: PullRequestsRead.NotNeeded) with { RepositoryFullName = withRepository ? "example/shop" : null }, applications, runners ?? [Everything]).Single(row => row.Kind == ProblemKind.DependencyAlert);
     }
 
     [Fact]
@@ -483,8 +506,8 @@ public sealed class DecisionTableTests
         Table(Item(pulls: [], findings: Alerts, read: PullRequestsRead.NotNeeded), Described(), []).Single(row => row.Kind == ProblemKind.DependencyAlert).Why.Should().Be(CeilingReason.NoRunner);
         Table(Item(pulls: [], findings: Alerts, read: PullRequestsRead.NotNeeded), Described(rollback: false), [Everything]).Single(row => row.Kind == ProblemKind.DependencyAlert)
             .Should().Match<ProblemRow>(row => row.GoesUpTo == Ceiling.MergeIntoDevelop && row.Why == CeilingReason.NoRollbackDescribed);
-        Table(Item(pulls: [], findings: Alerts, read: PullRequestsRead.NotNeeded), Described(promote: "\"major\""), [Everything]).Single(row => row.Kind == ProblemKind.DependencyAlert)
-            .Should().Match<ProblemRow>(row => row.GoesUpTo == Ceiling.MergeIntoDevelop && row.Why == CeilingReason.UpdateClassStopsBeforeProduction);
+        Table(Item(pulls: [], findings: Alerts, read: PullRequestsRead.NotNeeded), Described(promote: "\"patch\", \"minor\""), [Everything]).Single(row => row.Kind == ProblemKind.DependencyAlert)
+            .Should().Match<ProblemRow>(row => row.GoesUpTo == Ceiling.MergeIntoDevelop && row.Why == CeilingReason.UpdateClassStopsBeforeProduction, "what the agent will write may be as large as a major change, so only an application that promotes those goes to production by itself");
     }
 
     [Fact]

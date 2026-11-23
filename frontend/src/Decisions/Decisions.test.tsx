@@ -341,6 +341,37 @@ describe('Decisions', () => {
     });
   });
 
+  it('does not select a row with no pull request that has no action, nor a pull request row that has no commit', async () => {
+    stub(
+      problemsReport([
+        problem({
+          id: 'finding:repository:example/shop:CodeScanningAlerts',
+          kind: 'codeScanningAlert',
+          application: 'example/shop',
+          pullRequest: null,
+          headSha: null,
+          goesUpTo: 'noAction',
+        }),
+        problem({
+          id: 'pr:example/shop#9',
+          application: 'example/shop',
+          description: 'lodash 4.17.4 → 4.18.1',
+          pullRequest: 9,
+          headSha: null,
+          goesUpTo: 'qualification',
+        }),
+      ]),
+    );
+    renderWithProviders(<Decisions />);
+
+    const boxes = await screen.findAllByLabelText(/Select example\/shop/);
+
+    expect(boxes).toHaveLength(2);
+    for (const box of boxes) {
+      expect(box).toBeDisabled();
+    }
+  });
+
   it('says that nothing started, and why, when the plan refuses every row', async () => {
     const row = problem({
       id: 'pr:example/shop#9',

@@ -96,6 +96,19 @@ public sealed class LeadAgentTests
     }
 
     [Fact]
+    public void The_findings_reach_the_judge_as_data_and_its_rules_say_how_to_read_a_count_and_a_finding_with_no_fix()
+    {
+        var input = new ControllerInput(
+            new Mission("m1", "p1", "shop", World.Staging, "Fix the alert", new MissionFrame(["example/shop"], [], "slot-1"), new MissionBudget(20, 3, 50), MissionState.HandingOver),
+            new Dossier("m1", "done", "changed", ["sha256:aa"], [], false, null), new FactsView([], "green", "not read", []), Brief("2 alerts", parsed: true) with { Details = ["advisory on lodash; no fixed version exists"] });
+
+        var request = Agent().Build(input, boundary: "B4");
+
+        request.UserPrompt.IndexOf("no fixed version exists", StringComparison.Ordinal).Should().BeGreaterThan(request.UserPrompt.IndexOf("<<<DATA B4", StringComparison.Ordinal));
+        request.SystemPrompt.Should().Contain("a count (the alerts the source counts) that is larger than the findings").And.Contain("the dependency as it is").And.Contain("escalate to the maintainer");
+    }
+
+    [Fact]
     public void The_instruction_of_the_lead_is_data_for_the_judge_and_never_in_the_line_of_the_control_plane()
     {
         var input = new ControllerInput(
