@@ -32,6 +32,26 @@ public sealed class RunnerRegistry(TimeProvider time)
         }
     }
 
+    /// <summary>A runner that is already known and makes any call is there: its description stays what it said, only the time of its last sign changes. A runner never seen says nothing here (it has to say what it accepts first).</summary>
+    public void Touch(string name)
+    {
+        var now = time.GetUtcNow();
+        bool changed;
+        lock (_gate)
+        {
+            if (!_seen.TryGetValue(name, out var before))
+            {
+                return;
+            }
+            changed = now - before.At > ConnectedFor;
+            _seen[name] = (before.Hello, now);
+        }
+        if (changed)
+        {
+            Changed?.Invoke();
+        }
+    }
+
     // What a person sees of a runner: its version, what it accepts and whether it asks for the code. A list is compared by its values.
     private static bool Same(RunnerHello before, RunnerHello now) =>
         before.Version == now.Version

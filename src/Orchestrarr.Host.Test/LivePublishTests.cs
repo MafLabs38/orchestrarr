@@ -131,4 +131,26 @@ public sealed class LivePublishTests
         registry.Seen("runner-1", Hello(repositories: "example/other"));
         announced.Should().Be(3, "it came back after a silence");
     }
+    [Fact]
+    public void A_runner_that_is_working_stays_connected_by_any_call_it_makes_and_one_never_seen_is_not_made_known()
+    {
+        var time = new FakeTimeProvider(new DateTimeOffset(2026, 11, 11, 12, 0, 0, TimeSpan.Zero));
+        var registry = new RunnerRegistry(time);
+        var announced = 0;
+        registry.Changed += () => announced++;
+
+        registry.Touch("nobody");
+        registry.Snapshot().Should().BeEmpty("a runner has to say what it accepts before it is known");
+        registry.Seen("runner-1", Hello());
+        time.Advance(TimeSpan.FromSeconds(25));
+        registry.Touch("runner-1");
+        time.Advance(TimeSpan.FromSeconds(25));
+
+        registry.Snapshot().Single().Connected.Should().BeTrue("its last call is 25 seconds old, though it asked for work 50 seconds ago");
+        announced.Should().Be(1);
+        time.Advance(RunnerRegistry.ConnectedFor + TimeSpan.FromSeconds(1));
+        registry.Snapshot().Single().Connected.Should().BeFalse();
+        registry.Touch("runner-1");
+        announced.Should().Be(2, "it came back after a silence");
+    }
 }

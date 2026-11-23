@@ -40,3 +40,11 @@ updates:
     ignore:
       - dependency-name: "node"
         update-types: ["version-update:semver-major"]
+  # The image of the free agent of the staging machine (ADR 0048): same rule, and a docker client that is pinned in its file
+  - package-ecosystem: "docker"
+    directory: "/docker/agent-free"
+    schedule:
+      interval: "weekly"
+    ignore:
+      - dependency-name: "node"
+        update-types: ["version-update:semver-major"]

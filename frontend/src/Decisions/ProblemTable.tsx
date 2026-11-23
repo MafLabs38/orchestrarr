@@ -35,7 +35,9 @@ interface ProblemTableProps {
   onStop: (row: ProblemRow, stop: boolean) => void;
 }
 
-export const isActionable = (row: ProblemRow) => row.goesUpTo !== 'noAction' && row.headSha !== null;
+// A pull request is chosen at the commit that is shown; a problem that has no pull request (an advisory) is chosen as it is
+export const isActionable = (row: ProblemRow) =>
+  row.goesUpTo !== 'noAction' && (row.pullRequest === null || row.headSha !== null);
 
 const columns: { column: SortColumn; label: Parameters<typeof translate>[0]; className?: string }[] = [
   { column: 'number', label: 'ColumnNumber', className: styles.narrow },

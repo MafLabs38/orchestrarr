@@ -68,3 +68,18 @@ public sealed class NoForgeActs : IForgeActs
 
     public Task<bool> ClosePullRequestAsync(string repositoryFullName, int number, string comment, CancellationToken cancellationToken) => Task.FromResult(false);
 }
+
+/// <summary>The default branch of a repository and its head now: what a change that has no pull request is made against (ADR 0048).</summary>
+public sealed record DefaultBranchHead(string Branch, string HeadSha);
+
+public interface IDefaultBranchSource
+{
+    /// <summary>Null when the repository or its branch cannot be read now: nothing is written on a head that was not read.</summary>
+    Task<DefaultBranchHead?> ReadAsync(string repositoryFullName, CancellationToken cancellationToken);
+}
+
+/// <summary>Used when no forge is connected.</summary>
+public sealed class NoDefaultBranchSource : IDefaultBranchSource
+{
+    public Task<DefaultBranchHead?> ReadAsync(string repositoryFullName, CancellationToken cancellationToken) => Task.FromResult<DefaultBranchHead?>(null);
+}

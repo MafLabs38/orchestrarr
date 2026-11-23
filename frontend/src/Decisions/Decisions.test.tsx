@@ -302,6 +302,45 @@ describe('Decisions', () => {
     expect(base.mock.calls.some(([path]) => String(path) === '/api/v1/problems/approve')).toBe(false);
   });
 
+  it('selects a problem that has no pull request, as it is, and sends it to the plan with no commit', async () => {
+    const alert = problem({
+      id: 'finding:repository:example/shop:DependencyAlerts',
+      workItemId: 'repository:example/shop',
+      application: 'example/shop',
+      kind: 'dependencyAlert',
+      description: '6',
+      pullRequest: null,
+      headSha: null,
+      goesUpTo: 'qualification',
+      why: 'qualificationNotDescribed',
+    });
+    const base = stub(problemsReport([alert]), { requiresSecondFactor: false });
+    const answer = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status }));
+    const wrapped = vi.fn((input: string, init?: RequestInit) => {
+      if (String(input) === '/api/v1/plan') {
+        return answer({ available: true });
+      }
+      if (String(input) === '/api/v1/plan/validate') {
+        return answer(
+          { problems: [{ rowId: alert.id, problemId: 'p-1', missionId: 'm-1', world: 'Staging', refusal: null }] },
+          201,
+        );
+      }
+      return base(input, init);
+    });
+    vi.stubGlobal('fetch', wrapped);
+    renderWithProviders(<Decisions />);
+
+    await userEvent.click(await screen.findByLabelText(/Select example\/shop/));
+    await userEvent.click(screen.getByRole('button', { name: 'Validate the selection' }));
+
+    expect(await screen.findByText(/Validated: 1 problems started/)).toBeInTheDocument();
+    const call = wrapped.mock.calls.find(([path]) => String(path) === '/api/v1/plan/validate');
+    expect(JSON.parse(String((call?.[1] as RequestInit).body))).toEqual({
+      rows: [{ id: alert.id, headSha: '', stopBeforeProduction: false }],
+    });
+  });
+
   it('says that nothing started, and why, when the plan refuses every row', async () => {
     const row = problem({
       id: 'pr:example/shop#9',

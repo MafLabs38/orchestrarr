@@ -20,11 +20,24 @@ public sealed class RepairSettings
 
     public int TimeoutMinutes { get; set; } = 15;
 
+    /// <summary>The Dockerfile of the free agent's image (<c>docker/agent-free/Dockerfile</c>), for a problem that has no pull request (ADR 0048). Unset: such a problem is refused by this runner.</summary>
+    public string? FreeDockerfileFile { get; set; }
+
+    public string FreeImage { get; set; } = "orchestrarr-agent-free";
+
+    public int FreeMaxTurns { get; set; } = 120;
+
+    /// <summary>How long the free agent may work. Generous: a long troubleshooting is normal, and the machine is its own.</summary>
+    public int FreeTimeoutMinutes { get; set; } = 60;
+
+    public bool IsFreeConfigured => !string.IsNullOrWhiteSpace(FreeDockerfileFile) && !string.IsNullOrWhiteSpace(TokenFile);
+
     public bool IsConfigured => !string.IsNullOrWhiteSpace(DockerfileFile) && !string.IsNullOrWhiteSpace(TokenFile);
 
     /// <summary>The values that go into a script or a command line are checked here, so that a setting cannot carry anything but a name.</summary>
     public void Validate()
     {
+        ValidateFree();
         if (!IsConfigured)
         {
             return;
@@ -37,6 +50,24 @@ public sealed class RepairSettings
         if (MaxTurns is < 1 or > 100 || Attempts is < 1 or > 5 || TimeoutMinutes is < 1 or > 60 || !File.Exists(DockerfileFile) || !File.Exists(TokenFile))
         {
             throw new InvalidOperationException("MissionRunner:Repair: the turns (1 to 100), the attempts (1 to 5) and the time (1 to 60 minutes) must be in range, and the Dockerfile and the token file must exist.");
+        }
+    }
+
+    // The free agent has its own settings: a plain image name, a number of turns and a time in range, and the files that it names
+    private void ValidateFree()
+    {
+        if (!IsFreeConfigured)
+        {
+            return;
+        }
+        if (!System.Text.RegularExpressions.Regex.IsMatch(FreeImage, "^[a-z0-9][a-z0-9._/-]{0,80}$", System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromMilliseconds(250))
+            || !System.Text.RegularExpressions.Regex.IsMatch(Model, "^[A-Za-z0-9._-]{1,40}$", System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromMilliseconds(250)))
+        {
+            throw new InvalidOperationException("MissionRunner:Repair: the free agent's image and the model must be plain names.");
+        }
+        if (FreeMaxTurns is < 1 or > 1000 || FreeTimeoutMinutes is < 1 or > 600 || !File.Exists(FreeDockerfileFile) || !File.Exists(TokenFile))
+        {
+            throw new InvalidOperationException("MissionRunner:Repair: the free agent's turns (1 to 1000) and time (1 to 600 minutes) must be in range, and its Dockerfile and the token file must exist.");
         }
     }
 }

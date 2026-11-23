@@ -15,7 +15,8 @@ public sealed record ProblemBrief(
     string? Checks = null,
     string? Severity = null,
     int? Count = null,
-    int? PullRequest = null)
+    int? PullRequest = null,
+    IReadOnlyList<string>? Details = null)
 {
     /// <summary>The brief of a row of the table: what the control plane read, and the description with where it came from (parsed by the control plane, or the text of someone else).</summary>
     public static ProblemBrief Of(ProblemRow row)

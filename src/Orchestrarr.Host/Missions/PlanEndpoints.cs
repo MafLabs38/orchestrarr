@@ -45,7 +45,7 @@ internal static class PlanEndpoints
         api.MapGet("/plan", (IServiceProvider services) => Results.Ok(new PlanStatus(services.GetService<SandboxApprovals>() is not null))).RequireAuthorization(Permissions.FleetRead);
         api.MapPost("/plan/validate", async (ValidatePlanRequest request, HttpContext context, IApproverAccessor accessor, WorkItemCatalog catalog, IApplicationCatalog applications, RunnerRegistry runners, IBatchQueue queue,
             IProblemHistory history, IApprovalStore approvalStore, TimeProvider time, RelevancePolicy policy, InfrastructureCatalog infrastructure, ProblemConductor conductor, IServiceProvider services,
-            LeadPlanner lead, AgentsOptions agents, MissionProgress progress, IMissionAudit audit, IStopSignal stop, ILiveNotifier live, CancellationToken ct) =>
+            LeadPlanner lead, IDependencyFindings findings, AgentsOptions agents, MissionProgress progress, IMissionAudit audit, IStopSignal stop, ILiveNotifier live, CancellationToken ct) =>
         {
             var (approver, refusal) = ApprovalEndpoints.Authorize(accessor, context);
             if (approver is null)
@@ -70,11 +70,11 @@ internal static class PlanEndpoints
             // The lead thinks about each problem first (two at a time), then the problems are started one after the other: nothing is started that the lead did not plan, and no approval is used for a problem that has no plan.
             // A row is asked once, at most Agents:LeadMaxRows rows are asked in one selection, and the global stop is read again before each question: every question is a run of the subscription
             var rows = (request.Rows ?? []).DistinctBy(row => row.Id, StringComparer.Ordinal).ToList();
-            var prepared = await Task.WhenAll(rows.Select((chosen, index) => PrepareAsync(chosen, table, approver.Subject, lead, conductor, audit, stop, NotAsked(index, agents.LeadMaxRows), time, ct)));
+            var prepared = await Task.WhenAll(rows.Select((chosen, index) => PrepareAsync(chosen, table, approver.Subject, lead, findings, conductor, audit, stop, NotAsked(index, agents.LeadMaxRows), time, ct)));
             var started = new List<ValidatedProblem>();
             foreach (var one in prepared)
             {
-                started.Add(await StartAsync(one, approvals, conductor, progress, ct));
+                started.Add(await StartAsync(one, approvals, conductor, progress, services.GetService<RepairRegistry>(), ct));
             }
             live.Publish(LiveTopics.Missions);
             return Results.Json(new ValidatePlanResponse(started), statusCode: StatusCodes.Status201Created);
@@ -89,7 +89,7 @@ internal static class PlanEndpoints
     // A row that is ready to start (its plan entry with the problem as read and the lead's plan), or why it will not start: one of the two, never both
     private sealed record Prepared(string RowId, PlanEntry? Entry, ValidatedProblem? Refused);
 
-    private static async Task<Prepared> PrepareAsync(ValidatedRow chosen, Dictionary<string, ProblemRow> table, string approver, LeadPlanner lead, ProblemConductor conductor, IMissionAudit audit, IStopSignal stop, string? notAsked, TimeProvider time, CancellationToken cancellationToken)
+    private static async Task<Prepared> PrepareAsync(ValidatedRow chosen, Dictionary<string, ProblemRow> table, string approver, LeadPlanner lead, IDependencyFindings findings, ProblemConductor conductor, IMissionAudit audit, IStopSignal stop, string? notAsked, TimeProvider time, CancellationToken cancellationToken)
     {
         var id = chosen.Id ?? string.Empty;
         Prepared Refused(string reason, string? problemId = null) => new(id, null, new ValidatedProblem(id, problemId, null, null, reason));
@@ -118,6 +118,12 @@ internal static class PlanEndpoints
         }
         // The staging of the test bed is declared: the first world is the staging. The lead proposes; the conductor checks the proposal against the powers as they are when the problem starts
         var brief = ProblemBrief.Of(row);
+        // A problem with no pull request is about dependencies: what the source knows of them goes to the lead, as data, with the problem
+        if (row.PullRequest is null && entry.Repositories.Count == 1)
+        {
+            var known = await findings.ReadAsync(entry.Repositories[0], cancellationToken);
+            brief = brief with { Details = [.. known.Select(finding => finding.Line)] };
+        }
         // The global stop is read again for each question: a row that waits for a free slot may be asked long after the request came
         if (stop.Engaged)
         {
@@ -154,7 +160,7 @@ internal static class PlanEndpoints
 
     private static readonly World FirstWorld = World.Staging;
 
-    private static async Task<ValidatedProblem> StartAsync(Prepared one, SandboxApprovals approvals, ProblemConductor conductor, MissionProgress progress, CancellationToken cancellationToken)
+    private static async Task<ValidatedProblem> StartAsync(Prepared one, SandboxApprovals approvals, ProblemConductor conductor, MissionProgress progress, RepairRegistry? repairs, CancellationToken cancellationToken)
     {
         if (one.Entry is not { } entry)
         {
@@ -167,6 +173,11 @@ internal static class PlanEndpoints
         }
         // The staging of the test bed is declared, and its baseline is the snapshot of the lab VMs (a reset brings them back to it)
         var result = await conductor.StartAsync(entry, StagingDeclaration.DeclaredStaging, StagingRequirement.Dependencies, StagingState.BaselineProven, cancellationToken);
+        if (result.Ok)
+        {
+            // The same row is the same problem: what a run of it made (a repair, the pull request that carried it) is not the business of the run that starts now
+            repairs?.Forget(entry.ProblemId);
+        }
         if (result.Ok && result.Mission is { } mission && entry.Plan is { } plan)
         {
             // What the lead decided and why is shown with the first mission of the problem

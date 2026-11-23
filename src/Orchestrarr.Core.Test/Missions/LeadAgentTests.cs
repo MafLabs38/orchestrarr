@@ -37,6 +37,17 @@ public sealed class LeadAgentTests
     }
 
     [Fact]
+    public void The_findings_about_the_dependencies_reach_the_lead_and_the_judge_as_data_inside_the_fence()
+    {
+        var brief = Brief() with { Details = ["advisory on lodash (installed 4.17.4); fixed in 4.17.21; severity high"] };
+        var plan = Agent().BuildPlan(Input(brief), boundary: "B3");
+
+        var data = plan.UserPrompt.IndexOf("<<<DATA B3", StringComparison.Ordinal);
+        plan.UserPrompt.IndexOf("fixed in 4.17.21", StringComparison.Ordinal).Should().BeGreaterThan(data);
+        plan.SystemPrompt.Should().Contain("the facts the worker needs").And.Contain("say what must be true at the end, not the commands");
+    }
+
+    [Fact]
     public void A_well_formed_answer_is_a_plan_in_the_worlds_that_it_names()
     {
         var outcome = ControllerAgent.ParsePlan(Good);

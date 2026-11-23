@@ -104,6 +104,26 @@ internal sealed class SandboxFacts(IProblemStore problems, IPullRequestFacts pul
                 current = (started, startedHead);
             }
         }
+        // A problem that is not a pull request has nothing on the forge to read until the gateway opens the one that carries its change: what is known then is the change that staging proved, on the commit it was made from
+        if (entry is { PullRequest: null } && current is null && entry.Repositories.Count == 1 && repairs?.PendingOf(query.ProblemId) is { } change)
+        {
+            return new ObservedFacts(
+                BudgetAvailable: true,
+                DiffIsClean: true,
+                CiGreenOnExactCommit: true,
+                ArtifactIsTheOneProvedInStaging: null,
+                WayBackKnown: true,
+                WorkerClaimMatchesFacts: query.Dossier?.Commit is { } stated && string.Equals(stated, change.OriginalHead, StringComparison.Ordinal),
+                MergeMayDeploy: false,
+                ExecutedFilesTouched: change.Files.Any(file => file.Path.StartsWith(".github/", StringComparison.Ordinal)),
+                TagCreationBlocked: true,
+                BranchCannotReachWriteCredentials: true,
+                HeadCommit: change.OriginalHead,
+                IdentityConfinedToItsBranches: true,
+                ChangedPaths: [.. change.Files.Select(file => file.Path)],
+                Repository: entry.Repositories[0],
+                BaseCommit: change.OriginalHead);
+        }
         if (entry is not null && current is { } target && entry.Repositories.Count == 1)
         {
             try
@@ -118,7 +138,8 @@ internal sealed class SandboxFacts(IProblemStore problems, IPullRequestFacts pul
         // Staging proves the merge onto the default branch: a pull request that targets another base is not one that this source can speak for (unknown counts as failing)
         if (entry is null || read is null || !read.TargetsDefaultBranch)
         {
-            return new ObservedFacts(BudgetAvailable: false, DiffIsClean: null, CiGreenOnExactCommit: null, ArtifactIsTheOneProvedInStaging: null, WayBackKnown: null, WorkerClaimMatchesFacts: false);
+            // A problem with no pull request and no change handed over has nothing on the forge to read: that is not a budget that ran out (the other facts are unknown, which fails their checks)
+            return new ObservedFacts(BudgetAvailable: entry is { PullRequest: null }, DiffIsClean: null, CiGreenOnExactCommit: null, ArtifactIsTheOneProvedInStaging: null, WayBackKnown: null, WorkerClaimMatchesFacts: false);
         }
         // Once the pull request is merged, what runs is the commit that the merge made on the base branch: the commit, the checks and the tree that the later worlds are about
         var commit = read.Merged && read.MergeCommit is { } merged ? merged : read.HeadSha;
@@ -235,6 +256,8 @@ internal static class SandboxMissionsExtensions
             }
             services.AddSingleton<ISandboxHealth>(new HttpSandboxHealth(deployHost, missions.SandboxDeployPortBase));
         }
+        // One reader of the forge for the facts of a pull request and for the default branch, made when it is first needed
+        var githubFacts = new Lazy<GitHubPullRequestFacts?>(() => string.IsNullOrWhiteSpace(github.Token) ? null : GitHubPullRequestFacts.Create(github));
         return services
             .AddSingleton<SandboxApprovals>()
             .AddSingleton<RepairRegistry>()
@@ -243,8 +266,10 @@ internal static class SandboxMissionsExtensions
             .AddSingleton<IApprovalWithdrawals, SandboxWithdrawals>()
             .AddSingleton<IGrantSource>(new SandboxGrants(missions.SandboxMaxWorld))
             .AddHostedService(provider => new SandboxNotice(missions.SandboxMaxWorld, provider.GetRequiredService<ILogger<SandboxNotice>>()))
-            .AddSingleton<IPullRequestFacts>(_ => string.IsNullOrWhiteSpace(github.Token) ? new NoPullRequestFacts() : GitHubPullRequestFacts.Create(github))
+            .AddSingleton<IPullRequestFacts>(_ => githubFacts.Value is { } facts ? facts : new NoPullRequestFacts())
+            .AddSingleton<IDefaultBranchSource>(_ => githubFacts.Value is { } facts ? facts : new NoDefaultBranchSource())
             .AddSingleton<IForgeActs>(_ => string.IsNullOrWhiteSpace(missions.SandboxMergeToken) ? new NoForgeActs() : new GuardedForgeActs(GitHubForgeActs.Create(github.WithToken(missions.SandboxMergeToken)), missions.SandboxMergeRepositories))
-            .AddSingleton<IFactsSource, SandboxFacts>();
+            .AddSingleton<IFactsSource, SandboxFacts>()
+            .AddSingleton<IDependencyFindings>(_ => string.IsNullOrWhiteSpace(missions.SandboxFindingsFile) ? new NoDependencyFindings() : new FileDependencyFindings(missions.SandboxFindingsFile));
     }
 }

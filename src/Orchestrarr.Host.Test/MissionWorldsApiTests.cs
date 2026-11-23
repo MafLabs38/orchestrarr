@@ -23,8 +23,11 @@ public sealed class MissionWorldsApiTests
     private static readonly object Hello = new { hello = new { name = "runner-staging", version = "1", kinds = new[] { "validatePullRequest" }, repositories = new[] { "example/*" }, delegations = Array.Empty<object>(), secondFactorRequired = false } };
 
     /// <summary>A forge in memory: a pull request that is green at its head, merged on demand, whose merge result has a tree and a pipeline of its own.</summary>
-    private sealed class FakeForge : IPullRequestFacts, IForgeActs
+    private sealed class FakeForge : IPullRequestFacts, IForgeActs, IDefaultBranchSource
     {
+        /// <summary>The head of the default branch, as the forge says it now.</summary>
+        public string DefaultHead { get; set; } = Head;
+
         public bool Merged { get; private set; }
 
         public ChecksState HeadChecks { get; set; } = ChecksState.Passing;
@@ -37,6 +40,9 @@ public sealed class MissionWorldsApiTests
 
         public Task<PullRequestFacts?> ReadAsync(string repositoryFullName, int number, CancellationToken cancellationToken) =>
             Task.FromResult<PullRequestFacts?>(new PullRequestFacts(Opened.Count > 0 && number == RepairNumber ? RepairHead : Head, "base", false, Opened.Count > 0 && number == RepairNumber ? ChecksState.Passing : HeadChecks, ["package.json"], PathsComplete: true, Merged, Merged ? MergeCommit : null, Merged ? TreeOfTheMerge : null, Merged ? MergeChecks : ChecksState.Unknown, BaseRef: BaseRef, DefaultBranch: "main"));
+
+        public Task<DefaultBranchHead?> ReadAsync(string repositoryFullName, CancellationToken cancellationToken) =>
+            Task.FromResult<DefaultBranchHead?>(new DefaultBranchHead("main", DefaultHead));
 
         public List<(string Branch, string Parent, IReadOnlyList<PatchedFile> Files)> Opened { get; } = [];
 
@@ -92,6 +98,7 @@ public sealed class MissionWorldsApiTests
                 services.AddSingleton<IAgentGateway>(new SaysGateway(decisions));
                 services.AddSingleton<IPullRequestFacts>(forge);
                 services.AddSingleton<IForgeActs>(forge);
+                services.AddSingleton<IDefaultBranchSource>(forge);
             });
             builder.UseEnvironment("Development");
             builder.UseSetting("Missions:Sandbox", "true");
@@ -117,6 +124,17 @@ public sealed class MissionWorldsApiTests
     {
         var approvals = factory.Services.GetRequiredService<SandboxApprovals>();
         var entry = new PlanEntry(problemId, "example/shop", "dependency-update", "Prove pull request #7", ["example/shop"], World.Release, new MissionBudget(30, 3, 50), new Validation("alice", null), DateTimeOffset.UtcNow, 7, Head);
+        (await approvals.PrepareAsync(entry, Ct)).Should().BeTrue();
+        var started = await factory.Services.GetRequiredService<ProblemConductor>().StartAsync(entry, StagingDeclaration.DeclaredStaging, StagingRequirement.Dependencies, StagingState.BaselineProven, Ct);
+        started.Ok.Should().BeTrue(started.Refusal);
+        return problemId;
+    }
+
+    /// <summary>A problem that is not a pull request (an advisory on a dependency): no number, no head, a change to make from the default branch.</summary>
+    private static async Task<string> StartChangeProblemAsync(AccountsApiFactory factory, string problemId = "p-worlds")
+    {
+        var approvals = factory.Services.GetRequiredService<SandboxApprovals>();
+        var entry = new PlanEntry(problemId, "example/shop", "dependency-update", "Fix the advisory of a dependency", ["example/shop"], World.Release, new MissionBudget(30, 3, 50), new Validation("alice", null), DateTimeOffset.UtcNow, null, null);
         (await approvals.PrepareAsync(entry, Ct)).Should().BeTrue();
         var started = await factory.Services.GetRequiredService<ProblemConductor>().StartAsync(entry, StagingDeclaration.DeclaredStaging, StagingRequirement.Dependencies, StagingState.BaselineProven, Ct);
         started.Ok.Should().BeTrue(started.Refusal);
@@ -373,6 +391,64 @@ public sealed class MissionWorldsApiTests
         (await runner.GetFromJsonAsync<JsonElement>($"/api/v1/runner/missions/{git}/pipeline", Ct)).GetProperty("commit").GetString().Should().Be(MergeCommit);
         (await runner.PostAsync($"/api/v1/runner/missions/{git}/acts/open-pull-request", null, Ct)).StatusCode.Should().Be(System.Net.HttpStatusCode.OK);
         forge.Opened.Should().ContainSingle("asking again does not open a second one");
+    }
+
+    [Fact]
+    public async Task A_change_with_no_pull_request_is_carried_by_one_opened_on_the_head_of_the_default_branch()
+    {
+        var forge = new FakeForge();
+        using var factory = new WorldsFactory(forge);
+        _ = await StartChangeProblemAsync(factory);
+        using var runner = Runner(factory);
+        var staging = (await ClaimAsync(runner, "Staging")).GetProperty("missionId").GetString()!;
+
+        (await HandOverWithFilesAsync(runner, staging, [new { path = "package.json", content = "{}" }, new { path = "package-lock.json", content = "{}" }])).EnsureSuccessStatusCode();
+        var git = await NextMissionAsync(factory, runner, "Git");
+        (await runner.PostAsync($"/api/v1/runner/missions/{git}/started", null, Ct)).EnsureSuccessStatusCode();
+        var opened = await (await runner.PostAsync($"/api/v1/runner/missions/{git}/acts/open-pull-request", null, Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct);
+
+        opened.GetProperty("opened").GetBoolean().Should().BeTrue(opened.ToString());
+        forge.Opened.Should().ContainSingle().Which.Parent.Should().Be(Head);
+        forge.Closed.Should().BeEmpty("there is no pull request to replace");
+        var merge = await (await runner.PostAsync($"/api/v1/runner/missions/{git}/acts/merge", null, Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct);
+        merge.GetProperty("allowed").GetBoolean().Should().BeTrue(merge.ToString());
+    }
+
+    [Fact]
+    public async Task A_change_with_no_pull_request_is_not_opened_when_the_default_branch_moved_since_it_was_made()
+    {
+        var forge = new FakeForge();
+        using var factory = new WorldsFactory(forge);
+        _ = await StartChangeProblemAsync(factory);
+        using var runner = Runner(factory);
+        var staging = (await ClaimAsync(runner, "Staging")).GetProperty("missionId").GetString()!;
+        (await HandOverWithFilesAsync(runner, staging, [new { path = "package.json", content = "{}" }])).EnsureSuccessStatusCode();
+        var git = await NextMissionAsync(factory, runner, "Git");
+        (await runner.PostAsync($"/api/v1/runner/missions/{git}/started", null, Ct)).EnsureSuccessStatusCode();
+        forge.DefaultHead = new string('9', 40);
+
+        var opened = await (await runner.PostAsync($"/api/v1/runner/missions/{git}/acts/open-pull-request", null, Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct);
+
+        opened.GetProperty("opened").GetBoolean().Should().BeFalse();
+        forge.Opened.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData(".github/workflows/ci.yml")]
+    [InlineData(".env")]
+    [InlineData("CLAUDE.md")]
+    public async Task A_change_with_no_pull_request_that_touches_what_a_change_may_never_touch_is_refused_at_the_handover(string path)
+    {
+        var forge = new FakeForge();
+        using var factory = new WorldsFactory(forge);
+        _ = await StartChangeProblemAsync(factory);
+        using var runner = Runner(factory);
+        var staging = (await ClaimAsync(runner, "Staging")).GetProperty("missionId").GetString()!;
+
+        var refused = await HandOverWithFilesAsync(runner, staging, [new { path, content = "x" }]);
+
+        refused.StatusCode.Should().Be(System.Net.HttpStatusCode.UnprocessableEntity);
+        factory.Services.GetRequiredService<RepairRegistry>().PendingOf("p-worlds").Should().BeNull();
     }
 
     [Fact]

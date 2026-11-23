@@ -180,6 +180,7 @@ public static class DecisionTable
             }
             AddDependencyUpdates(rows, item, applications, runners, results ?? [], policy);
             AddOtherProblems(rows, item, policy, infrastructure);
+            ActOnDependencyAlerts(rows, before, item, applications, runners);
             NameApplication(rows, before, item, applicationNames ?? []);
             Warn(rows, before, infrastructure);
         }
@@ -394,6 +395,62 @@ public static class DecisionTable
             return (Ceiling.MergeIntoDevelop, CeilingReason.NoCheckAfterDeployDescribed, false);
         }
         return description.PromotesAutomatically.Contains(kind)
+            ? (Ceiling.Production, CeilingReason.None, true)
+            : (Ceiling.MergeIntoDevelop, CeilingReason.UpdateClassStopsBeforeProduction, false);
+    }
+
+    // A dependency alert is a problem with no pull request that a worker agent solves in staging (ADR 0048): its row goes as far as the chain of the application goes, by the same gates as a pull request's (granted,
+    // described, a runner that accepts the repository, a way back, a check after the deploy), without what only a pull request has (its checks and its merge state). Other kinds still have no action defined.
+    private static void ActOnDependencyAlerts(List<ProblemRow> rows, int from, WorkItem item, IApplicationCatalog applications, IReadOnlyList<RunnerAcceptance> runners)
+    {
+        for (var index = from; index < rows.Count; index++)
+        {
+            if (rows[index].Kind != ProblemKind.DependencyAlert || rows[index].GoesUpTo != Ceiling.NoAction || string.IsNullOrEmpty(item.RepositoryFullName))
+            {
+                continue;
+            }
+            var (ceiling, why, canStop) = CeilingOfProblem(item, applications, runners);
+            rows[index] = rows[index] with { GoesUpTo = ceiling, Why = why, CanStopBeforeProduction = canStop, UpdateClass = UpdateKind.Patch };
+        }
+    }
+
+    private static (Ceiling Ceiling, CeilingReason Why, bool CanStop) CeilingOfProblem(WorkItem item, IApplicationCatalog applications, IReadOnlyList<RunnerAcceptance> runners)
+    {
+        var repository = item.RepositoryFullName!;
+        if (item.Plan.FirstOrDefault(step => step.Kind == StepKind.Validate && step.EnvironmentId is null) is not { Available: true, Granted: true })
+        {
+            return (Ceiling.NoAction, CeilingReason.NotGranted, false);
+        }
+        if (applications.Find(item.Id) is not { } description)
+        {
+            return (Ceiling.NoAction, CeilingReason.NoDescription, false);
+        }
+        if (!runners.Any(runner => runner.Accepts(TaskKind.ValidatePullRequest, repository)))
+        {
+            return (Ceiling.NoAction, CeilingReason.NoRunner, false);
+        }
+        if (description.Qualify is QualifyMode.Unknown or QualifyMode.None)
+        {
+            return (Ceiling.Qualification, CeilingReason.QualificationNotDescribed, false);
+        }
+        if (item.Plan.FirstOrDefault(step => step.Kind == StepKind.MergePullRequests && step.EnvironmentId is null) is not { Available: true, Granted: true })
+        {
+            return (Ceiling.Qualification, CeilingReason.NotGranted, false);
+        }
+        if (!runners.Any(runner => runner.Accepts(TaskKind.MergePullRequest, repository)))
+        {
+            return (Ceiling.Qualification, CeilingReason.NoRunner, false);
+        }
+        if (!description.CanRollBack)
+        {
+            return (Ceiling.MergeIntoDevelop, CeilingReason.NoRollbackDescribed, false);
+        }
+        if (!description.HasCheckAfterDeploy)
+        {
+            return (Ceiling.MergeIntoDevelop, CeilingReason.NoCheckAfterDeployDescribed, false);
+        }
+        // The fix of an alert is a small change like a patch bump: the update classes that the application promotes by itself decide whether it goes to production
+        return description.PromotesAutomatically.Contains(UpdateKind.Patch)
             ? (Ceiling.Production, CeilingReason.None, true)
             : (Ceiling.MergeIntoDevelop, CeilingReason.UpdateClassStopsBeforeProduction, false);
     }

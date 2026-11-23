@@ -6,7 +6,7 @@ using Orchestrarr.Core.Forge;
 namespace Orchestrarr.Providers.GitHub;
 
 /// <summary>Reads one pull request from GitHub's REST API: its head and base commits, the checks of the head and the paths that change. Read-only, redirects never followed, the token goes to the configured address only.</summary>
-public sealed partial class GitHubPullRequestFacts : IPullRequestFacts
+public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefaultBranchSource
 {
     private const int MaxPages = 10;
 
@@ -72,6 +72,30 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts
             // Once it is merged, what runs is the commit that the merge made on the base branch: its tree and the checks of its pipeline are the facts of the later worlds
             return new PullRequestFacts(head, baseSha, draft, checks, paths, complete, Merged: true, mergeCommit, await TreeOfAsync(repositoryFullName, mergeCommit, cancellationToken), await ChecksOfAsync(repositoryFullName, mergeCommit, [], cancellationToken), baseRef, defaultBranch);
             // The checks of the commit that the merge made are those that ran on it (a push), not the checks that the rules require of a pull request, which may run on pull requests only
+        }
+        catch (Exception failure) when (failure is HttpRequestException or JsonException or KeyNotFoundException or TaskCanceledException or InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    public async Task<DefaultBranchHead?> ReadAsync(string repositoryFullName, CancellationToken cancellationToken)
+    {
+        if (!RepositoryName().IsMatch(repositoryFullName))
+        {
+            return null;
+        }
+        try
+        {
+            using var repository = await GetAsync($"repos/{repositoryFullName}", cancellationToken);
+            if (repository is null || !repository.RootElement.TryGetProperty("default_branch", out var name) || name.GetString() is not { Length: > 0 } branch)
+            {
+                return null;
+            }
+            using var head = await GetAsync($"repos/{repositoryFullName}/branches/{Uri.EscapeDataString(branch)}", cancellationToken);
+            return head is not null && head.RootElement.TryGetProperty("commit", out var commit) && commit.TryGetProperty("sha", out var sha) && sha.GetString() is { Length: > 0 } headSha
+                ? new DefaultBranchHead(branch, headSha)
+                : null;
         }
         catch (Exception failure) when (failure is HttpRequestException or JsonException or KeyNotFoundException or TaskCanceledException or InvalidOperationException)
         {

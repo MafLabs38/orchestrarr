@@ -1,0 +1,57 @@
+{
+  "case": "CASE-16",
+  "title": "A dependency is abandoned: a replacement is chosen and the code migrated, flagged complex",
+  "repos": [
+    "shop-api"
+  ],
+  "findings": {
+    "shop-api": [
+      {
+        "kind": "abandoned",
+        "package": "minimist",
+        "installed": "0.0.8",
+        "severity": "medium",
+        "summary": "Unmaintained: no release for years and no fix is coming",
+        "replacement": "a maintained alternative, or a few lines of its own: the application runs on the node version of its Dockerfile"
+      },
+      {
+        "kind": "advisory",
+        "package": "lodash",
+        "installed": "4.17.4",
+        "fixedIn": "4.18.0",
+        "severity": "high",
+        "summary": "Prototype pollution in a function of lodash"
+      }
+    ]
+  },
+  "tick": [
+    "2 alerts"
+  ],
+  "expect": {
+    "pullRequests": [
+      {
+        "repo": "shop-api",
+        "title": "fix: dependency alert of orchestrarr-sandbox/shop-api",
+        "state": "MERGED",
+        "thisRun": true
+      }
+    ],
+    "files": [
+      {
+        "repo": "shop-api",
+        "path": "package.json",
+        "json": "dependencies.minimist",
+        "absent": true
+      },
+      {
+        "repo": "shop-api",
+        "path": "package.json",
+        "json": "dependencies.lodash",
+        "atLeast": "4.18.0"
+      }
+    ],
+    "progress": [
+      "the lead marked the problem complex"
+    ]
+  }
+}

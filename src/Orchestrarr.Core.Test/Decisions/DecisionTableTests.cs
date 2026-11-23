@@ -453,10 +453,38 @@ public sealed class DecisionTableTests
         var rows = Table(Item(pulls: [], findings: findings, read: PullRequestsRead.NotNeeded));
 
         rows.Select(row => row.Kind).Should().Equal(ProblemKind.DependencyAlert, ProblemKind.CodeScanningAlert, ProblemKind.ExposedSecret, ProblemKind.FailingCi, ProblemKind.ImageUpdate, ProblemKind.DependencyScanUnavailable);
-        rows.Should().OnlyContain(row => row.GoesUpTo == Ceiling.NoAction && row.Why == CeilingReason.NoActionDefined && row.PullRequest == null && !row.CanStopBeforeProduction);
+        rows.Should().OnlyContain(row => row.PullRequest == null);
+        rows.Where(row => row.Kind != ProblemKind.DependencyAlert).Should().OnlyContain(row => row.GoesUpTo == Ceiling.NoAction && row.Why == CeilingReason.NoActionDefined && !row.CanStopBeforeProduction);
+        rows.Single(row => row.Kind == ProblemKind.DependencyAlert).GoesUpTo.Should().NotBe(Ceiling.NoAction, "an alert has an action now: a worker agent solves it in staging (ADR 0048)");
         rows.Single(row => row.Kind == ProblemKind.DependencyAlert).Should().Match<ProblemRow>(row => row.Count == 2 && row.Severity == Severity.Danger);
         rows.Single(row => row.Kind == ProblemKind.ImageUpdate).Description.Should().Be("ghcr.io/example/app:1 → 2");
         rows.Select(row => row.Id).Should().OnlyHaveUniqueItems();
+    }
+
+    private static IReadOnlyList<Finding> Alerts => [new Finding(FindingKind.DependencyAlerts, Severity.Danger, 2, new AlertCounts(1, 1, 0, 0))];
+
+    [Fact]
+    public void A_dependency_alert_has_no_pull_request_and_goes_as_far_as_the_chain_of_its_application_goes()
+    {
+        var row = Table(Item(pulls: [], findings: Alerts, read: PullRequestsRead.NotNeeded), Described(), [Everything]).Single(candidate => candidate.Kind == ProblemKind.DependencyAlert);
+
+        row.GoesUpTo.Should().Be(Ceiling.Production);
+        row.Why.Should().Be(CeilingReason.None);
+        row.CanStopBeforeProduction.Should().BeTrue();
+        row.PullRequest.Should().BeNull("a problem with no pull request is solved by a change that the staging makes");
+        row.HeadSha.Should().BeNull();
+    }
+
+    [Fact]
+    public void A_dependency_alert_stops_where_the_chain_of_a_pull_request_would_stop_for_the_same_reason()
+    {
+        Table(Item(pulls: [], findings: Alerts, read: PullRequestsRead.NotNeeded, grantValidate: false), Described(), [Everything]).Single(row => row.Kind == ProblemKind.DependencyAlert).Why.Should().Be(CeilingReason.NotGranted);
+        Table(Item(pulls: [], findings: Alerts, read: PullRequestsRead.NotNeeded, id: "example/other"), Described(), [Everything]).Single(row => row.Kind == ProblemKind.DependencyAlert).Why.Should().Be(CeilingReason.NoDescription);
+        Table(Item(pulls: [], findings: Alerts, read: PullRequestsRead.NotNeeded), Described(), []).Single(row => row.Kind == ProblemKind.DependencyAlert).Why.Should().Be(CeilingReason.NoRunner);
+        Table(Item(pulls: [], findings: Alerts, read: PullRequestsRead.NotNeeded), Described(rollback: false), [Everything]).Single(row => row.Kind == ProblemKind.DependencyAlert)
+            .Should().Match<ProblemRow>(row => row.GoesUpTo == Ceiling.MergeIntoDevelop && row.Why == CeilingReason.NoRollbackDescribed);
+        Table(Item(pulls: [], findings: Alerts, read: PullRequestsRead.NotNeeded), Described(promote: "\"major\""), [Everything]).Single(row => row.Kind == ProblemKind.DependencyAlert)
+            .Should().Match<ProblemRow>(row => row.GoesUpTo == Ceiling.MergeIntoDevelop && row.Why == CeilingReason.UpdateClassStopsBeforeProduction);
     }
 
     [Fact]

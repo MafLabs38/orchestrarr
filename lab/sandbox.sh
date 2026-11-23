@@ -166,8 +166,14 @@ reset_one() {
   lab_commit "$dir" "chore(lab): restore the seed"
   git -C "$dir" push -q origin "$branch"
   local pr; pr=$(gh pr create -R "$ORG/$repo" --base "$BASE" --head "$branch" --title "chore(lab): restore the seed" --body "The test-bed repository goes back to its seed so that a scenario can be played again." | grep -oE '[0-9]+$')
-  local head; head=$(wait_checks "$repo" "$pr")
-  gh pr merge "$pr" -R "$ORG/$repo" --squash --match-head-commit "$head" >/dev/null
+  # The forge can still list a required check as queued when the rollup already shows the earlier ones as passed: a merge it refuses for that is asked for again after the checks are waited for again
+  local head attempt
+  for attempt in 1 2 3; do
+    head=$(wait_checks "$repo" "$pr")
+    if gh pr merge "$pr" -R "$ORG/$repo" --squash --match-head-commit "$head" >/dev/null 2>"${TMPDIR:-/tmp}/lab-merge-$$.err"; then rm -f "${TMPDIR:-/tmp}/lab-merge-$$.err"; break; fi
+    if [ "$attempt" = 3 ] || ! grep -qiE 'status check|queued|in progress|pending' "${TMPDIR:-/tmp}/lab-merge-$$.err"; then cat "${TMPDIR:-/tmp}/lab-merge-$$.err" >&2; rm -f "${TMPDIR:-/tmp}/lab-merge-$$.err"; return 1; fi
+    sleep 15
+  done
   # A repository may delete the branch of a merged pull request by itself: one that is already gone is not an error
   delete_branch "$dir" "$branch"
   git -C "$dir" fetch -q --prune --tags origin

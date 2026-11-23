@@ -163,18 +163,27 @@ internal static partial class MissionRunnerEndpoints
             {
                 return Results.NotFound();
             }
-            // The files of a repair are the staging world's, and are checked before anything keeps them: the policy is the control plane's own, whatever the runner did
+            // The files of a repair or of a change are the staging world's, and are checked before anything keeps them: the policy is the control plane's own, whatever the runner did
             if (request.Files is { Count: > 0 } files)
             {
-                if (missions.Get(id) is not { World: World.Staging } || repairs is null || problems.Get(missions.Get(id)!.ProblemId)?.Entry is not { HeadSha: { } originalHead })
+                var staged = missions.Get(id);
+                var entry = staged is null ? null : problems.Get(staged.ProblemId)?.Entry;
+                if (staged is not { World: World.Staging } || repairs is null || entry is null)
                 {
-                    return Results.Json(new { error = "only the staging world hands over a repair, on a pull request" }, statusCode: StatusCodes.Status409Conflict);
+                    return Results.Json(new { error = "only the staging world hands over files" }, statusCode: StatusCodes.Status409Conflict);
                 }
-                if (RepairPolicy.Refusal(files, missions.Get(id)!.Frame.ForbiddenPaths) is { } refusal)
+                // A pull request that did not pass is repaired against the head that the maintainer saw; a problem that has none is solved against the head of the default branch that the runner worked on (it says which)
+                var baseHead = entry.PullRequest is null ? request.Commit : entry.HeadSha;
+                if (baseHead is not { Length: > 0 } || !CommitShape().IsMatch(baseHead))
+                {
+                    return Results.Json(new { error = "the files name no commit that they were made against" }, statusCode: StatusCodes.Status409Conflict);
+                }
+                var refusal = entry.PullRequest is null ? ChangePolicy.Refusal(files, staged.Frame.ForbiddenPaths) : RepairPolicy.Refusal(files, staged.Frame.ForbiddenPaths);
+                if (refusal is not null)
                 {
                     return Results.Json(new { error = refusal }, statusCode: StatusCodes.Status422UnprocessableEntity);
                 }
-                repairs.Keep(missions.Get(id)!.ProblemId, originalHead, files);
+                repairs.Keep(staged.ProblemId, baseHead, files);
             }
             else if (repairs is not null && missions.Get(id) is { World: World.Staging } staged)
             {
