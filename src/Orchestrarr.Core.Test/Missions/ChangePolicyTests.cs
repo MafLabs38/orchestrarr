@@ -38,6 +38,28 @@ public sealed class ChangePolicyTests
     [InlineData("frontend/.yarnrc.yml")]
     [InlineData("pip.conf")]
     [InlineData(".gitattributes")]
+    [InlineData("sub/.github/workflows/x.yml")]
+    [InlineData("Jenkinsfile")]
+    [InlineData("ci/Jenkinsfile.release")]
+    [InlineData("azure-pipelines.yml")]
+    [InlineData(".circleci/config.yml")]
+    [InlineData("app/.travis.yml")]
+    [InlineData(".pypirc")]
+    [InlineData(".netrc")]
+    [InlineData(".yarnrc")]
+    [InlineData(".mcp.json")]
+    [InlineData("AGENTS.md")]
+    [InlineData(".cursorrules")]
+    [InlineData(".cursor/rules.md")]
+    [InlineData("CLAUDE.local.md")]
+    [InlineData("keys/server.pem")]
+    [InlineData("keys/store.p12")]
+    [InlineData("keys/store.pfx")]
+    [InlineData("home/id_rsa")]
+    [InlineData("home/id_ed25519.pub")]
+    [InlineData("config/app.enc.yaml")]
+    [InlineData("config/credentials.json")]
+    [InlineData(".gitmodules")]
     public void Never_the_pipelines_the_files_that_hold_a_secret_or_the_files_that_instruct_an_agent(string path)
     {
         ChangePolicy.Refusal(Change(File(path))).Should().Contain("protected");
@@ -103,6 +125,29 @@ public sealed class ChangePolicyTests
         ChangePolicy.Refusal(Change(File(lockFile, "modified", 3, "@@\n+      \"resolved\": \"https://evil.example/lodash.tgz\","))).Should().Contain("evil.example");
         ChangePolicy.Refusal(Change(File(lockFile, "modified", 3, "@@\n+      \"resolved\": \"git+ssh://git@github.com/someone/lodash.git#abc\","))).Should().Contain("github.com");
         ChangePolicy.Refusal(Change(File(lockFile, "modified", 3, "@@\n-      \"resolved\": \"https://evil.example/old.tgz\",\n+      \"resolved\": \"https://registry.npmjs.org/a/-/a-1.tgz\","))).Should().BeNull("a line that is removed is not where anything comes from now");
+    }
+
+    [Theory]
+    [InlineData("Cargo.lock", "@@\n+source = \"git+https://evil.example/crate#abc\"")]
+    [InlineData("poetry.lock", "@@\n+url = \"https://evil.example/pkg.whl\"")]
+    [InlineData("package-lock.json", "@@\n+      \"resolved\": \"https://registry.npmjs.org.evil.example/a.tgz\",")]
+    [InlineData("pnpm-lock.yaml", "@@\n+      tarball: https://evil.example/a.tgz")]
+    [InlineData("yarn.lock", "@@\n+  resolution: \"lodash@https://evil.example/lodash.tgz\"")]
+    [InlineData("package-lock.json", "@@\n+      \"resolved\": \"https://user@evil.example:8443/a.tgz\",")]
+    public void A_lock_file_of_any_ecosystem_that_adds_an_address_that_is_not_a_registry_is_refused(string lockFile, string patch)
+    {
+        ChangePolicy.Refusal(Change(File(lockFile, "added", 3, patch))).Should().Contain("not a registry");
+    }
+
+    [Fact]
+    public void A_change_that_the_controller_could_not_read_in_full_is_refused_so_that_it_is_made_smaller()
+    {
+        var wide = Enumerable.Range(0, 41).Select(index => File($"src/f{index}.js")).ToArray();
+        var long_ = File("src/big.js", "modified", 1, "@@\n" + string.Join('\n', Enumerable.Range(0, 400).Select(line => $"+{new string('x', 40)}{line}")));
+
+        ChangePolicy.Refusal(Change(wide)).Should().Contain("too large for the controller");
+        ChangePolicy.Refusal(Change(long_)).Should().Contain("too large for the controller");
+        ChangePolicy.Refusal(Change([.. Enumerable.Range(0, 40).Select(index => File($"src/f{index}.js"))])).Should().BeNull("forty files that are read in full are fine");
     }
 
     [Fact]

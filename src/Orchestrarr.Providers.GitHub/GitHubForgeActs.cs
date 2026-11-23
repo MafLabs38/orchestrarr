@@ -144,19 +144,29 @@ public sealed partial class GitHubForgeActs : IForgeActs
                 return new OpenedPullRequest(false, 0, null, "the branch is not at the commit that was audited: the agent pushed again, or the branch is gone");
             }
             // The forge answers a 5xx now and then, and the pull request may even have been made before the answer was lost: a few tries, each preceded by a look for the pull request that the branch already carries
-            Answer pull = await SendAsync(HttpMethod.Post, $"repos/{repositoryFullName}/pulls", new { title, head = branch, @base = baseBranch, body }, cancellationToken);
-            for (var attempt = 1; attempt < OpenAttempts && pull.Status >= 500; attempt++)
+            var owner = repositoryFullName[..repositoryFullName.IndexOf('/', StringComparison.Ordinal)];
+            Task<Answer> PostAsync() => SendAsync(HttpMethod.Post, $"repos/{repositoryFullName}/pulls", new { title, head = branch, @base = baseBranch, body }, cancellationToken);
+            Answer pull = await PostAsync();
+            var posts = 1;
+            while (pull.Status >= 500)
             {
+                var lastStatus = pull.Status;
                 pull.Dispose();
-                await Task.Delay(_retryDelay * attempt, cancellationToken);
-                var owner = repositoryFullName[..repositoryFullName.IndexOf('/', StringComparison.Ordinal)];
+                await Task.Delay(_retryDelay * posts, cancellationToken);
                 using var existing = await SendAsync(HttpMethod.Get, $"repos/{repositoryFullName}/pulls?state=open&head={Uri.EscapeDataString($"{owner}:{branch}")}", null, cancellationToken);
                 if (existing.Ok && existing.Body?.RootElement is { ValueKind: JsonValueKind.Array } list && list.GetArrayLength() > 0)
                 {
                     pull = new Answer(true, 200, JsonDocument.Parse(list[0].GetRawText()));
                     break;
                 }
-                pull = await SendAsync(HttpMethod.Post, $"repos/{repositoryFullName}/pulls", new { title, head = branch, @base = baseBranch, body }, cancellationToken);
+                if (posts >= OpenAttempts)
+                {
+                    // The last look is the last word: after the third failure the pull request was looked for and is not made again
+                    pull = new Answer(false, lastStatus, null);
+                    break;
+                }
+                pull = await PostAsync();
+                posts++;
             }
             using var held = pull;
             if (!pull.Ok || pull.Body?.RootElement.TryGetProperty("number", out var number) != true || !number.TryGetInt32(out var n))
@@ -172,7 +182,7 @@ public sealed partial class GitHubForgeActs : IForgeActs
             }
             return new OpenedPullRequest(true, n, expectedSha, null);
         }
-        catch (Exception failure) when (failure is HttpRequestException or TaskCanceledException or JsonException)
+        catch (Exception failure) when (failure is HttpRequestException or JsonException || failure is TaskCanceledException && !cancellationToken.IsCancellationRequested)
         {
             return new OpenedPullRequest(false, 0, null, "the forge did not answer");
         }

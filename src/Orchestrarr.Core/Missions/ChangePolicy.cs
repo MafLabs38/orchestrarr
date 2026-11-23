@@ -18,7 +18,7 @@ public static partial class ChangePolicy
     /// <summary>The paths that never leave the machine, whatever the problem: how the code is built and released by the forge, what carries a secret, what instructs an agent.</summary>
     public static readonly IReadOnlyList<string> ProtectedPaths =
     [
-        ".github/**", ".gitlab-ci.yml", ".circleci/**", "**/Jenkinsfile*", "azure-pipelines.yml", "**/.travis.yml", "**/bitbucket-pipelines.yml",
+        ".github/**", "**/.github/**", ".gitlab-ci.yml", ".circleci/**", "**/Jenkinsfile*", "azure-pipelines.yml", "**/.travis.yml", "**/bitbucket-pipelines.yml",
         ".git/**", "**/.git/**", "**/.gitmodules", "**/.gitattributes",
         // Where the dependencies come from: a registry that a change points elsewhere is a change of what is installed, not of what is asked for
         "**/.npmrc", "**/.yarnrc", "**/.yarnrc.yml", "**/pip.conf", "**/.pypirc", "**/.netrc",
@@ -47,6 +47,12 @@ public static partial class ChangePolicy
         {
             return "the default branch moved since the change was made";
         }
+        // What the controller reads is the only guard against a subtle line in a permitted file: a change that it could not read in full is refused, and the agent makes it smaller or in several steps
+        var readable = change.Files.Where(file => !IsGenerated(file.Path)).ToList();
+        if (readable.Count > MaxShownFiles || readable.Sum(file => LineText(file.Patch).Length) > LinesCharacters)
+        {
+            return $"the change is too large for the controller to read in full (at most {MaxShownFiles} files that a tool did not write and {LinesCharacters} characters of changed lines)";
+        }
         long total = 0;
         foreach (var file in change.Files)
         {
@@ -69,7 +75,7 @@ public static partial class ChangePolicy
             // A file with no patch is one that the forge could not show: a binary file, an empty one, or one that is too large. Nothing is integrated that nobody could read, a lock file included
             var size = file.Patch?.Length ?? 0;
             total += size;
-            if (IsGenerated(file.Path) && file.Patch is { } lockPatch && ForeignSource(lockPatch) is { } foreign)
+            if (IsGenerated(file.Path) && file.Patch is { } lockPatch && ForeignSource(file.Path, lockPatch) is { } foreign)
             {
                 return $"the lock file '{file.Path}' points at {foreign}, which is not a registry that this policy knows";
             }
@@ -93,10 +99,14 @@ public static partial class ChangePolicy
     private static partial System.Text.RegularExpressions.Regex Address();
 
     // The host of the first address that the lines ADDED to a lock file name and that is not a registry, or null when they all are
-    private static string? ForeignSource(string patch)
+    private static readonly string[] NpmFamily = ["package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml"];
+
+    private static string? ForeignSource(string path, string patch)
     {
+        // The lock files of npm and yarn say where a package comes from in a few keys (and carry funding and homepage links beside them); the others (Cargo, poetry, Pipfile, composer, go) are read for every address that they add
+        var everything = !NpmFamily.Contains(path[(path.LastIndexOf('/') + 1)..], StringComparer.Ordinal);
         // Only the lines that say where a package comes from (a funding link or a homepage is not where it is fetched from)
-        foreach (var line in patch.Split('\n').Where(line => line.StartsWith('+') && !line.StartsWith("+++", StringComparison.Ordinal) && (line.Contains("resolved", StringComparison.Ordinal) || line.Contains("tarball", StringComparison.Ordinal))))
+        foreach (var line in patch.Split('\n').Where(line => line.StartsWith('+') && !line.StartsWith("+++", StringComparison.Ordinal) && (everything || line.Contains("resolved", StringComparison.Ordinal) || line.Contains("tarball", StringComparison.Ordinal) || line.Contains("resolution", StringComparison.Ordinal))))
         {
             foreach (System.Text.RegularExpressions.Match address in Address().Matches(line))
             {
@@ -109,6 +119,10 @@ public static partial class ChangePolicy
         }
         return null;
     }
+
+    // The changed lines of a patch (those that start with a plus or a minus), as the controller reads them
+    private static string LineText(string? patch) =>
+        patch is null ? string.Empty : string.Join('\n', patch.Split('\n').Where(line => line.StartsWith('+') || line.StartsWith('-')).Select(line => line.TrimEnd('\r')));
 
     private const int StatCharacters = 3_000;
     private const int LinesCharacters = 8_000;
@@ -123,7 +137,7 @@ public static partial class ChangePolicy
         ArgumentNullException.ThrowIfNull(change);
         var stat = string.Join("; ", change.Files.Take(MaxShownFiles).Select(file => $"{file.Path} ({file.Status}, {file.Changes} lines)"));
         var shown = change.Files.Where(file => !IsGenerated(file.Path) && file.Patch is { Length: > 0 }).Take(MaxShownFiles).ToList();
-        var lines = string.Join('\n', shown.SelectMany(file => file.Patch!.Split('\n').Where(line => line.StartsWith('+') || line.StartsWith('-')).Select(line => line.TrimEnd('\r'))));
+        var lines = string.Join('\n', shown.Select(file => LineText(file.Patch)));
         var cut = stat.Length > StatCharacters || lines.Length > LinesCharacters || change.Files.Count > MaxShownFiles;
         var statText = stat.Length > StatCharacters ? stat[..StatCharacters] : stat;
         var linesText = lines.Length > LinesCharacters ? lines[..LinesCharacters] : lines;

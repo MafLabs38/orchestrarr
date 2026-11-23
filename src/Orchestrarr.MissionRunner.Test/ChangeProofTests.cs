@@ -150,7 +150,7 @@ public sealed class ChangeProofTests : IDisposable
     [Theory]
     [InlineData(0)]
     [InlineData(2)]
-    public async Task What_the_agent_says_never_carries_a_token_into_the_dossier_whether_it_succeeded_or_not(int agentExit)
+    public async Task What_the_agent_says_never_carries_a_token_into_the_dossier_whether_it_finished_or_not(int agentExit)
     {
         var (dossier, _, lines) = await Run(new Machine { LeakTokens = true, AgentExit = agentExit });
 
@@ -158,13 +158,21 @@ public sealed class ChangeProofTests : IDisposable
     }
 
     [Fact]
-    public async Task The_image_follows_the_dockerfile()
+    public async Task The_image_tag_follows_the_content_of_the_dockerfile()
     {
-        var machine = new Machine();
+        string Tag(Machine machine) => machine.Scripts.Single(script => script.Contains("docker build -q -t", StringComparison.Ordinal)).Split("-t ")[1].Split(' ')[0];
+        var first = new Machine();
+        var again = new Machine();
+        var other = new Machine();
 
-        _ = await Run(machine);
+        _ = await Run(first);
+        _ = await Run(again);
+        var changed = Options();
+        await File.WriteAllTextAsync(Path.Combine(_folder, "Dockerfile"), "FROM node:24", Ct);
+        _ = await new ChangeProof(other.Shell(), changed).RunAsync(Mission(), _ => Task.CompletedTask, Ct);
 
-        machine.Scripts.Should().Contain(script => script.Contains("docker build -q -t orchestrarr-agent-free:", StringComparison.Ordinal) && !script.EndsWith("orchestrarr-agent-free -", StringComparison.Ordinal));
+        Tag(first).Should().Be(Tag(again), "the same Dockerfile is the same image");
+        Tag(other).Should().NotBe(Tag(first), "another Dockerfile is another image");
     }
 
     [Fact]

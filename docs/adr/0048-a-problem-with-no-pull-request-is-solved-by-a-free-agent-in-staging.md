@@ -12,7 +12,7 @@ The maintainer decided on 2026-11-22 that the worker of the staging world is **f
 
 A first version of this decision carried the agent's files out of the machine through the runner, which read them back and wrote a diff. **That was a design defect, and the maintainer named it** (2026-11-23): a developer who has cloned a repository and changed it does not hand files over; he commits and pushes, and it is that commit, on the forge, that is reviewed. Judging what a machine says of its own work lets the machine shape the judgement; judging the commit on the forge does not.
 
-## How it works (the maintainer's model)
+## How it works (the maintainer's model, decided by him in the chat of 2026-11-23, including that the agent holds a token that writes branches: pushing is not the danger, integration is)
 
 1. **The agent works in its world, in the staging machine**, as a developer would: it clones, changes, installs, builds, tests, breaks things. It has no rule about how.
 2. **It commits and pushes its own branch to the forge, as often as it wants.** Pushing saves work; **pushing validates nothing**. The agent's identity can write branches and do nothing else: no pull request, no merge, no workflow, no administration, and the default branch refuses direct pushes by the rules of the repository (no actor may bypass them).

@@ -614,6 +614,35 @@ public sealed class MissionWorldsApiTests
     }
 
     [Fact]
+    public async Task A_branch_is_handed_over_by_the_staging_world_of_a_problem_with_no_pull_request_only()
+    {
+        var forge = new FakeForge();
+        using var factory = new WorldsFactory(forge);
+        _ = await StartProblemAsync(factory);
+        using var runner = Runner(factory);
+        var staging = (await ClaimAsync(runner, "Staging")).GetProperty("missionId").GetString()!;
+
+        (await HandOverBranchAsync(runner, staging)).StatusCode.Should().Be(System.Net.HttpStatusCode.Conflict, "this problem is a pull request: it is repaired with files, not with a branch");
+        factory.Services.GetRequiredService<RepairRegistry>().PendingOf("p-worlds").Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_write_of_the_gateway_outside_the_repositories_that_it_may_write_on_is_refused_and_the_inner_gateway_is_never_called()
+    {
+        var inner = Substitute.For<IForgeActs>();
+        var guarded = new GuardedForgeActs(inner, ["orchestrarr-sandbox/*"]);
+
+        var outside = await guarded.OpenPullRequestFromBranchAsync("someone/else", "main", "agent/p-1-abc", new string('a', 40), "t", "b", Ct);
+        var inside = await guarded.OpenPullRequestFromBranchAsync("orchestrarr-sandbox/shop-api", "main", "agent/p-1-abc", new string('a', 40), "t", "b", Ct);
+
+        outside.Opened.Should().BeFalse();
+        outside.Error.Should().Contain("may not write");
+        _ = inside;
+        await inner.Received(1).OpenPullRequestFromBranchAsync("orchestrarr-sandbox/shop-api", "main", "agent/p-1-abc", new string('a', 40), "t", "b", Ct);
+        await inner.DidNotReceive().OpenPullRequestFromBranchAsync("someone/else", Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task Files_are_handed_over_only_to_repair_a_pull_request()
     {
         var forge = new FakeForge();

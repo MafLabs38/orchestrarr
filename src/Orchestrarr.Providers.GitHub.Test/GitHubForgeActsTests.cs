@@ -345,5 +345,6 @@ public sealed class GitHubForgeActsTests
         opened.Opened.Should().BeFalse();
         opened.Error.Should().Contain("500");
         queued.Requests.Count(request => request.StartsWith("POST", StringComparison.Ordinal)).Should().Be(3);
+        queued.Requests[^1].Should().Be("GET /repos/example/shop/pulls", "the last word is a look for the pull request that the forge may have made, not a fourth try");
     }
 }
