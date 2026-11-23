@@ -128,12 +128,16 @@ async function tickAndValidate(page) {
   }
   // a wrong or partial selection is never validated: it would start a real chain that the scenario cannot judge
   if (!selectionOk) return false;
+  // What the control plane answered to the validation, word for word: a refusal says why
+  let validation = '';
+  page.on('response', async (r) => { if (r.url().includes('/api/v1/plan/validate')) validation = `${r.status()} ${(await r.text().catch(() => '')).slice(0, 700)}`; });
   await page.getByRole('button', { name: UI.validate }).click();
   const started = page.getByText(UI.started).first();
   await started.waitFor({ timeout: 150000 }).catch(() => {});
   const answer = (await started.innerText().catch(() => '')) || '(no answer)';
   console.log('answer:', answer);
   // The reasons are in the block that holds the answer
+  if (/Nothing was started/.test(answer)) console.log('answered:', validation);
   if (/Nothing was started/.test(answer)) console.log('why:', ((await started.locator('xpath=..').innerText().catch(() => '')) || '').replace(/\s+/g, ' ').slice(0, 600));
   expect(/started/.test(answer) && !/Nothing was started/.test(answer), 'the validation started the problem');
   return true;

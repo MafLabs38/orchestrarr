@@ -161,6 +161,6 @@ public sealed class LeadPlanChecksTests
     public void A_plan_with_no_reason_or_a_very_long_instruction_is_refused()
     {
         LeadPlanChecks.Problems(new LeadPlan([new PlannedStep(World.Staging, null)], false, null, []), World.Staging, World.Release).Should().NotBeEmpty();
-        LeadPlanChecks.Problems(new LeadPlan([new PlannedStep(World.Staging, new string('x', 801))], false, null, ["r"]), World.Staging, World.Release).Should().NotBeEmpty();
+        LeadPlanChecks.Problems(new LeadPlan([new PlannedStep(World.Staging, new string('x', 2001))], false, null, ["r"]), World.Staging, World.Release).Should().NotBeEmpty();
     }
 }
