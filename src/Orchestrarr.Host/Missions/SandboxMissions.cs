@@ -104,27 +104,30 @@ internal sealed class SandboxFacts(IProblemStore problems, IPullRequestFacts pul
                 current = (started, startedHead);
             }
         }
-        // A problem that is not a pull request has nothing on the forge to read until the gateway opens the one that carries its change: what is known then is the change that staging proved, on the commit it was made from
-        if (entry is { PullRequest: null } && current is null && entry.Repositories.Count == 1 && repairs?.PendingOf(query.ProblemId) is { } change)
+        // A problem that is not a pull request has no pull request to read until the gateway opens the one that carries its change: what is known then is the branch that the agent finished, as the control plane read it on the forge
+        if (entry is { PullRequest: null } && current is null && entry.Repositories.Count == 1 && repairs?.PendingOf(query.ProblemId) is { Branch: { } branch } change)
         {
             return new ObservedFacts(
                 BudgetAvailable: true,
+                // The policy was applied by the control plane to what the forge says the branch holds, before the branch was kept
                 DiffIsClean: true,
                 // No pipeline has run on a change that is not in a pull request yet: at the crossing into the Git world it is declared green (as a repair that waits is: the pipeline of the pull request that will carry it is what the merge
                 // is judged on), and at an act it is not known, which the act of opening a pull request accepts and nothing else does
                 CiGreenOnExactCommit: query.Repository is null ? true : null,
                 ArtifactIsTheOneProvedInStaging: null,
                 WayBackKnown: true,
-                WorkerClaimMatchesFacts: query.Dossier?.Commit is { } stated && string.Equals(stated, change.OriginalHead, StringComparison.Ordinal),
+                // The dossier names the commit that the agent finished at, and that is the commit that the control plane audited
+                WorkerClaimMatchesFacts: query.Dossier?.Commit is { } stated && string.Equals(stated, branch.Sha, StringComparison.Ordinal),
                 MergeMayDeploy: false,
-                ExecutedFilesTouched: change.Files.Any(file => file.Path.StartsWith(".github/", StringComparison.Ordinal)),
+                ExecutedFilesTouched: branch.Paths.Any(path => path.StartsWith(".github/", StringComparison.Ordinal)),
                 TagCreationBlocked: true,
                 BranchCannotReachWriteCredentials: true,
-                HeadCommit: change.OriginalHead,
+                HeadCommit: branch.Sha,
                 IdentityConfinedToItsBranches: true,
-                ChangedPaths: [.. change.Files.Select(file => file.Path)],
+                ChangedPaths: branch.Paths,
                 Repository: entry.Repositories[0],
-                BaseCommit: change.OriginalHead);
+                BaseCommit: change.OriginalHead,
+                ChangeReading: branch.Reading);
         }
         if (entry is not null && current is { } target && entry.Repositories.Count == 1)
         {
@@ -185,6 +188,11 @@ internal sealed class GuardedForgeActs(IForgeActs inner, IReadOnlyList<string> a
 
     public Task<bool> ClosePullRequestAsync(string repositoryFullName, int number, string comment, CancellationToken cancellationToken) =>
         Allowed(repositoryFullName) ? inner.ClosePullRequestAsync(repositoryFullName, number, comment, cancellationToken) : Task.FromResult(false);
+
+    public Task<OpenedPullRequest> OpenPullRequestFromBranchAsync(string repositoryFullName, string baseBranch, string branch, string expectedSha, string title, string body, CancellationToken cancellationToken) =>
+        Allowed(repositoryFullName)
+            ? inner.OpenPullRequestFromBranchAsync(repositoryFullName, baseBranch, branch, expectedSha, title, body, cancellationToken)
+            : Task.FromResult(new OpenedPullRequest(false, 0, null, "the gateway may not write on this repository (Missions:SandboxMergeRepositories)"));
 
     private bool Allowed(string repository) => allowed.Any(pattern => Orchestrarr.Core.Tasks.RepositoryPattern.Matches(pattern, repository));
 }
@@ -270,6 +278,7 @@ internal static class SandboxMissionsExtensions
             .AddHostedService(provider => new SandboxNotice(missions.SandboxMaxWorld, provider.GetRequiredService<ILogger<SandboxNotice>>()))
             .AddSingleton<IPullRequestFacts>(_ => githubFacts.Value is { } facts ? facts : new NoPullRequestFacts())
             .AddSingleton<IDefaultBranchSource>(_ => githubFacts.Value is { } facts ? facts : new NoDefaultBranchSource())
+            .AddSingleton<IBranchSource>(_ => githubFacts.Value is { } facts ? facts : new NoBranchSource())
             .AddSingleton<IForgeActs>(_ => string.IsNullOrWhiteSpace(missions.SandboxMergeToken) ? new NoForgeActs() : new GuardedForgeActs(GitHubForgeActs.Create(github.WithToken(missions.SandboxMergeToken)), missions.SandboxMergeRepositories))
             .AddSingleton<IFactsSource, SandboxFacts>()
             .AddSingleton<IDependencyFindings>(_ => string.IsNullOrWhiteSpace(missions.SandboxFindingsFile) ? new NoDependencyFindings() : new FileDependencyFindings(missions.SandboxFindingsFile));

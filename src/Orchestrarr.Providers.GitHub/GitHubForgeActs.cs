@@ -122,6 +122,33 @@ public sealed partial class GitHubForgeActs : IForgeActs
         }
     }
 
+    [GeneratedRegex(@"^agent/[a-z0-9][a-z0-9-]{0,79}$", RegexOptions.None, 250)]
+    private static partial Regex AgentBranchName();
+
+    public async Task<OpenedPullRequest> OpenPullRequestFromBranchAsync(string repositoryFullName, string baseBranch, string branch, string expectedSha, string title, string body, CancellationToken cancellationToken)
+    {
+        if (!RepositoryName().IsMatch(repositoryFullName) || !Sha().IsMatch(expectedSha) || !AgentBranchName().IsMatch(branch) || string.IsNullOrWhiteSpace(baseBranch) || baseBranch.Length > 100)
+        {
+            return new OpenedPullRequest(false, 0, null, "the repository, the branch or the commit is not well formed");
+        }
+        try
+        {
+            // The branch is the agent's: the gateway opens a pull request from it only if it still is at the commit that was audited (the agent may have pushed again after it said it had finished)
+            using var tip = await SendAsync(HttpMethod.Get, $"repos/{repositoryFullName}/git/ref/heads/{branch}", null, cancellationToken);
+            var now = tip.Body?.RootElement.TryGetProperty("object", out var target) == true && target.TryGetProperty("sha", out var sha) ? sha.GetString() : null;
+            if (!string.Equals(now, expectedSha, StringComparison.Ordinal))
+            {
+                return new OpenedPullRequest(false, 0, null, "the branch is not at the commit that was audited: the agent pushed again, or the branch is gone");
+            }
+            using var pull = await SendAsync(HttpMethod.Post, $"repos/{repositoryFullName}/pulls", new { title, head = branch, @base = baseBranch, body }, cancellationToken);
+            return pull.Ok && pull.Body?.RootElement.TryGetProperty("number", out var number) == true && number.TryGetInt32(out var n) ? new OpenedPullRequest(true, n, expectedSha, null) : Failed("the pull request cannot be opened", pull);
+        }
+        catch (Exception failure) when (failure is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            return new OpenedPullRequest(false, 0, null, "the forge did not answer");
+        }
+    }
+
     public async Task<bool> ClosePullRequestAsync(string repositoryFullName, int number, string comment, CancellationToken cancellationToken)
     {
         if (!RepositoryName().IsMatch(repositoryFullName) || number < 1)

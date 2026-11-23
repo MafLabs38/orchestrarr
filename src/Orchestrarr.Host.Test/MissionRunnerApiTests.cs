@@ -425,7 +425,7 @@ public sealed class MissionRunnerApiTests
         nothing.CiGreenOnExactCommit.Should().BeNull();
         nothing.WorkerClaimMatchesFacts.Should().BeFalse();
 
-        repairs.Keep("p-2", Head, [new PatchedFile("package.json", "{}"), new PatchedFile(".github/workflows/ci.yml", "x")]);
+        repairs.KeepBranch("p-2", Head, new PendingBranch("agent/p-2-abc", Head, ["package.json", ".github/workflows/ci.yml"], "files: package.json"));
         var made = await facts.FactsAsync(query, Ct);
 
         made.WorkerClaimMatchesFacts.Should().BeTrue("the dossier names the commit that the change was made from");

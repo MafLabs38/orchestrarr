@@ -11,9 +11,11 @@ public sealed class FreeAgentSettingsTests : IDisposable
     {
         var dockerfile = Path.Combine(_folder, "Dockerfile");
         var token = Path.Combine(_folder, "token");
+        var gitToken = Path.Combine(_folder, "git-token");
         File.WriteAllText(dockerfile, "FROM scratch");
         File.WriteAllText(token, "t");
-        var settings = new RepairSettings { FreeDockerfileFile = dockerfile, TokenFile = token };
+        File.WriteAllText(gitToken, "g");
+        var settings = new RepairSettings { FreeDockerfileFile = dockerfile, TokenFile = token, FreeGitTokenFile = gitToken };
         change?.Invoke(settings);
         return settings;
     }
@@ -54,5 +56,9 @@ public sealed class FreeAgentSettingsTests : IDisposable
         var missing = Settings();
         File.Delete(missing.FreeDockerfileFile!);
         missing.Invoking(configured => configured.Validate()).Should().Throw<InvalidOperationException>();
+        var noGitToken = Settings();
+        File.Delete(noGitToken.FreeGitTokenFile!);
+        noGitToken.Invoking(configured => configured.Validate()).Should().Throw<InvalidOperationException>("the free agent cannot push without its token");
+        Settings(change => change.FreeGitTokenFile = null).IsFreeConfigured.Should().BeFalse();
     }
 }

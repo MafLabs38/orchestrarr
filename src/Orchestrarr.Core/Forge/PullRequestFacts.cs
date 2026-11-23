@@ -53,6 +53,12 @@ public interface IForgeActs
 
     /// <summary>Closes a pull request that another one replaces, saying so. False when the forge did not do it (it is said, not hidden).</summary>
     Task<bool> ClosePullRequestAsync(string repositoryFullName, int number, string comment, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Opens a pull request from a branch that already exists on the forge (the branch of a worker agent, ADR 0048), **at the commit that was audited**: nothing is opened if the branch is no longer at <paramref name="expectedSha"/>.
+    /// The branch and its commits are the agent's own; the gateway writes only the pull request.
+    /// </summary>
+    Task<OpenedPullRequest> OpenPullRequestFromBranchAsync(string repositoryFullName, string baseBranch, string branch, string expectedSha, string title, string body, CancellationToken cancellationToken);
 }
 
 /// <summary>What the forge answered to the opening of a pull request: its number and the head of its branch, or why not.</summary>
@@ -67,6 +73,9 @@ public sealed class NoForgeActs : IForgeActs
         Task.FromResult(new OpenedPullRequest(false, 0, null, "no forge is connected"));
 
     public Task<bool> ClosePullRequestAsync(string repositoryFullName, int number, string comment, CancellationToken cancellationToken) => Task.FromResult(false);
+
+    public Task<OpenedPullRequest> OpenPullRequestFromBranchAsync(string repositoryFullName, string baseBranch, string branch, string expectedSha, string title, string body, CancellationToken cancellationToken) =>
+        Task.FromResult(new OpenedPullRequest(false, 0, null, "no forge is connected"));
 }
 
 /// <summary>The default branch of a repository and its head now: what a change that has no pull request is made against (ADR 0048).</summary>
@@ -82,4 +91,30 @@ public interface IDefaultBranchSource
 public sealed class NoDefaultBranchSource : IDefaultBranchSource
 {
     public Task<DefaultBranchHead?> ReadAsync(string repositoryFullName, CancellationToken cancellationToken) => Task.FromResult<DefaultBranchHead?>(null);
+}
+
+/// <summary>One file of what a branch changes, as the forge says it (never as a runner says it): the path, what happened to it, how many lines, and the patch when the forge gives one.</summary>
+public sealed record BranchFile(string Path, string Status, int Changes, string? Patch);
+
+/// <summary>
+/// What a branch holds on top of the default branch, read from the forge: the common commit, how far the default branch has gone since, and the files. <c>FilesComplete</c> is false when the forge cut the list.
+/// </summary>
+public sealed record BranchChange(string MergeBase, int BehindBy, int AheadBy, IReadOnlyList<BranchFile> Files, bool FilesComplete);
+
+/// <summary>Reads a worker agent's branch from the forge (ADR 0048): where it is, and what it changes against the default branch. Null when it cannot be read: nothing is judged on what was not read.</summary>
+public interface IBranchSource
+{
+    /// <summary>The commit that the branch points at now, or null when there is no such branch.</summary>
+    Task<string?> HeadOfAsync(string repositoryFullName, string branch, CancellationToken cancellationToken);
+
+    /// <summary>The change that <paramref name="headSha"/> makes on top of <paramref name="baseBranch"/>.</summary>
+    Task<BranchChange?> CompareAsync(string repositoryFullName, string baseBranch, string headSha, CancellationToken cancellationToken);
+}
+
+/// <summary>Used when no forge is connected.</summary>
+public sealed class NoBranchSource : IBranchSource
+{
+    public Task<string?> HeadOfAsync(string repositoryFullName, string branch, CancellationToken cancellationToken) => Task.FromResult<string?>(null);
+
+    public Task<BranchChange?> CompareAsync(string repositoryFullName, string baseBranch, string headSha, CancellationToken cancellationToken) => Task.FromResult<BranchChange?>(null);
 }

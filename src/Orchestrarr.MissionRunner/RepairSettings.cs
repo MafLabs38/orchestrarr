@@ -33,7 +33,10 @@ public sealed class RepairSettings
     /// <summary>How long the free agent may work. Generous: a long troubleshooting is normal, and the machine is its own.</summary>
     public int FreeTimeoutMinutes { get; set; } = 60;
 
-    public bool IsFreeConfigured => !string.IsNullOrWhiteSpace(FreeDockerfileFile) && !string.IsNullOrWhiteSpace(TokenFile);
+    /// <summary>A file that holds the token that lets the free agent push branches to the forge (and nothing else: no pull request, no workflow, no administration; the default branch refuses direct pushes by its own rules).</summary>
+    public string? FreeGitTokenFile { get; set; }
+
+    public bool IsFreeConfigured => !string.IsNullOrWhiteSpace(FreeDockerfileFile) && !string.IsNullOrWhiteSpace(TokenFile) && !string.IsNullOrWhiteSpace(FreeGitTokenFile);
 
     public bool IsConfigured => !string.IsNullOrWhiteSpace(DockerfileFile) && !string.IsNullOrWhiteSpace(TokenFile);
 
@@ -72,9 +75,9 @@ public sealed class RepairSettings
         {
             throw new InvalidOperationException("MissionRunner:Repair:FreeRepositoryUrl must be a plain https address with {0} for the repository and no credential.");
         }
-        if (FreeMaxTurns is < 1 or > 1000 || FreeTimeoutMinutes is < 1 or > 600 || !File.Exists(FreeDockerfileFile) || !File.Exists(TokenFile))
+        if (FreeMaxTurns is < 1 or > 1000 || FreeTimeoutMinutes is < 1 or > 600 || !File.Exists(FreeDockerfileFile) || !File.Exists(TokenFile) || !File.Exists(FreeGitTokenFile))
         {
-            throw new InvalidOperationException("MissionRunner:Repair: the free agent's turns (1 to 1000) and time (1 to 600 minutes) must be in range, and its Dockerfile and the token file must exist.");
+            throw new InvalidOperationException("MissionRunner:Repair: the free agent's turns (1 to 1000) and time (1 to 600 minutes) must be in range, and its Dockerfile, the token file and the file of the git token must exist.");
         }
     }
 }

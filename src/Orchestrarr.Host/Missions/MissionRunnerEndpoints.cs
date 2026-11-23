@@ -1,3 +1,4 @@
+using Orchestrarr.Core.Forge;
 using Orchestrarr.Core.Machines;
 using Orchestrarr.Core.Missions;
 using Orchestrarr.Core.Tasks;
@@ -157,14 +158,43 @@ internal static partial class MissionRunnerEndpoints
             return Results.Ok();
         });
 
-        group.MapPost("/missions/{id}/handover", async (string id, MissionHandOver request, HttpContext context, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, ProblemConductor conductor, RepairRegistry? repairs, ILiveNotifier live, CancellationToken ct) =>
+        group.MapPost("/missions/{id}/handover", async (string id, MissionHandOver request, HttpContext context, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, ProblemConductor conductor, RepairRegistry? repairs, IBranchSource branches, IDefaultBranchSource defaults, ILiveNotifier live, CancellationToken ct) =>
         {
             if (!Owns(id, runnerName(context), missions, mandates) || string.IsNullOrWhiteSpace(request.Claim) || string.IsNullOrWhiteSpace(request.WhatChangedAndWhy))
             {
                 return Results.NotFound();
             }
-            // The files of a repair or of a change are the staging world's, and are checked before anything keeps them: the policy is the control plane's own, whatever the runner did
-            if (request.Files is { Count: > 0 } files)
+            // The branch of a free agent that says it has finished (ADR 0048): the control plane reads it on the forge, at the commit named, and keeps what it read. What the runner or the agent says of it is a claim
+            if (request.Branch is { Length: > 0 } branch)
+            {
+                var staged = missions.Get(id);
+                var entry = staged is null ? null : problems.Get(staged.ProblemId)?.Entry;
+                if (staged is not { World: World.Staging } || repairs is null || entry is not { PullRequest: null, Repositories.Count: 1 })
+                {
+                    return Results.Json(new { error = "only the staging world of a problem with no pull request hands over a branch" }, statusCode: StatusCodes.Status409Conflict);
+                }
+                if (!BranchShape().IsMatch(branch) || request.Commit is not { } pushed || !CommitShape().IsMatch(pushed))
+                {
+                    return Results.Json(new { error = "the branch or the commit it finished at is not well formed" }, statusCode: StatusCodes.Status409Conflict);
+                }
+                var repository = entry.Repositories[0];
+                if (await branches.HeadOfAsync(repository, branch, ct) is not { } onForge || !string.Equals(onForge, pushed, StringComparison.Ordinal))
+                {
+                    return Results.Json(new { error = "the branch is not at the commit it was said to finish at, or cannot be read on the forge" }, statusCode: StatusCodes.Status409Conflict);
+                }
+                if (await defaults.ReadAsync(repository, ct) is not { } current || await branches.CompareAsync(repository, current.Branch, pushed, ct) is not { } change)
+                {
+                    return Results.Json(new { error = "the change cannot be read on the forge" }, statusCode: StatusCodes.Status409Conflict);
+                }
+                if (ChangePolicy.Refusal(change, staged.Frame.ForbiddenPaths) is { } refused)
+                {
+                    return Results.Json(new { error = refused }, statusCode: StatusCodes.Status422UnprocessableEntity);
+                }
+                // What is shown to the controller is what the forge says, not what the agent or the runner wrote about it
+                repairs.KeepBranch(staged.ProblemId, change.MergeBase, new PendingBranch(branch, pushed, [.. change.Files.Select(file => file.Path)], ChangePolicy.Reading(change)));
+            }
+            // The files of a repair are the staging world's, and are checked before anything keeps them: the policy is the control plane's own, whatever the runner did
+            else if (request.Files is { Count: > 0 } files)
             {
                 var staged = missions.Get(id);
                 var entry = staged is null ? null : problems.Get(staged.ProblemId)?.Entry;
@@ -172,13 +202,13 @@ internal static partial class MissionRunnerEndpoints
                 {
                     return Results.Json(new { error = "only the staging world hands over files" }, statusCode: StatusCodes.Status409Conflict);
                 }
-                // A pull request that did not pass is repaired against the head that the maintainer saw; a problem that has none is solved against the head of the default branch that the runner worked on (it says which)
-                var baseHead = entry.PullRequest is null ? request.Commit : entry.HeadSha;
-                if (baseHead is not { Length: > 0 } || !CommitShape().IsMatch(baseHead))
+                // A pull request that did not pass is repaired against the head that the maintainer saw; a problem that has none hands over a branch, not files
+                var baseHead = entry.HeadSha;
+                if (entry.PullRequest is null || baseHead is not { Length: > 0 } || !CommitShape().IsMatch(baseHead))
                 {
-                    return Results.Json(new { error = "the files name no commit that they were made against" }, statusCode: StatusCodes.Status409Conflict);
+                    return Results.Json(new { error = "files are handed over only to repair a pull request, at the commit that the maintainer saw" }, statusCode: StatusCodes.Status409Conflict);
                 }
-                var refusal = entry.PullRequest is null ? ChangePolicy.Refusal(files, staged.Frame.ForbiddenPaths) : RepairPolicy.Refusal(files, staged.Frame.ForbiddenPaths);
+                var refusal = RepairPolicy.Refusal(files, staged.Frame.ForbiddenPaths);
                 if (refusal is not null)
                 {
                     return Results.Json(new { error = refusal }, statusCode: StatusCodes.Status422UnprocessableEntity);
@@ -197,6 +227,9 @@ internal static partial class MissionRunnerEndpoints
             return result.Ok ? Results.Ok() : Results.Conflict(new { error = result.Refusal });
         });
     }
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"^agent/[a-z0-9][a-z0-9-]{0,79}$", System.Text.RegularExpressions.RegexOptions.None, 250)]
+    private static partial System.Text.RegularExpressions.Regex BranchShape();
 
     private static bool IsSentBack(Mission candidate, IDossierStore dossiers) => candidate.State == MissionState.Running && candidate.SendBacks > 0 && dossiers.Get(candidate.Id) is not null;
 

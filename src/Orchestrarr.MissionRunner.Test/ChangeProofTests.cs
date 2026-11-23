@@ -2,11 +2,16 @@ using Orchestrarr.Core.Missions;
 
 namespace Orchestrarr.MissionRunner.Test;
 
-/// <summary>The staging world for a problem that has no pull request (ADR 0048): a free agent changes the code in the machine, and the runner reads the files back itself, applies the policy of what may leave and proves the change on its own.</summary>
+/// <summary>
+/// The staging world for a problem that has no pull request (ADR 0048): a free agent changes the code in the machine and **pushes its own branch**; the runner asks the forge where the branch is, runs the steps of the repository on that
+/// commit and hands over the branch and the commit. It reads no file and writes no diff: the control plane reads the commit on the forge.
+/// </summary>
 public sealed class ChangeProofTests : IDisposable
 {
     private static readonly CancellationToken Ct = TestContext.Current.CancellationToken;
     private static readonly string Head = new('a', 40);
+    private const string PushedSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    private static readonly string Pushed = PushedSha;
     private static readonly string Tree = new('c', 40);
     private readonly string _folder = Directory.CreateTempSubdirectory("orchestrarr-change-").FullName;
 
@@ -16,20 +21,24 @@ public sealed class ChangeProofTests : IDisposable
     {
         var dockerfile = Path.Combine(_folder, "Dockerfile");
         var token = Path.Combine(_folder, "token");
+        var gitToken = Path.Combine(_folder, "git-token");
         File.WriteAllText(dockerfile, "FROM node");
         File.WriteAllText(token, "the-token\n");
-        return new MissionRunnerOptions { StagingMachine = "staging-1", Repositories = ["example/*"], Repair = free ? new RepairSettings { FreeDockerfileFile = dockerfile, TokenFile = token } : new RepairSettings() };
+        File.WriteAllText(gitToken, "the-git-token\n");
+        return new MissionRunnerOptions { StagingMachine = "staging-1", Repositories = ["example/*"], Repair = free ? new RepairSettings { FreeDockerfileFile = dockerfile, TokenFile = token, FreeGitTokenFile = gitToken } : new RepairSettings() };
     }
 
     private static ClaimedMission Mission(string? instruction = "Update lodash to 4.17.21 and keep the tests green.", string? remarks = null) =>
-        new("m1", "p1", "shop", "Staging", "Solve the problem", "example/shop", PullRequest: null, HeadSha: null, DateTimeOffset.UtcNow.AddHours(1), [], Remarks: remarks, Instruction: instruction);
+        new("m1", "p-1a2b3c", "shop", "Staging", "Solve the problem", "example/shop", PullRequest: null, HeadSha: null, DateTimeOffset.UtcNow.AddHours(1), [], Remarks: remarks, Instruction: instruction);
 
     private sealed class Machine
     {
-        public string Status { get; set; } = " M package.json\n M package-lock.json\n";
+        /// <summary>What the forge answers to the question where the branch is: nothing when the agent pushed none.</summary>
+        public bool Pushes { get; set; } = true;
         public int AgentExit { get; set; }
         public int BuildExit { get; set; }
         public string? Prompt { get; private set; }
+        public string? Setup { get; private set; }
         public string? AgentInput { get; private set; }
         public List<string> Scripts { get; } = [];
 
@@ -39,34 +48,6 @@ public sealed class ChangeProofTests : IDisposable
             shell.RunAsync("ssh", Arg.Any<IReadOnlyList<string>>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>()).Returns(call => Answer(call.Arg<IReadOnlyList<string>>()[^1], null));
             shell.RunAsync("ssh", Arg.Any<IReadOnlyList<string>>(), Arg.Any<string>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>()).Returns(call => Answer(call.Arg<IReadOnlyList<string>>()[^1], (string)call.Args()[2]));
             return shell;
-        }
-
-        /// <summary>A path whose content is longer than one slice of what a call may bring back.</summary>
-        public string? BigPath { get; set; }
-
-        /// <summary>A path whose content is not text.</summary>
-        public string? BinaryPath { get; set; }
-
-        public List<int> SliceLengths { get; } = [];
-
-        /// <summary>The lines of the change are longer than what the dossier keeps.</summary>
-        public bool LongDiff { get; set; }
-
-        // The file that a script of the runner names: base64 -w0 "<path>"
-        private static string PathOf(string script)
-        {
-            var start = script.IndexOf("base64 -w0 \"", StringComparison.Ordinal) + 12;
-            return script[start..script.IndexOf('"', start)];
-        }
-
-        private string Encoded(string path)
-        {
-            if (path == BinaryPath)
-            {
-                return Convert.ToBase64String([0x89, 0x50, 0xFF, 0xFE, 0x01]);
-            }
-            var text = path == BigPath ? new string('a', 200_000) : $"content of {path}";
-            return Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(text));
         }
 
         private ShellResult Answer(string script, string? input)
@@ -81,39 +62,24 @@ public sealed class ChangeProofTests : IDisposable
                 Prompt = input;
                 return new ShellResult(0, string.Empty, false);
             }
+            if (script.Contains("cat > ~/agentin/setup.sh", StringComparison.Ordinal))
+            {
+                Setup = input;
+                return new ShellResult(0, string.Empty, false);
+            }
             if (script.Contains("claude -p", StringComparison.Ordinal))
             {
                 AgentInput = input;
-                return new ShellResult(AgentExit, "I updated lodash and ran the tests.", false);
+                return new ShellResult(AgentExit, "I updated lodash, ran the tests and pushed.", false);
             }
-            if (script.Contains("git status --porcelain", StringComparison.Ordinal))
+            if (script.Contains("git ls-remote", StringComparison.Ordinal))
             {
-                return new ShellResult(0, Status, false);
+                var branch = script[(script.IndexOf("refs/heads/", StringComparison.Ordinal) + 11)..].Trim();
+                return new ShellResult(0, Pushes ? $"{PushedSha}\trefs/heads/{branch}\n" : string.Empty, false);
             }
-            if (script.Contains("| wc -c", StringComparison.Ordinal))
+            if (script.Contains("git reset -q --hard", StringComparison.Ordinal))
             {
-                return new ShellResult(0, $"{Encoded(PathOf(script)).Length}\n", false);
-            }
-            if (script.Contains("| cut -c", StringComparison.Ordinal))
-            {
-                var range = script[(script.IndexOf("| cut -c", StringComparison.Ordinal) + 8)..].Split('-');
-                var from = int.Parse(range[0], System.Globalization.CultureInfo.InvariantCulture) - 1;
-                var to = int.Parse(range[1], System.Globalization.CultureInfo.InvariantCulture);
-                var text = Encoded(PathOf(script));
-                SliceLengths.Add(Math.Min(to, text.Length) - from);
-                return new ShellResult(0, text[from..Math.Min(to, text.Length)] + "\n", false);
-            }
-            if (script.Contains("--stat", StringComparison.Ordinal))
-            {
-                return new ShellResult(0, " package.json | 2 +-\n 1 file changed\n", false);
-            }
-            if (script.Contains("git diff --no-color", StringComparison.Ordinal))
-            {
-                return new ShellResult(0, LongDiff ? string.Join('\n', Enumerable.Range(0, 2000).Select(line => $"+    \"package{line}\": \"1.0.0\"")) : "-    \"lodash\": \"4.17.4\"\n+    \"lodash\": \"4.17.21\"\n", false);
-            }
-            if (script.Contains("git write-tree", StringComparison.Ordinal))
-            {
-                return new ShellResult(0, $"TREE {Tree}\n", false);
+                return new ShellResult(0, $"TREE {Tree}\nFILES 2\n", false);
             }
             if (script.Contains("ls -1", StringComparison.Ordinal))
             {
@@ -125,6 +91,7 @@ public sealed class ChangeProofTests : IDisposable
             }
             return new ShellResult(0, string.Empty, false);
         }
+
     }
 
     private async Task<(MissionHandOver Dossier, Machine Machine, List<string> Lines)> Run(Machine machine, ClaimedMission? mission = null, bool free = true)
@@ -135,134 +102,79 @@ public sealed class ChangeProofTests : IDisposable
     }
 
     [Fact]
-    public async Task A_tracked_file_in_a_folder_that_a_build_would_fill_is_a_change_and_an_untracked_one_is_what_the_build_left()
+    public async Task A_branch_that_the_agent_pushed_and_that_passes_the_steps_is_handed_over_as_a_branch_and_a_commit_and_no_file()
     {
-        var machine = new Machine { Status = " M bin/cli.js\n M package.json\n?? node_modules/\n?? dist/bundle.js\n" };
+        var (dossier, machine, _) = await Run(new Machine());
 
-        var (dossier, _, _) = await Run(machine);
-
-        dossier.Files!.Select(file => file.Path).Should().Equal("bin/cli.js", "package.json");
+        dossier.Branch.Should().StartWith("agent/p-1a2b3c-").And.MatchRegex("^agent/[a-z0-9][a-z0-9-]{0,79}$");
+        dossier.Commit.Should().Be(Pushed);
+        dossier.Files.Should().BeNull("the runner reads no file: the control plane reads the commit on the forge");
+        dossier.EvidenceDigests.Should().Contain($"artifact:tree={Tree}").And.Contain("repair:files=2").And.Contain(digest => digest.StartsWith("change:branch=agent/", StringComparison.Ordinal) && digest.EndsWith($"@{Pushed}", StringComparison.Ordinal));
+        dossier.Claim.Should().Contain("a free agent pushed agent/").And.Contain("pass");
+        dossier.Complex.Should().BeFalse();
+        machine.Scripts.Should().NotContain(script => script.Contains("base64", StringComparison.Ordinal) || script.Contains("git diff --no-color", StringComparison.Ordinal), "nothing is read back and no diff is written by the machine");
     }
 
     [Fact]
-    public async Task A_file_that_is_not_text_is_not_carried()
+    public async Task The_steps_run_on_the_commit_that_was_pushed_in_a_clean_tree_after_the_containers_of_the_agent_are_gone()
     {
-        var (dossier, _, _) = await Run(new Machine { Status = " M package.json\n?? logo.png\n", BinaryPath = "logo.png" });
+        var machine = new Machine();
 
-        dossier.Files.Should().BeNull("only text can be carried without being altered");
-        dossier.WhatChangedAndWhy.Should().Contain("not a text file");
+        _ = await Run(machine);
+
+        var reset = machine.Scripts.FindIndex(script => script.Contains($"git reset -q --hard {Pushed}", StringComparison.Ordinal) && script.Contains("git clean -fdxq", StringComparison.Ordinal));
+        var removed = machine.Scripts.FindIndex(script => script.Contains("docker rm -f", StringComparison.Ordinal));
+        var steps = machine.Scripts.FindIndex(script => script.Contains("npm ci", StringComparison.Ordinal) || script.Contains("docker run --rm --cap-drop", StringComparison.Ordinal));
+        reset.Should().BeGreaterThan(-1);
+        reset.Should().BeLessThan(removed);
+        removed.Should().BeLessThan(steps);
     }
 
     [Fact]
-    public async Task The_image_follows_the_dockerfile_the_tree_is_made_with_a_separator_and_the_containers_of_the_agent_are_gone_before_the_steps_run_again()
+    public async Task The_agent_is_told_the_machine_the_task_of_the_lead_and_how_to_deliver_and_the_tokens_never_enter_its_task()
+    {
+        var (_, machine, _) = await Run(new Machine(), Mission(remarks: "Show the exact versions."));
+
+        machine.Prompt.Should().Contain("isolated machine").And.Contain("every tool of a developer").And.Contain("`docker run` works")
+            .And.Contain("Update lodash to 4.17.21").And.Contain("Show the exact versions.").And.Contain("production is built from it")
+            .And.Contain("git push origin HEAD:agent/").And.Contain("pushing does not finish anything").And.Contain("do not open or merge a pull request").And.Contain(".npmrc");
+        machine.Prompt.Should().NotContain("the-token").And.NotContain("the-git-token");
+        machine.Setup.Should().Contain("credential.helper").And.Contain("$AGENT_GIT_TOKEN").And.NotContain("the-git-token", "git is given the token by a helper that reads the environment, in no file");
+        machine.AgentInput.Should().Be("the-token\nthe-git-token\n", "both tokens go by the standard input of the connection, never in an argument");
+        machine.Scripts.Where(script => !script.Contains("read -r", StringComparison.Ordinal)).Should().OnlyContain(script => !script.Contains("the-token", StringComparison.Ordinal) && !script.Contains("the-git-token", StringComparison.Ordinal));
+        machine.Scripts.Single(script => script.Contains("claude -p", StringComparison.Ordinal)).Should().Contain("-e AGENT_GIT_TOKEN").And.Contain("--dangerously-skip-permissions");
+    }
+
+    [Fact]
+    public async Task The_image_follows_the_dockerfile()
     {
         var machine = new Machine();
 
         _ = await Run(machine);
 
         machine.Scripts.Should().Contain(script => script.Contains("docker build -q -t orchestrarr-agent-free:", StringComparison.Ordinal) && !script.EndsWith("orchestrarr-agent-free -", StringComparison.Ordinal));
-        machine.Scripts.Should().Contain(script => script.Contains("git update-index --add -- ", StringComparison.Ordinal));
-        var removed = machine.Scripts.FindIndex(script => script.Contains("docker rm -f", StringComparison.Ordinal));
-        var steps = machine.Scripts.FindIndex(script => script.Contains("npm ci", StringComparison.Ordinal) || script.Contains("docker run --rm --cap-drop", StringComparison.Ordinal));
-        removed.Should().BeGreaterThan(-1);
-        removed.Should().BeLessThan(steps);
     }
 
     [Fact]
-    public async Task The_dossier_says_when_the_lines_of_the_change_are_cut()
+    public async Task An_agent_that_pushed_nothing_or_that_fails_hands_over_a_dossier_with_no_branch()
     {
-        var (dossier, _, _) = await Run(new Machine { LongDiff = true });
-
-        dossier.WhatChangedAndWhy.Should().Contain("[CUT: the rest of the lines is not shown]").And.Contain("package.json | 2 +-");
-    }
-
-    [Fact]
-    public async Task A_file_longer_than_what_one_call_may_bring_back_is_read_in_slices_and_handed_over_whole()
-    {
-        var machine = new Machine { BigPath = "package-lock.json" };
-
-        var (dossier, _, _) = await Run(machine);
-
-        dossier.Files.Should().Contain(file => file.Path == "package-lock.json" && file.Content.Length == 200_000);
-        machine.SliceLengths.Should().HaveCountGreaterThan(1).And.OnlyContain(length => length <= 120_000);
-        dossier.EvidenceDigests.Should().Contain($"artifact:tree={Tree}");
-    }
-
-    [Fact]
-    public async Task A_change_that_the_runner_read_back_and_proved_is_handed_over_whole_with_the_commit_it_was_made_against_and_the_tree()
-    {
-        var (dossier, machine, _) = await Run(new Machine());
-
-        dossier.Files.Should().HaveCount(2).And.Contain(file => file.Path == "package.json");
-        dossier.Commit.Should().Be(Head);
-        dossier.EvidenceDigests.Should().Contain($"artifact:tree={Tree}").And.Contain("repair:files=2");
-        dossier.Claim.Should().Contain("a free agent made a change").And.Contain("package.json");
-        dossier.WhatChangedAndWhy.Should().Contain("\"lodash\": \"4.17.21\"", "the lines that changed are read by the runner, not told by the agent").And.Contain("Generated files changed too (their lines are not shown): package-lock.json");
-        dossier.Complex.Should().BeFalse();
-        machine.Scripts.Should().Contain(script => script.Contains("npm ci", StringComparison.Ordinal), "the runner runs the steps again itself");
-    }
-
-    [Fact]
-    public async Task The_agent_is_told_what_the_machine_is_the_task_of_the_lead_and_what_must_not_leave_and_the_token_never_enters_its_task()
-    {
-        var (_, machine, _) = await Run(new Machine(), Mission(remarks: "the lock file was not updated"));
-
-        machine.Prompt.Should().Contain("isolated machine").And.Contain("production is built from it").And.Contain("every tool of a developer").And.Contain("`docker run` works")
-            .And.Contain("The task: Update lodash to 4.17.21").And.Contain("Do not commit and do not push").And.Contain("pipeline file")
-            .And.Contain("the controller sent your previous one back with this remark: the lock file was not updated");
-        machine.Prompt.Should().NotContain("the-token");
-        machine.AgentInput.Should().Be("the-token\n", "the token reaches the agent by the standard input of the connection only");
-        machine.Scripts.Single(script => script.Contains("claude -p", StringComparison.Ordinal)).Should().Contain("--dangerously-skip-permissions").And.Contain("docker.sock").And.NotContain("the-token");
-    }
-
-    [Theory]
-    [InlineData(" M .github/workflows/ci.yml\n M package.json\n", ".github/workflows/ci.yml")]
-    [InlineData("?? deploy/.env\n", "deploy/.env")]
-    [InlineData(" M CLAUDE.md\n", "CLAUDE.md")]
-    public async Task A_change_that_touches_a_pipeline_a_secret_or_a_file_that_instructs_an_agent_is_not_carried_and_nothing_is_handed_over(string status, string path)
-    {
-        var (dossier, _, _) = await Run(new Machine { Status = status });
-
-        dossier.Files.Should().BeNull();
-        dossier.Claim.Should().Contain("cannot be carried").And.Contain(path);
-        dossier.EvidenceDigests.Should().Contain("change:refused");
-    }
-
-    [Fact]
-    public async Task A_deleted_or_renamed_file_is_refused_because_a_change_is_carried_as_added_and_modified_files()
-    {
-        (await Run(new Machine { Status = " D server.js\n" })).Dossier.Claim.Should().Contain("deleted or renamed");
-        (await Run(new Machine { Status = "R  a.js -> b.js\n" })).Dossier.Claim.Should().Contain("deleted or renamed");
-    }
-
-    [Fact]
-    public async Task What_an_install_leaves_in_the_folder_is_not_the_change()
-    {
-        var (dossier, _, _) = await Run(new Machine { Status = "?? node_modules/lodash/index.js\n?? coverage/lcov.info\n M package.json\n" });
-
-        dossier.Files.Should().ContainSingle().Which.Path.Should().Be("package.json");
-    }
-
-    [Fact]
-    public async Task A_change_that_the_steps_of_the_repository_do_not_pass_is_not_handed_over_as_files_and_says_so()
-    {
-        var (dossier, _, _) = await Run(new Machine { BuildExit = 1 });
-
-        dossier.Files.Should().BeNull();
-        dossier.Claim.Should().Contain("does NOT pass").And.Contain("1 failing");
-        dossier.OpenPoints.Should().NotBeEmpty();
-    }
-
-    [Fact]
-    public async Task An_agent_that_fails_or_changes_nothing_hands_over_a_dossier_with_no_change()
-    {
+        var nothing = (await Run(new Machine { Pushes = false })).Dossier;
         var failed = (await Run(new Machine { AgentExit = 2 })).Dossier;
-        var nothing = (await Run(new Machine { Status = string.Empty })).Dossier;
 
-        failed.Files.Should().BeNull();
+        nothing.Branch.Should().BeNull();
+        nothing.Claim.Should().Contain("pushed no branch");
+        failed.Branch.Should().BeNull();
         failed.Claim.Should().Contain("did not finish");
-        nothing.Files.Should().BeNull();
-        nothing.Claim.Should().Contain("changed nothing");
+    }
+
+    [Fact]
+    public async Task A_commit_that_the_steps_of_the_repository_do_not_pass_is_not_handed_over_as_a_branch_and_says_so()
+    {
+        var (dossier, _, lines) = await Run(new Machine { BuildExit = 1 });
+
+        dossier.Branch.Should().BeNull();
+        dossier.Claim.Should().Contain("does NOT pass the steps");
+        lines.Should().Contain(line => line.Contains("do not pass", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -285,7 +197,7 @@ public sealed class ChangeProofTests : IDisposable
         var routed = await new StagingProof(machine.Shell(), options, null, new ChangeProof(machine.Shell(), options)).RunAsync(Mission(), _ => Task.CompletedTask, Ct);
         var refused = await new StagingProof(new Machine().Shell(), options).RunAsync(Mission(), _ => Task.CompletedTask, Ct);
 
-        routed.Files.Should().NotBeNullOrEmpty();
+        routed.Branch.Should().NotBeNullOrEmpty();
         refused.Claim.Should().StartWith("Nothing was proven");
     }
 }

@@ -6,7 +6,7 @@ using Orchestrarr.Core.Forge;
 namespace Orchestrarr.Providers.GitHub;
 
 /// <summary>Reads one pull request from GitHub's REST API: its head and base commits, the checks of the head and the paths that change. Read-only, redirects never followed, the token goes to the configured address only.</summary>
-public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefaultBranchSource
+public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefaultBranchSource, IBranchSource
 {
     private const int MaxPages = 10;
 
@@ -98,6 +98,61 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefault
                 : null;
         }
         catch (Exception failure) when (failure is HttpRequestException or JsonException or KeyNotFoundException or TaskCanceledException or InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    [GeneratedRegex(@"^agent/[a-z0-9][a-z0-9-]{0,79}$", RegexOptions.None, 250)]
+    private static partial Regex AgentBranch();
+
+    [GeneratedRegex("^[0-9a-f]{40}$", RegexOptions.None, 250)]
+    private static partial Regex Sha();
+
+    public async Task<string?> HeadOfAsync(string repositoryFullName, string branch, CancellationToken cancellationToken)
+    {
+        if (!RepositoryName().IsMatch(repositoryFullName) || !AgentBranch().IsMatch(branch))
+        {
+            return null;
+        }
+        try
+        {
+            using var reference = await GetAsync($"repos/{repositoryFullName}/git/ref/heads/{branch}", cancellationToken);
+            return reference is not null && reference.RootElement.TryGetProperty("object", out var target) && target.TryGetProperty("sha", out var sha) ? sha.GetString() : null;
+        }
+        catch (Exception failure) when (failure is HttpRequestException or JsonException or KeyNotFoundException or InvalidOperationException || failure is TaskCanceledException && !cancellationToken.IsCancellationRequested)
+        {
+            return null;
+        }
+    }
+
+    public async Task<BranchChange?> CompareAsync(string repositoryFullName, string baseBranch, string headSha, CancellationToken cancellationToken)
+    {
+        if (!RepositoryName().IsMatch(repositoryFullName) || !Sha().IsMatch(headSha) || string.IsNullOrWhiteSpace(baseBranch) || baseBranch.Length > 100)
+        {
+            return null;
+        }
+        try
+        {
+            using var comparison = await GetAsync($"repos/{repositoryFullName}/compare/{Uri.EscapeDataString(baseBranch)}...{headSha}?per_page=100", cancellationToken);
+            if (comparison is null || !comparison.RootElement.TryGetProperty("merge_base_commit", out var mergeBase) || mergeBase.GetProperty("sha").GetString() is not { Length: > 0 } baseSha)
+            {
+                return null;
+            }
+            var root = comparison.RootElement;
+            var files = root.TryGetProperty("files", out var list) && list.ValueKind == JsonValueKind.Array
+                ? list.EnumerateArray().Select(file => new BranchFile(
+                    file.GetProperty("filename").GetString() ?? string.Empty,
+                    file.GetProperty("status").GetString() ?? string.Empty,
+                    file.TryGetProperty("changes", out var changes) && changes.TryGetInt32(out var count) ? count : 0,
+                    file.TryGetProperty("patch", out var patch) ? patch.GetString() : null)).ToList()
+                : [];
+            // The forge lists up to 300 files, and 100 a page here: more than that is a list that was cut
+            var behind = root.TryGetProperty("behind_by", out var behindBy) ? behindBy.GetInt32() : 1;
+            var ahead = root.TryGetProperty("ahead_by", out var aheadBy) ? aheadBy.GetInt32() : 0;
+            return new BranchChange(baseSha, behind, ahead, files, files.Count < 100);
+        }
+        catch (Exception failure) when (failure is HttpRequestException or JsonException or KeyNotFoundException or InvalidOperationException || failure is TaskCanceledException && !cancellationToken.IsCancellationRequested)
         {
             return null;
         }

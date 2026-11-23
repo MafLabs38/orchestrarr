@@ -209,4 +209,32 @@ public sealed class GitHubForgeActsTests
         script.Requests[1].Body.Should().Contain("closed");
         (await GitHubForgeActs.Create(new GitHubOptions { Token = "ghp_secret" }, new Script()).ClosePullRequestAsync("../x", 6, "c", TestContext.Current.CancellationToken)).Should().BeFalse();
     }
+
+    [Fact]
+    public async Task A_pull_request_is_opened_from_the_branch_of_an_agent_only_at_the_commit_that_was_audited()
+    {
+        var script = new Script();
+        script.Answers["GET /repos/example/shop/git/ref/heads/agent/p-1-abc"] = (HttpStatusCode.OK, $$"""{ "object": { "sha": "{{Head}}" } }""");
+        script.Answers["POST /repos/example/shop/pulls"] = (HttpStatusCode.Created, """{ "number": 9 }""");
+
+        var opened = await GitHubForgeActs.Create(new GitHubOptions { Token = "ghp_secret" }, script).OpenPullRequestFromBranchAsync("example/shop", "develop", "agent/p-1-abc", Head, "fix", "body", TestContext.Current.CancellationToken);
+
+        opened.Should().Be(new OpenedPullRequest(true, 9, Head, null));
+        script.Requests.Select(request => $"{request.Method} {request.Path}").Should().Equal("GET /repos/example/shop/git/ref/heads/agent/p-1-abc", "POST /repos/example/shop/pulls");
+        script.Requests[1].Body.Should().Contain("\"head\":\"agent/p-1-abc\"").And.Contain("\"base\":\"develop\"");
+    }
+
+    [Fact]
+    public async Task A_branch_that_moved_or_a_name_that_is_not_an_agents_opens_nothing()
+    {
+        var script = new Script();
+        script.Answers["GET /repos/example/shop/git/ref/heads/agent/p-1-abc"] = (HttpStatusCode.OK, $$"""{ "object": { "sha": "{{Merge}}" } }""");
+        var acts = GitHubForgeActs.Create(new GitHubOptions { Token = "ghp_secret" }, script);
+        var token = TestContext.Current.CancellationToken;
+
+        (await acts.OpenPullRequestFromBranchAsync("example/shop", "develop", "agent/p-1-abc", Head, "t", "b", token)).Opened.Should().BeFalse();
+        (await acts.OpenPullRequestFromBranchAsync("example/shop", "develop", "main", Head, "t", "b", token)).Opened.Should().BeFalse();
+        (await acts.OpenPullRequestFromBranchAsync("../x", "develop", "agent/p-1-abc", Head, "t", "b", token)).Opened.Should().BeFalse();
+        script.Requests.Should().ContainSingle("only the read of the branch was made, no pull request");
+    }
 }
