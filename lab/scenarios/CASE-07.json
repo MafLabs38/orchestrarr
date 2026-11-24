@@ -1,0 +1,85 @@
+{
+  "case": "CASE-07",
+  "title": "Many dependency pull requests at once",
+  "plants": [
+    {
+      "repo": "shop-api",
+      "branch": "lab/case-07-lodash",
+      "kind": "npm-bump",
+      "package": "lodash",
+      "from": "4.17.4",
+      "version": "4.17.21",
+      "title": "build(deps): Bump lodash from 4.17.4 to 4.17.21",
+      "body": "A patch bump, as a bot would open it."
+    },
+    {
+      "repo": "shop-api",
+      "branch": "lab/case-07-express",
+      "kind": "npm-bump",
+      "package": "express",
+      "from": "4.16.0",
+      "version": "4.16.4",
+      "title": "build(deps): Bump express from 4.16.0 to 4.16.4",
+      "body": "A patch bump of the web framework, opened at the same time as the others."
+    },
+    {
+      "repo": "shop-api",
+      "branch": "lab/case-07-mocha",
+      "kind": "npm-bump",
+      "package": "mocha",
+      "from": "8.0.1",
+      "version": "8.4.0",
+      "title": "build(deps-dev): Bump mocha from 8.0.1 to 8.4.0",
+      "body": "A minor bump of the test runner, opened at the same time as the others."
+    }
+  ],
+  "tick": [
+    "4.17.21",
+    "4.16.4",
+    "8.4.0"
+  ],
+  "expect": {
+    "pullRequests": [
+      {
+        "repo": "shop-api",
+        "branch": "lab/case-07-lodash",
+        "state": "MERGED"
+      },
+      {
+        "repo": "shop-api",
+        "branch": "lab/case-07-express",
+        "state": "OPEN"
+      },
+      {
+        "repo": "shop-api",
+        "branch": "lab/case-07-mocha",
+        "state": "MERGED"
+      }
+    ]
+  },
+  "endsWithoutDone": 1,
+  "then": {
+    "tick": [
+      "4.16.4"
+    ],
+    "expect": {
+      "pullRequests": [
+        {
+          "repo": "shop-api",
+          "branch": "lab/case-07-lodash",
+          "state": "MERGED"
+        },
+        {
+          "repo": "shop-api",
+          "branch": "lab/case-07-express",
+          "state": "MERGED"
+        },
+        {
+          "repo": "shop-api",
+          "branch": "lab/case-07-mocha",
+          "state": "MERGED"
+        }
+      ]
+    }
+  }
+}

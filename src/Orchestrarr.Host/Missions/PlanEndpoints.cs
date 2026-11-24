@@ -19,8 +19,8 @@ public sealed record ValidatePlanRequest(List<ValidatedRow>? Rows);
 
 public sealed record ValidatedRow(string? Id, string? HeadSha, bool StopBeforeProduction = false);
 
-/// <summary>What became of one ticked row: the problem it started and its first mission, or why nothing started.</summary>
-public sealed record ValidatedProblem(string RowId, string? ProblemId, string? MissionId, string? World, string? Refusal);
+/// <summary>What became of one ticked row: the problem it started and its first mission, or why nothing started. <c>Queued</c>: it waits for its turn on its repository, where another problem is being done.</summary>
+public sealed record ValidatedProblem(string RowId, string? ProblemId, string? MissionId, string? World, string? Refusal, bool Queued = false);
 
 public sealed record PlanStatus(bool Available);
 
@@ -45,7 +45,7 @@ internal static class PlanEndpoints
         api.MapGet("/plan", (IServiceProvider services) => Results.Ok(new PlanStatus(services.GetService<SandboxApprovals>() is not null))).RequireAuthorization(Permissions.FleetRead);
         api.MapPost("/plan/validate", async (ValidatePlanRequest request, HttpContext context, IApproverAccessor accessor, WorkItemCatalog catalog, IApplicationCatalog applications, RunnerRegistry runners, IBatchQueue queue,
             IProblemHistory history, IApprovalStore approvalStore, TimeProvider time, RelevancePolicy policy, InfrastructureCatalog infrastructure, ProblemConductor conductor, IServiceProvider services,
-            LeadPlanner lead, IDependencyFindings findings, AgentsOptions agents, MissionProgress progress, IMissionAudit audit, IStopSignal stop, ILiveNotifier live, CancellationToken ct) =>
+            LeadPlanner lead, IDependencyFindings findings, AgentsOptions agents, MissionProgress progress, IMissionAudit audit, IStopSignal stop, ILiveNotifier live, IProblemStore problemStore, ProblemQueue line, CancellationToken ct) =>
         {
             var (approver, refusal) = ApprovalEndpoints.Authorize(accessor, context);
             if (approver is null)
@@ -71,10 +71,11 @@ internal static class PlanEndpoints
             // A row is asked once, at most Agents:LeadMaxRows rows are asked in one selection, and the global stop is read again before each question: every question is a run of the subscription
             var rows = (request.Rows ?? []).DistinctBy(row => row.Id, StringComparer.Ordinal).ToList();
             var prepared = await Task.WhenAll(rows.Select((chosen, index) => PrepareAsync(chosen, table, approver.Subject, lead, findings, conductor, audit, stop, NotAsked(index, agents.LeadMaxRows), time, ct)));
+            // One work site at a time on a repository: the first problem of a free repository starts, the others wait for their turn (ProblemQueue)
             var started = new List<ValidatedProblem>();
             foreach (var one in prepared)
             {
-                started.Add(await StartAsync(one, approvals, conductor, progress, services.GetService<RepairRegistry>(), ct));
+                started.Add(await WaitsForItsTurnAsync(one, problemStore, line, audit, time, ct) ?? await StartAsync(one, approvals, conductor, progress, services.GetService<RepairRegistry>(), ct));
             }
             live.Publish(LiveTopics.Missions);
             return Results.Json(new ValidatePlanResponse(started), statusCode: StatusCodes.Status201Created);
@@ -87,7 +88,7 @@ internal static class PlanEndpoints
     private static string? NotAsked(int index, int maxRows) => index >= maxRows ? "tooManyToPlanAtOnce" : null;
 
     // A row that is ready to start (its plan entry with the problem as read and the lead's plan), or why it will not start: one of the two, never both
-    private sealed record Prepared(string RowId, PlanEntry? Entry, ValidatedProblem? Refused);
+    internal sealed record Prepared(string RowId, PlanEntry? Entry, ValidatedProblem? Refused);
 
     private static async Task<Prepared> PrepareAsync(ValidatedRow chosen, Dictionary<string, ProblemRow> table, string approver, LeadPlanner lead, IDependencyFindings findings, ProblemConductor conductor, IMissionAudit audit, IStopSignal stop, string? notAsked, TimeProvider time, CancellationToken cancellationToken)
     {
@@ -160,7 +161,32 @@ internal static class PlanEndpoints
 
     private static readonly World FirstWorld = World.Staging;
 
-    private static async Task<ValidatedProblem> StartAsync(Prepared one, SandboxApprovals approvals, ProblemConductor conductor, MissionProgress progress, RepairRegistry? repairs, CancellationToken cancellationToken)
+    // The problem is put in line when its repository has a problem in progress or a problem that waits before it; null when it can start now (or is already being worked on, which the conductor refuses)
+    private static async Task<ValidatedProblem?> WaitsForItsTurnAsync(Prepared one, IProblemStore problems, ProblemQueue line, IMissionAudit audit, TimeProvider time, CancellationToken cancellationToken)
+    {
+        if (one.Entry is not { Repositories.Count: 1 } entry)
+        {
+            return null;
+        }
+        if (line.Contains(entry.ProblemId))
+        {
+            return new ValidatedProblem(one.RowId, entry.ProblemId, null, null, "alreadyQueued");
+        }
+        var repository = entry.Repositories[0];
+        if (problems.Get(entry.ProblemId) is { State: ProblemState.InProgress } || (!line.Waits(repository) && !BusyRepository(problems, repository)))
+        {
+            return null;
+        }
+        _ = line.Enqueue(new QueuedProblem(one.RowId, entry, time.GetUtcNow()));
+        _ = await audit.RecordAsync(MissionAuditEvents.ProblemQueued, entry.ProblemId, $"waits for its turn on {repository}: another problem is being done there", cancellationToken);
+        return new ValidatedProblem(one.RowId, entry.ProblemId, null, null, null, Queued: true);
+    }
+
+    /// <summary>Whether a problem is in progress on the repository.</summary>
+    internal static bool BusyRepository(IProblemStore problems, string repository) =>
+        problems.InProgress().Any(run => run.Entry.Repositories.Count == 1 && string.Equals(run.Entry.Repositories[0], repository, StringComparison.Ordinal));
+
+    internal static async Task<ValidatedProblem> StartAsync(Prepared one, SandboxApprovals approvals, ProblemConductor conductor, MissionProgress progress, RepairRegistry? repairs, CancellationToken cancellationToken)
     {
         if (one.Entry is not { } entry)
         {

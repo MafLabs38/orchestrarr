@@ -116,9 +116,26 @@ async function waitForPlantedRows(page, planted) {
   return false;
 }
 
-async function tickAndValidate(page) {
+// The table shows the commit of every pull request that is still open as the forge has it now (a bot made some again: the table is read again until it says so)
+async function waitForFreshHeads(page) {
+  for (let attempt = 0; attempt < 12; attempt++) {
+    const open = (scenario.plants ?? []).map((p) => {
+      try { return JSON.parse(execFileSync('gh', ['pr', 'view', p.branch, '-R', `${org}/${p.repo}`, '--json', 'number,state,headRefOid'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })); } catch { return null; }
+    }).filter((pr) => pr && pr.state === 'OPEN');
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes('/api/v1/problems') && r.url().includes('refresh=true'), { timeout: 60000 }),
+      page.getByRole('button', { name: UI.refresh }).click(),
+    ]);
+    const rows = await problemRowsOf(page);
+    if (open.every((pr) => rows.some((row) => row.pullRequest === pr.number && row.headSha === pr.headRefOid))) { await page.reload(); return true; }
+    await page.waitForTimeout(5000);
+  }
+  return false;
+}
+
+async function tickAndValidate(page, ticks) {
   let selectionOk = true;
-  for (const pattern of scenario.tick ?? []) {
+  for (const pattern of ticks ?? []) {
     // the table fills in after the page has loaded
     await page.waitForFunction((text) => document.body.innerText.includes(text), pattern, { timeout: 60000 }).catch(() => {});
     const row = page.locator('tbody tr', { hasText: pattern }).first();
@@ -144,18 +161,22 @@ async function tickAndValidate(page) {
 }
 
 // Follows the missions this validation created until the expected pull requests are in their final state and released, or one ends
-async function followMissions(page, known) {
+// "endsWithoutDone": how many missions may end without being done in this round (a problem that the control plane ends at once, such as a pull request that conflicts with its base)
+async function followMissions(page, known, round = scenario) {
   await page.getByRole('link', { name: UI.missions }).click();
   const begin = Date.now();
-  const wanted = scenario.expect?.pullRequests ?? [];
+  const wanted = round.expect?.pullRequests ?? [];
+  const mayEnd = round.endsWithoutDone ?? 0;
   const reached = () => wanted.every((w) => prState(w) === w.state);
   let last = '', outcome = 'timeout', mine = [];
   while ((Date.now() - begin) / 1000 < maxSeconds) {
     mine = (await missionsOf(page)).filter((m) => !known.has(m.id));
     const labels = mine.map((m) => `${m.world} ${m.state}${m.end ? ` (${m.end})` : ''}`).join(' | ');
     if (labels !== last) { console.log(`[${Math.round((Date.now() - begin) / 1000)}s] ${labels}`); last = labels; }
-    if (mine.some((m) => m.state === 'Ended' && m.end !== 'Done')) { outcome = 'ended badly'; break; }
-    if (mine.some((m) => m.world === 'Release' && m.state === 'Accepted') && reached()) { outcome = 'released'; break; }
+    if (mine.filter((m) => m.state === 'Ended' && m.end !== 'Done').length > mayEnd) { outcome = 'ended badly'; break; }
+    // done when what the round expects is on the forge and no mission is still going: each is ended or accepted (a problem that waits in line has no mission yet, but what it merges is expected)
+    const finished = mine.every((m) => m.state === 'Ended' || m.state === 'Accepted');
+    if (mine.some((m) => m.world === 'Release' && m.state === 'Accepted') && reached() && finished) { outcome = 'released'; break; }
     await page.waitForTimeout(5000);
   }
   followed = mine;
@@ -198,11 +219,23 @@ async function followMissions(page, known) {
       await Promise.all([page.waitForResponse((r) => r.url().includes('/api/v1/problems') && r.url().includes('refresh=true'), { timeout: 60000 }), page.getByRole('button', { name: UI.refresh }).click()]);
       await page.reload();
     }
-    if (await tickAndValidate(page)) {
+    if (await tickAndValidate(page, scenario.tick)) {
       // 4. the missions go on, and the final state is read from the forge, not from the interface
       await followMissions(page, known);
     }
-    for (const want of scenario.expect?.pullRequests ?? []) {
+    // A second round: a bot makes again the pull requests that conflicted with the base, and the maintainer ticks them again
+    if (scenario.then) {
+      for (const want of scenario.expect?.pullRequests ?? []) {
+        const state = prState(want);
+        expect(state === want.state, `after the first round: ${want.repo} ${want.title ?? want.branch} is ${want.state} (is ${state})`);
+      }
+      console.log(sandbox('rebase', scenarioPath));
+      const knownNow = new Set((await missionsOf(page)).map((m) => m.id));
+      await page.getByRole('link', { name: 'Decisions' }).click().catch(() => {});
+      expect(await waitForFreshHeads(page), 'the table shows the commits that the bot made');
+      if (await tickAndValidate(page, scenario.then.tick)) await followMissions(page, knownNow, scenario.then);
+    }
+    for (const want of (scenario.then ?? scenario).expect?.pullRequests ?? []) {
       const state = prState(want);
       expect(state === want.state, `${want.repo} ${want.title ?? want.branch} is ${want.state} (is ${state})`);
     }

@@ -91,6 +91,7 @@ public sealed class StagingProofTests
         var dossier = await new StagingProof(shell, Options()).RunAsync(Mission(), _ => Task.CompletedTask, Ct);
 
         dossier.Claim.Should().StartWith("Nothing was proven");
+        dossier.EvidenceDigests.Should().Contain(MissionEvidence.RefusedConflict, "a conflict is said by a marker, so that the control plane ends the problem without a send-back");
         shell.Calls.Should().NotContain(call => call.Contains("docker run", StringComparison.Ordinal));
     }
 
@@ -137,6 +138,7 @@ public sealed class StagingProofTests
         dossier.Claim.Should().StartWith("Nothing was proven");
         dossier.Complex.Should().BeTrue();
         dossier.Commit.Should().BeNull("a refusal names no commit: nothing was proven at any");
+        dossier.EvidenceDigests.Should().Contain(MissionEvidence.RefusedMoved);
         shell.Calls.Should().NotContain(call => call.Contains("docker run", StringComparison.Ordinal));
     }
 

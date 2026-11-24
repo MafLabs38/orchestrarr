@@ -50,13 +50,14 @@ public sealed partial class StagingProof(IShell shell, MissionRunnerOptions opti
         var tree = TreeLine().Match(checkout.Output) is { Success: true } treeFound ? treeFound.Groups[1].Value : null;
         if (checkout.ExitCode != 0 || head is null || tree is null)
         {
-            return Refused(mission, $"The pull request could not be fetched and merged on the staging machine (a conflict with the base branch): {Tail(checkout.Output)}");
+            var conflict = checkout.Output.Contains("CONFLICT", StringComparison.Ordinal);
+            return Refused(mission, $"The pull request could not be fetched and merged on the staging machine ({(conflict ? "a conflict with the base branch" : "the checkout failed")}): {Tail(checkout.Output)}", conflict ? MissionEvidence.RefusedConflict : null);
         }
         // What is built and tested is the result of the merge, and its tree names the artifact: the release must be that tree (FR-WLD-14)
         evidence.Add($"{MissionEvidence.ArtifactTree}{tree}");
         if (mission.HeadSha is { Length: > 0 } expected && !head.Equals(expected, StringComparison.OrdinalIgnoreCase))
         {
-            return Refused(mission, $"The pull request moved since it was approved (approved {Short(expected)}, found {Short(head)}): nothing was built.");
+            return Refused(mission, $"The pull request moved since it was approved (approved {Short(expected)}, found {Short(head)}): nothing was built.", MissionEvidence.RefusedMoved);
         }
 
         var recipe = await OnMachineAsync(machine, "cd ~/work/repo && ls -1", timeout, cancellationToken);
@@ -118,8 +119,8 @@ public sealed partial class StagingProof(IShell shell, MissionRunnerOptions opti
     private Task<ShellResult> OnMachineAsync(string machine, string script, TimeSpan timeout, CancellationToken cancellationToken) =>
         shell.RunAsync("ssh", ["-o", "BatchMode=yes", "-o", "ConnectTimeout=15", machine, Prelude + script], timeout, cancellationToken);
 
-    private static MissionHandOver Refused(ClaimedMission mission, string reason) =>
-        new($"Nothing was proven for {mission.Repository}: {reason}", reason, [], [reason], Complex: true, reason, Commit: null);
+    private static MissionHandOver Refused(ClaimedMission mission, string reason, string? marker = null) =>
+        new($"Nothing was proven for {mission.Repository}: {reason}", reason, marker is null ? [] : [marker], [reason], Complex: true, reason, Commit: null);
 
     private static void Keep(List<string> evidence, string step, ShellResult result) =>
         evidence.Add($"{step}:exit={result.ExitCode}:sha256={Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(result.Output)))}");

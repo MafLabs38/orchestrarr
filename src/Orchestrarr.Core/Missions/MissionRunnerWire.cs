@@ -49,6 +49,19 @@ public static class MissionEvidence
 
     /// <summary>Written by a free agent that pushed its branch: the name and the commit it said it finished at. A claim, never a fact: the control plane reads the branch on the forge.</summary>
     public const string ChangeBranch = "change:branch=";
+
+    /// <summary>
+    /// Written by a staging proof that stopped before building because of something that no work of an agent mends in this world: the pull request conflicts with the base branch, or it moved since the maintainer approved it. The
+    /// control plane ends the problem at once, without the controller and without a send-back (the next problem on the repository goes on); what a conflict needs is a new pull request from the bot or the maintainer.
+    /// </summary>
+    public const string Refused = "refused:";
+
+    public const string RefusedConflict = Refused + "conflict";
+
+    public const string RefusedMoved = Refused + "moved";
+
+    /// <summary>The reason written by a refusal marker of a dossier, or null when the dossier holds none.</summary>
+    public static string? RefusalOf(IEnumerable<string> evidence) => evidence.FirstOrDefault(entry => entry is RefusedConflict or RefusedMoved);
 }
 
 /// <summary>One file of a repair, whole: its path from the root of the repository and its text. The control plane writes it into a commit; it is never applied by anything that reads a diff.</summary>

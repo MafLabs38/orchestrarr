@@ -49,13 +49,20 @@ function started(problems: { missionId: string | null }[]): number {
   return problems.filter((problem) => problem.missionId).length;
 }
 
+function queued(problems: { queued?: boolean }[]): number {
+  return problems.filter((problem) => problem.queued).length;
+}
+
 // What came of the validation through the plan: how many problems started, and why each of the others did not
 function PlanResult({ problems }: Readonly<{ problems: ValidatedProblem[] }>) {
   const count = started(problems);
+  const waiting = queued(problems);
   return (
     <>
-      <Alert kind={count > 0 ? kinds.SUCCESS : kinds.WARNING}>
-        {count > 0 ? translate('PlanValidated', { count }) : translate('PlanNothingStarted')}
+      <Alert kind={count + waiting > 0 ? kinds.SUCCESS : kinds.WARNING}>
+        {count > 0 ? translate('PlanValidated', { count }) : null}
+        {count + waiting === 0 ? translate('PlanNothingStarted') : null}
+        {waiting > 0 ? ` ${translate('PlanQueued', { count: waiting })}` : null}
       </Alert>
       {problems
         .filter((problem) => problem.refusal)

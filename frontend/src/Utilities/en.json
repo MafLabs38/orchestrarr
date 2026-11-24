@@ -483,6 +483,7 @@
   "MissionWaiting": "Waiting for its runner",
   "MissionMandate": "mandate for {runner}, acts: {acts}",
   "PlanValidated": "Validated: {count} problems started. Follow them in Missions.",
+  "PlanQueued": "{count} more wait for their turn: one problem at a time is done on a repository.",
   "PlanNotValidated": "The selection could not be validated.",
   "MissionWorldStaging": "Staging",
   "MissionWorldGit": "Git",
