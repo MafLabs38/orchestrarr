@@ -110,7 +110,10 @@ async function waitForPlantedRows(page, planted) {
     ]);
     if (!reading.ok()) return false;
     const shown = await shownNow();
-    if (planted.every((n) => shown.has(n))) { await page.reload(); return true; }
+    // The table keeps what it read for a few minutes: right after a reset it may still show the closed pull request of the run before, next to the new one. What is ticked must be on one row.
+    const rows = await problemRowsOf(page);
+    const unique = (scenario.tick ?? []).every((text) => rows.filter((row) => String(row.description ?? '').includes(text)).length === 1);
+    if (planted.every((n) => shown.has(n)) && unique) { await page.reload(); return true; }
     await page.waitForTimeout(5000);
   }
   return false;
