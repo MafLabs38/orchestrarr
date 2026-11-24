@@ -155,6 +155,21 @@ public sealed class VersionParsersTests
         VersionParsers.Find("kustomize", "example/infra", "k.yaml", block)[0].Image.Tag.Should().Be("1.9");
     }
 
+    [Theory]
+    [InlineData("FROM python:${PY}\n")]
+    [InlineData("FROM ${REGISTRY}/app:1\n")]
+    [InlineData("ARG BASE=x\nFROM ${BASE}\n")]
+    public void A_base_image_that_holds_a_variable_is_not_read(string dockerfile) => VersionParsers.Find("dockerfile", "o/r", "Dockerfile", dockerfile).Should().BeEmpty();
+
+    [Fact]
+    public void A_stage_is_told_whatever_its_case_and_a_line_end_of_windows_and_a_digest_are_read()
+    {
+        var found = VersionParsers.Find("dockerfile", "o/r", "Dockerfile", "FROM python:3.7 as Build\r\nFROM build\r\nFROM app@sha256:abc\r\n");
+
+        found.Select(location => location.Image.Name).Should().Equal("python", "app");
+        found[1].Image.Digest.Should().Be("sha256:abc");
+    }
+
     [Fact]
     public void The_base_images_of_a_dockerfile_are_found_but_not_a_stage_a_variable_or_scratch()
     {

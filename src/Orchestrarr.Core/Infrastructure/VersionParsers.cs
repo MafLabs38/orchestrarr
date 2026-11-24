@@ -49,7 +49,7 @@ public static partial class VersionParsers
         }
     }
 
-    // The base images of a Dockerfile: its FROM lines, but not a stage that an earlier line named (FROM build) and not scratch; a variable is not a reference and is not read
+    // The base images of a Dockerfile: its FROM lines, but not a stage that an earlier line named (FROM build) and not scratch; a reference that holds a variable (FROM ${BASE}, FROM app:${TAG}) is not read
     private static IEnumerable<CodeLocation> DockerfileFroms(string repository, string path, string content)
     {
         var lines = content.Split('\n');
@@ -67,7 +67,7 @@ public static partial class VersionParsers
             {
                 stages.Add(stage);
             }
-            if (isImage && ImageReference.Parse(written) is { } image)
+            if (isImage && !written.Contains('$', StringComparison.Ordinal) && ImageReference.Parse(written) is { } image)
             {
                 yield return new CodeLocation(repository, path, i + 1, VersionForm.DockerfileFrom, image);
             }

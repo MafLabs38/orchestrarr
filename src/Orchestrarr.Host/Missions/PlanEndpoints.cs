@@ -132,9 +132,9 @@ internal static class PlanEndpoints
             brief = brief with { Details = [.. known.Select(finding => finding.Line)] };
         }
         // An image problem is about the places where the image is written: what the control plane read of them goes to the lead, as data, with the problem (the file, the line, the reference as written)
-        if (row.Kind is ProblemKind.ImageUpdate or ProblemKind.FloatingImage && row.Locations is { Count: > 0 } places)
+        if ((row.Kind is ProblemKind.ImageUpdate or ProblemKind.FloatingImage) && row.Locations is { Count: > 0 } places)
         {
-            brief = brief with { Details = ImagePlaces(places) };
+            brief = brief with { Details = ImagePlaces([.. places.Where(place => string.Equals(place.Repository, entry.Repositories[0], StringComparison.OrdinalIgnoreCase))]) };
         }
         // The global stop is read again for each question: a row that waits for a free slot may be asked long after the request came
         if (stop.Engaged)

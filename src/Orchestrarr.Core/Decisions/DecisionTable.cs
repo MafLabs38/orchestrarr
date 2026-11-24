@@ -429,6 +429,12 @@ public static class DecisionTable
             {
                 continue;
             }
+            // An image is solved where it is written: in the repository of the problem, in code that was read, and not on a line that an automation rewrites. No place read in this repository (no code perimeter, a place
+            // in another repository, a reference that is not one) is no problem that an agent can work on
+            if (rows[index].Kind != ProblemKind.DependencyAlert && !WrittenHere(rows[index], item.RepositoryFullName))
+            {
+                continue;
+            }
             // A problem that has no pull request needs a runner that has a free agent: a row that no runner could solve is not offered
             if (!runners.Any(runner => runner.FreeAgent && runner.Accepts(TaskKind.ValidatePullRequest, item.RepositoryFullName)))
             {
@@ -439,6 +445,9 @@ public static class DecisionTable
             rows[index] = rows[index] with { GoesUpTo = ceiling, Why = why, CanStopBeforeProduction = canStop, UpdateClass = null };
         }
     }
+
+    private static bool WrittenHere(ProblemRow row, string repository) =>
+        row.Locations is { } places && places.Any(place => string.Equals(place.Repository, repository, StringComparison.OrdinalIgnoreCase) && place.Managed is null);
 
     // What has no action yet (an alert, a secret, a failing build, an image): shown, with "no action defined" (SPEC Q-30)
     private static void AddOtherProblems(List<ProblemRow> rows, WorkItem item, RelevancePolicy policy, InfrastructureIndex? infrastructure, bool dormant = false)
@@ -479,7 +488,7 @@ public static class DecisionTable
     // Why nothing is defined for a finding: for an image, what makes it a matter of the platform or of planning rather than a tag to change
     private static CeilingReason WhyNoAction(WorkItem item, Finding finding, RelevancePolicy policy)
     {
-        if (finding.Kind != FindingKind.OutdatedImage)
+        if (finding.Kind is not (FindingKind.OutdatedImage or FindingKind.FloatingImage))
         {
             return CeilingReason.NoActionDefined;
         }
@@ -487,7 +496,7 @@ public static class DecisionTable
         {
             return CeilingReason.ManagedByPlatform;
         }
-        return finding.Image?.Change == Orchestrarr.Core.Fleet.ImageChange.Major ? CeilingReason.MajorNeedsPlan : CeilingReason.NoActionDefined;
+        return finding.Kind == FindingKind.OutdatedImage && finding.Image?.Change == Orchestrarr.Core.Fleet.ImageChange.Major ? CeilingReason.MajorNeedsPlan : CeilingReason.NoActionDefined;
     }
 
     private static ProblemRow Of(WorkItem item, string id, ProblemKind kind, string description, Severity severity, int count, Ceiling ceiling, CeilingReason why, string? application = null) =>

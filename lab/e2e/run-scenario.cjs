@@ -29,6 +29,8 @@ const sandbox = (...args) => execFileSync(path.join(__dirname, '..', 'sandbox.sh
 const repos = [...new Set([...(scenario.repos ?? []), ...(scenario.plants ?? []).map((p) => p.repo)])];
 const runStart = Date.now() - 60000;
 const failures = [];
+// How long a row may stay unselectable: the runner is still putting its machine back after the previous run
+const RUNNER_BACK_MS = 300000;
 const expect = (ok, text) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${text}`); if (!ok) failures.push(text); };
 
 // The state of a pull request on the forge, or NOT_FOUND when there is none (never an exception on that: the run goes on and reports).
@@ -89,6 +91,7 @@ function checkFile(want) {
     if (want.notMatches !== undefined) expect(!new RegExp(want.notMatches, 'm').test(content), `${want.repo}/${want.path} does not match ${want.notMatches}`);
     return;
   }
+  if (want.json === undefined) { expect(false, `${want.repo}/${want.path}: the check names none of capture, matches, notMatches or json`); return; }
   const value = want.json.split('.').reduce((node, key) => (node == null ? undefined : node[key]), JSON.parse(content));
   if (want.absent) expect(value === undefined, `${want.repo}/${want.path}: ${want.json} is gone (is ${value === undefined ? 'gone' : value})`);
   else expect(value !== undefined && versionAtLeast(value, want.atLeast), `${want.repo}/${want.path}: ${want.json} is at least ${want.atLeast} (is ${value ?? 'absent'})`);
@@ -157,7 +160,7 @@ async function tickAndValidate(page, ticks) {
     const matching = await page.locator('tbody tr', { hasText: pattern }).count();
     expect(matching === 1, `the table lists exactly one problem with "${pattern}" (lists ${matching})`);
     // the runner may still be putting its machine back after the previous run: the row is not selectable until it asks for work again
-    if (matching === 1) await row.getByRole('checkbox').first().check({ timeout: 300000 }); else selectionOk = false;
+    if (matching === 1) await row.getByRole('checkbox').first().check({ timeout: RUNNER_BACK_MS }); else selectionOk = false;
   }
   // a wrong or partial selection is never validated: it would start a real chain that the scenario cannot judge
   if (!selectionOk) return false;
