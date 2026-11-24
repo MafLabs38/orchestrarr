@@ -508,6 +508,36 @@ public sealed class ProblemConductorTests : IDisposable
     }
 
     [Fact]
+    public async Task A_refusal_of_the_runner_ends_the_problem_and_the_trail_says_the_code_did_it_and_not_the_controller()
+    {
+        var conductor = Conductor();
+        var staging = await StartStaged(conductor);
+        var id = staging.Mission!.Id;
+        await conductor.StartedAsync(id, Ct);
+        await conductor.HandOverAsync(id, DossierFor(id), Ct);
+
+        var result = await conductor.EndRefusedAsync(id, "the pull request conflicts with its base branch", Ct);
+
+        result.Mission!.State.Should().Be(MissionState.Ended);
+        _mandates.IsRevoked(staging.Mandate!.Mandate.Id).Should().BeTrue();
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.Failed);
+        _audit.Events.Should().Contain(entry => entry.StartsWith(MissionAuditEvents.RunnerRefused, StringComparison.Ordinal) && entry.Contains("conflicts", StringComparison.Ordinal));
+        _audit.Events.Should().NotContain(entry => entry.StartsWith(MissionAuditEvents.ControllerDecided, StringComparison.Ordinal), "the controller was not asked and decided nothing");
+    }
+
+    [Fact]
+    public async Task A_refusal_of_the_runner_is_refused_on_a_mission_that_did_not_hand_over()
+    {
+        var conductor = Conductor();
+        var id = (await StartStaged(conductor)).Mission!.Id;
+
+        var result = await conductor.EndRefusedAsync(id, "the pull request conflicts with its base branch", Ct);
+
+        result.Ok.Should().BeFalse();
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.InProgress);
+    }
+
+    [Fact]
     public async Task A_decision_without_reasons_or_on_a_mission_that_did_not_hand_over_is_refused()
     {
         var conductor = Conductor();

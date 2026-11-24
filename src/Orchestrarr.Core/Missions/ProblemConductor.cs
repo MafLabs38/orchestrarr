@@ -252,6 +252,28 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
         }, cancellationToken);
     }
 
+    /// <summary>
+    /// Ends a mission that handed over a refusal that no agent mends (a pull request that conflicts with its base, or that moved): **the code ends it, not the controller**, and the trail says so (<c>mission.runner-refused</c>, never
+    /// <c>controller.decided</c>). It can only stop work. The problem ends with the mission, like any end, and the next problem of the repository goes on.
+    /// </summary>
+    public async Task<ConductResult> EndRefusedAsync(string missionId, string reason, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+        return await OnMissionAsync(missionId, async mission =>
+        {
+            if (mission.State != MissionState.HandingOver)
+            {
+                return ConductResult.Fail("only a mission that handed over can be ended on a refusal");
+            }
+            if (problems.Get(mission.ProblemId) is not { } run)
+            {
+                return ConductResult.Fail("the problem of this mission is unknown");
+            }
+            await BestEffortAsync(MissionAuditEvents.RunnerRefused, missionId, Text($"{reason}"));
+            return await EndAsync(run, mission, MissionEvent.EndedByController, reason);
+        }, cancellationToken);
+    }
+
     private async Task<ConductResult> GrantAsync(ProblemRun run, Mission mission, ControllerDecision decision, CancellationToken cancellationToken)
     {
         var dossier = dossiers.Get(mission.Id);

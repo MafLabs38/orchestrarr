@@ -56,6 +56,13 @@ internal sealed class MissionDriver(IMissionStore missions, IProblemStore proble
         {
             return;
         }
+        // A refusal that no agent mends in this world (a conflict with the base, a pull request that moved) ends the problem at once, by the code: no question to the model, no send-back, and the next problem of the repository goes on.
+        // The marker is a claim of the runner, and what it can do with it is to stop work, never to widen a power
+        if (mission.World == World.Staging && MissionEvidence.RefusalOf(dossier.EvidenceDigests) is { } refusal)
+        {
+            await EndRefusedAsync(mission, refusal, cancellationToken);
+            return;
+        }
         progress.Add(mission.Id, "the controller reads the dossier and the facts");
         var observed = await facts.FactsAsync(new FactsQuery(mission.ProblemId, mission.Id, mission.World, mission.Frame, dossier, dossier.Commit), cancellationToken);
         var view = new FactsView(observed.ChangedPaths ?? [], $"checks of the head commit: {observed.CiGreenOnExactCommit?.ToString() ?? "not known"}", mission.World == World.Staging ? "not applicable in the staging world" : observed.Health ?? "not read", [], observed.ChangeReading);
@@ -75,6 +82,21 @@ internal sealed class MissionDriver(IMissionStore missions, IProblemStore proble
         var failed = result.Failures.Count > 0 ? $", its own checks failed: {string.Join(", ", result.Failures)}" : string.Empty;
         progress.Add(mission.Id, result.Ok || result.Moved ? $"the conductor applied it: {result.Mission?.World} {result.Mission?.State}{failed}" : $"the conductor refused: {result.Refusal}");
         // A mission that moved is not asked about again; one that the conductor refused stays handed over, and is asked again only after the retry delay (not at every pass)
+        if (result.Ok || result.Moved)
+        {
+            _askedAt.Remove(mission.Id);
+        }
+        live.Publish(LiveTopics.Missions, mission.Id);
+    }
+
+    private async Task EndRefusedAsync(Mission mission, string refusal, CancellationToken cancellationToken)
+    {
+        var why = refusal == MissionEvidence.RefusedConflict
+            ? "the pull request conflicts with its base branch: it needs a new pull request (the bot rebases its own), and the work goes on with the next problem"
+            : "the pull request moved since the maintainer approved it: it is validated again on the commit it is now at, and the work goes on with the next problem";
+        progress.Add(mission.Id, $"the runner refused before building: {why}");
+        var result = await conductor.EndRefusedAsync(mission.Id, why, cancellationToken);
+        progress.Add(mission.Id, result.Ok || result.Moved ? $"the conductor ended the problem: {result.Mission?.World} {result.Mission?.State}" : $"the conductor refused: {result.Refusal}");
         if (result.Ok || result.Moved)
         {
             _askedAt.Remove(mission.Id);

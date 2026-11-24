@@ -6,7 +6,9 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using NSubstitute;
+using Orchestrarr.Core.Approvals;
 using Orchestrarr.Core.Forge;
+using Orchestrarr.Core.Launch;
 using Orchestrarr.Core.Missions;
 using Orchestrarr.Host.Missions;
 
@@ -242,6 +244,143 @@ public sealed class MissionWorldsApiTests
 
     private static Task<string?> ClaimAsyncById(AccountsApiFactory factory, string missionId) =>
         Task.FromResult(factory.Services.GetRequiredService<ProblemConductor>().AcceptedCommit(missionId));
+
+    [Theory]
+    [InlineData(MissionEvidence.RefusedConflict, "conflicts with its base branch")]
+    [InlineData(MissionEvidence.RefusedMoved, "moved since the maintainer approved it")]
+    public async Task A_refusal_that_no_agent_mends_ends_the_problem_at_once_without_the_controller(string marker, string said)
+    {
+        // No answer is scripted for the controller: it would be asked and fail, so a pass that ends the problem proves that it was not asked
+        using var factory = new WorldsFactory(new FakeForge());
+        _ = await StartProblemAsync(factory);
+        using var runner = Runner(factory);
+        var staging = (await ClaimAsync(runner, "Staging")).GetProperty("missionId").GetString()!;
+        await HandOverAsync(runner, staging, null, marker);
+
+        await factory.Services.GetServices<IHostedService>().OfType<MissionDriver>().Single().PassAsync(Ct);
+
+        factory.Services.GetRequiredService<IProblemStore>().Get("p-worlds")!.State.Should().NotBe(ProblemState.InProgress);
+        factory.Services.GetRequiredService<IMissionStore>().ForProblem("p-worlds").Should().ContainSingle().Which.State.Should().Be(MissionState.Ended);
+        factory.Services.GetRequiredService<MissionProgress>().Lines(staging).Should().Contain(line => line.Contains(said, StringComparison.Ordinal));
+    }
+
+    private static PreparedProblem Prepared(string problemId, int number, params string[] repositories) =>
+        new($"row-{problemId}", new PlanEntry(problemId, "example/shop", "dependency-update", $"Prove pull request #{number}", repositories, World.Release, new MissionBudget(30, 3, 50), new Validation("alice", null), DateTimeOffset.UtcNow, number, Head), null);
+
+    [Fact]
+    public async Task A_problem_of_a_free_repository_starts_and_the_next_one_on_it_waits_without_starting()
+    {
+        using var factory = new WorldsFactory(new FakeForge());
+        var starter = factory.Services.GetRequiredService<ProblemStarter>();
+
+        var first = await starter.StartOrQueueAsync(Prepared("p-a", 7, "example/shop"), Ct);
+        var second = await starter.StartOrQueueAsync(Prepared("p-b", 8, "example/shop"), Ct);
+        var elsewhere = await starter.StartOrQueueAsync(Prepared("p-c", 9, "example/other"), Ct);
+
+        first.MissionId.Should().NotBeNull(first.Refusal);
+        second.Should().BeEquivalentTo(new ValidatedProblem("row-p-b", "p-b", null, null, null, Queued: true));
+        elsewhere.MissionId.Should().NotBeNull("another repository is free: it starts at once");
+        factory.Services.GetRequiredService<IProblemStore>().Get("p-b").Should().BeNull("a problem that waits is planned, not started");
+        // the same problem validated again while it waits is not put in line twice
+        (await starter.StartOrQueueAsync(Prepared("p-b", 8, "example/shop"), Ct)).Refusal.Should().Be("alreadyQueued");
+    }
+
+    [Fact]
+    public async Task Two_problems_validated_at_the_same_time_on_one_repository_never_both_start()
+    {
+        using var factory = new WorldsFactory(new FakeForge());
+        var starter = factory.Services.GetRequiredService<ProblemStarter>();
+
+        var answers = await Task.WhenAll(Enumerable.Range(0, 6).Select(index => starter.StartOrQueueAsync(Prepared($"p-{index}", 10 + index, "example/shop"), Ct)));
+
+        answers.Count(answer => answer.MissionId is not null).Should().Be(1);
+        answers.Count(answer => answer.Queued).Should().Be(5);
+        factory.Services.GetRequiredService<IProblemStore>().InProgress().Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task A_problem_that_is_not_on_exactly_one_repository_does_not_wait_and_is_the_conductors_to_refuse()
+    {
+        using var factory = new WorldsFactory(new FakeForge());
+        var starter = factory.Services.GetRequiredService<ProblemStarter>();
+
+        var answer = await starter.StartOrQueueAsync(Prepared("p-many", 7, "example/shop", "example/other"), Ct);
+
+        answer.Queued.Should().BeFalse();
+        answer.Refusal.Should().NotBeNull();
+        factory.Services.GetRequiredService<ProblemQueue>().Waiting().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task The_global_stop_empties_the_line_and_nothing_starts()
+    {
+        using var factory = new WorldsFactory(new FakeForge());
+        var starter = factory.Services.GetRequiredService<ProblemStarter>();
+        _ = await starter.StartOrQueueAsync(Prepared("p-a", 7, "example/shop"), Ct);
+        _ = await starter.StartOrQueueAsync(Prepared("p-b", 8, "example/shop"), Ct);
+        _ = await factory.Services.GetRequiredService<IKillSwitchControl>().ChangeAsync(true, new AuditEntry(DateTimeOffset.UtcNow, AuditEvents.KillSwitchEngaged, "alice", null, null), Ct);
+
+        await factory.Services.GetServices<IHostedService>().OfType<ProblemQueueDriver>().Single().PassAsync(Ct);
+
+        factory.Services.GetRequiredService<ProblemQueue>().Waiting().Should().BeEmpty();
+        factory.Services.GetRequiredService<IProblemStore>().Get("p-b").Should().BeNull("nothing starts on a validation that a stop interrupted");
+    }
+
+    [Fact]
+    public async Task A_problem_that_waited_longer_than_its_approval_lasts_leaves_the_line_without_starting()
+    {
+        using var factory = new WorldsFactory(new FakeForge());
+        var line = factory.Services.GetRequiredService<ProblemQueue>();
+        _ = await factory.Services.GetRequiredService<ProblemStarter>().StartOrQueueAsync(Prepared("p-a", 7, "example/shop"), Ct);
+        var entry = Prepared("p-old", 8, "example/shop").Entry!;
+        line.Enqueue(new QueuedProblem("row-old", entry, DateTimeOffset.UtcNow - ProblemStarter.QueuedLifetime - TimeSpan.FromMinutes(1))).Should().BeTrue();
+
+        await factory.Services.GetRequiredService<ProblemStarter>().StartReadyAsync(Ct);
+
+        line.Contains("p-old").Should().BeFalse();
+        factory.Services.GetRequiredService<IProblemStore>().Get("p-old").Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_refusal_marker_outside_the_staging_world_is_only_a_claim_and_ends_nothing()
+    {
+        // The staging is granted, then the Git world claims a refusal: the marker ends nothing there, the dossier goes to the controller, which here has no answer left, so the mission waits where it is
+        using var factory = new WorldsFactory(new FakeForge(), "grant");
+        _ = await StartProblemAsync(factory);
+        using var runner = Runner(factory);
+        var staging = (await ClaimAsync(runner, "Staging")).GetProperty("missionId").GetString()!;
+        await HandOverAsync(runner, staging, Head, $"artifact:tree={Tree}");
+        var driver = factory.Services.GetServices<IHostedService>().OfType<MissionDriver>().Single();
+        var git = await NextMissionAsync(factory, runner, "Git");
+        await HandOverAsync(runner, git, MergeCommit, MissionEvidence.RefusedConflict);
+
+        await driver.PassAsync(Ct);
+
+        factory.Services.GetRequiredService<MissionProgress>().Lines(git).Should().NotContain(line => line.Contains("the runner refused before building", StringComparison.Ordinal));
+        factory.Services.GetRequiredService<IProblemStore>().Get("p-worlds")!.State.Should().Be(ProblemState.InProgress);
+    }
+
+    [Fact]
+    public async Task A_problem_waits_for_its_repository_and_starts_when_the_one_before_it_has_ended()
+    {
+        using var factory = new WorldsFactory(new FakeForge());
+        _ = await StartProblemAsync(factory, "p-first");
+        var line = factory.Services.GetRequiredService<ProblemQueue>();
+        var second = new PlanEntry("p-second", "example/shop", "dependency-update", "Prove pull request #8", ["example/shop"], World.Release, new MissionBudget(30, 3, 50), new Validation("alice", null), DateTimeOffset.UtcNow, 8, Head);
+        line.Enqueue(new QueuedProblem("row-second", second, DateTimeOffset.UtcNow)).Should().BeTrue();
+        var driver = factory.Services.GetServices<IHostedService>().OfType<ProblemQueueDriver>().Single();
+        var problems = factory.Services.GetRequiredService<IProblemStore>();
+
+        await driver.PassAsync(Ct);
+        problems.Get("p-second").Should().BeNull("the repository is busy: nothing starts on it while another problem is in progress");
+        line.Contains("p-second").Should().BeTrue();
+
+        (await factory.Services.GetRequiredService<ProblemConductor>().StopAsync("p-first", "test", Ct)).Ok.Should().BeTrue();
+        await driver.PassAsync(Ct);
+
+        problems.Get("p-second")!.State.Should().Be(ProblemState.InProgress);
+        line.Contains("p-second").Should().BeFalse();
+    }
 
     [Fact]
     public async Task A_mission_that_the_controller_sends_back_is_offered_once_more_with_its_remarks_and_goes_on_with_the_same_mandate()

@@ -395,6 +395,8 @@ export interface ValidatedProblem {
   missionId: string | null;
   world: string | null;
   refusal: string | null;
+  // It waits for its turn on its repository, where another problem is being done
+  queued?: boolean;
 }
 
 // A lab machine and its state, as for equipment in a clean room (ADR 0047), with its statistics over a window

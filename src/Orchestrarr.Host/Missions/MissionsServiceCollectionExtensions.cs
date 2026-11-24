@@ -43,6 +43,7 @@ internal static class MissionsServiceCollectionExtensions
         }
         services
             .AddSingleton<ProblemLocks>()
+            .AddSingleton<ProblemQueue>()
             .AddSingleton(_ => SigningKey.Open(options.SigningKeyFile ?? (storage is SqliteStorage file ? Path.Combine(Path.GetDirectoryName(file.Path) ?? contentRoot, "keys", "mandate-signing.key") : null)))
             .AddSingleton<IRunnerDirectory>(new ConfiguredRunners(options))
             .AddSingleton<IFactsSource, ConservativeFacts>()
@@ -68,7 +69,7 @@ internal static class MissionsServiceCollectionExtensions
         }
         if (options.Sandbox)
         {
-            services.AddSandboxMissions(configuration, isDevelopment).AddHostedService<MissionDriver>();
+            services.AddSandboxMissions(configuration, isDevelopment).AddHostedService<MissionDriver>().AddHostedService<ProblemQueueDriver>();
         }
         return services;
     }

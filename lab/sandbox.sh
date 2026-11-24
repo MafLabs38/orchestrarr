@@ -5,6 +5,7 @@
 #   lab/sandbox.sh mark-seed <repo> <ref>   mark a commit as the seed of a repository (tag "lab-seed")
 #   lab/sandbox.sh reset <repo...>|--all    close the open pull requests, delete the work branches, restore the seed tree
 #   lab/sandbox.sh plant <scenario.json>    plant the faults of a scenario: a branch and a pull request for each (lab/scenarios/)
+#   lab/sandbox.sh rebase <scenario.json>   what a dependency bot does when the base moved: the open pull requests of a scenario are made again on the base as it is now
 #
 # A development tool, not part of the product: it writes to the test-bed organisation only, with the token it is given.
 # The repository rules stay what they are (pull request required, no force push): the seed tree is restored by a pull request
@@ -202,7 +203,8 @@ plant_one() {
   case "$branch" in "$BASE"|main|HEAD) echo "refused: a scenario never plants on $branch" >&2; return 1 ;; esac
   dir=$(clone "$repo")
   has_seed "$dir" "$repo" || { echo "$repo: no seed, the lab does not plant here" >&2; return 1; }
-  delete_branch "$dir" "$branch"
+  # A bot that rebases its pull request keeps the branch (and so the pull request): it is made again on the base as it is now
+  [ -n "${REBASE:-}" ] || delete_branch "$dir" "$branch"
   git -C "$dir" checkout -q -B "$branch" "origin/$BASE"
   case "$kind" in
     npm-bump)
@@ -229,6 +231,18 @@ plant_one() {
   git -C "$dir" add -A
   lab_commit "$dir" "$title"
   git -C "$dir" push -q -f origin "$branch"
+  if [ -n "${REBASE:-}" ]; then
+    # The forge updates the head of a pull request a few seconds after the push: the bot is done when the pull request shows the new commit
+    local pushed seen=""; pushed=$(git -C "$dir" rev-parse HEAD)
+    for _ in $(seq 1 30); do
+      seen=$(gh pr view "$branch" -R "$ORG/$repo" --json headRefOid --jq .headRefOid 2>/dev/null || true)
+      [ "$seen" = "$pushed" ] && break
+      sleep 2
+    done
+    [ "$seen" = "$pushed" ] || { echo "$repo: the pull request of $branch still shows another commit after the push" >&2; return 1; }
+    echo "$repo: rebased $branch on $BASE"
+    return 0
+  fi
   local pr; pr=$(gh pr create -R "$ORG/$repo" --base "$BASE" --head "$branch" --title "$title" --body "$body" | grep -oE '[0-9]+$')
   echo "$repo: planted #$pr ($title)"
 }
@@ -238,11 +252,22 @@ cmd_plant() {
   for i in $(seq 0 $((n - 1))); do plant_one "$scenario" "$i"; done
 }
 
+# What a dependency bot does when the base moved under its pull request: the same bump, made again on the base as it is now, on the same branch (the pull request stays open and its head moves). Only the pull requests that are still open.
+cmd_rebase() {
+  local scenario n branch repo; scenario=$(realpath "$1"); n=$(jq '.plants | length' "$scenario")
+  for i in $(seq 0 $((n - 1))); do
+    repo=$(jq -r ".plants[$i].repo" "$scenario"); branch=$(jq -r ".plants[$i].branch" "$scenario")
+    valid_name "$repo"; valid_name "$branch"
+    if [ "$(gh pr view "$branch" -R "$ORG/$repo" --json state --jq .state 2>/dev/null)" = "OPEN" ]; then REBASE=1 plant_one "$scenario" "$i"; fi
+  done
+}
+
 case "${1:-}" in
   status) shift; cmd_status "$@" ;;
   mark-seed) shift; [ $# -eq 2 ] || { echo "usage: mark-seed <repo> <ref>" >&2; exit 2; }; cmd_mark_seed "$@" ;;
   reset) shift; cmd_reset "$@" ;;
   reset-one) shift; reset_one "$1" ;;  # one repository, in a process of its own so that set -e applies to every step
+  rebase) shift; [ $# -eq 1 ] || { echo "usage: rebase <scenario.json>" >&2; exit 2; }; cmd_rebase "$1" ;;
   plant) shift; [ $# -eq 1 ] || { echo "usage: plant <scenario.json>" >&2; exit 2; }; cmd_plant "$1" ;;
   *) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac

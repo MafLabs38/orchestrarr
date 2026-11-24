@@ -302,6 +302,87 @@ describe('Decisions', () => {
     expect(base.mock.calls.some(([path]) => String(path) === '/api/v1/problems/approve')).toBe(false);
   });
 
+  it('says how many problems wait for their turn on a repository, and counts a problem that waits as started work', async () => {
+    const first = problem({
+      id: 'pr:example/shop#9',
+      description: 'lodash 4.17.4 → 4.18.1',
+      headSha: head('d'),
+      pullRequest: 9,
+    });
+    const second = problem({
+      id: 'pr:example/shop#10',
+      description: 'express 4.16.0 → 4.16.4',
+      headSha: head('e'),
+      pullRequest: 10,
+    });
+    const base = stub(problemsReport([first, second]), { requiresSecondFactor: false });
+    const answer = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: string, init?: RequestInit) => {
+        if (String(input) === '/api/v1/plan') {
+          return answer({ available: true });
+        }
+        if (String(input) === '/api/v1/plan/validate') {
+          return answer(
+            {
+              problems: [
+                { rowId: first.id, problemId: 'p-1', missionId: 'm-1', world: 'Staging', refusal: null },
+                { rowId: second.id, problemId: 'p-2', missionId: null, world: null, refusal: null, queued: true },
+              ],
+            },
+            201,
+          );
+        }
+        return base(input, init);
+      }),
+    );
+    renderWithProviders(<Decisions />);
+
+    await userEvent.click(await screen.findByLabelText(/Select example\/shop lodash/));
+    await userEvent.click(screen.getByLabelText(/Select example\/shop express/));
+    await userEvent.click(screen.getByRole('button', { name: 'Validate the selection' }));
+
+    expect(await screen.findByText(/Validated: 1 problems started\..*1 more wait for their turn/)).toBeInTheDocument();
+  });
+
+  it('shows no "nothing started" warning when every row of the selection waits for its turn', async () => {
+    const first = problem({
+      id: 'pr:example/shop#9',
+      description: 'lodash 4.17.4 → 4.18.1',
+      headSha: head('d'),
+      pullRequest: 9,
+    });
+    const base = stub(problemsReport([first]), { requiresSecondFactor: false });
+    const answer = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: string, init?: RequestInit) => {
+        if (String(input) === '/api/v1/plan') {
+          return answer({ available: true });
+        }
+        if (String(input) === '/api/v1/plan/validate') {
+          return answer(
+            {
+              problems: [
+                { rowId: first.id, problemId: 'p-1', missionId: null, world: null, refusal: null, queued: true },
+              ],
+            },
+            201,
+          );
+        }
+        return base(input, init);
+      }),
+    );
+    renderWithProviders(<Decisions />);
+
+    await userEvent.click(await screen.findByLabelText(/Select example\/shop lodash/));
+    await userEvent.click(screen.getByRole('button', { name: 'Validate the selection' }));
+
+    expect(await screen.findByText(/1 more wait for their turn/)).toBeInTheDocument();
+    expect(screen.queryByText('Nothing was started.')).not.toBeInTheDocument();
+  });
+
   it('selects a problem that has no pull request, as it is, and sends it to the plan with no commit', async () => {
     const alert = problem({
       id: 'finding:repository:example/shop:DependencyAlerts',

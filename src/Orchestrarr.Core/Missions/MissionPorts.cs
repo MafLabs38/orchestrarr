@@ -43,6 +43,8 @@ public interface IMissionAudit
 public static class MissionAuditEvents
 {
     public const string ProblemStarted = "problem.started";
+    public const string ProblemQueued = "problem.queued";
+    public const string QueuedProblemRefused = "problem.queue-refused";
     public const string LeadRefused = "lead.refused";
     public const string LeadPlanned = "lead.planned";
     public const string ProblemClosed = "problem.closed";
@@ -59,4 +61,7 @@ public static class MissionAuditEvents
     public const string ActAuthorised = "act.authorised";
     public const string ActRefused = "act.refused";
     public const string ActPerformed = "act.performed";
+
+    /// <summary>The code ended a mission because its runner refused to build (a conflict, a pull request that moved): no controller decided it, and the trail does not say so.</summary>
+    public const string RunnerRefused = "mission.runner-refused";
 }
