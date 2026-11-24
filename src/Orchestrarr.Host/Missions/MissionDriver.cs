@@ -95,7 +95,7 @@ internal sealed class MissionDriver(IMissionStore missions, IProblemStore proble
             ? "the pull request conflicts with its base branch: it needs a new pull request (the bot rebases its own), and the work goes on with the next problem"
             : "the pull request moved since the maintainer approved it: it is validated again on the commit it is now at, and the work goes on with the next problem";
         progress.Add(mission.Id, $"the runner refused before building: {why}");
-        var result = await conductor.DecideAsync(mission.Id, new ControllerDecision(ControllerDecisionKind.End, [why], null), cancellationToken);
+        var result = await conductor.EndRefusedAsync(mission.Id, why, cancellationToken);
         progress.Add(mission.Id, result.Ok || result.Moved ? $"the conductor ended the problem: {result.Mission?.World} {result.Mission?.State}" : $"the conductor refused: {result.Refusal}");
         if (result.Ok || result.Moved)
         {

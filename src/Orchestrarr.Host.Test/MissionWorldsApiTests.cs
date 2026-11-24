@@ -245,28 +245,30 @@ public sealed class MissionWorldsApiTests
     private static Task<string?> ClaimAsyncById(AccountsApiFactory factory, string missionId) =>
         Task.FromResult(factory.Services.GetRequiredService<ProblemConductor>().AcceptedCommit(missionId));
 
-    [Fact]
-    public async Task A_refusal_that_no_agent_mends_ends_the_problem_at_once_without_the_controller()
+    [Theory]
+    [InlineData(MissionEvidence.RefusedConflict, "conflicts with its base branch")]
+    [InlineData(MissionEvidence.RefusedMoved, "moved since the maintainer approved it")]
+    public async Task A_refusal_that_no_agent_mends_ends_the_problem_at_once_without_the_controller(string marker, string said)
     {
         // No answer is scripted for the controller: it would be asked and fail, so a pass that ends the problem proves that it was not asked
         using var factory = new WorldsFactory(new FakeForge());
         _ = await StartProblemAsync(factory);
         using var runner = Runner(factory);
         var staging = (await ClaimAsync(runner, "Staging")).GetProperty("missionId").GetString()!;
-        await HandOverAsync(runner, staging, null, MissionEvidence.RefusedConflict);
+        await HandOverAsync(runner, staging, null, marker);
 
         await factory.Services.GetServices<IHostedService>().OfType<MissionDriver>().Single().PassAsync(Ct);
 
         factory.Services.GetRequiredService<IProblemStore>().Get("p-worlds")!.State.Should().NotBe(ProblemState.InProgress);
         factory.Services.GetRequiredService<IMissionStore>().ForProblem("p-worlds").Should().ContainSingle().Which.State.Should().Be(MissionState.Ended);
-        factory.Services.GetRequiredService<MissionProgress>().Lines(staging).Should().Contain(line => line.Contains("conflicts with its base branch", StringComparison.Ordinal));
+        factory.Services.GetRequiredService<MissionProgress>().Lines(staging).Should().Contain(line => line.Contains(said, StringComparison.Ordinal));
     }
 
     private static PreparedProblem Prepared(string problemId, int number, params string[] repositories) =>
         new($"row-{problemId}", new PlanEntry(problemId, "example/shop", "dependency-update", $"Prove pull request #{number}", repositories, World.Release, new MissionBudget(30, 3, 50), new Validation("alice", null), DateTimeOffset.UtcNow, number, Head), null);
 
     [Fact]
-    public async Task A_problem_of_a_free_repository_starts_and_the_next_one_on_it_waits_and_says_so_in_the_trail()
+    public async Task A_problem_of_a_free_repository_starts_and_the_next_one_on_it_waits_without_starting()
     {
         using var factory = new WorldsFactory(new FakeForge());
         var starter = factory.Services.GetRequiredService<ProblemStarter>();
@@ -310,7 +312,7 @@ public sealed class MissionWorldsApiTests
     }
 
     [Fact]
-    public async Task The_global_stop_empties_the_line_and_the_trail_says_so()
+    public async Task The_global_stop_empties_the_line_and_nothing_starts()
     {
         using var factory = new WorldsFactory(new FakeForge());
         var starter = factory.Services.GetRequiredService<ProblemStarter>();

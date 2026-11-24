@@ -14,7 +14,7 @@ public sealed partial class StagingProof(IShell shell, MissionRunnerOptions opti
 {
     public string World => "Staging";
 
-    // The messages of git are read by the code (a conflict): they are in the C locale, whatever the machine speaks
+    // The messages of git are read by the code (a conflict): every command of the staging proof runs in the C locale, whatever the machine speaks
     private const string Prelude = "export LC_ALL=C DOCKER_HOST=unix:///run/user/$(id -u)/docker.sock; set -e; ";
 
     public async Task<MissionHandOver> RunAsync(ClaimedMission mission, Func<string, Task> report, CancellationToken cancellationToken)
@@ -51,7 +51,7 @@ public sealed partial class StagingProof(IShell shell, MissionRunnerOptions opti
         var tree = TreeLine().Match(checkout.Output) is { Success: true } treeFound ? treeFound.Groups[1].Value : null;
         if (checkout.ExitCode != 0 || head is null || tree is null)
         {
-            var conflict = checkout.Output.Contains("CONFLICT", StringComparison.Ordinal);
+            var conflict = checkout.Output.Contains("CONFLICT (", StringComparison.Ordinal);
             return Refused(mission, $"The pull request could not be fetched and merged on the staging machine ({(conflict ? "a conflict with the base branch" : "the checkout failed")}): {Tail(checkout.Output)}", conflict ? MissionEvidence.RefusedConflict : null);
         }
         // What is built and tested is the result of the merge, and its tree names the artifact: the release must be that tree (FR-WLD-14)
