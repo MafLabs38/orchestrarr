@@ -6,7 +6,7 @@ public sealed record QueuedProblem(string RowId, PlanEntry Entry, DateTimeOffset
 /// <summary>
 /// **One work site at a time on a repository** (the maintainer's Git flow rule, 2026-11-24): problems that are validated together on one repository are done one after the other, so that what is proved in staging is what is
 /// merged on a base that nobody else moved, and no two changes of the same repository can conflict because of this product. A problem waits here, planned but not started (no mandate is issued, no approval is used), and starts when
-/// no other problem is in progress on its repository. A problem that fails does not hold the others: it ends, and the next one starts. In memory, like the other stores of the test bed: a restart empties it, and the maintainer validates again.
+/// no other problem is in progress on its repository; when several repositories are free the more urgent goes first (<see cref="FlowPriority"/>). A problem that fails does not hold the others: it ends, and the next one starts. In memory, like the other stores of the test bed: a restart empties it, and the maintainer validates again.
 /// </summary>
 public sealed class ProblemQueue
 {
@@ -60,7 +60,7 @@ public sealed class ProblemQueue
         lock (_gate)
         {
             var ready = new List<QueuedProblem>();
-            foreach (var problem in _waiting.OrderBy(other => other.QueuedAt))
+            foreach (var problem in _waiting.OrderByDescending(other => other.Entry.Priority).ThenBy(other => other.QueuedAt))
             {
                 var repository = RepositoryOf(problem);
                 if (repository is not null && !isBusy(repository) && !ready.Exists(other => IsOn(other, repository)))

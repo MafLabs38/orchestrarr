@@ -104,8 +104,7 @@ internal static partial class MissionRunnerEndpoints
             // A mission is offered when its mandate has just been issued, or when the controller sent it back after a dossier (once for each send-back): the same mandate goes on with the remarks
             var mission = missions.Recent(200).Where(candidate => (candidate.State == MissionState.Mandated || (IsSentBack(candidate, dossiers) && !progress.WasOffered(candidate.Id, candidate.SendBacks))) && MandateOf(candidate, mandates) is { } signed && signed.Mandate.RunnerId == name && signed.Mandate.ExpiresAt > time.GetUtcNow() && (world is null || string.Equals(candidate.World.ToString(), world, StringComparison.OrdinalIgnoreCase)))
                 .Where(candidate => IsItsTurn(candidate, problems))
-                // The later worlds first: what is on its way to production is finished before something new is started
-                .OrderByDescending(candidate => candidate.World).ThenBy(candidate => candidate.Id, StringComparer.Ordinal).FirstOrDefault();
+                .FirstNext(problems);
             if (mission is null || MandateOf(mission, mandates) is not { } mandate || problems.Get(mission.ProblemId)?.Entry is not { Repositories.Count: 1 } entry)
             {
                 return Results.Ok(new MissionClaimResponse(null));
@@ -239,9 +238,16 @@ internal static partial class MissionRunnerEndpoints
         });
     }
 
+    /// <summary>
+    /// The mission to offer first among those that could be: the more urgent problem first (a release that failed goes ahead of the normal ones, ADR 0050), then the later worlds (what is on its way to production is finished
+    /// before something new is started), then the identifier. A running mission is never taken from its runner for it.
+    /// </summary>
+    internal static Mission? FirstNext(this IEnumerable<Mission> candidates, IProblemStore problems) =>
+        candidates.OrderByDescending(candidate => problems.Get(candidate.ProblemId)?.Entry.Priority ?? 0).ThenByDescending(candidate => candidate.World).ThenBy(candidate => candidate.Id, StringComparer.Ordinal).FirstOrDefault();
+
     private static bool IsSentBack(Mission candidate, IDossierStore dossiers) => candidate.State == MissionState.Running && candidate.SendBacks > 0 && dossiers.Get(candidate.Id) is not null;
 
-    // One problem at a time on one repository (FR-MIS-6): a mission is offered only when its problem is the oldest of those in progress on its repository, so that what was proved in staging is what is merged and deployed
+    // One problem at a time on one repository (FR-MIS-6): a mission is offered only when its problem is the most urgent, then the oldest, of those in progress on its repository, so that what was proved in staging is what is merged and deployed
     private static bool IsItsTurn(Mission candidate, IProblemStore problems)
     {
         if (problems.Get(candidate.ProblemId) is not { Entry.Repositories.Count: 1 } run)
@@ -250,7 +256,7 @@ internal static partial class MissionRunnerEndpoints
         }
         var repository = run.Entry.Repositories[0];
         var oldest = problems.InProgress().Where(other => other.Entry.Repositories.Count == 1 && string.Equals(other.Entry.Repositories[0], repository, StringComparison.Ordinal))
-            .OrderBy(other => other.StartedAt).ThenBy(other => other.ProblemId, StringComparer.Ordinal).FirstOrDefault();
+            .OrderByDescending(other => other.Entry.Priority).ThenBy(other => other.StartedAt).ThenBy(other => other.ProblemId, StringComparer.Ordinal).FirstOrDefault();
         return oldest is null || string.Equals(oldest.ProblemId, candidate.ProblemId, StringComparison.Ordinal);
     }
 

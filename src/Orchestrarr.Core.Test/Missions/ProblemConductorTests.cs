@@ -920,6 +920,16 @@ public sealed class ProblemConductorTests : IDisposable
         _mandates.CountForProblem("problem-1").Should().Be(4, "the new mandate counts against the loop's bound and the certificate's count");
     }
 
+    [Fact]
+    public async Task A_release_that_does_not_verify_raises_the_priority_of_its_problem_by_one_step_each_time_and_says_so_in_the_trail()
+    {
+        var conductor = Conductor();
+        await ReleaseThatFails(conductor, staged: true);
+
+        _problems.Get("problem-1")!.Entry.Priority.Should().Be(FlowPriority.FirstUrgent, "production is touched: the problem goes ahead of the normal ones");
+        _audit.Events.Should().Contain(line => line.StartsWith("problem.priority-raised problem-1") && line.Contains("50 to 70"));
+    }
+
     private async Task<ConductResult> ReleaseThatFails(ProblemConductor conductor, bool staged, Action? before = null)
     {
         var step = staged ? await StartStaged(conductor) : await conductor.StartAsync(Entry(), StagingDeclaration.DeclaredNoStaging, StagingRequirement.BlankMachine, StagingState.NotDefined, Ct);

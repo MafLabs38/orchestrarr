@@ -43,6 +43,7 @@ public interface IMissionAudit
 public static class MissionAuditEvents
 {
     public const string ProblemStarted = "problem.started";
+    public const string PriorityRaised = "problem.priority-raised";
     public const string ProblemQueued = "problem.queued";
     public const string QueuedProblemRefused = "problem.queue-refused";
     public const string LeadRefused = "lead.refused";
