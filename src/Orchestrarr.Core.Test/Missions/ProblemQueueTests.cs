@@ -10,7 +10,9 @@ public sealed class ProblemQueueTests
         new($"row-{id}", new PlanEntry(id, "app", "dependency-update", "x", [repository], World.Release, new MissionBudget(30, 3, 50), new Validation("alice", null), T0, 1, "abc"), T0.AddMinutes(minutes));
 
     private static QueuedProblem Urgent(string id, string repository, int priority, int minutes = 0) =>
-        Problem(id, repository, minutes) with { Entry = Problem(id, repository, minutes).Entry with { Priority = priority } };
+        WithPriority(Problem(id, repository, minutes), priority);
+
+    private static QueuedProblem WithPriority(QueuedProblem problem, int priority) => problem with { Entry = problem.Entry with { Priority = priority } };
 
     [Fact]
     public void The_most_urgent_problem_of_each_repository_is_ready_first_and_ahead_of_an_older_normal_one()

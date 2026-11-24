@@ -12,7 +12,7 @@ public sealed class MissionOrderTests
 
     private static void Add(InMemoryProblemStore store, string problem, int priority) =>
         store.Save(new ProblemRun(problem, "app", ProblemState.InProgress, T0, new PlanEntry(problem, "app", "c", "o", ["o/r"], World.Release, new MissionBudget(1, 1, 1), new Validation("x", null), T0, Priority: priority),
-            World.Release, true, null!));
+            World.Release, true, new SignedApproval(new ApprovalCertificate("c", CertificateKind.Problem, problem, "app", ["o/r"], World.Release, new MissionBudget(1, 1, 1), T0, T0.AddHours(1), "x", "n", [], 8), [])));
 
     [Fact]
     public void The_more_urgent_problem_is_offered_before_a_later_world_of_a_normal_one()
@@ -22,6 +22,15 @@ public sealed class MissionOrderTests
         Add(problems, "hot", FlowPriority.FirstUrgent);
 
         new[] { MissionOf("m1", "normal", World.Release), MissionOf("m2", "hot", World.Staging) }.FirstNext(problems)!.Id.Should().Be("m2");
+    }
+
+    [Fact]
+    public void A_mission_whose_problem_is_unknown_goes_last()
+    {
+        var problems = new InMemoryProblemStore();
+        Add(problems, "known", FlowPriority.Normal);
+
+        new[] { MissionOf("m1", "unknown", World.Release), MissionOf("m2", "known", World.Staging) }.FirstNext(problems)!.Id.Should().Be("m2");
     }
 
     [Fact]

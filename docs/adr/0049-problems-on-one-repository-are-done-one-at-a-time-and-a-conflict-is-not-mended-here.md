@@ -21,7 +21,7 @@ The maintainer set it aside in the chat of 2026-11-24: this is a **Git flow** pr
 
 - **The certificate of the approval is issued when the problem starts, not when it was validated**, because the approval authority of the test bed is in the process and signs with no code. On a deployment the certificate is issued at the human act (the maintainer's one-time code), so how a long line meets its lifetime (a new approval at start, or a certificate per batch) is **open**, and is the maintainer's to decide when a deployment can start a problem (ADR 0031 point 7).
 - **The lead plans a problem when it is validated**, and that plan is used when the problem starts, possibly after the others of its repository, on a base that has moved. A plan only narrows how far the problem goes, and what the base became is read again by the proof and the pipeline, so a stale plan costs a refusal at worst; it is accepted and said here.
-- **The order of the line is the order of the selection** (the rows in the order they were sent, then the time they were queued), not a ranking.
+- **The order of the line is the order of the selection** (the rows in the order they were sent, then the time they were queued) among problems of the same priority; a more urgent one goes first (ADR 0050).
 
 ## Answered by the maintainer
 
