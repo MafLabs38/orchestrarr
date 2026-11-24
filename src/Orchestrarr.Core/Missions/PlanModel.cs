@@ -36,8 +36,8 @@ public sealed record PlanEntry(
     ProblemBrief? Brief = null,
     LeadPlan? Plan = null);
 
-/// <summary>What the control plane keeps about one problem while it is worked on: its plan entry, the certificate of the approval, the highest world its powers reached when it started (a display: the power is read again at each crossing), and whether its application has a staging.</summary>
-public sealed record ProblemRun(string ProblemId, string ApplicationId, ProblemState State, DateTimeOffset StartedAt, PlanEntry Entry, World HighestAllowed, bool UsesStaging, SignedApproval Approval, World? CurrentWorld = null, string? Note = null);
+/// <summary>What the control plane keeps about one problem while it is worked on: its plan entry, the certificate of the approval, the priority of the flow (<see cref="FlowPriority"/>: it changes while the problem runs, so it is not part of the entry that the approval covers), the highest world its powers reached when it started (a display: the power is read again at each crossing), and whether its application has a staging.</summary>
+public sealed record ProblemRun(string ProblemId, string ApplicationId, ProblemState State, DateTimeOffset StartedAt, PlanEntry Entry, World HighestAllowed, bool UsesStaging, SignedApproval Approval, World? CurrentWorld = null, string? Note = null, int Priority = FlowPriority.Normal);
 
 /// <summary>The four stores of the missions, together: the missions, the mandates, the problems and the dossiers.</summary>
 public sealed record MissionStores(IMissionStore Missions, IMandateLedger Mandates, IProblemStore Problems, IDossierStore Dossiers, IMissionUnit Unit);

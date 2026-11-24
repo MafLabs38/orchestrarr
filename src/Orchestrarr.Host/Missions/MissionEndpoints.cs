@@ -12,7 +12,7 @@ public sealed record DossierView(string Claim, string WhatChangedAndWhy, IReadOn
 
 /// <summary>A mission with its mandate, its dossier and the state of its problem.</summary>
 public sealed record MissionView(
-    string Id, string ProblemId, string ApplicationId, string World, string Objective, string State, string? End, string? EndReason, int SendBacks, string? ProblemState, MandateView? Mandate, DossierView? Dossier, IReadOnlyList<string>? Progress = null);
+    string Id, string ProblemId, string ApplicationId, string World, string Objective, string State, string? End, string? EndReason, int SendBacks, string? ProblemState, MandateView? Mandate, DossierView? Dossier, IReadOnlyList<string>? Progress = null, int? ProblemPriority = null);
 
 /// <summary>What a person sees of the missions (FUNCTIONAL 5.12): the list and one mission. Nothing here changes anything.</summary>
 internal static class MissionEndpoints
@@ -45,7 +45,7 @@ internal static class MissionEndpoints
                 : null;
             var dossier = dossierById.TryGetValue(mission.Id, out var found) ? new DossierView(found.Claim, found.WhatChangedAndWhy, found.OpenPoints, found.Complex, found.ComplexReason, found.EvidenceDigests) : null;
             return new MissionView(mission.Id, mission.ProblemId, mission.ApplicationId, mission.World.ToString(), mission.Objective, mission.State.ToString(), mission.End?.ToString(), mission.EndReason, mission.SendBacks,
-                problemById.TryGetValue(mission.ProblemId, out var run) ? run.State.ToString() : null, mandate, dossier, progress?.Lines(mission.Id));
+                problemById.TryGetValue(mission.ProblemId, out var run) ? run.State.ToString() : null, mandate, dossier, progress?.Lines(mission.Id), run?.Priority);
         })];
     }
 

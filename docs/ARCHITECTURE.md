@@ -339,7 +339,7 @@ The catalogue lives in the control plane and **stores only the verdict** (state,
 
 - **One mission at a time per application, per repository and, in the release world, per target environment** [FR-MIS-6].
 - **Staging slots are scarce** (two at once on the laboratory machine): a staging mission waits for a free slot; the slot is reserved for the mission and released, restored to its baseline, at the end [FR-STG-7, FR-STG-8].
-- Priority by the problem's priority (a serious advisory first) [FR-FIND-6].
+- Priority by the problem's priority, **a number from 0 to 100** (50 normal, an urgent one from 70 up; a release that failed goes ahead of the normal problems): it orders the mission a runner is given next (ahead of the world), never the line or the turn of a repository, and never interrupts a mission that runs [FR-MIS-10, FR-FIND-6, ADR 0050].
 
 ### The platform controller
 

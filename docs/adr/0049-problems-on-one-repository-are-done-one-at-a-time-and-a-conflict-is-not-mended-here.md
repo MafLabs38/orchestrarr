@@ -21,11 +21,11 @@ The maintainer set it aside in the chat of 2026-11-24: this is a **Git flow** pr
 
 - **The certificate of the approval is issued when the problem starts, not when it was validated**, because the approval authority of the test bed is in the process and signs with no code. On a deployment the certificate is issued at the human act (the maintainer's one-time code), so how a long line meets its lifetime (a new approval at start, or a certificate per batch) is **open**, and is the maintainer's to decide when a deployment can start a problem (ADR 0031 point 7).
 - **The lead plans a problem when it is validated**, and that plan is used when the problem starts, possibly after the others of its repository, on a base that has moved. A plan only narrows how far the problem goes, and what the base became is read again by the proof and the pipeline, so a stale plan costs a refusal at worst; it is accepted and said here.
-- **The order of the line is the order of the selection** (the rows in the order they were sent, then the time they were queued), not a ranking.
+- **The order of the line is the order of the selection** (the rows in the order they were sent, then the time they were queued); the priority of ADR 0050 does not reorder it.
 
-## Open for the maintainer
+## Answered by the maintainer
 
-- **A problem that is escalated frees the repository, and the next one starts.** FR-WLD-13 (proposed) wants an escalated problem after a failed release to keep blocking the releases of its own application until the maintainer answers, so that nothing lands on a production that is known to be failing. The line does not do that: it counts only the problems in progress, which is what the maintainer asked for a failure (move on). Whether a failed *release* is different from a failure before the merge is his decision; it is a small change in `ProblemStarter.Busy` once decided.
+- **A problem that is escalated frees the repository, and the next one starts**: this stays for a problem that is escalated or that fails. For a release that did not verify the maintainer answered, on 2026-11-24, that it is a matter of flow and not of a blocking rule: the problem goes back with a raised priority and holds its repository while the loop goes on, so nothing else lands on a failing production meanwhile ([ADR 0050](0050-the-flow-has-a-priority-from-0-to-100-and-a-failed-release-goes-ahead.md), which withdraws FR-WLD-13's blocking rule).
 
 ## Not decided here, not built
 

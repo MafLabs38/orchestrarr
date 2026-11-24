@@ -100,6 +100,7 @@ public sealed class MissionsApiTests
         all.Count(mission => mission.GetProperty("world").GetString() == "Staging").Should().BeGreaterThan(1, "a release that does not verify sends the problem back to the first world, again and again, until the loop's bound");
         all.Where(mission => mission.GetProperty("world").GetString() == "Release").Should().OnlyContain(mission => mission.GetProperty("state").GetString() == "Ended");
         all[0].GetProperty("problemState").GetString().Should().Be("Failed", "the loop ends at its bound and the maintainer is told");
+        all[0].GetProperty("problemPriority").GetInt32().Should().BeGreaterThanOrEqualTo(FlowPriority.FirstUrgent, "a release that failed raised the priority of the problem");
     }
 
     [Fact]
