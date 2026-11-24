@@ -32,10 +32,31 @@ public sealed class RunnerRegistry(TimeProvider time)
         }
     }
 
+    /// <summary>A runner that is already known and makes any call is there: its description stays what it said, only the time of its last sign changes. A runner never seen says nothing here (it has to say what it accepts first).</summary>
+    public void Touch(string name)
+    {
+        var now = time.GetUtcNow();
+        bool changed;
+        lock (_gate)
+        {
+            if (!_seen.TryGetValue(name, out var before))
+            {
+                return;
+            }
+            changed = now - before.At > ConnectedFor;
+            _seen[name] = (before.Hello, now);
+        }
+        if (changed)
+        {
+            Changed?.Invoke();
+        }
+    }
+
     // What a person sees of a runner: its version, what it accepts and whether it asks for the code. A list is compared by its values.
     private static bool Same(RunnerHello before, RunnerHello now) =>
         before.Version == now.Version
         && before.SecondFactorRequired == now.SecondFactorRequired
+        && before.FreeAgent == now.FreeAgent
         && before.Kinds.SequenceEqual(now.Kinds)
         && before.Repositories.SequenceEqual(now.Repositories, StringComparer.Ordinal)
         && before.Delegations.SequenceEqual(now.Delegations);
@@ -51,8 +72,9 @@ public sealed class RunnerRegistry(TimeProvider time)
             pair.Value.Hello.Kinds,
             pair.Value.Hello.Repositories,
             pair.Value.Hello.Delegations,
-            pair.Value.Hello.SecondFactorRequired))];
+            pair.Value.Hello.SecondFactorRequired,
+            pair.Value.Hello.FreeAgent))];
     }
 }
 
-public sealed record RunnerStatus(string Name, string Version, DateTimeOffset LastSeen, bool Connected, IReadOnlyList<TaskKind> Kinds, IReadOnlyList<string> Repositories, IReadOnlyList<DelegationInfo> Delegations, bool SecondFactorRequired);
+public sealed record RunnerStatus(string Name, string Version, DateTimeOffset LastSeen, bool Connected, IReadOnlyList<TaskKind> Kinds, IReadOnlyList<string> Repositories, IReadOnlyList<DelegationInfo> Delegations, bool SecondFactorRequired, bool FreeAgent);

@@ -44,6 +44,8 @@ internal static class RunnerEndpoints
                 return;
             }
             context.Items[RunnerItem] = name;
+            // A runner that is working (a mission, a reset of its machine) is still there: any call that carries its token says so, not only the call that asks for work
+            context.RequestServices.GetService<RunnerRegistry>()?.Touch(name);
             await next(context);
         });
 

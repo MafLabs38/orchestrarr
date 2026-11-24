@@ -18,18 +18,23 @@ if (!url || !user || !password || !org) { console.error('set LAB_URL, LAB_USER, 
 const maxSeconds = Number(process.env.LAB_MAX_SECONDS ?? 900);
 const setup = !process.env.LAB_SKIP_SETUP;
 const keep = Boolean(process.env.LAB_KEEP);
+// The file where the fake source of advisories reads what is known about the dependencies (Missions:SandboxFindingsFile of the control plane of the test bed): a scenario with "findings" needs it
+const findingsFile = process.env.LAB_FINDINGS_FILE;
+if (scenario.findings && !findingsFile) { console.error('this scenario plants findings: set LAB_FINDINGS_FILE to the file of the control plane'); process.exit(2); }
 
 // The words of the interface the runner drives, in one place
 const UI = { signIn: /sign in/i, refresh: 'Refresh', validate: 'Validate the selection', started: /problems started|Nothing was started/, missions: 'Missions' };
 
 const sandbox = (...args) => execFileSync(path.join(__dirname, '..', 'sandbox.sh'), args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] }).trim();
-const repos = [...new Set((scenario.plants ?? []).map((p) => p.repo))];
+const repos = [...new Set([...(scenario.repos ?? []), ...(scenario.plants ?? []).map((p) => p.repo)])];
+const runStart = Date.now() - 60000;
 const failures = [];
 const expect = (ok, text) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${text}`); if (!ok) failures.push(text); };
 
 // The state of a pull request on the forge, or NOT_FOUND when there is none (never an exception on that: the run goes on and reports).
 // A pull request is named by its branch, or by its title when the lab did not choose it (a repair's number is only known along the way): "{0}" is the number of the first planted pull request
 let plantedNumbers = [];
+let followed = [];
 function prState(want) {
   try {
     if (want.title) {
@@ -37,8 +42,9 @@ function prState(want) {
         if (plantedNumbers[Number(index)] === undefined) throw new Error(`the title of an expectation names the planted pull request {${index}}, which the scenario did not plant`);
         return String(plantedNumbers[Number(index)]);
       });
-      const found = JSON.parse(execFileSync('gh', ['pr', 'list', '-R', `${org}/${want.repo}`, '--state', 'all', '--search', `"${title}" in:title`, '--json', 'state,title', '--limit', '20'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }));
-      return found.find((candidate) => candidate.title === title)?.state ?? 'NOT_FOUND';
+      const found = JSON.parse(execFileSync('gh', ['pr', 'list', '-R', `${org}/${want.repo}`, '--state', 'all', '--search', `"${title}" in:title`, '--json', 'state,title,createdAt', '--limit', '20'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }));
+      // A title that the lab does not make unique (a fix has the same title at each run) is looked for among the pull requests opened since this run began
+      return found.find((candidate) => candidate.title === title && (!want.thisRun || Date.parse(candidate.createdAt) >= runStart))?.state ?? 'NOT_FOUND';
     }
     return execFileSync('gh', ['pr', 'view', want.branch, '-R', `${org}/${want.repo}`, '--json', 'state', '--jq', '.state'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
   } catch (error) {
@@ -46,6 +52,35 @@ function prState(want) {
     if (/no pull requests found/i.test(String(error.stderr ?? ''))) return 'NOT_FOUND';
     throw error;
   }
+}
+
+// The content of a file on the default branch of a repository, or null when there is none (the final state is read on the forge, not in the interface)
+function fileOnForge(repo, filePath) {
+  try {
+    return execFileSync('gh', ['api', `repos/${org}/${repo}/contents/${filePath}`, '-H', 'Accept: application/vnd.github.raw+json'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch (error) {
+    if (/Not Found|404/i.test(String(error.stderr ?? ''))) return null;
+    throw error;
+  }
+}
+
+// "1.2.10" is above "1.2.9": the numbers are compared one by one, a missing one counts as zero
+const versionAtLeast = (found, wanted) => {
+  const numbers = (text) => String(text).replace(/^[^\d]*/, '').split(/[.\-+]/).map((part) => Number.parseInt(part, 10) || 0);
+  const [a, b] = [numbers(found), numbers(wanted)];
+  for (let index = 0; index < Math.max(a.length, b.length); index++) {
+    if ((a[index] ?? 0) !== (b[index] ?? 0)) return (a[index] ?? 0) > (b[index] ?? 0);
+  }
+  return true;
+};
+
+// A check of the final content of the application: a dependency of package.json at least at a version, or a dependency that is gone
+function checkFile(want) {
+  const content = fileOnForge(want.repo, want.path);
+  if (content === null) { expect(false, `${want.repo}/${want.path} exists`); return; }
+  const value = want.json.split('.').reduce((node, key) => (node == null ? undefined : node[key]), JSON.parse(content));
+  if (want.absent) expect(value === undefined, `${want.repo}/${want.path}: ${want.json} is gone (is ${value === undefined ? 'gone' : value})`);
+  else expect(value !== undefined && versionAtLeast(value, want.atLeast), `${want.repo}/${want.path}: ${want.json} is at least ${want.atLeast} (is ${value ?? 'absent'})`);
 }
 
 async function signIn(page) {
@@ -93,11 +128,17 @@ async function tickAndValidate(page) {
   }
   // a wrong or partial selection is never validated: it would start a real chain that the scenario cannot judge
   if (!selectionOk) return false;
+  // What the control plane answered to the validation, word for word: a refusal says why
+  let validation = '';
+  page.on('response', async (r) => { if (r.url().includes('/api/v1/plan/validate')) validation = `${r.status()} ${(await r.text().catch(() => '')).slice(0, 700)}`; });
   await page.getByRole('button', { name: UI.validate }).click();
   const started = page.getByText(UI.started).first();
-  await started.waitFor({ timeout: 30000 }).catch(() => {});
+  await started.waitFor({ timeout: 150000 }).catch(() => {});
   const answer = (await started.innerText().catch(() => '')) || '(no answer)';
   console.log('answer:', answer);
+  // The reasons are in the block that holds the answer
+  if (/Nothing was started/.test(answer)) console.log('answered:', validation);
+  if (/Nothing was started/.test(answer)) console.log('why:', ((await started.locator('xpath=..').innerText().catch(() => '')) || '').replace(/\s+/g, ' ').slice(0, 600));
   expect(/started/.test(answer) && !/Nothing was started/.test(answer), 'the validation started the problem');
   return true;
 }
@@ -117,6 +158,7 @@ async function followMissions(page, known) {
     if (mine.some((m) => m.world === 'Release' && m.state === 'Accepted') && reached()) { outcome = 'released'; break; }
     await page.waitForTimeout(5000);
   }
+  followed = mine;
   expect(outcome === 'released', `the chain went from staging to the release (${outcome}; last: ${last || 'nothing'})`);
   if (outcome !== 'released') for (const m of mine) console.log(`${m.world} ${m.state}: end=${m.end ?? ''} ${m.endReason ?? ''}`);
 }
@@ -127,12 +169,14 @@ async function followMissions(page, known) {
     // 1 and 2. the sandbox goes back to its seed, and the faults of the scenario are planted
     let planted = [];
     if (setup) {
+      if (scenario.findings) fs.writeFileSync(findingsFile, JSON.stringify(Object.fromEntries(Object.entries(scenario.findings).map(([repo, list]) => [`${org}/${repo}`, list]))));
       console.log(sandbox('reset', ...repos));
       const output = sandbox('plant', scenarioPath);
       console.log(output);
       planted = [...output.matchAll(/planted #(\d+)/g)].map((m) => Number(m[1]));
       plantedNumbers = planted;
     }
+    else if (scenario.findings) fs.writeFileSync(findingsFile, JSON.stringify(Object.fromEntries(Object.entries(scenario.findings).map(([repo, list]) => [`${org}/${repo}`, list]))));
 
     browser = await chromium.launch({ headless: true });
     const page = await (await browser.newContext({ viewport: { width: 1700, height: 1000 } })).newPage();
@@ -149,6 +193,10 @@ async function followMissions(page, known) {
     if (planted.length > 0) {
       const shown = await waitForPlantedRows(page, planted);
       expect(shown, `the table shows the planted pull requests (${planted.map((n) => '#' + n).join(', ')})`);
+    } else {
+      // Nothing planted on the forge (a problem that has no pull request): the table is read afresh once, so that it shows the current state
+      await Promise.all([page.waitForResponse((r) => r.url().includes('/api/v1/problems') && r.url().includes('refresh=true'), { timeout: 60000 }), page.getByRole('button', { name: UI.refresh }).click()]);
+      await page.reload();
     }
     if (await tickAndValidate(page)) {
       // 4. the missions go on, and the final state is read from the forge, not from the interface
@@ -158,11 +206,20 @@ async function followMissions(page, known) {
       const state = prState(want);
       expect(state === want.state, `${want.repo} ${want.title ?? want.branch} is ${want.state} (is ${state})`);
     }
+    for (const want of scenario.expect?.files ?? []) checkFile(want);
+    // What the missions of this run said along the way (the lead's marks, the controller's decisions), as the Missions screen shows it
+    if ((scenario.expect?.progress ?? []).length > 0) {
+      const lines = [];
+      for (const mission of followed) lines.push(...((await apiList(page, `/api/v1/missions/${mission.id}`)).progress ?? []));
+      for (const text of scenario.expect.progress) expect(lines.some((line) => line.includes(text)), `the missions said "${text}"`);
+    }
     expect(problems.length === 0, problems.length ? 'page errors: ' + problems.join(' | ') : 'no page error, no failing API call');
   } catch (error) {
     expect(false, `the run failed: ${String(error.message).split('\n')[0]}`);
   } finally {
     if (browser) await browser.close().catch(() => {});
+    // the advisories go away with the scenario
+    if (scenario.findings && !keep) fs.writeFileSync(findingsFile, '{}');
     // 5. the sandbox goes back to its seed, whatever happened
     if (setup && !keep) {
       try { console.log(sandbox('reset', ...repos)); } catch (error) { expect(false, `the final reset failed: ${String(error.message).split('\n')[0]}`); }

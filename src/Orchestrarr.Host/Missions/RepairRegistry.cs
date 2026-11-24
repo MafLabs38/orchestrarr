@@ -4,7 +4,13 @@ using Orchestrarr.Core.Missions;
 namespace Orchestrarr.Host.Missions;
 
 /// <summary>A repair that a staging runner made and handed over, waiting for the gateway to put it in a pull request.</summary>
-internal sealed record PendingRepair(string OriginalHead, IReadOnlyList<PatchedFile> Files);
+internal sealed record PendingRepair(string OriginalHead, IReadOnlyList<PatchedFile> Files, PendingBranch? Branch = null);
+
+/// <summary>
+/// The branch of a worker agent that says it has finished (ADR 0048), as the control plane read it on the forge: its name, the commit it was audited at, the paths it changes and what the controller reads of it. The pull request
+/// is opened from this branch at this commit and from nothing else.
+/// </summary>
+internal sealed record PendingBranch(string Name, string Sha, IReadOnlyList<string> Paths, string Reading);
 
 /// <summary>The pull request that carries a repair: once it exists, it is the one that the Git and release worlds are about, and the pull request it replaces is only where the problem started.</summary>
 internal sealed record FixPullRequest(int Number, string Head, string OriginalHead);
@@ -22,6 +28,13 @@ internal sealed class RepairRegistry
     public void Keep(string problemId, string originalHead, IReadOnlyList<PatchedFile> files)
     {
         _pending[problemId] = new PendingRepair(originalHead, files);
+        _fixes.TryRemove(problemId, out _);
+    }
+
+    /// <summary>Keeps the branch of an agent that finished, read from the forge: a new one replaces the old one and forgets the pull request of the old one.</summary>
+    public void KeepBranch(string problemId, string originalHead, PendingBranch branch)
+    {
+        _pending[problemId] = new PendingRepair(originalHead, [], branch);
         _fixes.TryRemove(problemId, out _);
     }
 

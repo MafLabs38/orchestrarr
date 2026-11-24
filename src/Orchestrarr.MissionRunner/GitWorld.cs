@@ -21,7 +21,7 @@ public sealed class GitWorld(IMissionControlPlane controlPlane, MissionRunnerOpt
         }
         if (opened.Opened)
         {
-            await report($"Opened pull request #{opened.Number} for the repair of #{mission.PullRequest}");
+            await report(mission.PullRequest is { } replaced ? $"Opened pull request #{opened.Number} for the repair of #{replaced}" : $"Opened pull request #{opened.Number} for the change that solves the problem");
             repairNumber = opened.Number;
         }
         var deadline = DateTimeOffset.UtcNow.AddMinutes(options.PipelineWaitMinutes);
@@ -65,7 +65,12 @@ public sealed class GitWorld(IMissionControlPlane controlPlane, MissionRunnerOpt
 
     // The pull request that was merged: the one that the problem started from, or the one that carries its repair and replaces it
     private static string Subject(ClaimedMission mission, int? repairNumber) =>
-        repairNumber is { } number ? $"Pull request #{number} of {mission.Repository}, which carries the repair of #{mission.PullRequest} and replaces it," : $"Pull request of {mission.Repository}";
+        (repairNumber, mission.PullRequest) switch
+        {
+            ({ } number, { } replaced) => $"Pull request #{number} of {mission.Repository}, which carries the repair of #{replaced} and replaces it,",
+            ({ } number, null) => $"Pull request #{number} of {mission.Repository}, which carries the change that solves the problem,",
+            _ => $"Pull request of {mission.Repository}",
+        };
 
     private static string Short(string sha) => sha.Length > 8 ? sha[..8] : sha;
 }

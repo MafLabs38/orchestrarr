@@ -146,8 +146,11 @@ public sealed record ProblemRow(
     IReadOnlyList<RepositoryProblem>? Warnings = null,
     string? ParsedChange = null);
 
-/// <summary>What a connected runner accepts, as it reported it. The table never promises more than they would run: with none connected, nothing can be run, and every row says so.</summary>
-public sealed record RunnerAcceptance(IReadOnlyList<TaskKind> Kinds, IReadOnlyList<string> Repositories)
+/// <summary>
+/// What a connected runner accepts, as it reported it. The table never promises more than they would run: with none connected, nothing can be run, and every row says so. <c>FreeAgent</c>: it has a free agent for a problem that has
+/// no pull request (ADR 0048), which no kind of task says (an interim on the typed-task hello: mission capabilities will be announced on the mission claim).
+/// </summary>
+public sealed record RunnerAcceptance(IReadOnlyList<TaskKind> Kinds, IReadOnlyList<string> Repositories, bool FreeAgent = false)
 {
     public bool Accepts(TaskKind kind, string repository) => Kinds.Contains(kind) && Repositories.Any(pattern => RepositoryPattern.Matches(pattern, repository));
 }
@@ -180,6 +183,10 @@ public static class DecisionTable
             }
             AddDependencyUpdates(rows, item, applications, runners, results ?? [], policy);
             AddOtherProblems(rows, item, policy, infrastructure);
+            if (policy.ActOnProblems)
+            {
+                ActOnDependencyAlerts(rows, before, item, applications, runners);
+            }
             NameApplication(rows, before, item, applicationNames ?? []);
             Warn(rows, before, infrastructure);
         }
@@ -331,10 +338,12 @@ public static class DecisionTable
         pullRequest.Changes is [{ To: { } to } change] && policy.EvenMajorOnlyPackages.Contains(change.Package, StringComparer.OrdinalIgnoreCase)
         && int.TryParse(to.TrimStart('v', 'V').Split('-')[0].Split('.')[0], System.Globalization.CultureInfo.InvariantCulture, out var major) && major % 2 == 1;
 
-    private static (Ceiling Ceiling, CeilingReason Why, bool CanStop) CeilingOf(WorkItem item, PullRequestInfo pullRequest, IApplicationCatalog applications, IReadOnlyList<RunnerAcceptance> runners)
+    private static (Ceiling Ceiling, CeilingReason Why, bool CanStop) CeilingOf(WorkItem item, PullRequestInfo? pullRequest, IApplicationCatalog applications, IReadOnlyList<RunnerAcceptance> runners)
     {
+        // One chain of gates for a pull request and for a problem with no pull request (a dependency alert, ADR 0048): the second has no pull request, so no checks, no merge state and no class of update,
+        // and what its change will be is not known before the agent has made it, so it is taken for a major one
         var repository = item.RepositoryFullName!;
-        if (item.PullRequests.Stale || item.PullRequests.Status != PullRequestsStatus.Read || string.IsNullOrEmpty(pullRequest.HeadSha))
+        if (pullRequest is not null && (item.PullRequests.Stale || item.PullRequests.Status != PullRequestsStatus.Read || string.IsNullOrEmpty(pullRequest.HeadSha)))
         {
             return (Ceiling.NoAction, CeilingReason.PullRequestsNotCurrent, false);
         }
@@ -366,25 +375,31 @@ public static class DecisionTable
         {
             return (Ceiling.Qualification, CeilingReason.NoRunner, false);
         }
-        if (pullRequest.Checks == ChecksState.Failing)
+        if (pullRequest is not null)
         {
-            return (Ceiling.Qualification, CeilingReason.ChecksFailing, false);
-        }
-        if (pullRequest.Checks == ChecksState.NotRun)
-        {
-            return (Ceiling.Qualification, CeilingReason.ChecksNotRun, false);
-        }
-        if (pullRequest.Checks != ChecksState.Passing)
-        {
-            return (Ceiling.Qualification, CeilingReason.ChecksNotPassing, false);
+            if (pullRequest.Checks == ChecksState.Failing)
+            {
+                return (Ceiling.Qualification, CeilingReason.ChecksFailing, false);
+            }
+            if (pullRequest.Checks == ChecksState.NotRun)
+            {
+                return (Ceiling.Qualification, CeilingReason.ChecksNotRun, false);
+            }
+            if (pullRequest.Checks != ChecksState.Passing)
+            {
+                return (Ceiling.Qualification, CeilingReason.ChecksNotPassing, false);
+            }
+            if (pullRequest.Merge != MergeState.Clean)
+            {
+                return (Ceiling.Qualification, CeilingReason.CannotBeMergedNow, false);
+            }
         }
 
-        if (pullRequest.Merge != MergeState.Clean)
+        var kind = UpdateKind.Major;
+        if (pullRequest is not null)
         {
-            return (Ceiling.Qualification, CeilingReason.CannotBeMergedNow, false);
+            kind = pullRequest.Changes.Count == 1 ? pullRequest.Changes[0].Kind : UpdateKind.Unknown;
         }
-
-        var kind = pullRequest.Changes.Count == 1 ? pullRequest.Changes[0].Kind : UpdateKind.Unknown;
         if (!description.CanRollBack)
         {
             return (Ceiling.MergeIntoDevelop, CeilingReason.NoRollbackDescribed, false);
@@ -396,6 +411,27 @@ public static class DecisionTable
         return description.PromotesAutomatically.Contains(kind)
             ? (Ceiling.Production, CeilingReason.None, true)
             : (Ceiling.MergeIntoDevelop, CeilingReason.UpdateClassStopsBeforeProduction, false);
+    }
+
+    // A dependency alert is a problem with no pull request that a worker agent solves in staging (ADR 0048): its row goes as far as the chain of the application goes, by the same gates as a pull request's (granted,
+    // described, a runner that accepts the repository, a way back, a check after the deploy), without what only a pull request has (its checks and its merge state). Other kinds still have no action defined.
+    private static void ActOnDependencyAlerts(List<ProblemRow> rows, int from, WorkItem item, IApplicationCatalog applications, IReadOnlyList<RunnerAcceptance> runners)
+    {
+        for (var index = from; index < rows.Count; index++)
+        {
+            if (rows[index].Kind != ProblemKind.DependencyAlert || rows[index].GoesUpTo != Ceiling.NoAction || string.IsNullOrEmpty(item.RepositoryFullName))
+            {
+                continue;
+            }
+            // A problem that has no pull request needs a runner that has a free agent: a row that no runner could solve is not offered
+            if (!runners.Any(runner => runner.FreeAgent && runner.Accepts(TaskKind.ValidatePullRequest, item.RepositoryFullName)))
+            {
+                rows[index] = rows[index] with { Why = CeilingReason.NoRunner };
+                continue;
+            }
+            var (ceiling, why, canStop) = CeilingOf(item, null, applications, runners);
+            rows[index] = rows[index] with { GoesUpTo = ceiling, Why = why, CanStopBeforeProduction = canStop, UpdateClass = null };
+        }
     }
 
     // What has no action yet (an alert, a secret, a failing build, an image): shown, with "no action defined" (SPEC Q-30)

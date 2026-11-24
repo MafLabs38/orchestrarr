@@ -55,6 +55,12 @@ public sealed class MissionsOptions
     /// <summary>The first port of the deployed applications. It must be the same value as <c>MissionRunner:DeployPortBase</c>, or the control plane probes another port than the one deployed to.</summary>
     public int SandboxDeployPortBase { get; set; } = DeploymentPort.DefaultBase;
 
+    /// <summary>
+    /// With <see cref="Sandbox"/>: a JSON file of what is known about the dependencies of the test-bed repositories (advisories, abandoned libraries), read at each validation, so that the lab can plant a finding without restarting anything.
+    /// <c>{ "owner/name": [ { "kind": "advisory", "package": "lodash", "installed": "4.17.4", "fixedIn": "4.17.21", "severity": "high", "summary": "..." } ] }</c>
+    /// </summary>
+    public string? SandboxFindingsFile { get; set; }
+
     /// <summary>The paths no mission may touch, whatever its repository (pipelines, secrets). Unset: the pipelines of the forge, the encrypted files and the environment files.</summary>
     public string[]? ForbiddenPaths { get; set; }
 

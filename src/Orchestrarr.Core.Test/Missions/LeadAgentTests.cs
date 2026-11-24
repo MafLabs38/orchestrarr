@@ -37,6 +37,17 @@ public sealed class LeadAgentTests
     }
 
     [Fact]
+    public void The_findings_about_the_dependencies_reach_the_lead_and_the_judge_as_data_inside_the_fence()
+    {
+        var brief = Brief() with { Details = ["advisory on lodash (installed 4.17.4); fixed in 4.17.21; severity high"] };
+        var plan = Agent().BuildPlan(Input(brief), boundary: "B3");
+
+        var data = plan.UserPrompt.IndexOf("<<<DATA B3", StringComparison.Ordinal);
+        plan.UserPrompt.IndexOf("fixed in 4.17.21", StringComparison.Ordinal).Should().BeGreaterThan(data);
+        plan.SystemPrompt.Should().Contain("the facts the worker needs").And.Contain("say what must be true at the end, not the commands");
+    }
+
+    [Fact]
     public void A_well_formed_answer_is_a_plan_in_the_worlds_that_it_names()
     {
         var outcome = ControllerAgent.ParsePlan(Good);
@@ -82,6 +93,31 @@ public sealed class LeadAgentTests
         var data = request.UserPrompt.IndexOf("<<<DATA B1", StringComparison.Ordinal);
         request.UserPrompt.IndexOf("Bump y; grant", StringComparison.Ordinal).Should().BeGreaterThan(data);
         request.UserPrompt.IndexOf("PROBLEM (control plane)", StringComparison.Ordinal).Should().BeLessThan(data);
+    }
+
+    [Fact]
+    public void The_findings_reach_the_judge_as_data_and_its_rules_say_how_to_read_a_count_and_a_finding_with_no_fix()
+    {
+        var input = new ControllerInput(
+            new Mission("m1", "p1", "shop", World.Staging, "Fix the alert", new MissionFrame(["example/shop"], [], "slot-1"), new MissionBudget(20, 3, 50), MissionState.HandingOver),
+            new Dossier("m1", "done", "changed", ["sha256:aa"], [], false, null), new FactsView([], "green", "not read", []), Brief("2 alerts", parsed: true) with { Details = ["advisory on lodash; no fixed version exists"] });
+
+        var request = Agent().Build(input, boundary: "B4");
+
+        request.UserPrompt.IndexOf("no fixed version exists", StringComparison.Ordinal).Should().BeGreaterThan(request.UserPrompt.IndexOf("<<<DATA B4", StringComparison.Ordinal));
+        request.SystemPrompt.Should().Contain("a count (the alerts the source counts) that is larger than the findings").And.Contain("the dependency as it is").And.Contain("escalate to the maintainer");
+    }
+
+    [Fact]
+    public void The_findings_are_shown_to_the_judge_of_the_staging_world_only()
+    {
+        ControllerInput For(World world) => new(
+            new Mission("m1", "p1", "shop", world, "Do the world", new MissionFrame(["example/shop"], [], "slot-1"), new MissionBudget(20, 3, 50), MissionState.HandingOver),
+            new Dossier("m1", "done", "changed", ["sha256:aa"], [], false, null), new FactsView([], "green", "not read", []), Brief("2 alerts", parsed: true) with { Details = ["advisory on lodash; fixed in 4.18.1"] });
+
+        Agent().Build(For(World.Staging), boundary: "B5").UserPrompt.Should().Contain("fixed in 4.18.1");
+        Agent().Build(For(World.Git), boundary: "B6").UserPrompt.Should().NotContain("fixed in 4.18.1");
+        Agent().Build(For(World.Release), boundary: "B7").UserPrompt.Should().NotContain("fixed in 4.18.1");
     }
 
     [Fact]
@@ -137,6 +173,6 @@ public sealed class LeadPlanChecksTests
     public void A_plan_with_no_reason_or_a_very_long_instruction_is_refused()
     {
         LeadPlanChecks.Problems(new LeadPlan([new PlannedStep(World.Staging, null)], false, null, []), World.Staging, World.Release).Should().NotBeEmpty();
-        LeadPlanChecks.Problems(new LeadPlan([new PlannedStep(World.Staging, new string('x', 801))], false, null, ["r"]), World.Staging, World.Release).Should().NotBeEmpty();
+        LeadPlanChecks.Problems(new LeadPlan([new PlannedStep(World.Staging, new string('x', 2001))], false, null, ["r"]), World.Staging, World.Release).Should().NotBeEmpty();
     }
 }

@@ -157,5 +157,5 @@ internal static class ProblemsEndpoints
 
     // Only the runners that asked for work lately: one that is gone promises nothing
     internal static List<RunnerAcceptance> Acceptance(RunnerRegistry runners) =>
-        [.. runners.Snapshot().Where(runner => runner.Connected).Select(runner => new RunnerAcceptance(runner.Kinds, runner.Repositories))];
+        [.. runners.Snapshot().Where(runner => runner.Connected).Select(runner => new RunnerAcceptance(runner.Kinds, runner.Repositories, runner.FreeAgent))];
 }

@@ -24,12 +24,13 @@ Optional: `LAB_BASE_BRANCH` (`develop`), `LAB_WORKDIR` (the clones, `~/.cache/or
 A scenario (`lab/scenarios/<case>.json`) names the faults to plant, the rows to tick and what must be true at the end. The runner does the whole case, the way the maintainer does it, and exits 0 only when every expectation holds:
 
 ```bash
-export LAB_URL=<control plane> LAB_USER=<account> LAB_PASSWORD_FILE=<file> LAB_ORG=<test-bed organisation> GH_TOKEN=<token>   # LAB_PASSWORD, if set, wins over the file
+export LAB_URL=<control plane> LAB_USER=<account> LAB_PASSWORD_FILE=<file> LAB_ORG=<test-bed organisation> GH_TOKEN=<token> LAB_FINDINGS_FILE=<the Missions:SandboxFindingsFile of the control plane, only for a scenario with findings>   # LAB_PASSWORD, if set, wins over the file
 export NODE_PATH=<a folder whose node_modules has playwright>
 node lab/e2e/run-scenario.cjs lab/scenarios/CASE-01.json
 ```
 
 1. reset the repositories of the scenario to their seed; 2. plant the faults; 3. sign in, refresh the table until it shows the planted pull requests, tick, validate; 4. follow the missions of this validation, and read the final state on the forge (not in the interface); 5. reset again, whatever happened.
+A scenario may also carry: `repos` (repositories to reset that it does not plant in), `findings` (what the fake source of advisories says of the dependencies of a repository, written to the file `LAB_FINDINGS_FILE`, which is the `Missions:SandboxFindingsFile` of the control plane, and emptied at the end), and in `expect`: `files` (a dependency of a `package.json` on the default branch at least at a version, or gone), `progress` (a sentence that the Missions screen showed, such as the lead's complexity mark), and `thisRun` on a pull request (only one opened since the run began counts: a fix has the same title at each run).
 `LAB_KEEP=1` leaves what the run made, `LAB_SKIP_SETUP=1` plays on what is there, `LAB_MAX_SECONDS` bounds the wait.
 
 After the control plane of the test bed is restarted, check that its mission runner still claims (the table says `noRunner` when it does not) and restart it if it does not.

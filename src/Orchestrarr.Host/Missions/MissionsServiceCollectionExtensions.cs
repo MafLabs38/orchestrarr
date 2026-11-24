@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using System.Security.Cryptography;
 using Orchestrarr.Core.Approvals;
 using Orchestrarr.Core.Launch;
@@ -60,6 +61,7 @@ internal static class MissionsServiceCollectionExtensions
             .AddSingleton(provider => new ProblemConductor(
                 provider.GetRequiredService<MandateSigner>(), provider.GetRequiredService<MissionStores>(), provider.GetRequiredService<PowerSources>(), provider.GetRequiredService<ConductorServices>(), options.Conductor(), provider.GetRequiredService<ProblemLocks>()));
         services.AddSingleton<MissionProgress>();
+        services.TryAddSingleton<IDependencyFindings>(_ => new NoDependencyFindings());
         if (options.Machines.Length > 0)
         {
             services.AddMachines(options, storage);

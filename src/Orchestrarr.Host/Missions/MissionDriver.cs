@@ -58,7 +58,7 @@ internal sealed class MissionDriver(IMissionStore missions, IProblemStore proble
         }
         progress.Add(mission.Id, "the controller reads the dossier and the facts");
         var observed = await facts.FactsAsync(new FactsQuery(mission.ProblemId, mission.Id, mission.World, mission.Frame, dossier, dossier.Commit), cancellationToken);
-        var view = new FactsView(observed.ChangedPaths ?? [], $"checks of the head commit: {observed.CiGreenOnExactCommit?.ToString() ?? "not known"}", mission.World == World.Staging ? "not applicable in the staging world" : observed.Health ?? "not read", []);
+        var view = new FactsView(observed.ChangedPaths ?? [], $"checks of the head commit: {observed.CiGreenOnExactCommit?.ToString() ?? "not known"}", mission.World == World.Staging ? "not applicable in the staging world" : observed.Health ?? "not read", [], observed.ChangeReading);
         var outcome = await controller.DecideAsync(new ControllerInput(mission, dossier, view, problems.Get(mission.ProblemId)?.Entry.Brief), cancellationToken);
         if (outcome.Decision is not { } decision)
         {

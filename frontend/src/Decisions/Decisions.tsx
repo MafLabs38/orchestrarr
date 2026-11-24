@@ -114,7 +114,7 @@ function Problems({ report }: Readonly<{ report: ProblemsReport }>) {
       why: describeWhyShort(row.why),
     }),
   );
-  const chosen = report.rows.filter((row) => isActionable(row) && chosenAt[row.id] === row.headSha);
+  const chosen = report.rows.filter((row) => isActionable(row) && chosenAt[row.id] === (row.headSha ?? ''));
   const selected = new Set(chosen.map((row) => row.id));
   const applications = [...new Set(report.rows.map((row) => row.application))].sort((a, b) => a.localeCompare(b));
   const types = [...new Set(report.rows.map((row) => row.kind))];
@@ -126,8 +126,8 @@ function Problems({ report }: Readonly<{ report: ProblemsReport }>) {
       const changed = new Set(rowsToChange.map((row) => row.id));
       const next = Object.fromEntries(Object.entries(current).filter(([id]) => !changed.has(id)));
       for (const row of rowsToChange) {
-        if (on && row.headSha) {
-          next[row.id] = row.headSha;
+        if (on && isActionable(row)) {
+          next[row.id] = row.headSha ?? '';
         }
       }
       return next;

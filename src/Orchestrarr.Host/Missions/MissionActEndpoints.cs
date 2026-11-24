@@ -69,10 +69,10 @@ internal static class MissionActEndpoints
         });
 
         // The pull request that carries the repair of a staging runner: the gateway makes the branch and the commit itself from the files that it checked, so that the runner never holds a credential that writes to a repository
-        group.MapPost("/missions/{id}/acts/open-pull-request", async (string id, HttpContext context, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, IPullRequestFacts pulls, IForgeActs forge,
+        group.MapPost("/missions/{id}/acts/open-pull-request", async (string id, HttpContext context, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, IPullRequestFacts pulls, IDefaultBranchSource defaults, IBranchSource branches, IForgeActs forge,
             ProblemConductor conductor, MissionProgress progress, RepairRegistry? repairs, IDossierStore dossiers, ILiveNotifier live, CancellationToken ct) =>
         {
-            if (!Gate(id, runnerName(context), missions, mandates, problems, out var entry) || entry.PullRequest is not { } original || repairs is null)
+            if (!Gate(id, runnerName(context), missions, mandates, problems, out var entry) || repairs is null)
             {
                 return Results.NotFound();
             }
@@ -87,12 +87,34 @@ internal static class MissionActEndpoints
                 // A repair that the staging dossier says was made and that is not kept any more (a restart) is lost, and is not replaced by the pull request that did not pass; else nothing was repaired
                 return Results.Ok(new MissionPullRequestResponse(false, 0, null, RepairWasMade(missions, dossiers, problemId) ? "the repair was made but is no longer held (the control plane restarted): the problem goes back to staging" : null));
             }
-            if (await pulls.ReadAsync(repository, original, ct) is not { TargetsDefaultBranch: true, DefaultBranch: { } baseBranch } read || !string.Equals(read.HeadSha, repair.OriginalHead, StringComparison.Ordinal))
+            string baseBranch;
+            if (entry.PullRequest is { } original)
             {
-                return Results.Ok(new MissionPullRequestResponse(false, 0, null, "the pull request cannot be read, does not target the default branch, or moved since the repair was made"));
+                if (await pulls.ReadAsync(repository, original, ct) is not { TargetsDefaultBranch: true, DefaultBranch: { } readBranch } read || !string.Equals(read.HeadSha, repair.OriginalHead, StringComparison.Ordinal))
+                {
+                    return Results.Ok(new MissionPullRequestResponse(false, 0, null, "the pull request cannot be read, does not target the default branch, or moved since the repair was made"));
+                }
+                baseBranch = readBranch;
+            }
+            else
+            {
+                // A change that has no pull request is made against the head of the default branch: if that moved since the runner worked, the change was not proved on the code that it would land on
+                if (await defaults.ReadAsync(repository, ct) is not { } current || !string.Equals(current.HeadSha, repair.OriginalHead, StringComparison.Ordinal))
+                {
+                    return Results.Ok(new MissionPullRequestResponse(false, 0, null, "the default branch cannot be read, or moved since the change was made: the problem goes back to staging"));
+                }
+                baseBranch = current.Branch;
             }
             // The frame of the mission applies to what is written, not only to what was read: the paths that the maintainer's certificate forbids too
-            if (RepairPolicy.Refusal(repair.Files, missions.Get(id)!.Frame.ForbiddenPaths) is { } forbidden)
+            if (repair.Branch is { } finished)
+            {
+                // The branch of an agent: it was audited at one commit, and the pull request is opened from that commit only (the agent may have pushed again after it said it had finished)
+                if (await branches.HeadOfAsync(repository, finished.Name, ct) is not { } atNow || !string.Equals(atNow, finished.Sha, StringComparison.Ordinal))
+                {
+                    return Results.Ok(new MissionPullRequestResponse(false, 0, null, "the branch is no longer at the commit that was audited: the problem goes back to staging"));
+                }
+            }
+            else if (RepairPolicy.Refusal(repair.Files, missions.Get(id)!.Frame.ForbiddenPaths) is { } forbidden)
             {
                 return Results.Ok(new MissionPullRequestResponse(false, 0, null, forbidden));
             }
@@ -102,16 +124,28 @@ internal static class MissionActEndpoints
                 progress.Add(id, $"the pull request is not allowed now: {Describe(authorisation)}");
                 return Results.Ok(new MissionPullRequestResponse(false, 0, null, authorisation.Refusal));
             }
-            // A branch name that is new at each attempt: the same problem can be repaired again after a loop, and a name that exists is refused by the forge
-            var branch = $"orchestrarr/{problemId}-{Guid.NewGuid().ToString("N")[..6]}";
-            var opened = await forge.OpenPullRequestAsync(repository, baseBranch, repair.OriginalHead, branch, repair.Files,
-                $"fix: repair #{original} so that it passes", $"Opened by Orchestrarr for pull request #{original}, which did not pass in staging. The change of #{original} is carried here with a repair of the source of the application ({repair.Files.Count} file(s)), proved in staging.", ct);
+            var (title, body) = entry.PullRequest is { } replaced
+                ? ($"fix: repair #{replaced} so that it passes", $"Opened by Orchestrarr for pull request #{replaced}, which did not pass in staging. The change of #{replaced} is carried here with a repair of the source of the application ({repair.Files.Count} file(s)), proved in staging.")
+                : ($"fix: {Titled(entry.ProblemClass)} of {repository}", $"Opened by Orchestrarr for a problem that has no pull request ({entry.ProblemClass}). A worker agent made the change ({repair.Branch?.Paths.Count ?? 0} file(s)) in an isolated staging machine and pushed it to a branch; the control plane read that commit on the forge and audited it before this pull request was opened.");
+            OpenedPullRequest opened;
+            if (repair.Branch is { } agentBranch)
+            {
+                opened = await forge.OpenPullRequestFromBranchAsync(repository, baseBranch, agentBranch.Name, agentBranch.Sha, title, body, ct);
+            }
+            else
+            {
+                // A branch name that is new at each attempt: the same problem can be repaired again after a loop, and a name that exists is refused by the forge
+                var branch = $"orchestrarr/{problemId}-{Guid.NewGuid().ToString("N")[..6]}";
+                opened = await forge.OpenPullRequestAsync(repository, baseBranch, repair.OriginalHead, branch, repair.Files, title, body, ct);
+            }
             progress.Add(id, opened.Opened ? $"opened pull request #{opened.Number} for the repair ({Short(opened.HeadSha)})" : $"the forge refused the pull request: {opened.Error}");
             if (opened.Opened && opened.HeadSha is { } head)
             {
                 repairs.Opened(problemId, opened.Number, head, repair.OriginalHead);
             }
-            if (!await conductor.RecordActPerformedAsync(id, GatedAct.OpenPullRequest, opened.Opened ? $"{repository}#{opened.Number} opened for the repair of #{original}, head {opened.HeadSha}" : $"{repository}: refused by the forge: {opened.Error}", ct))
+            var forWhat = entry.PullRequest is { } replacedNumber ? $"the repair of #{replacedNumber}" : "the change that solves the problem";
+            var performed = opened.Opened ? $"{repository}#{opened.Number} opened for {forWhat}, head {opened.HeadSha}" : $"{repository}: refused by the forge for {forWhat}: {opened.Error}";
+            if (!await conductor.RecordActPerformedAsync(id, GatedAct.OpenPullRequest, performed, ct))
             {
                 progress.Add(id, "the audit trail could not be written after the pull request");
             }
@@ -189,4 +223,27 @@ internal static class MissionActEndpoints
         authorisation.Failures.Count > 0 ? string.Join(", ", authorisation.Failures) : authorisation.Refusal ?? "refused";
 
     private static string Short(string? sha) => sha is { Length: > 8 } ? sha[..8] : sha ?? "unknown";
+
+    // The class of a problem as a few words for a title ("DependencyAlert" is "dependency alert"): plain letters only, whatever the problem carries
+    private static string Titled(string problemClass)
+    {
+        var words = new System.Text.StringBuilder();
+        var previousIsLetter = false;
+        foreach (var letter in problemClass)
+        {
+            if (!char.IsLetter(letter))
+            {
+                previousIsLetter = false;
+                continue;
+            }
+            // A word starts after a character that is not a letter, or on a capital that follows a letter
+            if (words.Length > 0 && (!previousIsLetter || char.IsUpper(letter)))
+            {
+                words.Append(' ');
+            }
+            words.Append(char.ToLowerInvariant(letter));
+            previousIsLetter = true;
+        }
+        return words.Length == 0 ? "a problem" : words.ToString();
+    }
 }

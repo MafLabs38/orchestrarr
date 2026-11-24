@@ -410,6 +410,33 @@ public sealed class MissionRunnerApiTests
         unknown.BudgetAvailable.Should().BeFalse();
     }
 
+    [Fact]
+    public async Task The_facts_of_a_problem_with_no_pull_request_are_those_of_the_change_that_staging_handed_over_and_a_missing_change_is_not_a_spent_budget()
+    {
+        var problems = new InMemoryProblemStore();
+        var entry = new PlanEntry("p-2", "example/shop", "DependencyAlert", "x", ["example/shop"], World.Release, new MissionBudget(30, 3, 50), new Validation("alice", null), DateTimeOffset.UtcNow, null, null);
+        problems.Save(new ProblemRun("p-2", "example/shop", ProblemState.InProgress, DateTimeOffset.UtcNow, entry, World.Git, true, null!));
+        var repairs = new RepairRegistry();
+        var facts = new SandboxFacts(problems, new FakeFacts(null), new InMemoryMissionStore(), new InMemoryDossierStore(), repairs: repairs);
+        var query = new FactsQuery("p-2", "m1", World.Staging, new MissionFrame(["example/shop"], [], "place"), new Dossier("m1", "claim", "why", [], [], false, null, Head), null);
+
+        var nothing = await facts.FactsAsync(query, Ct);
+        nothing.BudgetAvailable.Should().BeTrue("a change that was not handed over is not a budget that ran out");
+        nothing.CiGreenOnExactCommit.Should().BeNull();
+        nothing.WorkerClaimMatchesFacts.Should().BeFalse();
+
+        repairs.KeepBranch("p-2", Head, new PendingBranch("agent/p-2-abc", Head, ["package.json", ".github/workflows/ci.yml"], "files: package.json"));
+        var made = await facts.FactsAsync(query, Ct);
+
+        made.WorkerClaimMatchesFacts.Should().BeTrue("the dossier names the commit that the change was made from");
+        made.CiGreenOnExactCommit.Should().BeTrue("at the crossing the pipeline of the pull request that will carry the change is what counts");
+        (await facts.FactsAsync(query with { Repository = "example/shop" }, Ct)).CiGreenOnExactCommit.Should().BeNull("at an act nothing has run on the change, and that is not declared");
+        made.HeadCommit.Should().Be(Head);
+        made.ChangedPaths.Should().BeEquivalentTo("package.json", ".github/workflows/ci.yml");
+        made.ExecutedFilesTouched.Should().BeTrue("the facts say what the files are, whatever a policy refused earlier");
+        (await facts.FactsAsync(query with { Dossier = new Dossier("m1", "claim", "why", [], [], false, null, new string('a', 40)) }, Ct)).WorkerClaimMatchesFacts.Should().BeFalse();
+    }
+
     private sealed class SaysGateway(string text) : IAgentGateway
     {
         public Task<AgentReply> RunAsync(AgentRequest request, CancellationToken cancellationToken) => Task.FromResult(new AgentReply(true, text, null));

@@ -1,0 +1,53 @@
+{
+  "case": "CASE-03b",
+  "title": "An advisory on a dependency with no fixed version: the exposure is removed",
+  "repos": [
+    "shop-api"
+  ],
+  "findings": {
+    "shop-api": [
+      {
+        "kind": "advisory",
+        "package": "lodash",
+        "installed": "4.17.4",
+        "severity": "high",
+        "summary": "Prototype pollution in a function of lodash; no fixed version exists"
+      },
+      {
+        "kind": "advisory",
+        "package": "minimist",
+        "installed": "0.0.8",
+        "fixedIn": "1.2.8",
+        "severity": "critical",
+        "summary": "Prototype pollution in minimist"
+      }
+    ]
+  },
+  "tick": [
+    "2 alerts"
+  ],
+  "expect": {
+    "pullRequests": [
+      {
+        "repo": "shop-api",
+        "title": "fix: dependency alert of orchestrarr-sandbox/shop-api",
+        "state": "MERGED",
+        "thisRun": true
+      }
+    ],
+    "files": [
+      {
+        "repo": "shop-api",
+        "path": "package.json",
+        "json": "dependencies.lodash",
+        "absent": true
+      },
+      {
+        "repo": "shop-api",
+        "path": "package.json",
+        "json": "dependencies.minimist",
+        "atLeast": "1.2.8"
+      }
+    ]
+  }
+}

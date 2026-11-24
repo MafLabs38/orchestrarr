@@ -1,3 +1,4 @@
+using Orchestrarr.Core.Forge;
 using Orchestrarr.Core.Machines;
 using Orchestrarr.Core.Missions;
 using Orchestrarr.Core.Tasks;
@@ -157,24 +158,73 @@ internal static partial class MissionRunnerEndpoints
             return Results.Ok();
         });
 
-        group.MapPost("/missions/{id}/handover", async (string id, MissionHandOver request, HttpContext context, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, ProblemConductor conductor, RepairRegistry? repairs, ILiveNotifier live, CancellationToken ct) =>
+        group.MapPost("/missions/{id}/handover", async (string id, MissionHandOver request, HttpContext context, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, ProblemConductor conductor, RepairRegistry? repairs, IBranchSource branches, IDefaultBranchSource defaults, ILiveNotifier live, CancellationToken ct) =>
         {
             if (!Owns(id, runnerName(context), missions, mandates) || string.IsNullOrWhiteSpace(request.Claim) || string.IsNullOrWhiteSpace(request.WhatChangedAndWhy))
             {
                 return Results.NotFound();
             }
-            // The files of a repair are the staging world's, and are checked before anything keeps them: the policy is the control plane's own, whatever the runner did
-            if (request.Files is { Count: > 0 } files)
+            // The branch of a free agent that says it has finished (ADR 0048): the control plane reads it on the forge, at the commit named, and keeps what it read. What the runner or the agent says of it is a claim
+            if (request.Branch is { Length: > 0 } branch)
             {
-                if (missions.Get(id) is not { World: World.Staging } || repairs is null || problems.Get(missions.Get(id)!.ProblemId)?.Entry is not { HeadSha: { } originalHead })
+                var staged = missions.Get(id);
+                var entry = staged is null ? null : problems.Get(staged.ProblemId)?.Entry;
+                if (staged is not { World: World.Staging } || repairs is null || entry is not { PullRequest: null, Repositories.Count: 1 })
                 {
-                    return Results.Json(new { error = "only the staging world hands over a repair, on a pull request" }, statusCode: StatusCodes.Status409Conflict);
+                    return Results.Json(new { error = "only the staging world of a problem with no pull request hands over a branch" }, statusCode: StatusCodes.Status409Conflict);
                 }
-                if (RepairPolicy.Refusal(files, missions.Get(id)!.Frame.ForbiddenPaths) is { } refusal)
+                if (!AgentBranch.Belongs(branch, staged.ProblemId) || request.Commit is not { } pushed || !CommitShape().IsMatch(pushed))
+                {
+                    return Results.Json(new { error = "the branch or the commit it finished at is not well formed" }, statusCode: StatusCodes.Status409Conflict);
+                }
+                var repository = entry.Repositories[0];
+                // What the control plane cannot accept is **not lost**: the dossier is kept with the reason as an open point, no branch is kept, and the controller (and the maintainer, on the Missions screen) read it and send the work back
+                string? refused = null;
+                if (await branches.HeadOfAsync(repository, branch, ct) is not { } onForge || !string.Equals(onForge, pushed, StringComparison.Ordinal))
+                {
+                    refused = "the branch is not at the commit it was said to finish at, or cannot be read on the forge";
+                }
+                else if (await defaults.ReadAsync(repository, ct) is not { } current || await branches.CompareAsync(repository, current.Branch, pushed, ct) is not { } change)
+                {
+                    refused = "the change cannot be read on the forge";
+                }
+                else if (ChangePolicy.Refusal(change, staged.Frame.ForbiddenPaths) is { } policy)
+                {
+                    refused = policy;
+                }
+                else
+                {
+                    // What is shown to the controller is what the forge says, not what the agent or the runner wrote about it
+                    repairs.KeepBranch(staged.ProblemId, change.MergeBase, new PendingBranch(branch, pushed, [.. change.Files.Select(file => file.Path)], ChangePolicy.Reading(change)));
+                }
+                if (refused is not null)
+                {
+                    repairs.Forget(staged.ProblemId);
+                    var note = $"The control plane did not accept the branch {branch}: {refused}.";
+                    request = request with { WhatChangedAndWhy = $"{note} {request.WhatChangedAndWhy}", OpenPoints = [.. request.OpenPoints ?? [], note], Commit = null };
+                }
+            }
+            // The files of a repair are the staging world's, and are checked before anything keeps them: the policy is the control plane's own, whatever the runner did
+            else if (request.Files is { Count: > 0 } files)
+            {
+                var staged = missions.Get(id);
+                var entry = staged is null ? null : problems.Get(staged.ProblemId)?.Entry;
+                if (staged is not { World: World.Staging } || repairs is null || entry is null)
+                {
+                    return Results.Json(new { error = "only the staging world hands over files" }, statusCode: StatusCodes.Status409Conflict);
+                }
+                // A pull request that did not pass is repaired against the head that the maintainer saw; a problem that has none hands over a branch, not files
+                var baseHead = entry.HeadSha;
+                if (entry.PullRequest is null || baseHead is not { Length: > 0 } || !CommitShape().IsMatch(baseHead))
+                {
+                    return Results.Json(new { error = "files are handed over only to repair a pull request, at the commit that the maintainer saw" }, statusCode: StatusCodes.Status409Conflict);
+                }
+                var refusal = RepairPolicy.Refusal(files, staged.Frame.ForbiddenPaths);
+                if (refusal is not null)
                 {
                     return Results.Json(new { error = refusal }, statusCode: StatusCodes.Status422UnprocessableEntity);
                 }
-                repairs.Keep(missions.Get(id)!.ProblemId, originalHead, files);
+                repairs.Keep(staged.ProblemId, baseHead, files);
             }
             else if (repairs is not null && missions.Get(id) is { World: World.Staging } staged)
             {

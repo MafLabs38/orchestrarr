@@ -10,7 +10,7 @@ namespace Orchestrarr.MissionRunner;
 /// The work of the staging world for a pull request: the staging machine is put back to its reference, the pull request is fetched there at the commit that the mandate names,
 /// built and tested in a container, and what was seen is handed over as a dossier. The machine is put back again when the work ends (ADR 0041): the next job never works in what this one left.
 /// </summary>
-public sealed partial class StagingProof(IShell shell, MissionRunnerOptions options, RepairAgent? repair = null) : IWorldWork
+public sealed partial class StagingProof(IShell shell, MissionRunnerOptions options, RepairAgent? repair = null, ChangeProof? change = null) : IWorldWork
 {
     public string World => "Staging";
 
@@ -18,6 +18,11 @@ public sealed partial class StagingProof(IShell shell, MissionRunnerOptions opti
 
     public async Task<MissionHandOver> RunAsync(ClaimedMission mission, Func<string, Task> report, CancellationToken cancellationToken)
     {
+        // A problem that has no pull request is solved by a free agent, not proved (ADR 0048)
+        if (mission.PullRequest is null && change is not null)
+        {
+            return await change.RunAsync(mission, report, cancellationToken);
+        }
         if (mission.PullRequest is not { } number || !RepositoryShape().IsMatch(mission.Repository))
         {
             return Refused(mission, "This runner proves pull requests only for now: the mission names no pull request or an unreadable repository.");

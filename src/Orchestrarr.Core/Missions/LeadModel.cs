@@ -15,7 +15,8 @@ public sealed record ProblemBrief(
     string? Checks = null,
     string? Severity = null,
     int? Count = null,
-    int? PullRequest = null)
+    int? PullRequest = null,
+    IReadOnlyList<string>? Details = null)
 {
     /// <summary>The brief of a row of the table: what the control plane read, and the description with where it came from (parsed by the control plane, or the text of someone else).</summary>
     public static ProblemBrief Of(ProblemRow row)
@@ -53,8 +54,8 @@ public sealed record LeadInput(ProblemBrief Brief, World ApprovedUpTo, World Fir
 /// <summary>The checks the conductor makes on a plan before it uses it: shape, order, ceiling and the plain text of the instructions.</summary>
 public static class LeadPlanChecks
 {
-    public const int MaxInstructionCharacters = 800;
-    public const int MaxReasonCharacters = 400;
+    public const int MaxInstructionCharacters = 2000;
+    public const int MaxReasonCharacters = 600;
 
     /// <summary>Why the plan is refused; empty when it may be used. <paramref name="highest"/> is the highest world the powers reach now.</summary>
     public static IReadOnlyList<string> Problems(LeadPlan? plan, World first, World highest)

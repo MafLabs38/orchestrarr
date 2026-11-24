@@ -171,6 +171,63 @@ public sealed class GitHubPullRequestFactsTests
         (await Facts().ReadAsync("example/app", 0, TestContext.Current.CancellationToken)).Should().BeNull();
     }
 
+    [Fact]
+    public async Task The_branch_of_an_agent_is_read_where_it_is_and_what_it_changes_against_the_default_branch()
+    {
+        _routes["/repos/example/app/git/ref/heads/agent/p-1-abc"] = $$"""{ "object": { "sha": "{{Head}}" } }""";
+        _routes[$"/repos/example/app/compare/develop...{Head}"] = $$"""
+            { "merge_base_commit": { "sha": "{{Base}}" }, "behind_by": 0, "ahead_by": 2,
+              "files": [ { "filename": "package.json", "status": "modified", "changes": 2, "patch": "@@ -1 +1 @@\n-a\n+b" }, { "filename": "logo.png", "status": "added", "changes": 0 } ] }
+            """;
+
+        (await Facts().HeadOfAsync("example/app", "agent/p-1-abc", TestContext.Current.CancellationToken)).Should().Be(Head);
+        var change = (await Facts().CompareAsync("example/app", "develop", Head, TestContext.Current.CancellationToken))!;
+
+        change.MergeBase.Should().Be(Base);
+        change.BehindBy.Should().Be(0);
+        change.AheadBy.Should().Be(2);
+        change.FilesComplete.Should().BeTrue();
+        change.Files.Select(file => (file.Path, file.Status, file.Patch is null)).Should().Equal(("package.json", "modified", false), ("logo.png", "added", true));
+    }
+
+    [Fact]
+    public async Task What_cannot_be_read_or_is_not_well_formed_is_null_never_a_guess()
+    {
+        var token = TestContext.Current.CancellationToken;
+        (await Facts().HeadOfAsync("example/app", "agent/p-1-abc", token)).Should().BeNull("the forge has no such branch");
+        (await Facts().HeadOfAsync("example/app", "main", token)).Should().BeNull("only the branches of an agent are read");
+        (await Facts().HeadOfAsync("../x", "agent/p-1-abc", token)).Should().BeNull();
+        (await Facts().CompareAsync("example/app", "develop", Head, token)).Should().BeNull("the forge does not answer");
+        (await Facts().CompareAsync("example/app", "develop", "not-a-sha", token)).Should().BeNull();
+        _routes[$"/repos/example/app/compare/develop...{Head}"] = $$"""{ "merge_base_commit": { "sha": "{{Base}}" }, "behind_by": 3, "ahead_by": 1, "files": [] }""";
+        (await Facts().CompareAsync("example/app", "develop", Head, token))!.BehindBy.Should().Be(3);
+    }
+
+    [Fact]
+    public async Task The_default_branch_is_read_with_its_head_and_what_cannot_be_read_is_null()
+    {
+        var token = TestContext.Current.CancellationToken;
+        (await Facts().ReadAsync("example/app", token)).Should().BeNull("the forge does not answer");
+        _routes["/repos/example/app"] = """{ "default_branch": "main" }""";
+        (await Facts().ReadAsync("example/app", token)).Should().BeNull("the branch cannot be read");
+        _routes["/repos/example/app/branches/main"] = $$"""{ "commit": { "sha": "{{Head}}" } }""";
+
+        (await Facts().ReadAsync("example/app", token)).Should().Be(new DefaultBranchHead("main", Head));
+        (await Facts().ReadAsync("../x", token)).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_list_of_a_hundred_files_may_be_cut_and_a_missing_behind_count_counts_as_behind()
+    {
+        var files = string.Join(",", Enumerable.Range(0, 100).Select(index => $$"""{ "filename": "f{{index}}.txt", "status": "added", "changes": 1, "patch": "@@\n+x" }"""));
+        _routes[$"/repos/example/app/compare/develop...{Head}"] = $$"""{ "merge_base_commit": { "sha": "{{Base}}" }, "ahead_by": 1, "files": [ {{files}} ] }""";
+
+        var change = (await Facts().CompareAsync("example/app", "develop", Head, TestContext.Current.CancellationToken))!;
+
+        change.FilesComplete.Should().BeFalse("a hundred is a full page: the list may have been cut");
+        change.BehindBy.Should().Be(1, "a forge that does not say how far behind it is counts as behind");
+    }
+
     private sealed class Handler(Dictionary<string, string> routes) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
