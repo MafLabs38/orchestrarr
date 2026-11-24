@@ -103,7 +103,8 @@ const problemRowsOf = async (page) => (await apiList(page, '/api/v1/problems')).
 // The table keeps what it read for a few minutes: ask for fresh readings until it shows the pull requests the lab has just planted
 async function waitForPlantedRows(page, planted) {
   const shownNow = async () => new Set((await problemRowsOf(page)).map((r) => r.pullRequest).filter((n) => n != null));
-  for (let attempt = 0; attempt < 12; attempt++) {
+  // The forge is read again at most every five minutes (GitHubOptions.CacheSeconds): the closed pull request of a run that has just ended can stay on the table for that long
+  for (let attempt = 0; attempt < 60; attempt++) {
     const [reading] = await Promise.all([
       page.waitForResponse((r) => r.url().includes('/api/v1/problems') && r.url().includes('refresh=true'), { timeout: 60000 }),
       page.getByRole('button', { name: UI.refresh }).click(),
