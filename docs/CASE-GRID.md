@@ -21,12 +21,12 @@ A demonstration played once by hand proves that a path exists, not that the case
 | 01 Routine bump | Row bound to a pull request, selectable | `lab/scenarios/CASE-01.json`: a lodash patch bump on `shop-api` | **yes** (`lab/e2e/run-scenario.cjs`) | **ticked** (2026-11-22): reset, plant, sign in, refresh, tick, validate; staging, controller, merge, release; the pull request is read as merged on the forge; reset again |
 | 02 Deprecated API, code must change | A failing pull request goes to *Repair* | `lab/scenarios/CASE-02.json`: Express 5 and the base image it needs, on `shop-api` | **yes** | **ticked** (2026-11-22): the staging fails, the agent repairs the route, the gateway opens the repair pull request and merges it, the original is closed and the release answers |
 | 03 Security advisory | An alert row (no pull request) is selectable; the lead plans from the findings, a free agent in staging makes the change, the gateway opens the pull request on the default branch | `lab/scenarios/CASE-03.json` (lodash and minimist, each with a fixed version) and `CASE-03b.json` (lodash with no fixed version: the exposure is removed another way) on `shop-api`, the findings written to the fake source (`LAB_FINDINGS_FILE`) | **yes** (both) | **ticked** (2026-11-22, see the note below the table) |
-| 04 Newer image | Row shown, **not selectable** | Old images in `edge-stack` | no | open |
-| 05 Floating tag | Row shown, **not selectable** | `latest` in `edge-stack` | no | open |
+| 04 Newer image | An image row (no pull request) is selectable; the lead is told where the image is written and plans (a major one is complex), a free agent in staging makes the change, the gateway opens the pull request (ADR 0051) | Old images in `edge-stack`; no fault is planted, the seed is the fault | **yes** (`lab/scenarios/CASE-04.json`: the web image) | **ticked** (2026-11-24, three replays in a row on the final code), **up to the merge**: a compose stack is not deployed by the release runner, so its grant stops at the Git world (`Missions:SandboxWorldLimits`) and the deployment and the check after it are not played |
+| 05 Floating tag | Same path as 04: a floating tag is a row that can be ticked | `latest` in `edge-stack` (`hashicorp/http-echo`) | **yes** (`lab/scenarios/CASE-05.json`) | **ticked** (2026-11-24, three replays in a row on the final code), up to the merge for the same reason as 04; the agent pins a version and touches nothing else |
 | 06 Green in CI, broken at run time | Failure after deploy goes back to staging | `ledger-worker` Python bump (fails at the check after deploy) | no | **manual**, in part: the loop returns to staging; no revert or fix proven |
 | 07 Many pull requests at once | One problem at a time on a repository: the others wait in line, planned and not started; a pull request that conflicts with its base, or that moved, is ended at once and the line goes on (ADR 0049) | `lab/scenarios/CASE-07.json`: three bumps on `shop-api` (lodash, express, mocha), two of them on neighbouring lines of `package.json`; in a second round the lab plays the dependency bot (it makes the open one again on the new base) and the pull request is ticked again | **yes** (two rounds) | **ticked** (2026-11-24): the first is merged and released, the second conflicts with the new base and is ended in seconds, the third is merged and released; once the bot has rebased the second it is merged and released; no grouping and no single deployment (not what the maintainer asked) |
 | 08 CI broken, no pull request | Row shown, **not selectable** | `pipeline-scenarios` (seven breakages) | no | open; the output is a patch or an issue, never a push |
-| 09 Obsolete base image | Row shown, **not selectable** | `node:14`, `python:3.7` | no | open (a base-image pull request is only a bump) |
+| 09 Obsolete base image | Same path as 04; a Dockerfile is a place where an image is written (`kind: dockerfile` of the description) | `python:3.7` in the `ledger-worker` Dockerfile | **yes** (`lab/scenarios/CASE-09.json`) | **ticked** (2026-11-24, three replays in a row on the final code): the base is raised to a supported Python (3.13 in the replays), the tests pass on it, the pull request is merged and the application is redeployed and checked |
 | 10 Major framework upgrade | none | none | no | open |
 | 11 Platform upgrade | none | none; needs a staging cluster | no | open |
 | 12 Database major | none | none; needs a database with data | no | open |
@@ -40,7 +40,7 @@ A demonstration played once by hand proves that a path exists, not that the case
 | 20 Staging proved healthy first | not verified | none | no | open, not verified |
 | 21 GitOps and write credentials | a workflow change is refused by the controller | none | no | **manual**, in part |
 
-**Ticked: 5 of 21** (01, 02, 03, 07, 16): CASE-03, CASE-03b and CASE-16 passed three times in a row on the code of 2026-11-23 (the replays were played again after each change of the lead's bounds and of the controller's rules), and CASE-07 three times in a row on the code of 2026-11-24. Played by hand in whole or in part: 06, 14, 15, 21.
+**Ticked: 8 of 21** (01, 02, 03, 04, 05, 07, 09, 16): CASE-03, CASE-03b and CASE-16 passed three times in a row on the code of 2026-11-23 (the replays were played again after each change of the lead's bounds and of the controller's rules), CASE-07 three times in a row on the code of 2026-11-24, and CASE-04, CASE-05 and CASE-09 three times in a row on the code of 2026-11-24 (the images, ADR 0051). Played by hand in whole or in part: 06, 14, 15, 21.
 
 ## What the grid shows about the structure
 
@@ -55,15 +55,32 @@ A demonstration played once by hand proves that a path exists, not that the case
 - **What CASE-03 and CASE-16 found.** (1) The first design carried the agent's files out of the machine through the runner, which read them back and wrote a diff: a lock file was larger than one call brings back, the controller sent back a dossier that only *told* what changed, and the maintainer named the defect (2026-11-23): **a developer commits and pushes, and the commit on the forge is what is audited**. The agent now pushes its own branch; the control plane reads that commit on the forge and gives the controller its own reading; the runner reads no file. (2) A count that is larger than the findings (the fake Portarr said six alerts, the source named two) made the lead promise "all six" and the controller ask for the four it was never given: the sample now says two, and both prompts say that the findings are what the control plane knows. (3) The advisory database moved under the scenario (lodash 4.17.21 is itself flagged now): the agent found it and the controller escalated instead of granting, which is the behaviour wanted; the scenario names the version that fixes it. (4) A library replaced by one the production image cannot run (`util.parseArgs` on the `node:14` image) passed staging and failed the release, and the loop went back to staging: the case that the gap between the staging and the production runtimes (case 20) will have to prevent. (5) The same row is the same problem: what a previous run made (a repair, its pull request) was taken for the new run's and the staging proof fetched a merged pull request; a start now forgets it. (6) The table said *No Runner* while the runner was busy in a long mission or a reset: any call of a known runner now counts as a sign of life. (7) The lead's instruction, now richer, was refused by the bound of 800 characters in about one run in five (the audit trail said so: *the instruction of the Staging world is not short plain text*): the bound is 2000 and the lead is told it.
 - **Not yet built at all**: an agent of the Git world that resolves a conflict (the rules of ADR 0049 are meant to keep it from arising), the report and the mail (14 and the complex marking), the cases that need more lab (11, 12, 18, 19).
 
+## What the 21 cases do not prove
+
+The grid says that each **situation** works end to end on the test bed. It does not say that the product is finished (the maintainer, 2026-11-24). What is left outside it, so that it is not mistaken for done:
+
+| Requirement area ([FUNCTIONAL.md](FUNCTIONAL.md)) | What is proved | What is not |
+|---|---|---|
+| 5.9 The frame and safety | Unit tests of the powers, the mandates, the audit of a commit; case 15 in part | An end-to-end replay of an agent that tries to leave its frame (a secret, a pipeline, an injection in a package) |
+| 5.10 Complexity and notifications | The lead marks a problem complex | The mail to the maintainer (cases 03 and 14) and the bell notice of a line that left without starting |
+| 5.11 Failure, repair and loops | The loop returns to staging at a failed release, with a raised priority (ADR 0050); the budget stops it | The way back of a release that reached production, and the case 06 and 14 scenarios |
+| 5.12 What the maintainer sees | Walked by hand in a real browser at each vertical | A scenario of the Missions, plan and history screens |
+| The global stop, the budgets, the restart | The kill switch is used by the lab to end a problem | A scenario of the stop (lot 4), a restart of the control plane in the middle of a problem (the lines and the leases are in memory on the test bed) |
+| 7 Portarr | A fake source of findings | The real Portarr, and a real deployment (the forge, the delivery, the production) |
+| 10 What exists | | The earlier typed-task path is still in the code (ADR 0038) |
+
+These are the lots after the cases; they are added to this grid as they are played.
+
 ## Order of work
 
 The unit of work is a lot of cases that share a mechanism, one pull request at a time (CLAUDE.md rule 18), the grid updated in each:
 
 0. **The bench**: reset, planting, the scenario runner, this grid. Nothing below can be ticked without it.
 1. **Dependencies**: 01, 02, 03, 07, 16 are ticked (07 is done as the maintainer's Git flow rule of one work site per repository, not as a batch: ADR 0049).
-2. **Images and run time**: 04, 05, 06, 09, 17, 20.
-3. **Pipelines and secrets**: 08, 13, 15, 21.
-4. **Failure and telling the maintainer**: 14, the complex marking, the mail, the global stop.
-5. **The complex cases**: 10, 11, 12, 18, 19.
+2. **Images**: 04, 05, 09 are ticked (ADR 0051); 04 and 05 stop at the merge.
+3. **Run time**: 06, 17, 20 (the images, 04, 05 and 09, are done).
+4. **Pipelines and secrets**: 08, 13, 15, 21.
+5. **Failure and telling the maintainer**: 14, the complex marking, the mail, the global stop.
+6. **The complex cases**: 10, 11, 12, 18, 19.
 
 Then the fake Portarr is replaced by the real one.

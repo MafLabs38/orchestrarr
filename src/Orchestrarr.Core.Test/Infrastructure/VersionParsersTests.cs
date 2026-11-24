@@ -154,4 +154,15 @@ public sealed class VersionParsersTests
         VersionParsers.Find("kustomize", "example/infra", "k.yaml", flow)[0].Image.Tag.Should().Be("1.9");
         VersionParsers.Find("kustomize", "example/infra", "k.yaml", block)[0].Image.Tag.Should().Be("1.9");
     }
+
+    [Fact]
+    public void The_base_images_of_a_dockerfile_are_found_but_not_a_stage_a_variable_or_scratch()
+    {
+        const string dockerfile = "# base\nFROM python:3.7 AS build\nRUN pip install x\nFROM --platform=linux/amd64 node:14-alpine\nFROM build\nFROM scratch\nFROM ${BASE}\nfrom nginx:1.14 # web\n";
+
+        var found = VersionParsers.Find("dockerfile", "o/r", "Dockerfile", dockerfile);
+
+        found.Select(location => (location.Line, location.Image.Name, location.Image.Tag)).Should().Equal((2, "python", "3.7"), (4, "node", "14-alpine"), (8, "nginx", "1.14"));
+        found.Should().OnlyContain(location => location.Form == VersionForm.DockerfileFrom);
+    }
 }

@@ -1,0 +1,28 @@
+{
+  "case": "CASE-09",
+  "title": "An obsolete base image: the Dockerfile is rebuilt on a supported one, the tests pass, it is redeployed",
+  "repos": [
+    "ledger-worker"
+  ],
+  "tick": [
+    "python:3.7"
+  ],
+  "expect": {
+    "pullRequests": [
+      {
+        "repo": "ledger-worker",
+        "title": "fix: image update of orchestrarr-sandbox/ledger-worker",
+        "state": "MERGED",
+        "thisRun": true
+      }
+    ],
+    "files": [
+      {
+        "repo": "ledger-worker",
+        "path": "Dockerfile",
+        "capture": "^FROM python:([0-9][0-9.]*)",
+        "atLeast": "3.11"
+      }
+    ]
+  }
+}

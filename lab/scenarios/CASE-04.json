@@ -1,0 +1,34 @@
+{
+  "case": "CASE-04",
+  "title": "A newer image: the version of the web image is raised through the process",
+  "repos": [
+    "edge-stack"
+  ],
+  "lastWorld": "Git",
+  "tick": [
+    "nginx:1.14"
+  ],
+  "expect": {
+    "pullRequests": [
+      {
+        "repo": "edge-stack",
+        "title": "fix: image update of orchestrarr-sandbox/edge-stack",
+        "state": "MERGED",
+        "thisRun": true
+      }
+    ],
+    "files": [
+      {
+        "repo": "edge-stack",
+        "path": "docker-compose.yml",
+        "capture": "image: nginx:([0-9][0-9.]*)",
+        "atLeast": "1.20"
+      },
+      {
+        "repo": "edge-stack",
+        "path": "docker-compose.yml",
+        "matches": "image: redis:4\\.0"
+      }
+    ]
+  }
+}

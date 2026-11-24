@@ -11,6 +11,9 @@ public enum VersionForm
 
     /// <summary>A string <c>"name:tag"</c> assigned to <c>name</c> or <c>image</c> in a Terraform file.</summary>
     TerraformImage,
+
+    /// <summary>The image of a <c>FROM</c> line of a Dockerfile: the base of what the repository builds.</summary>
+    DockerfileFrom,
 }
 
 /// <summary>

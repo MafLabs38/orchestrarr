@@ -185,7 +185,7 @@ public static class DecisionTable
             AddOtherProblems(rows, item, policy, infrastructure);
             if (policy.ActOnProblems)
             {
-                ActOnDependencyAlerts(rows, before, item, applications, runners);
+                ActOnProblemsWithNoPullRequest(rows, before, item, applications, runners);
             }
             NameApplication(rows, before, item, applicationNames ?? []);
             Warn(rows, before, infrastructure);
@@ -413,13 +413,19 @@ public static class DecisionTable
             : (Ceiling.MergeIntoDevelop, CeilingReason.UpdateClassStopsBeforeProduction, false);
     }
 
-    // A dependency alert is a problem with no pull request that a worker agent solves in staging (ADR 0048): its row goes as far as the chain of the application goes, by the same gates as a pull request's (granted,
-    // described, a runner that accepts the repository, a way back, a check after the deploy), without what only a pull request has (its checks and its merge state). Other kinds still have no action defined.
-    private static void ActOnDependencyAlerts(List<ProblemRow> rows, int from, WorkItem item, IApplicationCatalog applications, IReadOnlyList<RunnerAcceptance> runners)
+    // The problems that have no pull request and that a worker agent solves in staging (ADR 0048, ADR 0051): a dependency alert, an image that has a newer version, an image run under a tag that moves. An image that the platform or
+    // an automation keeps, that is not written in the code that was read, or that differs from what runs, stays without action, with its own reason: only the reasons below leave a row that an agent can work on.
+    private static readonly ProblemKind[] SolvedInStaging = [ProblemKind.DependencyAlert, ProblemKind.ImageUpdate, ProblemKind.FloatingImage];
+
+    private static readonly CeilingReason[] LeavesAnAgentWork = [CeilingReason.NoActionDefined, CeilingReason.MajorNeedsPlan];
+
+    // Such a row goes as far as the chain of the application goes, by the same gates as a pull request's (granted, described, a runner that accepts the repository, a way back, a check after the deploy), without what only
+    // a pull request has (its checks and its merge state). Other kinds still have no action defined.
+    private static void ActOnProblemsWithNoPullRequest(List<ProblemRow> rows, int from, WorkItem item, IApplicationCatalog applications, IReadOnlyList<RunnerAcceptance> runners)
     {
         for (var index = from; index < rows.Count; index++)
         {
-            if (rows[index].Kind != ProblemKind.DependencyAlert || rows[index].GoesUpTo != Ceiling.NoAction || string.IsNullOrEmpty(item.RepositoryFullName))
+            if (!SolvedInStaging.Contains(rows[index].Kind) || rows[index].GoesUpTo != Ceiling.NoAction || !LeavesAnAgentWork.Contains(rows[index].Why) || string.IsNullOrEmpty(item.RepositoryFullName))
             {
                 continue;
             }

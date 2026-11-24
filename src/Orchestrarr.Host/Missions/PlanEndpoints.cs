@@ -39,6 +39,9 @@ internal static class PlanEndpoints
     // A selection is a screenful, not a flood: more rows than the table can hold at once is refused
     private const int MaxRows = 400;
 
+    // The places of an image that the lead is told about: a few are enough to know what the change touches
+    private const int MaxPlaces = 10;
+
     public static void MapPlanEndpoints(this RouteGroupBuilder api)
     {
         // Whether the validation goes through the missions here: the screen sends the selection to the plan when it does, and says so
@@ -82,6 +85,10 @@ internal static class PlanEndpoints
         }).RequireAuthorization(Permissions.ApprovalsCreate).RequireRateLimiting(ApprovalsServiceCollectionExtensions.ApprovingPolicy);
     }
 
+    // What the lead is told of the places of an image: plain lines, a few of them
+    internal static IReadOnlyList<string> ImagePlaces(IReadOnlyList<Orchestrarr.Core.Infrastructure.CodeLocation> places) =>
+        [.. places.Take(MaxPlaces).Select(place => $"image written in {place.Path} line {place.Line} as {place.Image.Name}{(place.Image.Tag is { } tag ? $":{tag}" : string.Empty)}")];
+
     internal static World CeilingOf(ValidatedRow chosen) => chosen.StopBeforeProduction ? World.Git : PlanCeiling;
 
     // Why a row is not asked about at all: the selection is beyond what the lead is asked about at once (Agents:LeadMaxRows)
@@ -123,6 +130,11 @@ internal static class PlanEndpoints
         {
             var known = await findings.ReadAsync(entry.Repositories[0], cancellationToken);
             brief = brief with { Details = [.. known.Select(finding => finding.Line)] };
+        }
+        // An image problem is about the places where the image is written: what the control plane read of them goes to the lead, as data, with the problem (the file, the line, the reference as written)
+        if (row.Kind is ProblemKind.ImageUpdate or ProblemKind.FloatingImage && row.Locations is { Count: > 0 } places)
+        {
+            brief = brief with { Details = ImagePlaces(places) };
         }
         // The global stop is read again for each question: a row that waits for a free slot may be asked long after the request came
         if (stop.Engaged)

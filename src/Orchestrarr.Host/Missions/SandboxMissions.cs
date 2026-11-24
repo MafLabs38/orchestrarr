@@ -226,9 +226,10 @@ internal sealed class HttpSandboxHealth(string host, int basePort) : ISandboxHea
 }
 
 /// <summary>The standing grant of the test bed: every application may go up to one world, set by <c>Missions:SandboxMaxWorld</c> (the last world: the test bed merges and deploys).</summary>
-internal sealed class SandboxGrants(World highest) : IGrantSource
+internal sealed class SandboxGrants(World highest, IReadOnlyDictionary<string, World>? limits = null) : IGrantSource
 {
-    public World? MaxWorldFor(string applicationId) => highest;
+    // An application with a limit of its own is granted the lower of the two
+    public World? MaxWorldFor(string applicationId) => limits is not null && limits.TryGetValue(applicationId, out var limit) && limit < highest ? limit : highest;
 }
 
 /// <summary>Says at start, once, what the test bed declares to hold instead of reading it, so that nobody takes the sandbox for a deployment.</summary>
@@ -275,7 +276,7 @@ internal static class SandboxMissionsExtensions
             .AddSingleton<IApprovalSource>(provider => provider.GetRequiredService<SandboxApprovals>())
             .AddSingleton(provider => provider.GetRequiredService<SandboxApprovals>().Verifier)
             .AddSingleton<IApprovalWithdrawals, SandboxWithdrawals>()
-            .AddSingleton<IGrantSource>(new SandboxGrants(missions.SandboxMaxWorld))
+            .AddSingleton<IGrantSource>(new SandboxGrants(missions.SandboxMaxWorld, missions.SandboxWorldLimits))
             .AddHostedService(provider => new SandboxNotice(missions.SandboxMaxWorld, provider.GetRequiredService<ILogger<SandboxNotice>>()))
             .AddSingleton<IPullRequestFacts>(_ => githubFacts.Value is { } facts ? facts : new NoPullRequestFacts())
             .AddSingleton<IDefaultBranchSource>(_ => githubFacts.Value is { } facts ? facts : new NoDefaultBranchSource())

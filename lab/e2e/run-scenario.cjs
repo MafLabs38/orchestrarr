@@ -74,10 +74,21 @@ const versionAtLeast = (found, wanted) => {
   return true;
 };
 
-// A check of the final content of the application: a dependency of package.json at least at a version, or a dependency that is gone
+// A check of the final content of the application: a dependency of package.json at least at a version, or a dependency that is gone; for any other file, a captured version or a pattern
 function checkFile(want) {
   const content = fileOnForge(want.repo, want.path);
   if (content === null) { expect(false, `${want.repo}/${want.path} exists`); return; }
+  // A file that is not JSON (a compose file, a Dockerfile): a number captured by a pattern is at least a version, or a pattern is present (matches) or absent (notMatches)
+  if (want.capture) {
+    const found = new RegExp(want.capture, 'm').exec(content)?.[1];
+    expect(found !== undefined && versionAtLeast(found, want.atLeast), `${want.repo}/${want.path}: ${want.capture} is at least ${want.atLeast} (is ${found ?? 'absent'})`);
+    return;
+  }
+  if (want.matches !== undefined || want.notMatches !== undefined) {
+    if (want.matches !== undefined) expect(new RegExp(want.matches, 'm').test(content), `${want.repo}/${want.path} matches ${want.matches}`);
+    if (want.notMatches !== undefined) expect(!new RegExp(want.notMatches, 'm').test(content), `${want.repo}/${want.path} does not match ${want.notMatches}`);
+    return;
+  }
   const value = want.json.split('.').reduce((node, key) => (node == null ? undefined : node[key]), JSON.parse(content));
   if (want.absent) expect(value === undefined, `${want.repo}/${want.path}: ${want.json} is gone (is ${value === undefined ? 'gone' : value})`);
   else expect(value !== undefined && versionAtLeast(value, want.atLeast), `${want.repo}/${want.path}: ${want.json} is at least ${want.atLeast} (is ${value ?? 'absent'})`);
@@ -145,7 +156,8 @@ async function tickAndValidate(page, ticks) {
     const row = page.locator('tbody tr', { hasText: pattern }).first();
     const matching = await page.locator('tbody tr', { hasText: pattern }).count();
     expect(matching === 1, `the table lists exactly one problem with "${pattern}" (lists ${matching})`);
-    if (matching === 1) await row.getByRole('checkbox').first().check(); else selectionOk = false;
+    // the runner may still be putting its machine back after the previous run: the row is not selectable until it asks for work again
+    if (matching === 1) await row.getByRole('checkbox').first().check({ timeout: 300000 }); else selectionOk = false;
   }
   // a wrong or partial selection is never validated: it would start a real chain that the scenario cannot judge
   if (!selectionOk) return false;
@@ -165,12 +177,14 @@ async function tickAndValidate(page, ticks) {
 }
 
 // Follows the missions this validation created until the expected pull requests are in their final state and released, or one ends
+// "lastWorld": the world where the chain ends when the application is not deployed by the product (a compose stack is merged, not deployed): Git; the release world by default
 // "endsWithoutDone": how many missions may end without being done in this round (a problem that the control plane ends at once, such as a pull request that conflicts with its base)
 async function followMissions(page, known, round = scenario) {
   await page.getByRole('link', { name: UI.missions }).click();
   const begin = Date.now();
   const wanted = round.expect?.pullRequests ?? [];
   const mayEnd = round.endsWithoutDone ?? 0;
+  const lastWorld = round.lastWorld ?? 'Release';
   const reached = () => wanted.every((w) => prState(w) === w.state);
   let last = '', outcome = 'timeout', mine = [];
   while ((Date.now() - begin) / 1000 < maxSeconds) {
@@ -180,11 +194,11 @@ async function followMissions(page, known, round = scenario) {
     if (mine.filter((m) => m.state === 'Ended' && m.end !== 'Done').length > mayEnd) { outcome = 'ended badly'; break; }
     // done when what the round expects is on the forge and no mission is still going: each is ended or accepted (a problem that waits in line has no mission yet, but what it merges is expected)
     const finished = mine.every((m) => m.state === 'Ended' || m.state === 'Accepted');
-    if (mine.some((m) => m.world === 'Release' && m.state === 'Accepted') && reached() && finished) { outcome = 'released'; break; }
+    if (mine.some((m) => m.world === lastWorld && m.state === 'Accepted') && reached() && finished) { outcome = 'released'; break; }
     await page.waitForTimeout(5000);
   }
   followed = mine;
-  expect(outcome === 'released', `the chain went from staging to the release (${outcome}; last: ${last || 'nothing'})`);
+  expect(outcome === 'released', `the chain went from staging to the ${lastWorld.toLowerCase()} (${outcome}; last: ${last || 'nothing'})`);
   if (outcome !== 'released') for (const m of mine) console.log(`${m.world} ${m.state}: end=${m.end ?? ''} ${m.endReason ?? ''}`);
 }
 

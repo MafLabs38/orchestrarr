@@ -25,6 +25,7 @@ public static partial class VersionParsers
         ["compose"] = ImageLines,
         ["kustomize"] = (repository, path, content) => [.. ImageLines(repository, path, content), .. KustomizeTags(repository, path, content)],
         ["terraform-docker"] = TerraformImages,
+        ["dockerfile"] = DockerfileFroms,
     };
 
     public static IReadOnlyCollection<string> Kinds => Readers.Keys;
@@ -45,6 +46,31 @@ public static partial class VersionParsers
         {
             // A file made to make a pattern slow is a file that is not read
             return [];
+        }
+    }
+
+    // The base images of a Dockerfile: its FROM lines, but not a stage that an earlier line named (FROM build) and not scratch; a variable is not a reference and is not read
+    private static IEnumerable<CodeLocation> DockerfileFroms(string repository, string path, string content)
+    {
+        var lines = content.Split('\n');
+        var stages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < lines.Length; i++)
+        {
+            if (FromLine().Match(lines[i]) is not { Success: true } from)
+            {
+                continue;
+            }
+            var written = from.Groups["ref"].Value;
+            var stage = from.Groups["stage"].Success ? from.Groups["stage"].Value : null;
+            var isImage = !stages.Contains(written) && !written.Equals("scratch", StringComparison.OrdinalIgnoreCase);
+            if (stage is not null)
+            {
+                stages.Add(stage);
+            }
+            if (isImage && ImageReference.Parse(written) is { } image)
+            {
+                yield return new CodeLocation(repository, path, i + 1, VersionForm.DockerfileFrom, image);
+            }
         }
     }
 
@@ -162,6 +188,9 @@ public static partial class VersionParsers
             yield return new CodeLocation(repository, path, i + 1, VersionForm.TerraformImage, image);
         }
     }
+
+    [GeneratedRegex(@"^\s*FROM\s+(?:--\S+\s+)*(?<ref>\S+)(?:\s+AS\s+(?<stage>\S+))?\s*(?:#.*)?$", RegexOptions.IgnoreCase, 250)]
+    private static partial Regex FromLine();
 
     [GeneratedRegex(@"^\s*-?\s*image:\s*(?<ref>""[^""]*""|'[^']*'|[^\s#]+)", RegexOptions.None, 250)]
     private static partial Regex ImageLine();
