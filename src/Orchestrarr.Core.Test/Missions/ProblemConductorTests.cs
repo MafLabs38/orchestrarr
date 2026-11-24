@@ -928,7 +928,7 @@ public sealed class ProblemConductorTests : IDisposable
         var conductor = Conductor();
         await ReleaseThatFails(conductor, staged);
 
-        _problems.Get("problem-1")!.Entry.Priority.Should().Be(FlowPriority.FirstUrgent, "production is touched: the problem goes ahead of the normal ones");
+        _problems.Get("problem-1")!.Priority.Should().Be(FlowPriority.FirstUrgent, "production is touched: the problem goes ahead of the normal ones");
         _audit.Events.Should().Contain(line => line.StartsWith("problem.priority-raised problem-1") && line.Contains("50 to 70"));
     }
 

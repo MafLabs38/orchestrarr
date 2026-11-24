@@ -122,13 +122,10 @@ public sealed partial class ProblemConductor
         await TellRevokedAsync(mission, revoked);
         await BestEffortAsync(MissionAuditEvents.MissionEnded, mission.Id, Text($"the release did not verify ({string.Join(", ", failures)}): back to the first world"));
         // The problem touches production now: it goes ahead of the normal ones for the next free machine (a hot lot, ADR 0050). Its mandate is not wider for it: the priority orders the work, it grants no power
-        var priority = FlowPriority.Raised(run.Entry.Priority);
-        var opened = await OpenAsync(run with { CurrentWorld = first, Entry = run.Entry with { Priority = priority } }, first, MandateSource.Controller);
-        // The priority is kept with the problem when the mandate is issued (OpenAsync saves the run): the trail says it only then, and the store is the record
-        if (opened.Ok)
-        {
-            await BestEffortAsync(MissionAuditEvents.PriorityRaised, run.ProblemId, Text($"the release did not verify: priority {run.Entry.Priority} to {priority}"));
-        }
+        var priority = FlowPriority.Raised(run.Priority);
+        var opened = await OpenAsync(run with { CurrentWorld = first, Priority = priority }, first, MandateSource.Controller);
+        // The raised priority is kept with the problem whether or not a mandate could be issued (the run is saved either way): the trail says it after that step, so it never claims a raise that was not stored
+        await BestEffortAsync(MissionAuditEvents.PriorityRaised, run.ProblemId, Text($"the release did not verify: priority {run.Priority} to {priority}"));
         // The mission ended whatever Open says: when no mandate can be issued the problem failed, and the answer still carries the mission that moved
         return opened.Ok ? Moved(opened, "the release did not verify: the problem goes back to the first world", failures) : new ConductResult(false, opened.Refusal, opened.Failures, ended, null);
     }

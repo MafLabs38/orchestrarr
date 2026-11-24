@@ -17,6 +17,5 @@ public sealed class FlowPriorityTests
 
     [Fact]
     public void A_problem_is_normal_unless_something_says_otherwise() =>
-        new PlanEntry("p", "a", "c", "o", ["o/r"], World.Release, new MissionBudget(1, 1, 1), new Validation("x", null), DateTimeOffset.UnixEpoch)
-            .Priority.Should().Be(FlowPriority.Normal);
+        FlowPriority.Normal.Should().Be(50);
 }

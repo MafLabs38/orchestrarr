@@ -45,7 +45,7 @@ internal static class MissionEndpoints
                 : null;
             var dossier = dossierById.TryGetValue(mission.Id, out var found) ? new DossierView(found.Claim, found.WhatChangedAndWhy, found.OpenPoints, found.Complex, found.ComplexReason, found.EvidenceDigests) : null;
             return new MissionView(mission.Id, mission.ProblemId, mission.ApplicationId, mission.World.ToString(), mission.Objective, mission.State.ToString(), mission.End?.ToString(), mission.EndReason, mission.SendBacks,
-                problemById.TryGetValue(mission.ProblemId, out var run) ? run.State.ToString() : null, mandate, dossier, progress?.Lines(mission.Id), run?.Entry.Priority);
+                problemById.TryGetValue(mission.ProblemId, out var run) ? run.State.ToString() : null, mandate, dossier, progress?.Lines(mission.Id), run?.Priority);
         })];
     }
 
