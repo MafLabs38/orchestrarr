@@ -513,6 +513,25 @@ public sealed class DecisionTableTests
     }
 
     [Fact]
+    public void A_floating_image_is_gated_by_the_place_where_it_is_written_like_an_image_that_is_behind()
+    {
+        var item = Item(pulls: [], findings: [ImageFindings(Orchestrarr.Core.Fleet.ImageChange.None)[1]], read: PullRequestsRead.NotNeeded);
+
+        Table(item).Single(row => row.Kind == ProblemKind.FloatingImage).GoesUpTo.Should().Be(Ceiling.NoAction, "no code was read");
+        Table(item, infrastructure: Written("example/infra", "image: app:latest")).Single(row => row.Kind == ProblemKind.FloatingImage).GoesUpTo.Should().Be(Ceiling.NoAction, "written in another repository");
+        Table(item, infrastructure: Written("Example/Shop", "image: app:latest")).Single(row => row.Kind == ProblemKind.FloatingImage).GoesUpTo.Should().NotBe(Ceiling.NoAction, "the repository is told whatever its case");
+    }
+
+    [Fact]
+    public void A_major_image_of_an_application_that_does_not_promote_a_major_change_stops_before_production()
+    {
+        var item = Item(pulls: [], findings: [ImageFindings(Orchestrarr.Core.Fleet.ImageChange.Major)[0]], read: PullRequestsRead.NotNeeded);
+
+        Table(item, Described(), infrastructure: Written("example/shop")).Single(row => row.Kind == ProblemKind.ImageUpdate)
+            .Should().Match<ProblemRow>(row => row.GoesUpTo == Ceiling.MergeIntoDevelop && row.Why == CeilingReason.UpdateClassStopsBeforeProduction);
+    }
+
+    [Fact]
     public void An_image_that_is_not_written_in_the_repository_of_the_problem_in_code_that_was_read_has_no_action()
     {
         var finding = ImageFindings(Orchestrarr.Core.Fleet.ImageChange.Minor)[0];

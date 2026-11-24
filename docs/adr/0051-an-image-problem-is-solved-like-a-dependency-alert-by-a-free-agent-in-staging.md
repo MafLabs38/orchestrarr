@@ -21,6 +21,9 @@ The table already shows the rows of the images: an image that has a newer versio
 - The case 05 (a floating tag is pinned) and the case 09 (a base image is rebuilt on a supported one, tests pass, redeployed) are played end to end by their scenarios. The case 04 is played up to the merge: **the deployment of a compose stack, and the check that follows, are not played** (the release runner does not deploy a compose file; a deployment through the stack's own delivery is not built on the test bed).
 - The table says *what the row would do* (`goesUpTo`), but the world that a problem reaches is the intersection of the tick, the grant and the mandate. On the test bed the runner does not announce the merge to the table (the interim of ADR 0042), so most rows read *no runner* at the merge level while the chain still goes up to the release: the display and the power are two things there, to be reconciled when the typed tasks of ADR 0038 are gone. Not changed here.
 
+- **A floating image that only the platform runs now reads *managed by the platform*** on every host (the platform check, which covered only an image that is behind, covers a floating one too): what the maintainer sees on a deployment's table changes for that row, from the verdict of the code guards to the platform's.
+- **An image written in several repositories** of the perimeter is solved in the repository of the problem only: the agent clones that repository, and the places of the others are left as they are. A change that must be made in all of them is not one problem on one repository (ADR 0041); it is not built.
+
 ## Not decided here, not built
 
 - Where the facts about an image come from in a deployment (the registry, Portarr's reports): the test bed reads them from the table as it is built from Portarr's fake. A deployment reads them through the same source; nothing is added here.

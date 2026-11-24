@@ -65,7 +65,7 @@ The grid says that each **situation** works end to end on the test bed. It does 
 | 5.10 Complexity and notifications | The lead marks a problem complex | The mail to the maintainer (cases 03 and 14) and the bell notice of a line that left without starting |
 | 5.11 Failure, repair and loops | The loop returns to staging at a failed release, with a raised priority (ADR 0050); the budget stops it | The way back of a release that reached production, and the case 06 and 14 scenarios |
 | 5.12 What the maintainer sees | Walked by hand in a real browser at each vertical | A scenario of the Missions, plan and history screens |
-| The global stop, the budgets, the restart | The kill switch is used by the lab to end a problem | A scenario of the stop (lot 4), a restart of the control plane in the middle of a problem (the lines and the leases are in memory on the test bed) |
+| The global stop, the budgets, the restart | The kill switch is used by the lab to end a problem | A scenario of the stop (lot 5), a restart of the control plane in the middle of a problem (the lines and the leases are in memory on the test bed) |
 | 7 Portarr | A fake source of findings | The real Portarr, and a real deployment (the forge, the delivery, the production) |
 | 10 What exists | | The earlier typed-task path is still in the code (ADR 0038) |
 

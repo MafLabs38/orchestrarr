@@ -85,9 +85,9 @@ internal static class PlanEndpoints
         }).RequireAuthorization(Permissions.ApprovalsCreate).RequireRateLimiting(ApprovalsServiceCollectionExtensions.ApprovingPolicy);
     }
 
-    // What the lead is told of the places of an image: plain lines, a few of them
-    internal static IReadOnlyList<string> ImagePlaces(IReadOnlyList<Orchestrarr.Core.Infrastructure.CodeLocation> places) =>
-        [.. places.Take(MaxPlaces).Select(place => $"image written in {place.Path} line {place.Line} as {place.Image.Name}{(place.Image.Tag is { } tag ? $":{tag}" : string.Empty)}")];
+    // What the lead is told of the places of an image: the ones in the repository of the problem that no automation rewrites (the same places as the gate of the table), plain lines, a few of them
+    internal static IReadOnlyList<string> ImagePlaces(IReadOnlyList<Orchestrarr.Core.Infrastructure.CodeLocation> places, string repository) =>
+        [.. places.Where(place => string.Equals(place.Repository, repository, StringComparison.OrdinalIgnoreCase) && place.Managed is null).Take(MaxPlaces).Select(place => $"image written in {place.Path} line {place.Line} as {place.Image.Name}{(place.Image.Tag is { } tag ? $":{tag}" : string.Empty)}")];
 
     internal static World CeilingOf(ValidatedRow chosen) => chosen.StopBeforeProduction ? World.Git : PlanCeiling;
 
@@ -134,7 +134,7 @@ internal static class PlanEndpoints
         // An image problem is about the places where the image is written: what the control plane read of them goes to the lead, as data, with the problem (the file, the line, the reference as written)
         if ((row.Kind is ProblemKind.ImageUpdate or ProblemKind.FloatingImage) && row.Locations is { Count: > 0 } places)
         {
-            brief = brief with { Details = ImagePlaces([.. places.Where(place => string.Equals(place.Repository, entry.Repositories[0], StringComparison.OrdinalIgnoreCase))]) };
+            brief = brief with { Details = ImagePlaces(places, entry.Repositories[0]) };
         }
         // The global stop is read again for each question: a row that waits for a free slot may be asked long after the request came
         if (stop.Engaged)
