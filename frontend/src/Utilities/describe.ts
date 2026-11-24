@@ -415,6 +415,7 @@ const planRefusals = {
   noRepository: 'PlanRefusalNoRepository',
   noApproval: 'PlanRefusalNoApproval',
   notActionable: 'PlanRefusalNotActionable',
+  alreadyQueued: 'PlanRefusalAlreadyQueued',
 } as const;
 
 // Why a ticked row was not started, from the code of the server

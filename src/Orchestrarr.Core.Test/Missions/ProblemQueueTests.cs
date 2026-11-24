@@ -57,4 +57,29 @@ public sealed class ProblemQueueTests
 
         line.TakeReady(_ => false).Should().ContainSingle().Which.Entry.ProblemId.Should().Be("early");
     }
+
+    [Fact]
+    public void A_problem_that_leaves_is_gone_and_the_line_can_be_emptied_with_what_it_held_returned()
+    {
+        var line = new ProblemQueue();
+        line.Enqueue(Problem("a", "o/one"));
+        line.Enqueue(Problem("b", "o/one", 1));
+        line.Enqueue(Problem("c", "o/two", 2));
+
+        line.Remove("a").Should().BeTrue();
+        line.Remove("a").Should().BeFalse();
+        line.Contains("a").Should().BeFalse();
+        line.Clear().Select(problem => problem.Entry.ProblemId).Should().BeEquivalentTo("b", "c");
+        line.Waiting().Should().BeEmpty();
+    }
+
+    [Fact]
+    public void A_problem_that_is_not_on_exactly_one_repository_is_never_ready()
+    {
+        var line = new ProblemQueue();
+        var many = Problem("many", "o/one");
+        line.Enqueue(many with { Entry = many.Entry with { Repositories = ["o/one", "o/two"] } });
+
+        line.TakeReady(_ => false).Should().BeEmpty();
+    }
 }

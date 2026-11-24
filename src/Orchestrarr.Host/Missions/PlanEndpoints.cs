@@ -42,17 +42,17 @@ internal static class PlanEndpoints
     public static void MapPlanEndpoints(this RouteGroupBuilder api)
     {
         // Whether the validation goes through the missions here: the screen sends the selection to the plan when it does, and says so
-        api.MapGet("/plan", (IServiceProvider services) => Results.Ok(new PlanStatus(services.GetService<SandboxApprovals>() is not null))).RequireAuthorization(Permissions.FleetRead);
+        api.MapGet("/plan", (IServiceProvider services) => Results.Ok(new PlanStatus(services.GetService<ProblemStarter>() is not null))).RequireAuthorization(Permissions.FleetRead);
         api.MapPost("/plan/validate", async (ValidatePlanRequest request, HttpContext context, IApproverAccessor accessor, WorkItemCatalog catalog, IApplicationCatalog applications, RunnerRegistry runners, IBatchQueue queue,
             IProblemHistory history, IApprovalStore approvalStore, TimeProvider time, RelevancePolicy policy, InfrastructureCatalog infrastructure, ProblemConductor conductor, IServiceProvider services,
-            LeadPlanner lead, IDependencyFindings findings, AgentsOptions agents, MissionProgress progress, IMissionAudit audit, IStopSignal stop, ILiveNotifier live, IProblemStore problemStore, ProblemQueue line, CancellationToken ct) =>
+            LeadPlanner lead, IDependencyFindings findings, AgentsOptions agents, IMissionAudit audit, IStopSignal stop, ILiveNotifier live, CancellationToken ct) =>
         {
             var (approver, refusal) = ApprovalEndpoints.Authorize(accessor, context);
             if (approver is null)
             {
                 return refusal!;
             }
-            if (services.GetService<SandboxApprovals>() is not { } approvals)
+            if (services.GetService<ProblemStarter>() is not { } starter)
             {
                 return Results.Json(new ErrorResponse("planNotAvailable"), statusCode: StatusCodes.Status501NotImplemented);
             }
@@ -75,7 +75,7 @@ internal static class PlanEndpoints
             var started = new List<ValidatedProblem>();
             foreach (var one in prepared)
             {
-                started.Add(await WaitsForItsTurnAsync(one, problemStore, line, audit, time, ct) ?? await StartAsync(one, approvals, conductor, progress, services.GetService<RepairRegistry>(), ct));
+                started.Add(await starter.StartOrQueueAsync(one, ct));
             }
             live.Publish(LiveTopics.Missions);
             return Results.Json(new ValidatePlanResponse(started), statusCode: StatusCodes.Status201Created);
@@ -87,13 +87,12 @@ internal static class PlanEndpoints
     // Why a row is not asked about at all: the selection is beyond what the lead is asked about at once (Agents:LeadMaxRows)
     private static string? NotAsked(int index, int maxRows) => index >= maxRows ? "tooManyToPlanAtOnce" : null;
 
-    // A row that is ready to start (its plan entry with the problem as read and the lead's plan), or why it will not start: one of the two, never both
-    internal sealed record Prepared(string RowId, PlanEntry? Entry, ValidatedProblem? Refused);
 
-    private static async Task<Prepared> PrepareAsync(ValidatedRow chosen, Dictionary<string, ProblemRow> table, string approver, LeadPlanner lead, IDependencyFindings findings, ProblemConductor conductor, IMissionAudit audit, IStopSignal stop, string? notAsked, TimeProvider time, CancellationToken cancellationToken)
+
+    private static async Task<PreparedProblem> PrepareAsync(ValidatedRow chosen, Dictionary<string, ProblemRow> table, string approver, LeadPlanner lead, IDependencyFindings findings, ProblemConductor conductor, IMissionAudit audit, IStopSignal stop, string? notAsked, TimeProvider time, CancellationToken cancellationToken)
     {
         var id = chosen.Id ?? string.Empty;
-        Prepared Refused(string reason, string? problemId = null) => new(id, null, new ValidatedProblem(id, problemId, null, null, reason));
+        PreparedProblem Refused(string reason, string? problemId = null) => new(id, null, new ValidatedProblem(id, problemId, null, null, reason));
         if (!table.TryGetValue(id, out var row))
         {
             return Refused("theTableChanged");
@@ -156,65 +155,8 @@ internal static class PlanEndpoints
             _ = await audit.RecordAsync(MissionAuditEvents.LeadRefused, entry.ProblemId, $"plan refused: {string.Join("; ", refused)}", CancellationToken.None);
             return Refused("leadPlanRefused", entry.ProblemId);
         }
-        return new Prepared(id, entry with { Brief = brief, Plan = plan }, null);
+        return new PreparedProblem(id, entry with { Brief = brief, Plan = plan }, null);
     }
 
     private static readonly World FirstWorld = World.Staging;
-
-    // The problem is put in line when its repository has a problem in progress or a problem that waits before it; null when it can start now (or is already being worked on, which the conductor refuses)
-    private static async Task<ValidatedProblem?> WaitsForItsTurnAsync(Prepared one, IProblemStore problems, ProblemQueue line, IMissionAudit audit, TimeProvider time, CancellationToken cancellationToken)
-    {
-        if (one.Entry is not { Repositories.Count: 1 } entry)
-        {
-            return null;
-        }
-        if (line.Contains(entry.ProblemId))
-        {
-            return new ValidatedProblem(one.RowId, entry.ProblemId, null, null, "alreadyQueued");
-        }
-        var repository = entry.Repositories[0];
-        if (problems.Get(entry.ProblemId) is { State: ProblemState.InProgress } || (!line.Waits(repository) && !BusyRepository(problems, repository)))
-        {
-            return null;
-        }
-        _ = line.Enqueue(new QueuedProblem(one.RowId, entry, time.GetUtcNow()));
-        _ = await audit.RecordAsync(MissionAuditEvents.ProblemQueued, entry.ProblemId, $"waits for its turn on {repository}: another problem is being done there", cancellationToken);
-        return new ValidatedProblem(one.RowId, entry.ProblemId, null, null, null, Queued: true);
-    }
-
-    /// <summary>Whether a problem is in progress on the repository.</summary>
-    internal static bool BusyRepository(IProblemStore problems, string repository) =>
-        problems.InProgress().Any(run => run.Entry.Repositories.Count == 1 && string.Equals(run.Entry.Repositories[0], repository, StringComparison.Ordinal));
-
-    internal static async Task<ValidatedProblem> StartAsync(Prepared one, SandboxApprovals approvals, ProblemConductor conductor, MissionProgress progress, RepairRegistry? repairs, CancellationToken cancellationToken)
-    {
-        if (one.Entry is not { } entry)
-        {
-            return one.Refused ?? new ValidatedProblem(one.RowId, null, null, null, "refused");
-        }
-        var id = one.RowId;
-        if (!await approvals.PrepareAsync(entry, cancellationToken))
-        {
-            return new ValidatedProblem(id, entry.ProblemId, null, null, "noApproval");
-        }
-        // The staging of the test bed is declared, and its baseline is the snapshot of the lab VMs (a reset brings them back to it)
-        var result = await conductor.StartAsync(entry, StagingDeclaration.DeclaredStaging, StagingRequirement.Dependencies, StagingState.BaselineProven, cancellationToken);
-        if (result.Ok)
-        {
-            // The same row is the same problem: what a run of it made (a repair, the pull request that carried it) is not the business of the run that starts now
-            repairs?.Forget(entry.ProblemId);
-        }
-        if (result.Ok && result.Mission is { } mission && entry.Plan is { } plan)
-        {
-            // What the lead decided and why is shown with the first mission of the problem
-            progress.Add(mission.Id, $"the lead planned: {plan.Summary} ({string.Join(" | ", plan.Reasons)})");
-            if (plan.Complex)
-            {
-                progress.Add(mission.Id, $"the lead marked the problem complex: {plan.ComplexReason ?? "no reason given"}");
-            }
-        }
-        return result.Ok
-            ? new ValidatedProblem(id, entry.ProblemId, result.Mission?.Id, result.Mission?.World.ToString(), null)
-            : new ValidatedProblem(id, entry.ProblemId, null, null, result.Refusal ?? "refused");
-    }
 }

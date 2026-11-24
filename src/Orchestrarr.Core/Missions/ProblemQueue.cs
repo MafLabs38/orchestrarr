@@ -73,7 +73,16 @@ public sealed class ProblemQueue
         }
     }
 
-    /// <summary>The line is emptied: the global stop, or a repository that is no longer served.</summary>
+    /// <summary>A problem leaves the line (it waited too long). False when it was not there.</summary>
+    public bool Remove(string problemId)
+    {
+        lock (_gate)
+        {
+            return _waiting.RemoveAll(other => string.Equals(other.Entry.ProblemId, problemId, StringComparison.Ordinal)) > 0;
+        }
+    }
+
+    /// <summary>The line is emptied (the global stop): the problems that left it are returned, so that each can be written in the trail.</summary>
     public IReadOnlyList<QueuedProblem> Clear()
     {
         lock (_gate)

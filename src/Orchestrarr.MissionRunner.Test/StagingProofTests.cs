@@ -96,6 +96,28 @@ public sealed class StagingProofTests
     }
 
     [Fact]
+    public async Task A_checkout_that_fails_for_another_reason_than_a_conflict_carries_no_marker_and_goes_to_the_controller()
+    {
+        var shell = new ScriptedShell((file, arguments) => file == "ssh" && arguments[^1].Contains("git clone", StringComparison.Ordinal) ? new ShellResult(128, "fatal: unable to access the repository", TimedOut: false) : Ok());
+
+        var dossier = await new StagingProof(shell, Options()).RunAsync(Mission(), _ => Task.CompletedTask, Ct);
+
+        dossier.Claim.Should().StartWith("Nothing was proven");
+        dossier.WhatChangedAndWhy.Should().Contain("the checkout failed");
+        dossier.EvidenceDigests.Should().BeEmpty("only a conflict or a pull request that moved is ended at once: a network failure is for the controller to judge");
+    }
+
+    [Fact]
+    public async Task The_messages_of_git_are_read_in_the_c_locale()
+    {
+        var shell = Machine("package.json\n");
+
+        _ = await new StagingProof(shell, Options()).RunAsync(Mission(), _ => Task.CompletedTask, Ct);
+
+        shell.Calls.Should().Contain(call => call.Contains("LC_ALL=C", StringComparison.Ordinal) && call.Contains("git clone", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task A_build_that_fails_says_so_and_keeps_the_end_of_the_output()
     {
         var shell = Machine("requirements.txt\n", buildExit: 1);

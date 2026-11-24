@@ -10,6 +10,7 @@ lab/sandbox.sh status                 # each repository against its seed, the op
 lab/sandbox.sh mark-seed <repo> <ref> # the commit that is the seed of a repository (tag lab-seed, pinned in lab/seeds.json)
 lab/sandbox.sh reset <repo...>|--all  # back to the seed
 lab/sandbox.sh plant <scenario.json>  # plant the faults of a scenario: a branch and a pull request for each
+lab/sandbox.sh rebase <scenario.json> # what a dependency bot does when the base moved: the open pull requests of a scenario are made again on the base as it is now
 ```
 
 Optional: `LAB_BASE_BRANCH` (`develop`), `LAB_WORKDIR` (the clones, `~/.cache/orchestrarr-lab`), `LAB_CHECK_TIMEOUT` (600 s), `LAB_REQUIRED_CHECK` (`build`: the check that must have reported and passed before a restore is merged), `LAB_BOT_AUTHORS` and `LAB_BOT_BRANCHES` (the authors and the branches that a reset leaves alone). The token is given to git through the environment (`lab/git-askpass.sh`), never written to a file or to a command line.

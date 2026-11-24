@@ -14,7 +14,8 @@ public sealed partial class StagingProof(IShell shell, MissionRunnerOptions opti
 {
     public string World => "Staging";
 
-    private const string Prelude = "export DOCKER_HOST=unix:///run/user/$(id -u)/docker.sock; set -e; ";
+    // The messages of git are read by the code (a conflict): they are in the C locale, whatever the machine speaks
+    private const string Prelude = "export LC_ALL=C DOCKER_HOST=unix:///run/user/$(id -u)/docker.sock; set -e; ";
 
     public async Task<MissionHandOver> RunAsync(ClaimedMission mission, Func<string, Task> report, CancellationToken cancellationToken)
     {
