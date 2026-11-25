@@ -404,7 +404,7 @@ public sealed class MissionRunnerWorkerTests
         twoReleases.Should().Throw<InvalidOperationException>().WithMessage("*one deployment machine*");
         var noRelease = () => Ready(set => set.DeployMachine = null);
         noRelease.Should().Throw<InvalidOperationException>().WithMessage("*DeployMachine*");
-        Ready(set => (set.StagingMachines, set.StagingMachine)  = (["staging-2"], "staging-1")).StagingMachineList().Should().Equal("staging-2");
+        Ready(set => (set.StagingMachines, set.StagingMachine) = (["staging-2"], "staging-1")).StagingMachineList().Should().Equal("staging-2");
         foreach (var wrong in new[] { 0, MissionRunnerOptions.MaxGitLanes + 1 })
         {
             var lanes = () => Ready(set => set.GitLanes = wrong);
