@@ -334,7 +334,16 @@ public sealed class MissionRunnerWorkerTests
             return Task.FromResult<ClaimedMission?>(offered.TryAdd(machine, true) ? Mission("Staging") with { MissionId = id } : null);
         });
         plane.StartedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
-        plane.HandOverAsync(Arg.Any<string>(), Arg.Any<MissionHandOver>(), Arg.Any<CancellationToken>()).Returns(true);
+        var handedOver = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var handovers = 0;
+        plane.HandOverAsync(Arg.Any<string>(), Arg.Any<MissionHandOver>(), Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            if (Interlocked.Increment(ref handovers) == 2)
+            {
+                handedOver.TrySetResult();
+            }
+            return Task.FromResult(true);
+        });
         plane.MachineStateAsync("staging-1", Arg.Any<CancellationToken>()).Returns(new MachineStateInfo("InProcess", "Staging", "a"));
         plane.MachineStateAsync("staging-2", Arg.Any<CancellationToken>()).Returns(new MachineStateInfo("InProcess", "Staging", "b"));
         plane.MachineHeartbeatAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
@@ -347,6 +356,7 @@ public sealed class MissionRunnerWorkerTests
         probe.AtOnce.Should().Be(2, "each machine is a lane of its own");
         probe.Machines.Should().BeEquivalentTo("staging-1", "staging-2");
         probe.Let();
+        await handedOver.Task.WaitAsync(TimeSpan.FromSeconds(10), Ct);
         await worker.StopAsync(CancellationToken.None);
 
         await plane.Received(1).HandOverAsync("a", Arg.Any<MissionHandOver>(), Arg.Any<CancellationToken>());
