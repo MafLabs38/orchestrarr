@@ -1,32 +1,12 @@
 {
   "case": "DEMO",
-  "title": "A demo of the product on the test bed: faults of several cases planted together, to be ticked and followed from the screens",
+  "title": "A demo of the product on the test bed: faults of several cases planted together, to be ticked and followed from the screens. The planted pull requests touch separate lines of package.json (a bump of express next to one of lodash conflicts by construction, which is case 07's own scenario)",
   "repos": [
     "shop-api",
     "ledger-worker",
     "edge-stack"
   ],
   "plants": [
-    {
-      "repo": "shop-api",
-      "branch": "lab/case-01-lodash",
-      "kind": "npm-bump",
-      "package": "lodash",
-      "from": "4.17.4",
-      "version": "4.17.21",
-      "title": "build(deps): Bump lodash from 4.17.4 to 4.17.21",
-      "body": "A safe patch bump of a library, as a bot would open it."
-    },
-    {
-      "repo": "shop-api",
-      "branch": "lab/case-07-express",
-      "kind": "npm-bump",
-      "package": "express",
-      "from": "4.16.0",
-      "version": "4.16.4",
-      "title": "build(deps): Bump express from 4.16.0 to 4.16.4",
-      "body": "A patch bump of the web framework, opened at the same time as the others."
-    },
     {
       "repo": "shop-api",
       "branch": "lab/case-07-mocha",

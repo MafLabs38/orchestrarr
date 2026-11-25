@@ -139,7 +139,8 @@ public sealed class ChangeProofTests : IDisposable
 
         machine.Prompt.Should().Contain("isolated machine").And.Contain("every tool of a developer").And.Contain("`docker run` works")
             .And.Contain("Update lodash to 4.17.21").And.Contain("Show the exact versions.").And.Contain("production is built from it")
-            .And.Contain("git push origin HEAD:agent/").And.Contain("pushing does not finish anything").And.Contain("do not open or merge a pull request").And.Contain(".npmrc");
+            .And.Contain("git push origin HEAD:agent/").And.Contain("pushing does not finish anything").And.Contain("do not open or merge a pull request").And.Contain(".npmrc")
+            .And.Contain("the python-version or node-version of its workflow", "the pipeline may run an older runtime than staging: the change must install there too").And.Contain("Stay within the task");
         machine.Prompt.Should().NotContain("the-token").And.NotContain("the-git-token");
         machine.Setup.Should().Contain("credential.https://github.com.helper", "only the forge's host receives the token").And.Contain("$AGENT_GIT_TOKEN").And.NotContain("the-git-token", "git is given the token by a helper that reads the environment, in no file");
         machine.AgentInput.Should().Be("the-token\nthe-git-token\n", "both tokens go by the standard input of the connection, never in an argument");
