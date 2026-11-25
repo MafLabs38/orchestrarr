@@ -53,14 +53,14 @@ public sealed class ProblemQueue
         }
     }
 
-    /// <summary>The problems that may start now: the first of each repository that <paramref name="isBusy"/> says is free. They leave the line.</summary>
+    /// <summary>The problems that may start now: the first of each repository that <paramref name="isBusy"/> says is free, in the order of the route (<see cref="RouteRank"/>, then arrival). They leave the line.</summary>
     public IReadOnlyList<QueuedProblem> TakeReady(Func<string, bool> isBusy)
     {
         ArgumentNullException.ThrowIfNull(isBusy);
         lock (_gate)
         {
             var ready = new List<QueuedProblem>();
-            foreach (var problem in _waiting.OrderBy(other => other.QueuedAt))
+            foreach (var problem in _waiting.OrderBy(other => RouteRank.Of(other.Entry)).ThenBy(other => other.QueuedAt))
             {
                 var repository = RepositoryOf(problem);
                 if (repository is not null && !isBusy(repository) && !ready.Exists(other => IsOn(other, repository)))

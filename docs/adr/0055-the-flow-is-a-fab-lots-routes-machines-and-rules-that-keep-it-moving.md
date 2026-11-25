@@ -1,0 +1,56 @@
+# 0055 — The flow is a fab: lots, routes and machines, and the rules that keep it moving
+
+- **Status**: proposed (accepted when the pull request that carries it is merged)
+- **Date**: 2026-11-25
+- **Spec**: D-109 ([SPEC.md](../SPEC.md)). Builds on [ADR 0049](0049-problems-on-one-repository-are-done-one-at-a-time-and-a-conflict-is-not-mended-here.md) (a line per repository), [ADR 0050](0050-the-flow-has-a-priority-from-0-to-100-and-a-failed-release-goes-ahead.md) (priority) and [ADR 0053](0053-each-world-has-lanes-and-a-machine-is-never-idle-while-a-mission-waits-for-it.md) (lanes). It amends ADR 0049 on one point: a pull request that conflicts is no longer ended at once.
+
+## Context
+
+The maintainer's model (chat of 2026-11-25) is a clean-room fab. **Worlds are workshops**, each with a kind of machine (two staging machines, one deployment machine, the Git world with no machine); **a lot is a repository**, and each thing to do on it is an operation of the lot's route; the question is how to run every operation of every lot over the machines. He asked that a batch ticked **all at once** always runs to the end, whatever the order of the ticks, and that a **grain of sand** (an operation that cannot succeed) be put aside without stopping anything else.
+
+The first full run of the demo showed that the flow did not hold that:
+
+- the line of a repository took its problems **in the order they were validated**, so the five dependency alerts of a repository ran before the base image that their fixes need (a newer runtime), and were rightly escalated;
+- a pull request made before another one was merged became **stale** (the lock file was rewritten): the product ended it, and the maintainer would have to tick it again. ADR 0049 left the rebase to "the bot", but nobody asked the bot to do it.
+
+The way that problems are chosen, started and put aside is therefore the core of the product, and it is designed here from what the field has learned, not from our first intuition.
+
+## What the field says (and what we take from it)
+
+| Practice | Source | What we take |
+|---|---|---|
+| **Dispatching rules for a re-entrant flow**: priority first, then a secondary rule (FIFO, critical ratio, least work ahead); hot lots go first but disturb the normal ones; WIP-balancing and due-date rules can conflict | fab scheduling literature ([WSC 2005](https://www.informs-sim.org/wsc05papers/273.pdf), [dispatching and WIP rules](https://athene-forschung.unibw.de/doc/97064/97064.pdf), [FabTime on hot lots](https://inficon.com/media/11349/download/FabTimeNewsletter6.04.pdf)) | the order of a line is a **composed rule**: priority (ADR 0050), then the rank in the route, then arrival. A hot lot never interrupts a running operation |
+| **Drum-buffer-rope**: the constraint paces the whole plant; keep a buffer in front of it so it never starves; a rope stops the release of more work than it can take | [Goldratt's Theory of Constraints, DBR](https://www.bdc.ca/en/articles-tools/operations/operational-efficiency/production-planning-drum-buffer-rope) | the **drum is the staging machines** (a proof is minutes, a restore follows). Their buffer is the problems that are planned and ready, so a machine never waits for work; the rope is that nothing is started upstream (a clone, an agent, a pull request) for a lot that has no machine to go to |
+| **CONWIP / Kanban**: cap the work in progress; by Little's law, cycle time = WIP / throughput, so more WIP only makes everything slower | [CONWIP principles](https://is.muni.cz/el/econ/podzim2019/MPH_AOPR/CONWIP_principles_20141121.pdf?lang=en) | the caps we have stay: **one operation per lot**, one job per machine, `GitLanes` for the Git world |
+| **Merge queues**: changes to one branch go one at a time; each is proved on top of the ones ahead of it; **a failing change is removed and the others go on without it**; queues are **per project**, because one shared queue blocks everything | [Zuul gating](https://zuul-ci.org/docs/zuul/9.4.0/gating.html), [GitHub merge queue](https://docs.github.com/en/enterprise-server@3.17/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue), [the Wikimedia lesson](https://phabricator.wikimedia.org/T94322) | one **line per lot** and never a global queue; an operation is proved on the base as it will be merged; a failure leaves the line and the next one goes. We do **not** do speculative merging (testing on top of the ones ahead that have not merged yet): one operation at a time on a lot makes it useless, and the cost is in the machines |
+| **Dead-letter queue**: bounded retries, then the item is put aside **with its payload and error**, so that one poison item cannot hold up the rest; replay is a controlled act | [DLQ and poison messages](https://alivedise.github.io/backend-engineering-essentials/messaging/dead-letter-queues-and-poison-messages), [Temporal](https://temporal.io/blog/reliable-data-processing-queues-workflows) | an operation that cannot be solved is **put aside with its evidence** after bounded attempts (the three send-backs we have), the lot and the machines go on, and running it again is the maintainer's act |
+| **Dependency bots rebase their own pull requests**, on a conflict or when behind; they stop when someone else pushes to the branch; they take a command or a label | [Dependabot comment commands](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-pull-request-comment-commands), [Renovate rebasing](https://docs.renovatebot.com/updating-rebasing/) | we **never rewrite a bot's branch**; we **ask the bot** to rebase (`@dependabot rebase`) |
+
+## Decision
+
+1. **The vocabulary is the fab's.** A **lot** is a repository (a work site). An **operation** is one problem on a lot. The **route** of a lot is the ordered list of its operations in the batch that was validated; each operation crosses the worlds (staging, Git, release) that its plan allows. A **machine** is a staging or a deployment machine; a **lane** is a place where one operation at a time is worked (ADR 0053). The screens and the documents say lot, operation and route where they say repository, problem and line today, once this is merged.
+2. **The order of a route is a rule, not the order of the ticks.** The line of a lot, and the order in which a validated batch is started, is: **priority** (ADR 0050) first, then the **rank** of the operation, then arrival. The rank puts first what **changes what the others run on**: (1) the **runtime** (the base image of a container, which fixes the version of the language), (2) **security alerts** (their fixes need that runtime), (3) **updates of libraries and of pipeline tools** (a pull request of a bot), (4) the rest (a moving tag, an image that is behind and not a base). The maintainer ticks in any order; the route is the same.
+3. **A lot is never held by what only an outside party can do.** A pull request that is **behind its base or conflicting** when its turn comes (the bot's branch was made before an earlier operation was merged) is **parked**: Orchestrarr asks the bot to rebase it (a comment, an act of the Git world that merges nothing and writes no branch), and **the lot goes on with its next operation**. The parked operation **re-enters the route** when its pull request has a new head and a green pipeline, and is proved again from the start (the head changed). At most **two requests** and a bounded wait (`Missions:BotRebaseWaitMinutes`, 30 by default): after that it is put aside with the reason *"the bot did not rebase"*. A pull request whose author is not a bot, or that nobody rebases, is put aside at once, as ADR 0049 said.
+4. **An operation that cannot be solved is put aside, and the flow goes on.** After its bounded attempts (send-backs, the repair budget) or when the plan says it is complex, it ends *failed* or *escalated* **with its evidence and the reason in words**, frees its machine, and never blocks its lot or another one. Nothing retries it by itself; ticking the row again is the replay. This is the dead-letter rule, and it is **tested on purpose** (point 6).
+5. **The caps stay what they are** (one operation per lot, one job per machine, the lanes of the Git world); nothing is started upstream for a lot that cannot be served. No global queue, no speculative merging.
+6. **The definition of "it holds" is a test that anyone can run.** The demo ticked **all at once** must end with **every operation in a final state** (done, or put aside with its reason), none stuck, the staging machines both used at the same time, and **a grain of sand planted on purpose**: an operation that cannot succeed whatever is done (a pull request that carries two tests that contradict each other, and the agent that repairs the source may not touch tests), placed **on an application that has several other operations**. The test passes when the grain of sand is put aside within its bounds and **all the other operations of that lot, and of the other lots, are done**.
+
+## What this does not do
+
+- No speculative merging, no merge of several lots at once, no change that spans repositories (a problem is on one repository, ADR 0041).
+- The rank is a **default for the test bed's kinds of operation**, not a dependency graph: two operations that need a different order (an upgrade of a runtime that breaks its libraries, which would need the libraries first) are tuned with the priority, until a real need asks for more.
+- The bot is asked **by a comment on a pull request**: it is not known to work for every forge or every bot. A forge or a bot that has no such command puts the operation aside (point 3). Asking is a write on a pull request, so it is an act that the mandate lists and the audit trail records, like a merge; it opens no pull request and writes no branch.
+- The measures that a fab watches (machine utilisation, the age of the oldest operation, cycle time per lot) are a screen of their own and are not part of this decision.
+
+## Defaults taken, for the maintainer to veto
+
+- The rank order above, and that it comes **after** the priority.
+- Two requests to the bot and thirty minutes, as settings.
+- A pull request that is behind its base **but not conflicting** is asked to be rebased too (a strict base wants an up-to-date head): a rebase costs a minute of pipeline, and the alternative is a merge that the forge refuses.
+
+## Consequences
+
+- A batch ticked in any order runs in the route's order, and the lock-file conflicts of a bot's pull requests no longer end an operation: they park it, the machines work on something else, and the operation comes back.
+- The Git world gains one act (ask a bot to rebase), which touches the code of the acts and of the mandate: **a launch contract file, merged by the maintainer** (rule 15).
+- The lab gains a **bot that answers the command** for the pull requests that it plants, so that the demo behaves as a real repository does; real Dependabot pull requests answer by themselves.
+- The grain of sand becomes part of the demo and of the scenario of the lab: a flow that has never met a failure on purpose has not been tried.

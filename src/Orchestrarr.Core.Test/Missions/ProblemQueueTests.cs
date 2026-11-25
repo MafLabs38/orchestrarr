@@ -9,6 +9,37 @@ public sealed class ProblemQueueTests
     private static QueuedProblem Problem(string id, string repository, int minutes = 0) =>
         new($"row-{id}", new PlanEntry(id, "app", "dependency-update", "x", [repository], World.Release, new MissionBudget(30, 3, 50), new Validation("alice", null), T0, 1, "abc"), T0.AddMinutes(minutes));
 
+    private static QueuedProblem OfKind(string id, string repository, string kind, int minutes) =>
+        new($"row-{id}", new PlanEntry(id, "app", "x", "x", [repository], World.Release, new MissionBudget(30, 3, 50), new Validation("alice", null), T0, null, null, new ProblemBrief(kind, repository, "d", true)), T0.AddMinutes(minutes));
+
+    [Fact]
+    public void A_repository_goes_through_its_route_whatever_the_order_of_the_ticks()
+    {
+        var line = new ProblemQueue();
+        line.Enqueue(OfKind("bump", "o/one", "DependencyUpdate", 0));
+        line.Enqueue(OfKind("alert", "o/one", "DependencyAlert", 1));
+        line.Enqueue(OfKind("image", "o/one", "ImageUpdate", 2));
+        line.Enqueue(OfKind("tag", "o/one", "FloatingImage", 3));
+        var order = new List<string>();
+
+        for (var turn = 0; turn < 4; turn++)
+        {
+            order.AddRange(line.TakeReady(_ => false).Select(problem => problem.Entry.ProblemId));
+        }
+
+        order.Should().Equal("image", "alert", "bump", "tag");
+    }
+
+    [Fact]
+    public void Two_operations_of_the_same_rank_keep_their_order_of_arrival()
+    {
+        var line = new ProblemQueue();
+        line.Enqueue(OfKind("second", "o/one", "DependencyAlert", 5));
+        line.Enqueue(OfKind("first", "o/one", "DependencyAlert", 1));
+
+        line.TakeReady(_ => false).Select(problem => problem.Entry.ProblemId).Should().Equal("first");
+    }
+
     [Fact]
     public void The_same_problem_waits_once()
     {

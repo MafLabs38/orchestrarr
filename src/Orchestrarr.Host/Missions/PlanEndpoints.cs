@@ -76,7 +76,8 @@ internal static class PlanEndpoints
             var prepared = await Task.WhenAll(rows.Select((chosen, index) => PrepareAsync(chosen, table, approver.Subject, lead, findings, conductor, audit, stop, NotAsked(index, agents.LeadMaxRows), time, ct)));
             // One work site at a time on a repository: the first problem of a free repository starts, the others wait for their turn (ProblemQueue)
             var started = new List<ValidatedProblem>();
-            foreach (var one in prepared)
+            // in the order of the route (ADR 0055), not of the ticks: the runtime, then the alerts, then the updates; a row that was refused has no plan and goes last (the sort is stable)
+            foreach (var one in prepared.OrderBy(one => one.Entry is { } entry ? RouteRank.Of(entry) : int.MaxValue))
             {
                 started.Add(await starter.StartOrQueueAsync(one, ct));
             }
