@@ -353,19 +353,27 @@ export function describeProblemKindShort(kind: ProblemKind): string {
 }
 
 const natureWords = {
-  libraryUpdate: ['NatureLibraryUpdate', 'NatureLibraryUpdateExplained'],
-  librariesUpdate: ['NatureLibrariesUpdate', 'NatureLibrariesUpdateExplained'],
-  pipelineToolUpdate: ['NaturePipelineToolUpdate', 'NaturePipelineToolUpdateExplained'],
-  baseImageUpdate: ['NatureBaseImageUpdate', 'NatureBaseImageUpdateExplained'],
-  securityAlert: ['NatureSecurityAlert', 'NatureSecurityAlertExplained'],
-  imageBehind: ['NatureImageBehind', 'NatureImageBehindExplained'],
-  floatingImage: ['NatureFloatingImage', 'NatureFloatingImageExplained'],
-  failingPipeline: ['NatureFailingPipeline', 'NatureFailingPipelineExplained'],
+  libraryUpdate: ['NatureLibraryUpdate', 'NatureLibraryUpdateShort', 'NatureLibraryUpdateExplained'],
+  librariesUpdate: ['NatureLibrariesUpdate', 'NatureLibrariesUpdateShort', 'NatureLibrariesUpdateExplained'],
+  pipelineToolUpdate: [
+    'NaturePipelineToolUpdate',
+    'NaturePipelineToolUpdateShort',
+    'NaturePipelineToolUpdateExplained',
+  ],
+  baseImageUpdate: ['NatureBaseImageUpdate', 'NatureBaseImageUpdateShort', 'NatureBaseImageUpdateExplained'],
+  securityAlert: ['NatureSecurityAlert', 'NatureSecurityAlertShort', 'NatureSecurityAlertExplained'],
+  imageBehind: ['NatureImageBehind', 'NatureImageBehindShort', 'NatureImageBehindExplained'],
+  floatingImage: ['NatureFloatingImage', 'NatureFloatingImageShort', 'NatureFloatingImageExplained'],
+  failingPipeline: ['NatureFailingPipeline', 'NatureFailingPipelineShort', 'NatureFailingPipelineExplained'],
 } as const;
 
-// What a row really is, in a word or two: nothing for a row whose kind says it all
+// What a row really is, in a word or two, and a few words under it: nothing for a row whose kind says it all
 export function describeNature(nature: ProblemNature): string {
   return Object.hasOwn(natureWords, nature) ? translate(natureWords[nature as keyof typeof natureWords][0]) : '';
+}
+
+export function describeNatureShort(nature: ProblemNature): string {
+  return Object.hasOwn(natureWords, nature) ? translate(natureWords[nature as keyof typeof natureWords][1]) : '';
 }
 
 // The tools of a pipeline that a person meets most: what each does, said once, after what a tool of the pipeline is
@@ -375,12 +383,12 @@ const pipelineTools = {
   'actions/setup-python': 'NatureToolSetupPython',
 } as const;
 
-// What the row is, in a sentence or two: the same words for every row of a nature, and for a tool of the pipeline what that tool does
+// What the row is, in full, for the bubble: the same words for every row of a nature, and for a tool of the pipeline what that tool does
 export function explainNature(row: Pick<ProblemRow, 'nature' | 'description'>): string {
   if (!Object.hasOwn(natureWords, row.nature)) {
     return '';
   }
-  const general = translate(natureWords[row.nature as keyof typeof natureWords][1]);
+  const general = translate(natureWords[row.nature as keyof typeof natureWords][2]);
   const tool = row.nature === 'pipelineToolUpdate' ? row.description.split(' ')[0] : '';
   return Object.hasOwn(pipelineTools, tool)
     ? `${general} ${translate(pipelineTools[tool as keyof typeof pipelineTools])}`

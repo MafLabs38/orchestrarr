@@ -105,7 +105,7 @@ afterEach(() => {
 });
 
 describe('Decisions', () => {
-  it('says what each row really is and, for a tool of the pipeline, what that tool does', async () => {
+  it('says what each row really is in a few words and, in a bubble, what that is and what a tool of the pipeline does', async () => {
     stub(
       problemsReport([
         problem({ id: 'pr:example/shop#1', description: 'actions/checkout 3 → 7', nature: 'pipelineToolUpdate' }),
@@ -118,12 +118,13 @@ describe('Decisions', () => {
     renderWithProviders(<Decisions />);
 
     expect(await screen.findAllByText('Pipeline tool')).toHaveLength(2);
+    expect(screen.getAllByText('CI tool, not the application')).toHaveLength(2);
+    expect(screen.getByText('Library')).toBeInTheDocument();
+    expect(screen.queryByText(/fetches the code of the repository/)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /What is example\/shop actions\/checkout 3 → 7/ }));
     expect(
       screen.getByText(/fetches the code of the repository at the start of every pipeline run/),
     ).toBeInTheDocument();
-    expect(screen.getAllByText(/not of the application/)).toHaveLength(2);
-    expect(screen.queryByText(/installs Node\.js/)).not.toBeInTheDocument();
-    expect(screen.getByText('Library')).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: /What it is/ })).toBeInTheDocument();
   });
 

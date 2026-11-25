@@ -150,18 +150,9 @@
   max-width: 170px;
 }
 
-/* What the row really is: its name, and a sentence that says what it concerns, for a person who has never met the word */
-.table .nature {
-  width: 26rem;
-  min-width: 16rem;
-  white-space: normal;
-}
-
+/* What the row really is: its name and a few words, on one line; the full explanation is in the bubble */
 .explained {
-  display: block;
-  margin-top: 2px;
+  margin-left: 6px;
   font-size: 0.75rem;
-  font-weight: normal;
-  line-height: 1.35;
   color: var(--inkMuted);
 }
