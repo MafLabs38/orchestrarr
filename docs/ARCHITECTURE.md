@@ -340,6 +340,7 @@ The catalogue lives in the control plane and **stores only the verdict** (state,
 - **One mission at a time per application, per repository and, in the release world, per target environment** [FR-MIS-6].
 - **Staging slots are scarce** (two at once on the laboratory machine): a staging mission waits for a free slot; the slot is reserved for the mission and released, restored to its baseline, at the end [FR-STG-7, FR-STG-8].
 - Priority by the problem's priority, **a number from 0 to 100** (50 normal, an urgent one from 70 up; a release that failed goes ahead of the normal problems): it orders the mission a runner is given next (ahead of the world), never the line or the turn of a repository, and never interrupts a mission that runs [FR-MIS-10, FR-FIND-6, ADR 0050].
+- **Lanes**: each world works on as many missions at once as it has lanes, one per staging machine, one per deployment machine and a set number of slots for the Git world; a runner runs one loop per lane, all at once, and a mission is offered to one lane (the choice, the lease of its machine and the offer are one step), so that a machine is never idle while a mission waits for it and the two machines never work on one repository (the line allows one problem in progress on it) [FR-MIS-10, ADR 0053].
 
 ### The platform controller
 

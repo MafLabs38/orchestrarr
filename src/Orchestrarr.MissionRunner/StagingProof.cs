@@ -36,7 +36,7 @@ public sealed partial class StagingProof(IShell shell, MissionRunnerOptions opti
         {
             return Refused(mission, "The mission names no commit for the pull request: nothing is built without knowing which commit was approved.");
         }
-        if (options.StagingMachine is not { Length: > 0 } machine)
+        if ((mission.Machine ?? options.StagingMachine) is not { Length: > 0 } machine)
         {
             return Refused(mission, "The runner is not told which machine to work on (MissionRunner:StagingMachine).");
         }

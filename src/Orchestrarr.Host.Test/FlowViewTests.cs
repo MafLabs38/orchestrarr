@@ -18,8 +18,8 @@ public sealed class FlowViewTests
         new(id, problem, "shop", world, "o", new MissionFrame(["o/shop"], [], ""), new MissionBudget(1, 1, 1), state, MandateId: "mandate-" + id, End: end);
 
     private static IReadOnlyList<FlowProblem> Build(IReadOnlyList<Mission> missions, IProblemStore problems, IReadOnlyList<QueuedProblem>? waiting = null, IReadOnlyList<Machine>? machines = null, bool runner = true,
-        Func<string, (string?, DateTimeOffset?)>? news = null, Func<Mission, DateTimeOffset?>? issued = null, Func<Mission, bool>? reworkPending = null) =>
-        FlowView.Build(missions, problems, waiting ?? [], machines ?? [], runner, news ?? (_ => (null, null)), issued ?? (_ => T0), reworkPending);
+        Func<string, (string?, DateTimeOffset?)>? news = null, Func<Mission, DateTimeOffset?>? issued = null, Func<Mission, bool>? reworkPending = null, Func<string, int>? lanes = null) =>
+        FlowView.Build(missions, problems, waiting ?? [], machines ?? [], runner, news ?? (_ => (null, null)), issued ?? (_ => T0), reworkPending, lanes);
 
     private static InMemoryProblemStore Store(params ProblemRun[] runs)
     {
@@ -124,18 +124,38 @@ public sealed class FlowViewTests
     }
 
     [Fact]
-    public void A_mission_that_was_sent_back_waits_until_a_runner_is_offered_it_again_and_names_the_mission_the_runner_is_busy_with()
+    public void A_mission_that_was_sent_back_waits_until_a_runner_is_offered_it_again_and_says_that_every_lane_of_its_world_is_at_work()
     {
-        var store = Store(Run("p1", repository: "o/a", startedMinutes: 0), Run("p2", repository: "o/b", startedMinutes: 1, description: "lodash"));
+        var store = Store(Run("p1", repository: "o/a", startedMinutes: 0), Run("p2", repository: "o/b", startedMinutes: 1, description: "lodash"), Run("p3", repository: "o/c", startedMinutes: 2));
         var sentBack = Mission("m1", "p1", World.Git, MissionState.Running) with { SendBacks = 1 };
-        var busy = Mission("m2", "p2", World.Staging, MissionState.Running);
+        var others = new[] { Mission("m2", "p2", World.Git, MissionState.Running), Mission("m3", "p3", World.Git, MissionState.Running) };
 
-        var flow = Build([busy, sentBack], store, reworkPending: mission => mission.Id == "m1", issued: _ => T0.AddMinutes(10));
+        var flow = Build([.. others, sentBack], store, reworkPending: mission => mission.Id == "m1", issued: _ => T0.AddMinutes(10), lanes: world => world == "Git" ? 2 : 0);
 
         var first = flow.Single(problem => problem.ProblemId == "p1");
         first.Steps.Single(step => step.World == "Git").State.Should().Be("waiting");
-        first.Activity!.Waiting.Should().Be(new FlowWaiting("busy", "lodash"));
+        first.Activity!.Waiting.Should().Be(new FlowWaiting("busy", "Git 2/2"));
         flow.Single(problem => problem.ProblemId == "p2").Activity!.Kind.Should().Be("running");
+    }
+
+    [Fact]
+    public void A_world_with_a_free_lane_does_not_say_that_it_is_busy_and_a_runner_that_did_not_say_its_lanes_is_not_held_to_any()
+    {
+        var store = Store(Run("p1", repository: "o/a"), Run("p2", repository: "o/b"));
+        var missions = new[] { Mission("m1", "p1", World.Git, MissionState.Mandated), Mission("m2", "p2", World.Git, MissionState.Running) };
+
+        Build(missions, store, lanes: _ => 2).Single(problem => problem.ProblemId == "p1").Activity!.Waiting!.Code.Should().Be("pickup");
+        Build(missions, store).Single(problem => problem.ProblemId == "p1").Activity!.Waiting!.Code.Should().Be("pickup");
+    }
+
+    [Fact]
+    public void A_world_with_several_machines_waits_for_a_machine_only_when_none_of_them_is_free()
+    {
+        var store = Store(Run("p1"));
+        var mission = new[] { Mission("m1", "p1", World.Staging, MissionState.Mandated) };
+
+        Build(mission, store, machines: [new Machine("leipzig", MachineRole.Staging, MachineState.InProcess, T0), new Machine("nantes", MachineRole.Staging, MachineState.Idle, T0)]).Single().Activity!.Waiting!.Code.Should().Be("pickup");
+        Build(mission, store, machines: [new Machine("leipzig", MachineRole.Staging, MachineState.InProcess, T0), new Machine("nantes", MachineRole.Staging, MachineState.Finished, T0)]).Single().Activity!.Waiting.Should().Be(new FlowWaiting("machine", "leipzig (InProcess), nantes (Finished)"));
     }
 
     [Fact]

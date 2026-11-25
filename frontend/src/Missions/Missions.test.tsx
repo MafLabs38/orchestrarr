@@ -112,10 +112,10 @@ describe('Missions', () => {
     ).toBeInTheDocument();
     expect(screen.getByText(/Waits for a machine: leipzig \(InProcess\)/)).toBeInTheDocument();
     expect(screen.getByText('Urgent 71')).toBeInTheDocument();
-    expect(screen.queryByText(/Waits for the runner, which is busy/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/every lane of this world is at work/)).not.toBeInTheDocument();
   });
 
-  it('says that the runner is busy with another problem when a mission waits for it', async () => {
+  it('says that every lane of the world is at work when a mission waits for a free place', async () => {
     stubApi({
       '/api/v1/flow': [
         {
@@ -124,7 +124,7 @@ describe('Missions', () => {
             kind: 'waiting',
             text: null,
             at: null,
-            waiting: { code: 'busy', subject: 'lodash 4.17.20 → 4.17.21' },
+            waiting: { code: 'busy', subject: 'Git 3/3' },
           },
         },
       ],
@@ -134,7 +134,7 @@ describe('Missions', () => {
     renderWithProviders(<Missions />);
 
     expect(
-      await screen.findByText(/Waits for the runner, which is busy with lodash 4.17.20 → 4.17.21/),
+      await screen.findByText(/Waits for a free place: every lane of this world is at work \(Git 3\/3\)/),
     ).toBeInTheDocument();
   });
 

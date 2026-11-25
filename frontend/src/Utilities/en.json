@@ -504,7 +504,7 @@
   "FlowWaitingTurn": "Waits for its turn on this repository: {subject} is being done first.",
   "FlowWaitingTurnUnknown": "Waits for its turn on this repository: another problem is being done first.",
   "FlowWaitingMachine": "Waits for a machine: {subject}.",
-  "FlowWaitingBusy": "Waits for the runner, which is busy with {subject}.",
+  "FlowWaitingBusy": "Waits for a free place: every lane of this world is at work ({subject}).",
   "FlowWaitingRunner": "The runner has not asked for work lately: it may be putting its machine back, or be away.",
   "FlowWaitingPickup": "Ready: the runner takes it at its next call.",
   "FlowSteps": "Worlds",

@@ -25,7 +25,7 @@ public sealed partial class ChangeProof(IShell shell, MissionRunnerOptions optio
         {
             return Refused(mission, $"This runner does not accept {mission.Repository} (MissionRunner:Repositories).");
         }
-        if (options.StagingMachine is not { Length: > 0 } machine)
+        if ((mission.Machine ?? options.StagingMachine) is not { Length: > 0 } machine)
         {
             return Refused(mission, "The runner is not told which machine to work on (MissionRunner:StagingMachine).");
         }

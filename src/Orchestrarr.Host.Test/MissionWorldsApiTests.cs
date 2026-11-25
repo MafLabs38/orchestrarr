@@ -951,7 +951,9 @@ public sealed class MissionWorldsApiTests
         var claimed = await ClaimAsync(runner, "Staging");
 
         claimed.GetProperty("problemId").GetString().Should().Be(first);
-        (await ClaimAsync(runner, "Staging")).GetProperty("problemId").GetString().Should().Be(first, "the second problem waits for the first to leave the repository");
+        // The first mission is already offered to a lane (the runner has not started it yet), and the second problem waits for the first to leave the repository: nothing is offered
+        var again = await runner.PostAsJsonAsync("/api/v1/runner/missions/claim?world=Staging", Hello, Ct);
+        (await again.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("mission").ValueKind.Should().Be(JsonValueKind.Null);
         second.Should().Be("p-second");
     }
 

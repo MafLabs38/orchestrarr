@@ -23,9 +23,10 @@ internal static class FlowView
 {
     private const int MaxFinished = 20;
 
-    internal static IReadOnlyList<FlowProblem> Build(IReadOnlyList<Mission> recent, IProblemStore problems, IReadOnlyList<QueuedProblem> waiting, IReadOnlyList<Machine> machines, bool runnerConnected, Func<string, (string? Line, DateTimeOffset? At)> lastNews, Func<Mission, DateTimeOffset?> issuedAt, Func<Mission, bool>? reworkPending = null)
+    internal static IReadOnlyList<FlowProblem> Build(IReadOnlyList<Mission> recent, IProblemStore problems, IReadOnlyList<QueuedProblem> waiting, IReadOnlyList<Machine> machines, bool runnerConnected, Func<string, (string? Line, DateTimeOffset? At)> lastNews, Func<Mission, DateTimeOffset?> issuedAt, Func<Mission, bool>? reworkPending = null, Func<string, int>? lanesOf = null)
     {
         reworkPending ??= _ => false;
+        lanesOf ??= _ => 0;
         // The newest missions first: the order of the problems follows the last thing that happened to each
         var byProblem = recent.GroupBy(mission => mission.ProblemId, StringComparer.Ordinal).ToList();
         var runs = problems.GetMany([.. byProblem.Select(group => group.Key)]);
@@ -39,7 +40,7 @@ internal static class FlowView
                 continue;
             }
             // The same row ticked again later is the same problem (its identifier is the row's): only the missions of this run are the problem's now
-            var flow = Of(run, [.. group.Where(mission => issuedAt(mission) is not { } at || at >= run.StartedAt)], inProgress, machines, runnerConnected, lastNews, reworkPending, recent, runs);
+            var flow = Of(run, [.. group.Where(mission => issuedAt(mission) is not { } at || at >= run.StartedAt)], inProgress, machines, runnerConnected, lastNews, reworkPending, recent, lanesOf);
             if (run.State == ProblemState.InProgress)
             {
                 working.Add((run, flow));
@@ -58,11 +59,11 @@ internal static class FlowView
     }
 
     private static FlowProblem Of(ProblemRun run, IReadOnlyList<Mission> missions, IReadOnlyList<ProblemRun> inProgress, IReadOnlyList<Machine> machines, bool runnerConnected, Func<string, (string? Line, DateTimeOffset? At)> lastNews,
-        Func<Mission, bool> reworkPending, IReadOnlyList<Mission> all, IReadOnlyDictionary<string, ProblemRun> runs)
+        Func<Mission, bool> reworkPending, IReadOnlyList<Mission> all, Func<string, int> lanesOf)
     {
         var active = missions.FirstOrDefault(mission => !mission.IsOver);
         return new FlowProblem(run.ProblemId, TitleOf(run.Entry), run.Entry.Brief?.Kind ?? run.Entry.ProblemClass, run.Entry.Repositories.FirstOrDefault() ?? string.Empty, StateOf(run.State), run.Priority, run.StartedAt,
-            StepsOf(run, missions, reworkPending), run.State == ProblemState.InProgress && active is not null ? ActivityOf(active, run, inProgress, machines, runnerConnected, lastNews, reworkPending(active), BusyWith(all, reworkPending, runs, run.ProblemId)) : null, run.Note);
+            StepsOf(run, missions, reworkPending), run.State == ProblemState.InProgress && active is not null ? ActivityOf(active, run, inProgress, machines, runnerConnected, lastNews, reworkPending(active), LoadOf(active.World, all, reworkPending, lanesOf)) : null, run.Note);
     }
 
     private static FlowProblem Queued(QueuedProblem problem, IReadOnlyList<ProblemRun> inProgress)
@@ -112,27 +113,27 @@ internal static class FlowView
     };
 
     private static FlowActivity ActivityOf(Mission mission, ProblemRun run, IReadOnlyList<ProblemRun> inProgress, IReadOnlyList<Machine> machines, bool runnerConnected, Func<string, (string? Line, DateTimeOffset? At)> lastNews, bool reworkPending,
-        ProblemRun? busyWith)
+        (int Running, int Lanes) load)
     {
         var (line, at) = lastNews(mission.Id);
         if (reworkPending)
         {
-            return new FlowActivity("waiting", null, at, WaitingOf(mission, run, inProgress, machines, runnerConnected, busyWith));
+            return new FlowActivity("waiting", null, at, WaitingOf(mission, run, inProgress, machines, runnerConnected, load));
         }
         return mission.State switch
         {
             MissionState.Running => new FlowActivity("running", line, at, null),
             MissionState.HandingOver => new FlowActivity("controller", null, at, null),
-            _ => new FlowActivity("waiting", null, at, WaitingOf(mission, run, inProgress, machines, runnerConnected, busyWith)),
+            _ => new FlowActivity("waiting", null, at, WaitingOf(mission, run, inProgress, machines, runnerConnected, load)),
         };
     }
 
-    // The problem whose mission a runner is working on now, other than this one: a runner does one mission at a time
-    private static ProblemRun? BusyWith(IReadOnlyList<Mission> all, Func<Mission, bool> reworkPending, IReadOnlyDictionary<string, ProblemRun> runs, string except) =>
-        all.Where(mission => mission.State == MissionState.Running && !reworkPending(mission) && mission.ProblemId != except).Select(mission => runs.GetValueOrDefault(mission.ProblemId)).FirstOrDefault(run => run is not null);
+    // How many missions of the world are worked on now, and how many the runner works on at once there (0: it did not say). A sent-back mission that nobody has taken again is not worked on
+    private static (int Running, int Lanes) LoadOf(World world, IReadOnlyList<Mission> all, Func<Mission, bool> reworkPending, Func<string, int> lanesOf) =>
+        (all.Count(mission => mission.World == world && mission.State == MissionState.Running && !reworkPending(mission)), lanesOf(world.ToString()));
 
     // The first thing in the way, in the order a person can do something about it: another problem on the repository, the machine, the runner
-    private static FlowWaiting WaitingOf(Mission mission, ProblemRun run, IReadOnlyList<ProblemRun> inProgress, IReadOnlyList<Machine> machines, bool runnerConnected, ProblemRun? busyWith)
+    private static FlowWaiting WaitingOf(Mission mission, ProblemRun run, IReadOnlyList<ProblemRun> inProgress, IReadOnlyList<Machine> machines, bool runnerConnected, (int Running, int Lanes) load)
     {
         var ahead = AheadOf(run.Entry.Repositories.FirstOrDefault(), run.ProblemId, inProgress);
         if (ahead is not null)
@@ -140,14 +141,15 @@ internal static class FlowView
             return new FlowWaiting("turn", TitleOf(ahead.Entry));
         }
         var role = mission.World switch { World.Staging => MachineRole.Staging, World.Release => MachineRole.Release, _ => (MachineRole?)null };
-        if (role is { } wanted && machines.FirstOrDefault(machine => machine.Role == wanted) is { State: not MachineState.Idle } busy)
+        // A world with machines waits for one that is free: it says which are not, and why (several machines: none of them is free)
+        if (role is { } wanted && machines.Where(machine => machine.Role == wanted).ToList() is { Count: > 0 } ofRole && ofRole.TrueForAll(machine => machine.State != MachineState.Idle))
         {
-            return new FlowWaiting("machine", $"{busy.Id} ({busy.State})");
+            return new FlowWaiting("machine", string.Join(", ", ofRole.Select(machine => $"{machine.Id} ({machine.State})")));
         }
-        // A runner does one mission at a time: while it works on another problem it asks for nothing, which is not the same as being away
-        if (busyWith is not null)
+        // Every lane of the world is at work: while they are, nothing is asked for, which is not the same as being away
+        if (load.Lanes > 0 && load.Running >= load.Lanes)
         {
-            return new FlowWaiting("busy", TitleOf(busyWith.Entry));
+            return new FlowWaiting("busy", $"{mission.World} {load.Running}/{load.Lanes}");
         }
         return runnerConnected ? new FlowWaiting("pickup", null) : new FlowWaiting("runner", null);
     }

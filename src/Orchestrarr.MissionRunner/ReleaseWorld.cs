@@ -19,7 +19,7 @@ public sealed partial class ReleaseWorld(IMissionControlPlane controlPlane, IShe
 
     public async Task<MissionHandOver> RunAsync(ClaimedMission mission, Func<string, Task> report, CancellationToken cancellationToken)
     {
-        if (options.DeployMachine is not { Length: > 0 } machine || !RepositoryShape().IsMatch(mission.Repository))
+        if ((mission.Machine ?? options.DeployMachine) is not { Length: > 0 } machine || !RepositoryShape().IsMatch(mission.Repository))
         {
             return Refused(mission, "The runner has no deployment machine, or the mission names an unreadable repository.");
         }

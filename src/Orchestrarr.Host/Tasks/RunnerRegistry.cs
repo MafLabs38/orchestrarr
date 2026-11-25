@@ -57,9 +57,20 @@ public sealed class RunnerRegistry(TimeProvider time)
         before.Version == now.Version
         && before.SecondFactorRequired == now.SecondFactorRequired
         && before.FreeAgent == now.FreeAgent
+        && SameLanes(before.Lanes, now.Lanes)
         && before.Kinds.SequenceEqual(now.Kinds)
         && before.Repositories.SequenceEqual(now.Repositories, StringComparer.Ordinal)
         && before.Delegations.SequenceEqual(now.Delegations);
+
+    private static bool SameLanes(IReadOnlyDictionary<string, int>? before, IReadOnlyDictionary<string, int>? now) =>
+        (before?.Count ?? 0) == (now?.Count ?? 0) && (before ?? new Dictionary<string, int>()).All(pair => now is not null && now.TryGetValue(pair.Key, out var other) && other == pair.Value);
+
+    /// <summary>How many missions the connected runners work on at once in a world: what the runners said (0 when none did, which is not a limit).</summary>
+    public int LanesOf(string world)
+    {
+        var now = time.GetUtcNow();
+        return _seen.Values.Where(seen => now - seen.At <= ConnectedFor && seen.Hello.Lanes is not null).Sum(seen => seen.Hello.Lanes!.FirstOrDefault(pair => string.Equals(pair.Key, world, StringComparison.OrdinalIgnoreCase)).Value);
+    }
 
     public IReadOnlyList<RunnerStatus> Snapshot()
     {

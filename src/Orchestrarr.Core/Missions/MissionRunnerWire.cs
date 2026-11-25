@@ -5,7 +5,7 @@ namespace Orchestrarr.Core.Missions;
 /// a line of what it does. The mandate itself stays with the control plane in this first version (ADR 0042 point 6).
 /// </summary>
 public sealed record ClaimedMission(string MissionId, string ProblemId, string ApplicationId, string World, string Objective, string Repository, int? PullRequest, string? HeadSha, DateTimeOffset MandateExpiresAt,
-    IReadOnlyList<string> Acts, string? Commit = null, bool Rework = false, string? Remarks = null, int? Replaces = null, string? Instruction = null);
+    IReadOnlyList<string> Acts, string? Commit = null, bool Rework = false, string? Remarks = null, int? Replaces = null, string? Instruction = null, string? Machine = null);
 
 public sealed record MissionClaimResponse(ClaimedMission? Mission);
 

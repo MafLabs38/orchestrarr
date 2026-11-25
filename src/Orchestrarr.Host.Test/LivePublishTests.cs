@@ -131,6 +131,29 @@ public sealed class LivePublishTests
         registry.Seen("runner-1", Hello(repositories: "example/other"));
         announced.Should().Be(3, "it came back after a silence");
     }
+
+    [Fact]
+    public void The_registry_knows_how_many_missions_the_connected_runners_work_on_at_once_in_a_world_and_announces_a_change_of_it()
+    {
+        var time = new FakeTimeProvider(new DateTimeOffset(2026, 11, 25, 12, 0, 0, TimeSpan.Zero));
+        var registry = new RunnerRegistry(time);
+        var announced = 0;
+        registry.Changed += () => announced++;
+        var lanes = new Dictionary<string, int> { ["Staging"] = 2, ["Git"] = 3 };
+
+        registry.Seen("runner-1", Hello() with { Lanes = lanes });
+        registry.Seen("runner-1", Hello() with { Lanes = new Dictionary<string, int>(lanes) });
+
+        announced.Should().Be(1, "the same lanes are not news");
+        registry.LanesOf("Git").Should().Be(3);
+        registry.LanesOf("staging").Should().Be(2, "a world is matched whatever its case");
+        registry.LanesOf("Release").Should().Be(0, "a world that the runners did not speak of has no limit");
+        registry.Seen("runner-1", Hello() with { Lanes = new Dictionary<string, int> { ["Staging"] = 2, ["Git"] = 1 } });
+        announced.Should().Be(2, "the capacity changed");
+        time.Advance(RunnerRegistry.ConnectedFor + TimeSpan.FromSeconds(1));
+        registry.LanesOf("Git").Should().Be(0, "a runner that is gone has no lanes");
+    }
+
     [Fact]
     public void A_runner_that_is_working_stays_connected_by_any_call_it_makes_and_one_never_seen_is_not_made_known()
     {

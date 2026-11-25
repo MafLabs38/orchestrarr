@@ -3,8 +3,8 @@ using System.Text.Json.Serialization;
 
 namespace Orchestrarr.Core.Tasks;
 
-/// <summary>What a runner tells the control plane each time it asks for work: who it is, and what it is willing to do. For the screen of its state.</summary>
-public sealed record RunnerHello(string Name, string Version, IReadOnlyList<TaskKind> Kinds, IReadOnlyList<string> Repositories, IReadOnlyList<DelegationInfo> Delegations, bool SecondFactorRequired = true, bool FreeAgent = false);
+/// <summary>What a runner tells the control plane each time it asks for work: who it is, and what it is willing to do. For the screen of its state. <c>Lanes</c>: for a runner of missions, how many missions it works on at once in each world (the capacity of its workshops).</summary>
+public sealed record RunnerHello(string Name, string Version, IReadOnlyList<TaskKind> Kinds, IReadOnlyList<string> Repositories, IReadOnlyList<DelegationInfo> Delegations, bool SecondFactorRequired = true, bool FreeAgent = false, IReadOnlyDictionary<string, int>? Lanes = null);
 
 /// <summary>A standing delegation, as the runner reports it (it keeps the truth: the control plane only shows it).</summary>
 public sealed record DelegationInfo(Guid Id, string Subject, TaskKind Kind, string Repository, DateTimeOffset ExpiresAt, int DailyQuota);
