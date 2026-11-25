@@ -131,6 +131,7 @@ An application with **no staging** skips steps 3 to 5; it goes from the plan str
 **FR-FIND-5.** Several findings about the same cause become **one problem**; several bot pull requests on one repository are **not** batched: they are done one after the other, each through its worlds, by the Git flow rule of FR-MIS-6 (the maintainer, 2026-11-24, ADR 0049); a shared deployment is a possible later optimisation, never a condition of correctness (CASE-07). **(P)**
 **FR-FIND-6.** A problem carries a **priority** that comes from its kind and its severity; a serious vulnerability goes first and notifies at once (CASE-03). **(M for the serious advisory; the rest P)**
 **FR-FIND-7.** A problem that is already being worked on is not started twice. **(P)**
+**FR-FIND-8.** **An image that is behind, an image run under a moving tag and an obsolete base image are problems like a vulnerable dependency** (the maintainer's cases 04, 05 and 09, ADR 0051): the lead is told where the image is written, a free agent makes the change in staging, the control plane audits the commit, and the problem goes through the same worlds. An image that the platform or an automation keeps stays outside. **(M for the cases, P for the mechanism)**
 
 ### 5.2 The plan and its validation
 

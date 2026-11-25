@@ -226,17 +226,18 @@ internal sealed class HttpSandboxHealth(string host, int basePort) : ISandboxHea
 }
 
 /// <summary>The standing grant of the test bed: every application may go up to one world, set by <c>Missions:SandboxMaxWorld</c> (the last world: the test bed merges and deploys).</summary>
-internal sealed class SandboxGrants(World highest) : IGrantSource
+internal sealed class SandboxGrants(World highest, IReadOnlyDictionary<string, World>? limits = null) : IGrantSource
 {
-    public World? MaxWorldFor(string applicationId) => highest;
+    // An application with a limit of its own is granted the lower of the two
+    public World? MaxWorldFor(string applicationId) => limits is not null && limits.TryGetValue(applicationId, out var limit) && limit < highest ? limit : highest;
 }
 
 /// <summary>Says at start, once, what the test bed declares to hold instead of reading it, so that nobody takes the sandbox for a deployment.</summary>
-internal sealed class SandboxNotice(World highest, ILogger<SandboxNotice> logger) : IHostedService
+internal sealed class SandboxNotice(World highest, ILogger<SandboxNotice> logger, IReadOnlyDictionary<string, World>? limits = null) : IHostedService
 {
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        logger.LogWarning("Missions:Sandbox is on: the approvals are made by an authority in this process with no code to type, every application is granted up to {World}, the act gateway MERGES pull requests on the repositories of Missions:SandboxMergeRepositories with Missions:SandboxMergeToken (nothing is merged without both), and the frame is DECLARED to hold, as is the way back (the previous version is read by the runner when it deploys, after the authorisation) (merging does not deploy, no tag can be created, no credential is in reach of the branch, the identity is confined to its branches). A deployment never sets it.", highest);
+        logger.LogWarning("Missions:Sandbox is on: the approvals are made by an authority in this process with no code to type, every application is granted up to {World}{Limits}, the act gateway MERGES pull requests on the repositories of Missions:SandboxMergeRepositories with Missions:SandboxMergeToken (nothing is merged without both), and the frame is DECLARED to hold, as is the way back (the previous version is read by the runner when it deploys, after the authorisation) (merging does not deploy, no tag can be created, no credential is in reach of the branch, the identity is confined to its branches). A deployment never sets it.", highest, limits is { Count: > 0 } ? $" (lowered for {string.Join(", ", limits.Select(limit => $"{limit.Key}: {limit.Value}"))})" : string.Empty);
         return Task.CompletedTask;
     }
 
@@ -275,8 +276,8 @@ internal static class SandboxMissionsExtensions
             .AddSingleton<IApprovalSource>(provider => provider.GetRequiredService<SandboxApprovals>())
             .AddSingleton(provider => provider.GetRequiredService<SandboxApprovals>().Verifier)
             .AddSingleton<IApprovalWithdrawals, SandboxWithdrawals>()
-            .AddSingleton<IGrantSource>(new SandboxGrants(missions.SandboxMaxWorld))
-            .AddHostedService(provider => new SandboxNotice(missions.SandboxMaxWorld, provider.GetRequiredService<ILogger<SandboxNotice>>()))
+            .AddSingleton<IGrantSource>(new SandboxGrants(missions.SandboxMaxWorld, missions.SandboxWorldLimits))
+            .AddHostedService(provider => new SandboxNotice(missions.SandboxMaxWorld, provider.GetRequiredService<ILogger<SandboxNotice>>(), missions.SandboxWorldLimits))
             .AddSingleton<IPullRequestFacts>(_ => githubFacts.Value is { } facts ? facts : new NoPullRequestFacts())
             .AddSingleton<IDefaultBranchSource>(_ => githubFacts.Value is { } facts ? facts : new NoDefaultBranchSource())
             .AddSingleton<IBranchSource>(_ => githubFacts.Value is { } facts ? facts : new NoBranchSource())

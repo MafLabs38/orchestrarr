@@ -1,6 +1,7 @@
 using Orchestrarr.Core.Applications;
 using Orchestrarr.Core.Decisions;
 using Orchestrarr.Core.Fleet;
+using Orchestrarr.Core.Infrastructure;
 using Orchestrarr.Core.Forge;
 using Orchestrarr.Core.Tasks;
 using Orchestrarr.Core.WorkItems;
@@ -36,8 +37,12 @@ public sealed class DecisionTableTests
     // A host that can start a problem with no pull request (the test bed): a dependency alert has an action there
     private static readonly RelevancePolicy Acting = RelevancePolicy.Default with { ActOnProblems = true };
 
-    private static IReadOnlyList<ProblemRow> Table(WorkItem item, IApplicationCatalog? applications = null, IReadOnlyList<RunnerAcceptance>? runners = null, IReadOnlyList<TaskResultRow>? results = null) =>
-        DecisionTable.Build([item], applications ?? Described(), runners ?? [Everything], results, policy: Acting);
+    private static IReadOnlyList<ProblemRow> Table(WorkItem item, IApplicationCatalog? applications = null, IReadOnlyList<RunnerAcceptance>? runners = null, IReadOnlyList<TaskResultRow>? results = null, InfrastructureIndex? infrastructure = null) =>
+        DecisionTable.Build([item], applications ?? Described(), runners ?? [Everything], results, policy: Acting, infrastructure: infrastructure);
+
+    // The code of the scope: one file of a repository, as the description would have it read
+    private static InfrastructureIndex Written(string repository, string line = "image: nginx:1.14", string kind = "compose") =>
+        InfrastructureIndex.Build(new InfrastructureSnapshot(DateTimeOffset.UnixEpoch, [new InfrastructureFile(repository, "docker-compose.yml", kind, $"services:\n  web:\n    {line}\n")], []));
 
     private static readonly RunnerAcceptance Everything = new([TaskKind.ValidatePullRequest, TaskKind.MergePullRequest], ["example/*"], FreeAgent: true);
 
@@ -457,7 +462,7 @@ public sealed class DecisionTableTests
 
         rows.Select(row => row.Kind).Should().Equal(ProblemKind.DependencyAlert, ProblemKind.CodeScanningAlert, ProblemKind.ExposedSecret, ProblemKind.FailingCi, ProblemKind.ImageUpdate, ProblemKind.DependencyScanUnavailable);
         rows.Should().OnlyContain(row => row.PullRequest == null);
-        rows.Where(row => row.Kind != ProblemKind.DependencyAlert).Should().OnlyContain(row => row.GoesUpTo == Ceiling.NoAction && row.Why == CeilingReason.NoActionDefined && !row.CanStopBeforeProduction);
+        rows.Where(row => row.Kind is not (ProblemKind.DependencyAlert or ProblemKind.ImageUpdate or ProblemKind.FloatingImage)).Should().OnlyContain(row => row.GoesUpTo == Ceiling.NoAction && row.Why == CeilingReason.NoActionDefined && !row.CanStopBeforeProduction);
         rows.Single(row => row.Kind == ProblemKind.DependencyAlert).Should().Match<ProblemRow>(row => row.Count == 2 && row.Severity == Severity.Danger);
         rows.Single(row => row.Kind == ProblemKind.ImageUpdate).Description.Should().Be("ghcr.io/example/app:1 → 2");
         rows.Select(row => row.Id).Should().OnlyHaveUniqueItems();
@@ -476,6 +481,77 @@ public sealed class DecisionTableTests
         row.UpdateClass.Should().BeNull("the size of the change is not known before the agent has made it");
         row.PullRequest.Should().BeNull("a problem with no pull request is solved by a change that the staging makes");
         row.HeadSha.Should().BeNull();
+    }
+
+    private static IReadOnlyList<Finding> ImageFindings(Orchestrarr.Core.Fleet.ImageChange change) =>
+    [
+        new Finding(FindingKind.OutdatedImage, Severity.Info, 1, Image: new ImageUpdate("nginx:1.14", "1.14", "1.28", change)),
+        new Finding(FindingKind.FloatingImage, Severity.Info, 1, Image: new ImageUpdate("app:latest", null, null, Orchestrarr.Core.Fleet.ImageChange.None)),
+    ];
+
+    [Fact]
+    public void An_image_that_has_a_newer_version_or_runs_under_a_moving_tag_has_an_action_like_a_dependency_alert()
+    {
+        var found = ImageFindings(Orchestrarr.Core.Fleet.ImageChange.Major);
+        var code = Written("example/shop", "image: nginx:1.14");
+        var rows = Table(Item(pulls: [], findings: [found[0]], read: PullRequestsRead.NotNeeded), Described(promote: "\"patch\", \"minor\", \"major\""), [Everything], infrastructure: code);
+
+        rows.Single(row => row.Kind == ProblemKind.ImageUpdate).Should().Match<ProblemRow>(row => row.GoesUpTo == Ceiling.Production && row.Why == CeilingReason.None && row.PullRequest == null, "a major image is a change that the lead plans, not a row that waits");
+        Table(Item(pulls: [], findings: [found[1]], read: PullRequestsRead.NotNeeded), Described(promote: "\"patch\", \"minor\", \"major\""), [Everything], infrastructure: Written("example/shop", "image: app:latest"))
+            .Single(row => row.Kind == ProblemKind.FloatingImage).Should().Match<ProblemRow>(row => row.GoesUpTo == Ceiling.Production && row.Why == CeilingReason.None);
+    }
+
+    [Fact]
+    public void An_image_has_the_gates_of_a_pull_request_too()
+    {
+        var item = Item(pulls: [], findings: [ImageFindings(Orchestrarr.Core.Fleet.ImageChange.Minor)[0]], read: PullRequestsRead.NotNeeded);
+        var code = Written("example/shop");
+
+        Table(item with { Plan = [] }, infrastructure: code).Single(row => row.Kind == ProblemKind.ImageUpdate).Why.Should().Be(CeilingReason.NotGranted);
+        Table(item, runners: [], infrastructure: code).Single(row => row.Kind == ProblemKind.ImageUpdate).Why.Should().Be(CeilingReason.NoRunner);
+        Table(item, Described(rollback: false), infrastructure: code).Single(row => row.Kind == ProblemKind.ImageUpdate).Should().Match<ProblemRow>(row => row.GoesUpTo == Ceiling.MergeIntoDevelop && row.Why == CeilingReason.NoRollbackDescribed);
+    }
+
+    [Fact]
+    public void A_floating_image_is_gated_by_the_place_where_it_is_written_like_an_image_that_is_behind()
+    {
+        var item = Item(pulls: [], findings: [ImageFindings(Orchestrarr.Core.Fleet.ImageChange.None)[1]], read: PullRequestsRead.NotNeeded);
+
+        Table(item).Single(row => row.Kind == ProblemKind.FloatingImage).GoesUpTo.Should().Be(Ceiling.NoAction, "no code was read");
+        Table(item, infrastructure: Written("example/infra", "image: app:latest")).Single(row => row.Kind == ProblemKind.FloatingImage).GoesUpTo.Should().Be(Ceiling.NoAction, "written in another repository");
+        Table(item, infrastructure: Written("Example/Shop", "image: app:latest")).Single(row => row.Kind == ProblemKind.FloatingImage).GoesUpTo.Should().NotBe(Ceiling.NoAction, "the repository is told whatever its case");
+    }
+
+    [Fact]
+    public void A_major_image_of_an_application_that_does_not_promote_a_major_change_stops_before_production()
+    {
+        var item = Item(pulls: [], findings: [ImageFindings(Orchestrarr.Core.Fleet.ImageChange.Major)[0]], read: PullRequestsRead.NotNeeded);
+
+        Table(item, Described(), infrastructure: Written("example/shop")).Single(row => row.Kind == ProblemKind.ImageUpdate)
+            .Should().Match<ProblemRow>(row => row.GoesUpTo == Ceiling.MergeIntoDevelop && row.Why == CeilingReason.UpdateClassStopsBeforeProduction);
+    }
+
+    [Fact]
+    public void An_image_that_is_not_written_in_the_repository_of_the_problem_in_code_that_was_read_has_no_action()
+    {
+        var finding = ImageFindings(Orchestrarr.Core.Fleet.ImageChange.Minor)[0];
+        var item = Item(pulls: [], findings: [finding], read: PullRequestsRead.NotNeeded);
+
+        Table(item).Single(row => row.Kind == ProblemKind.ImageUpdate).GoesUpTo.Should().Be(Ceiling.NoAction, "no code was read: no perimeter, no place");
+        Table(item, infrastructure: Written("example/infra")).Single(row => row.Kind == ProblemKind.ImageUpdate).GoesUpTo.Should().Be(Ceiling.NoAction, "it is written in another repository, which the agent would not clone");
+        Table(item, infrastructure: Written("example/shop", "image: nginx:1.14 # {\"$imagepolicy\": \"flux-system:nginx\"}")).Single(row => row.Kind == ProblemKind.ImageUpdate).GoesUpTo.Should().Be(Ceiling.NoAction, "an automation rewrites that line");
+    }
+
+    [Fact]
+    public void An_image_has_no_action_on_a_host_that_cannot_start_a_problem_with_no_pull_request_and_one_that_the_platform_keeps_has_none_anywhere()
+    {
+        var item = Item(pulls: [], findings: ImageFindings(Orchestrarr.Core.Fleet.ImageChange.Minor), read: PullRequestsRead.NotNeeded);
+
+        DecisionTable.Build([item], Described(), [Everything]).Where(row => row.Kind is ProblemKind.ImageUpdate or ProblemKind.FloatingImage).Should().OnlyContain(row => row.GoesUpTo == Ceiling.NoAction);
+        Table(item with { Placements = [new Placement("k3s", "K3s", "kube-system", "pod")] }, infrastructure: Written("example/shop")).Single(row => row.Kind == ProblemKind.ImageUpdate)
+            .Should().Match<ProblemRow>(row => row.GoesUpTo == Ceiling.NoAction && row.Why == CeilingReason.ManagedByPlatform, "an image of the platform is updated with the platform");
+        var floating = Item(pulls: [], findings: [ImageFindings(Orchestrarr.Core.Fleet.ImageChange.Minor)[1]], read: PullRequestsRead.NotNeeded) with { Placements = [new Placement("k3s", "K3s", "kube-system", "pod")] };
+        Table(floating, infrastructure: Written("example/shop", "image: app:latest")).Single(row => row.Kind == ProblemKind.FloatingImage).Should().Match<ProblemRow>(row => row.GoesUpTo == Ceiling.NoAction && row.Why == CeilingReason.ManagedByPlatform);
     }
 
     [Fact]

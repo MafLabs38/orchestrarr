@@ -172,7 +172,7 @@ reset_one() {
   for attempt in 1 2 3; do
     head=$(wait_checks "$repo" "$pr")
     if gh pr merge "$pr" -R "$ORG/$repo" --squash --match-head-commit "$head" >/dev/null 2>"${TMPDIR:-/tmp}/lab-merge-$$.err"; then rm -f "${TMPDIR:-/tmp}/lab-merge-$$.err"; break; fi
-    if [ "$attempt" = 3 ] || ! grep -qiE 'status check|queued|in progress|pending' "${TMPDIR:-/tmp}/lab-merge-$$.err"; then cat "${TMPDIR:-/tmp}/lab-merge-$$.err" >&2; rm -f "${TMPDIR:-/tmp}/lab-merge-$$.err"; return 1; fi
+    if [ "$attempt" = 3 ] || ! grep -qiE 'status check|queued|in progress|pending|base branch policy' "${TMPDIR:-/tmp}/lab-merge-$$.err"; then cat "${TMPDIR:-/tmp}/lab-merge-$$.err" >&2; rm -f "${TMPDIR:-/tmp}/lab-merge-$$.err"; return 1; fi
     sleep 15
   done
   # A repository may delete the branch of a merged pull request by itself: one that is already gone is not an error

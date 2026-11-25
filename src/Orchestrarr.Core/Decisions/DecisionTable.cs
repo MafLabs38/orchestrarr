@@ -185,7 +185,7 @@ public static class DecisionTable
             AddOtherProblems(rows, item, policy, infrastructure);
             if (policy.ActOnProblems)
             {
-                ActOnDependencyAlerts(rows, before, item, applications, runners);
+                ActOnProblemsWithNoPullRequest(rows, before, item, applications, runners);
             }
             NameApplication(rows, before, item, applicationNames ?? []);
             Warn(rows, before, infrastructure);
@@ -413,13 +413,25 @@ public static class DecisionTable
             : (Ceiling.MergeIntoDevelop, CeilingReason.UpdateClassStopsBeforeProduction, false);
     }
 
-    // A dependency alert is a problem with no pull request that a worker agent solves in staging (ADR 0048): its row goes as far as the chain of the application goes, by the same gates as a pull request's (granted,
-    // described, a runner that accepts the repository, a way back, a check after the deploy), without what only a pull request has (its checks and its merge state). Other kinds still have no action defined.
-    private static void ActOnDependencyAlerts(List<ProblemRow> rows, int from, WorkItem item, IApplicationCatalog applications, IReadOnlyList<RunnerAcceptance> runners)
+    // The problems that have no pull request and that a worker agent solves in staging (ADR 0048, ADR 0051): a dependency alert, an image that has a newer version, an image run under a tag that moves. An image that the platform or
+    // an automation keeps, that is not written in the code that was read, or that differs from what runs, stays without action, with its own reason: only the reasons below leave a row that an agent can work on.
+    private static readonly ProblemKind[] SolvedInStaging = [ProblemKind.DependencyAlert, ProblemKind.ImageUpdate, ProblemKind.FloatingImage];
+
+    private static readonly CeilingReason[] LeavesAnAgentWork = [CeilingReason.NoActionDefined, CeilingReason.MajorNeedsPlan];
+
+    // Such a row goes as far as the chain of the application goes, by the same gates as a pull request's (granted, described, a runner that accepts the repository, a way back, a check after the deploy), without what only
+    // a pull request has (its checks and its merge state). Other kinds still have no action defined.
+    private static void ActOnProblemsWithNoPullRequest(List<ProblemRow> rows, int from, WorkItem item, IApplicationCatalog applications, IReadOnlyList<RunnerAcceptance> runners)
     {
         for (var index = from; index < rows.Count; index++)
         {
-            if (rows[index].Kind != ProblemKind.DependencyAlert || rows[index].GoesUpTo != Ceiling.NoAction || string.IsNullOrEmpty(item.RepositoryFullName))
+            if (!SolvedInStaging.Contains(rows[index].Kind) || rows[index].GoesUpTo != Ceiling.NoAction || !LeavesAnAgentWork.Contains(rows[index].Why) || string.IsNullOrEmpty(item.RepositoryFullName))
+            {
+                continue;
+            }
+            // An image is solved where it is written: in the repository of the problem, in code that was read, and not on a line that an automation rewrites. No place read in this repository (no code perimeter, a place
+            // in another repository, a reference that is not one) is no problem that an agent can work on
+            if (rows[index].Kind != ProblemKind.DependencyAlert && !WrittenHere(rows[index], item.RepositoryFullName))
             {
                 continue;
             }
@@ -433,6 +445,9 @@ public static class DecisionTable
             rows[index] = rows[index] with { GoesUpTo = ceiling, Why = why, CanStopBeforeProduction = canStop, UpdateClass = null };
         }
     }
+
+    private static bool WrittenHere(ProblemRow row, string repository) =>
+        row.Locations is { } places && places.Any(place => string.Equals(place.Repository, repository, StringComparison.OrdinalIgnoreCase) && place.Managed is null);
 
     // What has no action yet (an alert, a secret, a failing build, an image): shown, with "no action defined" (SPEC Q-30)
     private static void AddOtherProblems(List<ProblemRow> rows, WorkItem item, RelevancePolicy policy, InfrastructureIndex? infrastructure, bool dormant = false)
@@ -473,7 +488,7 @@ public static class DecisionTable
     // Why nothing is defined for a finding: for an image, what makes it a matter of the platform or of planning rather than a tag to change
     private static CeilingReason WhyNoAction(WorkItem item, Finding finding, RelevancePolicy policy)
     {
-        if (finding.Kind != FindingKind.OutdatedImage)
+        if (finding.Kind is not (FindingKind.OutdatedImage or FindingKind.FloatingImage))
         {
             return CeilingReason.NoActionDefined;
         }
@@ -481,7 +496,7 @@ public static class DecisionTable
         {
             return CeilingReason.ManagedByPlatform;
         }
-        return finding.Image?.Change == Orchestrarr.Core.Fleet.ImageChange.Major ? CeilingReason.MajorNeedsPlan : CeilingReason.NoActionDefined;
+        return finding.Kind == FindingKind.OutdatedImage && finding.Image?.Change == Orchestrarr.Core.Fleet.ImageChange.Major ? CeilingReason.MajorNeedsPlan : CeilingReason.NoActionDefined;
     }
 
     private static ProblemRow Of(WorkItem item, string id, ProblemKind kind, string description, Severity severity, int count, Ceiling ceiling, CeilingReason why, string? application = null) =>

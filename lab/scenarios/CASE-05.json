@@ -1,0 +1,38 @@
+{
+  "case": "CASE-05",
+  "title": "An image run under a tag that moves: a version is pinned",
+  "repos": [
+    "edge-stack"
+  ],
+  "lastWorld": "Git",
+  "tick": [
+    "http-echo:latest"
+  ],
+  "expect": {
+    "pullRequests": [
+      {
+        "repo": "edge-stack",
+        "title": "fix: floating image of orchestrarr-sandbox/edge-stack",
+        "state": "MERGED",
+        "thisRun": true
+      }
+    ],
+    "files": [
+      {
+        "repo": "edge-stack",
+        "path": "docker-compose.yml",
+        "notMatches": "http-echo:latest"
+      },
+      {
+        "repo": "edge-stack",
+        "path": "docker-compose.yml",
+        "matches": "image: hashicorp/http-echo:[0-9]"
+      },
+      {
+        "repo": "edge-stack",
+        "path": "docker-compose.yml",
+        "matches": "image: nginx:1\\.14"
+      }
+    ]
+  }
+}
