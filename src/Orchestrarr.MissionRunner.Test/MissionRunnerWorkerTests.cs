@@ -259,10 +259,11 @@ public sealed class MissionRunnerWorkerTests
     }
 
     // A world's work that holds every mission until it is let go, so that the number at work at once can be read with no wait on the clock
-    private sealed class Probe(string world, int expected = int.MaxValue) : IWorldWork
+    private sealed class Probe(string world, int expected = int.MaxValue, int total = int.MaxValue) : IWorldWork
     {
         private readonly TaskCompletionSource _reached = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource _go = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _all = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private int _inside;
 
         public string World { get; } = world;
@@ -272,6 +273,8 @@ public sealed class MissionRunnerWorkerTests
         public List<string?> Machines { get; } = [];
 
         public Task Reached => _reached.Task;
+
+        public Task AllTaken => _all.Task;
 
         public void Let() => _go.TrySetResult();
 
@@ -283,6 +286,10 @@ public sealed class MissionRunnerWorkerTests
                 Machines.Add(mission.Machine);
                 inside = ++_inside;
                 AtOnce = Math.Max(AtOnce, inside);
+            }
+            if (Machines.Count >= total)
+            {
+                _all.TrySetResult();
             }
             if (inside >= expected)
             {
@@ -354,7 +361,7 @@ public sealed class MissionRunnerWorkerTests
         plane.ClaimAsync("Git", Arg.Any<CancellationToken>()).Returns(_ => Task.FromResult<ClaimedMission?>(queue.TryDequeue(out var next) ? next : null));
         plane.StartedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
         plane.HandOverAsync(Arg.Any<string>(), Arg.Any<MissionHandOver>(), Arg.Any<CancellationToken>()).Returns(true);
-        var probe = new Probe("Git", expected: 3);
+        var probe = new Probe("Git", expected: 3, total: 4);
         var options = Ready(set => (set.Worlds, set.GitLanes, set.PollSeconds) = (["Git"], 3, 1));
         var worker = new MissionRunnerWorker(plane, [probe], options, NullLogger<MissionRunnerWorker>.Instance);
 
@@ -363,7 +370,7 @@ public sealed class MissionRunnerWorkerTests
         probe.AtOnce.Should().Be(3);
         queue.Should().HaveCount(1, "the three lanes are at work: the fourth mission is not taken");
         probe.Let();
-        SpinWait.SpinUntil(() => probe.Machines.Count == 4, TimeSpan.FromSeconds(10)).Should().BeTrue("a lane that has finished takes the next mission");
+        await probe.AllTaken.WaitAsync(TimeSpan.FromSeconds(10), Ct);
         await worker.StopAsync(CancellationToken.None);
 
         probe.AtOnce.Should().Be(3);
@@ -387,6 +394,18 @@ public sealed class MissionRunnerWorkerTests
         plane.MachineStateAsync("staging-2", Arg.Any<CancellationToken>()).Returns<MachineStateInfo?>(_ => throw new HttpRequestException("down"));
         var again = async () => await worker.MaintainSafelyAsync("staging-2", Ct);
         await again.Should().NotThrowAsync("a machine that fails is told and does not stop its lane");
+    }
+
+    [Fact]
+    public void The_lanes_of_a_runner_reach_the_control_plane_in_its_hello_as_it_wrote_them()
+    {
+        var options = Ready(set => (set.StagingMachines, set.GitLanes) = (["staging-1", "staging-2"], 3));
+        var hello = new Orchestrarr.Core.Tasks.RunnerHello("runner", "1", [], [], [], false, false, options.LanesByWorld());
+
+        var wire = System.Text.Json.JsonSerializer.Serialize(hello, Orchestrarr.Core.Tasks.RunnerWire.Json);
+        var read = System.Text.Json.JsonSerializer.Deserialize<Orchestrarr.Core.Tasks.RunnerHello>(wire, Orchestrarr.Core.Tasks.RunnerWire.Json);
+
+        read!.Lanes.Should().Equal(new Dictionary<string, int> { ["Staging"] = 2, ["Git"] = 3, ["Release"] = 1 });
     }
 
     [Fact]

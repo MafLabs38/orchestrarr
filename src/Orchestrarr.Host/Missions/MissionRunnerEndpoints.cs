@@ -58,7 +58,18 @@ public sealed class MissionProgress(TimeProvider time)
     /// (a runner that restarted before it could start it); the lanes of the Git world have no machine to tell them apart, so none of them does.
     /// </summary>
     public bool RecentlyOffered(string missionId, string? machine) =>
-        _offered.TryGetValue(missionId, out var offer) && time.GetUtcNow() - offer.At < OfferHolds && (machine is null || machine != offer.Machine);
+        _offered.TryGetValue(missionId, out var offer) && time.GetUtcNow() - offer.At < OfferHolds && (machine is null || !string.Equals(machine, offer.Machine, StringComparison.OrdinalIgnoreCase));
+
+    private readonly Lock _claimGate = new();
+
+    /// <summary>The lanes of a runner claim at the same time: choosing a mission, taking its machine and noting that it was offered are one step, with no other claim in between (one control-plane process, ADR 0053).</summary>
+    public T Claiming<T>(Func<T> claim)
+    {
+        lock (_claimGate)
+        {
+            return claim();
+        }
+    }
 
     public void Offered(string missionId, string? machine)
     {
@@ -124,8 +135,6 @@ public sealed class MissionProgress(TimeProvider time)
 /// </summary>
 internal static partial class MissionRunnerEndpoints
 {
-    // The lanes of a runner claim at the same time: a mission is chosen, its machine taken and the offer noted without another claim in between
-    private static readonly Lock ClaimGate = new();
 
     public static void MapMissionRunnerRoutes(this RouteGroupBuilder group, Func<HttpContext, string> runnerName)
     {
@@ -138,10 +147,7 @@ internal static partial class MissionRunnerEndpoints
                 registry.Seen(name, hello);
             }
             // The lanes of a runner ask at the same time: choosing a mission, taking its machine and noting that it was offered are one step, so that a mission goes to one lane
-            lock (ClaimGate)
-            {
-                return Claim(world, machine, name, context, missions, mandates, problems, conductor, dossiers, progress, repairs, time);
-            }
+            return progress.Claiming(() => Claim(world, machine, name, context, missions, mandates, problems, conductor, dossiers, progress, repairs, time));
         });
 
         group.MapPost("/missions/{id}/started", async (string id, HttpContext context, IMissionStore missions, IMandateLedger mandates, ProblemConductor conductor, ILiveNotifier live, CancellationToken ct) =>

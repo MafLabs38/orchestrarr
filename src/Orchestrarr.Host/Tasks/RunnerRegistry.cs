@@ -69,10 +69,12 @@ public sealed class RunnerRegistry(TimeProvider time)
     }
 
     /// <summary>How many missions the connected runners work on at once in a world: what the runners said (0 when none did, which is not a limit: it is shown, never enforced).</summary>
+    private const int MaxLanes = 100;
+
     public int LanesOf(string world)
     {
         var now = time.GetUtcNow();
-        return _seen.Values.Where(seen => now - seen.At <= ConnectedFor).Sum(seen => seen.Hello.Lanes?.FirstOrDefault(pair => string.Equals(pair.Key, world, StringComparison.OrdinalIgnoreCase)).Value ?? 0);
+        return _seen.Values.Where(seen => now - seen.At <= ConnectedFor).Sum(seen => seen.Hello.Lanes?.Where(pair => string.Equals(pair.Key, world, StringComparison.OrdinalIgnoreCase)).Select(pair => Math.Clamp(pair.Value, 0, MaxLanes)).FirstOrDefault() ?? 0);
     }
 
     public IReadOnlyList<RunnerStatus> Snapshot()

@@ -257,4 +257,23 @@ public sealed class MachineApiTests
         var states = new[] { (await MachineOf(person, "leipzig")).GetProperty("state").GetString(), (await MachineOf(person, "nantes")).GetProperty("state").GetString() };
         states.Should().BeEquivalentTo("InProcess", "Idle");
     }
+
+    [Fact]
+    public async Task The_flow_is_read_by_a_person_who_may_read_the_fleet_and_by_nobody_else_and_says_why_a_mission_waits()
+    {
+        using var factory = new MachineFactory();
+        var missionId = await StartProblemAsync(factory);
+        using var runner = Runner(factory, Token);
+        using var person = await SignedIn(factory);
+        using var stranger = factory.CreateClient();
+
+        (await stranger.GetAsync("/api/v1/flow", Ct)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        var flow = await person.GetFromJsonAsync<JsonElement>("/api/v1/flow", Ct);
+
+        var problem = flow.EnumerateArray().Single(entry => entry.GetProperty("problemId").GetString() == "p-test");
+        problem.GetProperty("state").GetString().Should().Be("inProgress");
+        problem.GetProperty("activity").GetProperty("waiting").GetProperty("code").GetString().Should().Be("machine", "the machine is still being qualified");
+        missionId.Should().NotBeNullOrEmpty();
+        _ = runner;
+    }
 }
