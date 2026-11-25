@@ -1,3 +1,4 @@
+using Orchestrarr.Core.Decisions;
 using Orchestrarr.Core.Forge;
 using Orchestrarr.Core.Missions;
 
@@ -185,6 +186,40 @@ internal sealed class ProblemStarter(IServiceProvider services, MissionsOptions 
             _ = await audit.RecordAsync(MissionAuditEvents.ProblemParked, id, $"waits for its bot to rebase the pull request, the lot goes on: {reason}", CancellationToken.None);
         }
         parking.Set(id, new ParkedProblem(since, requests, now, lastRequested, reason));
+    }
+
+    /// <summary>
+    /// The runner refused a pull request before building (it conflicts with its base, or it moved: its bot made it again while it was being proved). A **bot's** pull request is put back in the line on the head it is at now, a bounded number
+    /// of times (<see cref="MissionsOptions.BotRebaseRequests"/>), and goes through the same turn (parked, rebased, followed); anyone else's is ended, as ADR 0049 said (ADR 0055).
+    /// </summary>
+    public async Task RequeueAfterRefusalAsync(string problemId, CancellationToken cancellationToken)
+    {
+        if (problems.Get(problemId) is not { Entry: { PullRequest: { } number, Repositories.Count: 1 } entry } || parking.Requeues(problemId) >= options.BotRebaseRequests
+            || services.GetService<IPullRequestFacts>() is not { } facts)
+        {
+            return;
+        }
+        var read = await facts.ReadAsync(entry.Repositories[0], number, cancellationToken);
+        if (read is null || read.Merged || read.Closed || !IsBot(read.Author))
+        {
+            return;
+        }
+        var gate = locks.Of(GateKey(entry.Repositories[0]));
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            if (line.Contains(problemId))
+            {
+                return;
+            }
+            _ = parking.AddRequeue(problemId);
+            _ = line.Enqueue(new QueuedProblem($"{DecisionTable.PullRequestRowPrefix}{entry.Repositories[0]}#{number}", entry with { HeadSha = read.HeadSha }, time.GetUtcNow()));
+            _ = await audit.RecordAsync(MissionAuditEvents.ProblemQueued, problemId, "the bot made the pull request again while it was proved: it goes back in the line on its new head", CancellationToken.None);
+        }
+        finally
+        {
+            _ = gate.Release();
+        }
     }
 
     // What the forge says of the pull request now, against what was ticked. A problem with no pull request, or a forge that does not answer, is ready as it was

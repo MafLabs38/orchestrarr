@@ -342,6 +342,38 @@ public sealed class MissionWorldsApiTests
     }
 
     [Fact]
+    public async Task A_bots_pull_request_that_the_runner_refused_goes_back_in_the_line_on_its_new_head_a_bounded_number_of_times()
+    {
+        var forge = new FakeForge { Author = "dependabot[bot]" };
+        using var factory = new WorldsFactory(forge);
+        var starter = factory.Services.GetRequiredService<ProblemStarter>();
+        var line = factory.Services.GetRequiredService<ProblemQueue>();
+        _ = await starter.StartOrQueueAsync(Prepared("p-bot", 7, "example/shop"), Ct);
+
+        await starter.RequeueAfterRefusalAsync("p-bot", Ct);
+        line.Contains("p-bot").Should().BeTrue();
+        line.Remove("p-bot");
+        await starter.RequeueAfterRefusalAsync("p-bot", Ct);
+        line.Remove("p-bot");
+        await starter.RequeueAfterRefusalAsync("p-bot", Ct);
+
+        line.Contains("p-bot").Should().BeFalse("two goes back in the line at most (Missions:BotRebaseRequests)");
+    }
+
+    [Fact]
+    public async Task A_pull_request_that_is_not_a_bots_is_never_put_back_in_the_line_after_a_refusal()
+    {
+        var forge = new FakeForge { Author = "alice" };
+        using var factory = new WorldsFactory(forge);
+        var starter = factory.Services.GetRequiredService<ProblemStarter>();
+        _ = await starter.StartOrQueueAsync(Prepared("p-human", 7, "example/shop"), Ct);
+
+        await starter.RequeueAfterRefusalAsync("p-human", Ct);
+
+        factory.Services.GetRequiredService<ProblemQueue>().Contains("p-human").Should().BeFalse();
+    }
+
+    [Fact]
     public async Task A_pull_request_that_moved_and_is_not_a_bots_is_not_started_and_the_maintainer_ticks_it_again()
     {
         var forge = new FakeForge { Author = "alice" };

@@ -12,8 +12,8 @@ public sealed class PullRequestFreshnessTests
     private static PlanEntry Entry(int? pullRequest = 7) =>
         new("p", "app", "x", "x", ["o/r"], World.Release, new MissionBudget(30, 3, 50), new Validation("alice", null), T0, pullRequest, Ticked);
 
-    private static PullRequestFacts Facts(string head = Ticked, string? author = "dependabot[bot]", MergeState merge = MergeState.Clean, bool merged = false, bool closed = false) =>
-        new(head, "base", false, ChecksState.Passing, ["package.json"], true, Merged: merged, Author: author, Merge: merge, Closed: closed);
+    private static PullRequestFacts Facts(string head = Ticked, string? author = "dependabot[bot]", MergeState merge = MergeState.Clean, bool merged = false, bool closed = false, int? behindBy = null) =>
+        new(head, "base", false, ChecksState.Passing, ["package.json"], true, Merged: merged, Author: author, Merge: merge, Closed: closed, BehindBy: behindBy);
 
     private static bool IsBot(string? login) => login == "dependabot[bot]";
 
@@ -32,6 +32,13 @@ public sealed class PullRequestFreshnessTests
 
         verdict.Kind.Should().Be(Freshness.NeedsRebase);
         verdict.Reason.Should().NotBeNullOrWhiteSpace();
+    }
+
+    [Fact]
+    public void A_head_that_lacks_commits_of_the_base_is_behind_even_when_the_forge_has_not_worked_out_its_merge_state_yet()
+    {
+        PullRequestFreshness.Of(Entry(), Facts(merge: MergeState.Unknown, behindBy: 2), IsBot).Kind.Should().Be(Freshness.NeedsRebase);
+        PullRequestFreshness.Of(Entry(), Facts(merge: MergeState.Unknown, behindBy: 0), IsBot).Kind.Should().Be(Freshness.Ready);
     }
 
     [Fact]

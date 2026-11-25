@@ -19,7 +19,8 @@ public sealed record PullRequestFacts(
     string? DefaultBranch = null,
     string? Author = null,
     MergeState Merge = MergeState.Unknown,
-    bool Closed = false)
+    bool Closed = false,
+    int? BehindBy = null)
 {
     /// <summary>Whether the pull request targets the default branch of its repository: the only base that staging proves a merge onto. Unknown counts as not.</summary>
     public bool TargetsDefaultBranch => BaseRef is not null && string.Equals(BaseRef, DefaultBranch, StringComparison.Ordinal);

@@ -52,7 +52,9 @@ public static class PullRequestFreshness
                 ? new FreshnessVerdict(Freshness.Followed, facts.HeadSha, null)
                 : new FreshnessVerdict(Freshness.Left, null, "the pull request moved since the maintainer ticked it and it is not a bot's: it is ticked again on the commit it is at");
         }
-        if (facts.Merge is MergeState.Behind or MergeState.Conflicting && bot)
+        // The merge state is worked out by the forge lazily, a while after the base moved: how far behind the base the head is, is known at once, and is the one that says that a merge has just moved the base
+        var behind = facts.BehindBy is > 0 || facts.Merge == MergeState.Behind;
+        if ((behind || facts.Merge == MergeState.Conflicting) && bot)
         {
             return new FreshnessVerdict(Freshness.NeedsRebase, null, facts.Merge == MergeState.Conflicting ? "it conflicts with its base branch" : "it is behind its base branch");
         }

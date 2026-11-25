@@ -70,7 +70,9 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefault
             var mergeState = GitHubPullRequestSource.MergeOf(pull.RootElement.TryGetProperty("mergeable_state", out var ms) ? ms.GetString() : null);
             if (!merged || string.IsNullOrEmpty(mergeCommit))
             {
-                return new PullRequestFacts(head, baseSha, draft, checks, paths, complete, BaseRef: baseRef, DefaultBranch: defaultBranch, Author: author, Merge: mergeState, Closed: closed);
+                // The forge works out the merge state of a pull request lazily, a while after the base moved; how many commits of the base the head lacks is known at once
+                var behind = baseRef is null ? null : await BehindByAsync(repositoryFullName, baseRef, head, cancellationToken);
+                return new PullRequestFacts(head, baseSha, draft, checks, paths, complete, BaseRef: baseRef, DefaultBranch: defaultBranch, Author: author, Merge: mergeState, Closed: closed, BehindBy: behind);
             }
             // Once it is merged, what runs is the commit that the merge made on the base branch: its tree and the checks of its pipeline are the facts of the later worlds
             return new PullRequestFacts(head, baseSha, draft, checks, paths, complete, Merged: true, mergeCommit, await TreeOfAsync(repositoryFullName, mergeCommit, cancellationToken), await ChecksOfAsync(repositoryFullName, mergeCommit, [], cancellationToken), baseRef, defaultBranch);
@@ -249,6 +251,16 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefault
             }
         }
         return ChecksState.Unknown;
+    }
+
+    private async Task<int?> BehindByAsync(string repositoryFullName, string baseRef, string head, CancellationToken cancellationToken)
+    {
+        if (!Sha().IsMatch(head) || baseRef.Length > 100 || baseRef.Any(character => !(char.IsAsciiLetterOrDigit(character) || character is '.' or '_' or '-' or '/')))
+        {
+            return null;
+        }
+        using var compared = await GetAsync($"repos/{repositoryFullName}/compare/{Uri.EscapeDataString(baseRef)}...{head}?per_page=1", cancellationToken);
+        return compared is not null && compared.RootElement.TryGetProperty("behind_by", out var behind) && behind.TryGetInt32(out var count) ? count : null;
     }
 
     private async Task<JsonDocument?> GetAsync(string path, CancellationToken cancellationToken)

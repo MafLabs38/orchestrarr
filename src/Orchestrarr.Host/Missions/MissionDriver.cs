@@ -8,7 +8,7 @@ namespace Orchestrarr.Host.Missions;
 /// conductor, which makes its own checks first and can refuse a grant that the controller gave. A controller that cannot answer is never a grant: the mission waits and is asked again later.
 /// </summary>
 internal sealed class MissionDriver(IMissionStore missions, IProblemStore problems, IDossierStore dossiers, IFactsSource facts, ControllerAgent controller, ProblemConductor conductor, MissionProgress progress, ILiveNotifier live, TimeProvider time,
-    ILogger<MissionDriver> logger) : BackgroundService
+    IServiceProvider services, ILogger<MissionDriver> logger) : BackgroundService
 {
     private static readonly TimeSpan Interval = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan Retry = TimeSpan.FromSeconds(45);
@@ -100,6 +100,11 @@ internal sealed class MissionDriver(IMissionStore missions, IProblemStore proble
         if (result.Ok || result.Moved)
         {
             _askedAt.Remove(mission.Id);
+            // A bot's pull request that was made again while it was proved goes back in the line on its new head (ADR 0055); anyone else's stays ended
+            if (services.GetService<ProblemStarter>() is { } starter)
+            {
+                await starter.RequeueAfterRefusalAsync(mission.ProblemId, cancellationToken);
+            }
         }
         live.Publish(LiveTopics.Missions, mission.Id);
     }
