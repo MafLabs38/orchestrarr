@@ -374,6 +374,24 @@ public sealed class MissionWorldsApiTests
     }
 
     [Fact]
+    public async Task A_parked_pull_request_that_its_bot_never_rebases_is_put_aside_with_its_reason_where_the_work_is_followed()
+    {
+        var forge = new FakeForge { Author = "dependabot[bot]", PullMerge = MergeState.Conflicting };
+        using var factory = new WorldsFactory(forge);
+        var starter = factory.Services.GetRequiredService<ProblemStarter>();
+        _ = await starter.StartOrQueueAsync(Prepared("p-bot", 7, "example/shop"), Ct);
+        // it has been parked for longer than the bot is given
+        factory.Services.GetRequiredService<ProblemParking>().Set("p-bot", new ParkedProblem(DateTimeOffset.UtcNow - TimeSpan.FromMinutes(31), 2, DateTimeOffset.UtcNow - TimeSpan.FromMinutes(1), DateTimeOffset.UtcNow - TimeSpan.FromMinutes(16), "it conflicts with its base branch"));
+
+        await starter.StartReadyAsync(Ct);
+
+        factory.Services.GetRequiredService<ProblemQueue>().Contains("p-bot").Should().BeFalse();
+        var run = factory.Services.GetRequiredService<IProblemStore>().Get("p-bot")!;
+        run.State.Should().Be(ProblemState.Failed);
+        run.Note.Should().Contain("the bot did not rebase").And.Contain("put aside before it started");
+    }
+
+    [Fact]
     public async Task A_pull_request_that_moved_and_is_not_a_bots_is_not_started_and_the_maintainer_ticks_it_again()
     {
         var forge = new FakeForge { Author = "alice" };

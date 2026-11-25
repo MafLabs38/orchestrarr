@@ -224,6 +224,8 @@ plant_one() {
         valid_name "$patch"
         # a bot that makes its pull request again on a base that already holds one of its hunks (the same base image, raised by another change) drops that hunk: git does the same
         if git -C "$dir" apply --reverse --check "$(dirname "$scenario")/$patch" 2>/dev/null; then continue; fi
+        # made again on a base that was changed in the same place by someone else (an agent raised the same image): the bot drops what the base already holds rather than leave the pull request in conflict
+        if [ -n "${REBASE:-}" ]; then git -C "$dir" apply "$(dirname "$scenario")/$patch" 2>/dev/null || echo "$repo: the base already holds the change that $patch carries: dropped"; continue; fi
         git -C "$dir" apply "$(dirname "$scenario")/$patch"
       done ;;
     patch)

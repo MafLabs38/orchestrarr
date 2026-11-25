@@ -142,6 +142,7 @@ internal sealed class ProblemStarter(IServiceProvider services, MissionsOptions 
                     _ = line.Remove(id);
                     _ = parking.Release(id);
                     _ = await audit.RecordAsync(MissionAuditEvents.QueuedProblemRefused, id, $"left the line without starting: {verdict.Reason}", CancellationToken.None);
+                    await PutAsideAsync(entry, verdict.Reason!, cancellationToken);
                     break;
                 case Freshness.NeedsRebase:
                     await ParkAsync(entry, verdict.Reason!, parking.Get(id), cancellationToken);
@@ -168,7 +169,9 @@ internal sealed class ProblemStarter(IServiceProvider services, MissionsOptions 
         {
             _ = line.Remove(id);
             _ = parking.Release(id);
-            _ = await audit.RecordAsync(MissionAuditEvents.QueuedProblemRefused, id, $"put aside: the bot did not rebase the pull request within {options.BotRebaseWaitMinutes} minutes ({reason})", CancellationToken.None);
+            var why = $"the bot did not rebase the pull request within {options.BotRebaseWaitMinutes} minutes ({reason})";
+            _ = await audit.RecordAsync(MissionAuditEvents.QueuedProblemRefused, id, $"put aside: {why}", CancellationToken.None);
+            await PutAsideAsync(entry, why, cancellationToken);
             return;
         }
         var requests = before?.Requests ?? 0;
@@ -219,6 +222,15 @@ internal sealed class ProblemStarter(IServiceProvider services, MissionsOptions 
         finally
         {
             _ = gate.Release();
+        }
+    }
+
+    // A problem that leaves the line without having started is **put aside in the flow, with its reason**, so that the maintainer sees it where he follows the work (a failed problem with a note), not only in the audit trail
+    private async Task PutAsideAsync(PlanEntry entry, string reason, CancellationToken cancellationToken)
+    {
+        if (services.GetService<SandboxApprovals>() is { } approvals && await approvals.PrepareAsync(entry, cancellationToken) && approvals.For(entry) is { } approval)
+        {
+            problems.Save(new ProblemRun(entry.ProblemId, entry.ApplicationId, ProblemState.Failed, time.GetUtcNow(), entry, entry.MaxWorld, true, approval, Note: $"put aside before it started: {reason}"));
         }
     }
 
