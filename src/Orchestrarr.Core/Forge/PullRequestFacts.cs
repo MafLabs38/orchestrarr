@@ -16,7 +16,10 @@ public sealed record PullRequestFacts(
     string? MergeTree = null,
     ChecksState MergeChecks = ChecksState.Unknown,
     string? BaseRef = null,
-    string? DefaultBranch = null)
+    string? DefaultBranch = null,
+    string? Author = null,
+    MergeState Merge = MergeState.Unknown,
+    bool Closed = false)
 {
     /// <summary>Whether the pull request targets the default branch of its repository: the only base that staging proves a merge onto. Unknown counts as not.</summary>
     public bool TargetsDefaultBranch => BaseRef is not null && string.Equals(BaseRef, DefaultBranch, StringComparison.Ordinal);
@@ -59,6 +62,11 @@ public interface IForgeActs
     /// The branch and its commits are the agent's own; the gateway writes only the pull request.
     /// </summary>
     Task<OpenedPullRequest> OpenPullRequestFromBranchAsync(string repositoryFullName, string baseBranch, string branch, string expectedSha, string title, string body, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Asks the bot that made a pull request to rebase it (a comment with the bot's own command, ADR 0055): nothing is merged, no branch is written, and the bot is the one that changes its branch. False when the forge did not take the comment.
+    /// </summary>
+    Task<bool> RequestBotRebaseAsync(string repositoryFullName, int number, string command, CancellationToken cancellationToken);
 }
 
 /// <summary>What the forge answered to the opening of a pull request: its number and the head of its branch, or why not.</summary>
@@ -76,6 +84,8 @@ public sealed class NoForgeActs : IForgeActs
 
     public Task<OpenedPullRequest> OpenPullRequestFromBranchAsync(string repositoryFullName, string baseBranch, string branch, string expectedSha, string title, string body, CancellationToken cancellationToken) =>
         Task.FromResult(new OpenedPullRequest(false, 0, null, "no forge is connected"));
+
+    public Task<bool> RequestBotRebaseAsync(string repositoryFullName, int number, string command, CancellationToken cancellationToken) => Task.FromResult(false);
 }
 
 /// <summary>The default branch of a repository and its head now: what a change that has no pull request is made against (ADR 0048).</summary>

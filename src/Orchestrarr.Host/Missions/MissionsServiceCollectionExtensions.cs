@@ -44,6 +44,7 @@ internal static class MissionsServiceCollectionExtensions
         services
             .AddSingleton<ProblemLocks>()
             .AddSingleton<ProblemQueue>()
+            .AddSingleton<ProblemParking>()
             .AddSingleton(_ => SigningKey.Open(options.SigningKeyFile ?? (storage is SqliteStorage file ? Path.Combine(Path.GetDirectoryName(file.Path) ?? contentRoot, "keys", "mandate-signing.key") : null)))
             .AddSingleton<IRunnerDirectory>(new ConfiguredRunners(options))
             .AddSingleton<IFactsSource, ConservativeFacts>()

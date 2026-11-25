@@ -72,14 +72,15 @@ internal static class PlanEndpoints
             var table = ProblemsEndpoints.VisibleTable(TableInputs.Last(report, infrastructure), applications, runners, queue, history, approvalStore, time, policy).ToDictionary(row => row.Id, StringComparer.Ordinal);
             // The lead thinks about each problem first (two at a time), then the problems are started one after the other: nothing is started that the lead did not plan, and no approval is used for a problem that has no plan.
             // A row is asked once, at most Agents:LeadMaxRows rows are asked in one selection, and the global stop is read again before each question: every question is a run of the subscription
-            var rows = (request.Rows ?? []).DistinctBy(row => row.Id, StringComparer.Ordinal).ToList();
-            var prepared = await Task.WhenAll(rows.Select((chosen, index) => PrepareAsync(chosen, table, approver.Subject, lead, findings, conductor, audit, stop, NotAsked(index, agents.LeadMaxRows), time, ct)));
+            // The rows are taken **in the order of the route** (ADR 0055: the runtime, then the alerts, then the updates), not in the order of the ticks, and a problem **starts as soon as its own plan is ready**: the machines
+            // do not wait for the lead to have thought about every row of the selection (a plan is a minute of the subscription, and a hundred rows would keep them idle for an hour). The planning goes on behind it
+            var rows = (request.Rows ?? []).DistinctBy(row => row.Id, StringComparer.Ordinal).OrderBy(chosen => chosen.Id is { } rowId && table.TryGetValue(rowId, out var known) ? RouteRank.Of(known.Kind.ToString()) : int.MaxValue).ToList();
+            var planning = rows.Select((chosen, index) => PrepareAsync(chosen, table, approver.Subject, lead, findings, conductor, audit, stop, NotAsked(index, agents.LeadMaxRows), time, ct)).ToList();
             // One work site at a time on a repository: the first problem of a free repository starts, the others wait for their turn (ProblemQueue)
             var started = new List<ValidatedProblem>();
-            // in the order of the route (ADR 0055), not of the ticks: the runtime, then the alerts, then the updates; a row that was refused has no plan and goes last (the sort is stable)
-            foreach (var one in prepared.OrderBy(one => one.Entry is { } entry ? RouteRank.Of(entry) : int.MaxValue))
+            foreach (var plan in planning)
             {
-                started.Add(await starter.StartOrQueueAsync(one, ct));
+                started.Add(await starter.StartOrQueueAsync(await plan, ct));
             }
             live.Publish(LiveTopics.Missions);
             return Results.Json(new ValidatePlanResponse(started), statusCode: StatusCodes.Status201Created);

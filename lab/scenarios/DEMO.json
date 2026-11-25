@@ -9,16 +9,6 @@
   "plants": [
     {
       "repo": "shop-api",
-      "branch": "lab/case-07-mocha",
-      "kind": "npm-bump",
-      "package": "mocha",
-      "from": "8.0.1",
-      "version": "8.4.0",
-      "title": "build(deps-dev): Bump mocha from 8.0.1 to 8.4.0",
-      "body": "A minor bump of the test runner, opened at the same time as the others."
-    },
-    {
-      "repo": "shop-api",
       "branch": "lab/case-02-express",
       "kind": "npm-bump",
       "package": "express",

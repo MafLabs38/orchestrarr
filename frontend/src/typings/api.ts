@@ -242,6 +242,7 @@ export type CeilingReason =
   | 'passesHereChecksFailing'
   | 'checksNotRun'
   | 'notLongTermSupport'
+  | 'pipelineFilesAreAPersons'
   | 'managedByPlatform'
   | 'majorNeedsPlan'
   | 'notInScope'
@@ -376,7 +377,7 @@ export interface FlowStep {
 }
 
 export interface FlowWaiting {
-  code: 'turn' | 'machine' | 'busy' | 'runner' | 'pickup';
+  code: 'turn' | 'machine' | 'busy' | 'bot' | 'runner' | 'pickup';
   subject: string | null;
 }
 

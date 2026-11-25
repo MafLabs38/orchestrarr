@@ -214,13 +214,16 @@ plant_one() {
       [[ "$package" =~ ^(@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*$ ]] || { echo "refused: '$package' is not a package name" >&2; return 1; }
       [[ "$to" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]] || { echo "refused: '$to' is not a version" >&2; return 1; }
       current=$(jq -r --arg p "$package" '(.dependencies[$p] // .devDependencies[$p] // "")' "$dir/package.json")
-      [ "$current" = "$from" ] || { echo "$repo: $package is $current in the seed, the scenario says $from" >&2; return 1; }
+      # a bot that makes its pull request again does not mind what the base holds now: it bumps to the version it was asked for (the first planting checks the seed)
+      [ -n "${REBASE:-}" ] || [ "$current" = "$from" ] || { echo "$repo: $package is $current in the seed, the scenario says $from" >&2; return 1; }
       # npm reads the .npmrc of the repository, which may expand environment variables: it runs with an empty environment, none of the lab's credentials
       mkdir -p "$WORK/.npm-home"
       (cd "$dir" && env -i PATH="$PATH" HOME="$WORK/.npm-home" npm install --package-lock-only --save-exact --ignore-scripts --no-audit --no-fund "$package@$to" >/dev/null)
       # what else the author of the change touched with it (a file next to the scenario, applied with git apply)
       for patch in $(jq -r '.patches[]? // empty' <<<"$item"); do
         valid_name "$patch"
+        # a bot that makes its pull request again on a base that already holds one of its hunks (the same base image, raised by another change) drops that hunk: git does the same
+        if git -C "$dir" apply --reverse --check "$(dirname "$scenario")/$patch" 2>/dev/null; then continue; fi
         git -C "$dir" apply "$(dirname "$scenario")/$patch"
       done ;;
     patch)
@@ -252,13 +255,14 @@ cmd_plant() {
   for i in $(seq 0 $((n - 1))); do plant_one "$scenario" "$i"; done
 }
 
-# What a dependency bot does when the base moved under its pull request: the same bump, made again on the base as it is now, on the same branch (the pull request stays open and its head moves). Only the pull requests that are still open.
+# What a dependency bot does when the base moved under its pull request: the same bump, made again on the base as it is now, on the same branch (the pull request stays open and its head moves). Only the pull requests that are still open and behind the base.
 cmd_rebase() {
   local scenario n branch repo; scenario=$(realpath "$1"); n=$(jq '.plants | length' "$scenario")
   for i in $(seq 0 $((n - 1))); do
     repo=$(jq -r ".plants[$i].repo" "$scenario"); branch=$(jq -r ".plants[$i].branch" "$scenario")
     valid_name "$repo"; valid_name "$branch"
-    if [ "$(gh pr view "$branch" -R "$ORG/$repo" --json state --jq .state 2>/dev/null)" = "OPEN" ]; then REBASE=1 plant_one "$scenario" "$i"; fi
+    # a bot rebases a pull request when its base moved under it, not at every look: only a pull request that is behind the base is made again
+    if [ "$(gh pr view "$branch" -R "$ORG/$repo" --json state --jq .state 2>/dev/null)" = "OPEN" ] && [ "$(gh api "repos/$ORG/$repo/compare/$BASE...$branch" --jq .behind_by 2>/dev/null || echo 0)" -gt 0 ]; then REBASE=1 plant_one "$scenario" "$i"; fi
   done
 }
 

@@ -58,6 +58,9 @@ public enum CeilingReason
     /// <summary>A version of Node that is not a long-term release: it is not proposed.</summary>
     NotLongTermSupport,
 
+    /// <summary>The pull request changes the pipeline of the repository (a GitHub action, for example): a pipeline file is never changed by an agent, so it is a person's to merge.</summary>
+    PipelineFilesAreAPersons,
+
     /// <summary>The image comes with the platform (K3s): it is updated with it, not on its own.</summary>
     ManagedByPlatform,
 
@@ -289,6 +292,11 @@ public static class DecisionTable
             var mine = results.Where(row => string.Equals(row.Repository, item.RepositoryFullName, StringComparison.OrdinalIgnoreCase) && row.PullRequest == pullRequest.Number && string.Equals(row.HeadSha, pullRequest.HeadSha, StringComparison.OrdinalIgnoreCase))
                 .OrderByDescending(row => row.At).ToList();
             (ceiling, why, canStop) = WorkshopWord(item, pullRequest, ceiling, why, canStop, runners, mine);
+            // A pipeline file is never in a change that the product makes (the frame of every mission forbids it), so a row that only changes one cannot be done here: it is not offered, and says why
+            if (ProblemNatures.OfPullRequest(pullRequest) == ProblemNature.PipelineToolUpdate && ceiling != Ceiling.NoAction)
+            {
+                (ceiling, why, canStop) = (Ceiling.NoAction, CeilingReason.PipelineFilesAreAPersons, false);
+            }
             var change = pullRequest.Changes.Count == 1 ? pullRequest.Changes[0] : null;
             // What the control plane read from the title (package, from, to), apart from the title itself: only this is a statement of its own
             var parsedChange = change is { From: not null, To: not null } ? $"{change.Package} {change.From} → {change.To}" : null;

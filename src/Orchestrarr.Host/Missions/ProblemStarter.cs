@@ -1,3 +1,4 @@
+using Orchestrarr.Core.Forge;
 using Orchestrarr.Core.Missions;
 
 namespace Orchestrarr.Host.Missions;
@@ -9,7 +10,7 @@ internal sealed record PreparedProblem(string RowId, PlanEntry? Entry, Validated
 /// Starts the problems of the test bed, **one work site at a time on a repository** (ADR 0049): the decision "start now, or wait in line" and the start itself are made under one gate per repository, by the endpoint that validates and by the
 /// driver that takes the line, so that two requests, or a request and a pass of the driver, never both find the repository free. A problem that waits is planned and not started: it has no mandate and uses no approval until it starts.
 /// </summary>
-internal sealed class ProblemStarter(IServiceProvider services, IProblemStore problems, ProblemQueue line, ProblemLocks locks, ProblemConductor conductor, MissionProgress progress, IMissionAudit audit, IStopSignal stop, TimeProvider time)
+internal sealed class ProblemStarter(IServiceProvider services, MissionsOptions options, ProblemParking parking, IProblemStore problems, ProblemQueue line, ProblemLocks locks, ProblemConductor conductor, MissionProgress progress, IMissionAudit audit, IStopSignal stop, TimeProvider time)
 {
     /// <summary>
     /// How long a problem may wait: the lifetime of the approval that was proved for it (two hours). A problem that waited longer is not started on a validation that old: the maintainer validates again.
@@ -37,8 +38,30 @@ internal sealed class ProblemStarter(IServiceProvider services, IProblemStore pr
             {
                 return new ValidatedProblem(one.RowId, entry.ProblemId, null, null, "alreadyQueued");
             }
+            // A pull request that its bot made before an earlier operation of the lot was merged is behind its base: the bot is asked to rebase it and the lot goes on with the next operation (ADR 0055)
+            if (problems.Get(entry.ProblemId) is not { State: ProblemState.InProgress })
+            {
+                var verdict = await JudgeAsync(entry, cancellationToken);
+                switch (verdict.Kind)
+                {
+                    case Freshness.Left:
+                        _ = await audit.RecordAsync(MissionAuditEvents.QueuedProblemRefused, entry.ProblemId, $"not started: {verdict.Reason}", CancellationToken.None);
+                        return new ValidatedProblem(one.RowId, entry.ProblemId, null, null, "thePullRequestMoved");
+                    case Freshness.Followed:
+                        entry = entry with { HeadSha = verdict.Head };
+                        one = one with { Entry = entry };
+                        _ = await audit.RecordAsync(MissionAuditEvents.ProblemFollowedBot, entry.ProblemId, $"the bot made the pull request again: the work follows its new head {Short(verdict.Head)}", CancellationToken.None);
+                        break;
+                    case Freshness.NeedsRebase:
+                        _ = line.Enqueue(new QueuedProblem(one.RowId, entry, time.GetUtcNow()));
+                        await ParkAsync(entry, verdict.Reason!, null, cancellationToken);
+                        return new ValidatedProblem(one.RowId, entry.ProblemId, null, null, null, Queued: true);
+                    default:
+                        break;
+                }
+            }
             // A problem already in progress is the conductor's to refuse ("already being worked on"), not a reason to queue it again
-            if (problems.Get(entry.ProblemId) is { State: ProblemState.InProgress } || (!line.Waits(repository) && !Busy(repository)))
+            if (problems.Get(entry.ProblemId) is { State: ProblemState.InProgress } || (!line.Waits(repository, parked => parking.IsParked(parked.Entry.ProblemId)) && !Busy(repository)))
             {
                 return await StartAsync(one, cancellationToken);
             }
@@ -81,8 +104,13 @@ internal sealed class ProblemStarter(IServiceProvider services, IProblemStore pr
             await gate.WaitAsync(cancellationToken);
             try
             {
-                foreach (var ready in line.TakeReady(other => !string.Equals(other, repository, StringComparison.Ordinal) || Busy(other)))
+                if (!Busy(repository))
                 {
+                    await FreshenAsync(repository, cancellationToken);
+                }
+                foreach (var ready in line.TakeReady(other => !string.Equals(other, repository, StringComparison.Ordinal) || Busy(other), waiting => !parking.IsParked(waiting.Entry.ProblemId)))
+                {
+                    parking.Release(ready.Entry.ProblemId);
                     await StartQueuedAsync(ready, cancellationToken);
                 }
             }
@@ -92,6 +120,93 @@ internal sealed class ProblemStarter(IServiceProvider services, IProblemStore pr
             }
         }
     }
+
+    // The pull requests of a free lot that wait for their turn, in the order of the route: each is read on the forge, and what a bot did (or must do) is applied. The first one that is ready stops the pass (it is the one that starts); a
+    // parked one is read again only every half minute, and the lot goes on with the next operation of its route meanwhile
+    private async Task FreshenAsync(string repository, CancellationToken cancellationToken)
+    {
+        var candidates = line.Waiting().Where(waiting => waiting.Entry.Repositories.Count == 1 && waiting.Entry.Repositories[0] == repository && waiting.Entry.PullRequest is not null)
+            .OrderBy(waiting => RouteRank.Of(waiting.Entry)).ThenBy(waiting => waiting.QueuedAt).Select(waiting => waiting.Entry).ToList();
+        foreach (var entry in candidates)
+        {
+            var id = entry.ProblemId;
+            if (parking.Get(id) is { } parked && time.GetUtcNow() - parked.LastChecked < TimeSpan.FromSeconds(Math.Max(0, options.BotRebaseRecheckSeconds)))
+            {
+                continue;
+            }
+            var verdict = await JudgeAsync(entry, cancellationToken);
+            switch (verdict.Kind)
+            {
+                case Freshness.Left:
+                    _ = line.Remove(id);
+                    _ = parking.Release(id);
+                    _ = await audit.RecordAsync(MissionAuditEvents.QueuedProblemRefused, id, $"left the line without starting: {verdict.Reason}", CancellationToken.None);
+                    break;
+                case Freshness.NeedsRebase:
+                    await ParkAsync(entry, verdict.Reason!, parking.Get(id), cancellationToken);
+                    break;
+                case Freshness.Followed:
+                    _ = line.Replace(id, entry with { HeadSha = verdict.Head });
+                    _ = parking.Release(id);
+                    _ = await audit.RecordAsync(MissionAuditEvents.ProblemFollowedBot, id, $"the bot made the pull request again: the work follows its new head {Short(verdict.Head)}", CancellationToken.None);
+                    return;
+                default:
+                    _ = parking.Release(id);
+                    return;
+            }
+        }
+    }
+
+    // The pull request is behind its base or in conflict: the bot is asked to rebase it (at most BotRebaseRequests times), and after BotRebaseWaitMinutes without a new head the problem is put aside with the reason
+    private async Task ParkAsync(PlanEntry entry, string reason, ParkedProblem? before, CancellationToken cancellationToken)
+    {
+        var now = time.GetUtcNow();
+        var since = before?.Since ?? now;
+        var id = entry.ProblemId;
+        if (now - since >= TimeSpan.FromMinutes(Math.Max(1, options.BotRebaseWaitMinutes)))
+        {
+            _ = line.Remove(id);
+            _ = parking.Release(id);
+            _ = await audit.RecordAsync(MissionAuditEvents.QueuedProblemRefused, id, $"put aside: the bot did not rebase the pull request within {options.BotRebaseWaitMinutes} minutes ({reason})", CancellationToken.None);
+            return;
+        }
+        var requests = before?.Requests ?? 0;
+        var lastRequested = before?.LastRequested;
+        var due = lastRequested is null || now - lastRequested >= TimeSpan.FromMinutes(Math.Max(1, options.BotRebaseWaitMinutes) / (double)Math.Max(1, options.BotRebaseRequests));
+        if (requests < options.BotRebaseRequests && due && entry.PullRequest is { } number && services.GetService<IForgeActs>() is { } acts)
+        {
+            var asked = await acts.RequestBotRebaseAsync(entry.Repositories[0], number, "@dependabot rebase", cancellationToken);
+            _ = await audit.RecordAsync(MissionAuditEvents.BotRebaseRequested, id, asked ? $"asked the bot to rebase the pull request ({reason})" : $"the forge did not take the request to rebase the pull request ({reason})", CancellationToken.None);
+            requests++;
+            lastRequested = now;
+        }
+        if (before is null)
+        {
+            _ = await audit.RecordAsync(MissionAuditEvents.ProblemParked, id, $"waits for its bot to rebase the pull request, the lot goes on: {reason}", CancellationToken.None);
+        }
+        parking.Set(id, new ParkedProblem(since, requests, now, lastRequested, reason));
+    }
+
+    // What the forge says of the pull request now, against what was ticked. A problem with no pull request, or a forge that does not answer, is ready as it was
+    private async Task<FreshnessVerdict> JudgeAsync(PlanEntry entry, CancellationToken cancellationToken)
+    {
+        if (entry.PullRequest is not { } number || entry.Repositories.Count != 1 || services.GetService<IPullRequestFacts>() is not { } facts)
+        {
+            return new FreshnessVerdict(Freshness.Ready, null, null);
+        }
+        var read = await facts.ReadAsync(entry.Repositories[0], number, cancellationToken);
+        // The forge works out whether a pull request still merges when it is asked, a moment after a merge moved the base: an unknown state is asked again before it is taken for a clean one
+        for (var attempt = 0; attempt < 3 && read is { Merged: false, Merge: MergeState.Unknown }; attempt++)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(Math.Max(0, options.BotRebaseUnknownWaitSeconds)), cancellationToken);
+            read = await facts.ReadAsync(entry.Repositories[0], number, cancellationToken);
+        }
+        return PullRequestFreshness.Of(entry, read, IsBot);
+    }
+
+    private bool IsBot(string? login) => login is not null && options.BotAuthors.Contains(login, StringComparer.OrdinalIgnoreCase);
+
+    private static string Short(string? sha) => sha is { Length: > 8 } ? sha[..8] : sha ?? string.Empty;
 
     // A problem that leaves the line without starting says why in the trail; an exception of the start is a refusal like any other, so that it neither loses the problem silently nor stops the others
     private async Task StartQueuedAsync(QueuedProblem ready, CancellationToken cancellationToken)

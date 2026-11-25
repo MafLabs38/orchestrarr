@@ -34,6 +34,20 @@ public sealed class MissionWorldsApiTests
         /// <summary>What the forge says the branch holds on top of the default branch.</summary>
         public BranchChange? Change { get; set; } = new(Head, 0, 1, [new BranchFile("package.json", "modified", 2, "@@ -1 +1 @@\n-a\n+b")], true);
 
+        /// <summary>Who made the pull requests, and what the forge says of their merge (behind, in conflict...).</summary>
+        public string? Author { get; set; }
+
+        public MergeState PullMerge { get; set; } = MergeState.Unknown;
+
+        /// <summary>The pull requests that the starter asked a bot to rebase.</summary>
+        public List<int> RebaseAsked { get; } = [];
+
+        public Task<bool> RequestBotRebaseAsync(string repositoryFullName, int number, string command, CancellationToken cancellationToken)
+        {
+            RebaseAsked.Add(number);
+            return Task.FromResult(true);
+        }
+
         public Task<string?> HeadOfAsync(string repositoryFullName, string branch, CancellationToken cancellationToken) => Task.FromResult(BranchHead);
 
         public Task<BranchChange?> CompareAsync(string repositoryFullName, string baseBranch, string headSha, CancellationToken cancellationToken) => Task.FromResult(Change);
@@ -73,7 +87,7 @@ public sealed class MissionWorldsApiTests
         public string BaseRef { get; set; } = "main";
 
         public Task<PullRequestFacts?> ReadAsync(string repositoryFullName, int number, CancellationToken cancellationToken) =>
-            Task.FromResult<PullRequestFacts?>(new PullRequestFacts(Opened.Count > 0 && number == RepairNumber ? PullHead : Head, "base", false, Opened.Count > 0 && number == RepairNumber ? ChecksState.Passing : HeadChecks, ["package.json"], PathsComplete: true, Merged, Merged ? MergeCommit : null, Merged ? TreeOfTheMerge : null, Merged ? MergeChecks : ChecksState.Unknown, BaseRef: BaseRef, DefaultBranch: "main"));
+            Task.FromResult<PullRequestFacts?>(new PullRequestFacts(Opened.Count > 0 && number == RepairNumber ? PullHead : Head, "base", false, Opened.Count > 0 && number == RepairNumber ? ChecksState.Passing : HeadChecks, ["package.json"], PathsComplete: true, Merged, Merged ? MergeCommit : null, Merged ? TreeOfTheMerge : null, Merged ? MergeChecks : ChecksState.Unknown, BaseRef: BaseRef, DefaultBranch: "main", Author: Author, Merge: PullMerge));
 
         public Task<DefaultBranchHead?> ReadAsync(string repositoryFullName, CancellationToken cancellationToken) =>
             Task.FromResult<DefaultBranchHead?>(DefaultReadable ? new DefaultBranchHead("main", DefaultHead) : null);
@@ -141,6 +155,8 @@ public sealed class MissionWorldsApiTests
             builder.UseSetting("Missions:SandboxMaxWorld", "Release");
             builder.UseSetting("Missions:ForbiddenPaths:0", ".github/**");
             builder.UseSetting("Missions:ForbiddenPaths:1", "infra/prod/**");
+            builder.UseSetting("Missions:BotRebaseRecheckSeconds", "0");
+            builder.UseSetting("Missions:BotRebaseUnknownWaitSeconds", "0");
             builder.UseSetting("Missions:StagingRunner", "runner-staging");
             builder.UseSetting("Missions:GitRunner", "runner-staging");
             builder.UseSetting("Missions:ReleaseRunner", "runner-staging");
@@ -284,6 +300,77 @@ public sealed class MissionWorldsApiTests
         // the same problem validated again while it waits is not put in line twice
         (await starter.StartOrQueueAsync(Prepared("p-b", 8, "example/shop"), Ct)).Refusal.Should().Be("alreadyQueued");
     }
+
+    [Fact]
+    public async Task A_bots_pull_request_that_is_behind_its_base_is_parked_and_the_lot_goes_on_with_its_next_operation()
+    {
+        var forge = new FakeForge { Author = "dependabot[bot]", PullMerge = MergeState.Conflicting };
+        using var factory = new WorldsFactory(forge);
+        var starter = factory.Services.GetRequiredService<ProblemStarter>();
+        var line = factory.Services.GetRequiredService<ProblemQueue>();
+
+        var parked = await starter.StartOrQueueAsync(Prepared("p-bot", 7, "example/shop"), Ct);
+        // the next operation of the lot has no pull request (an alert, an image): nothing to judge, the lot is free, so it starts
+        var next = await starter.StartOrQueueAsync(NoPullRequest("p-next", "example/shop"), Ct);
+
+        parked.Queued.Should().BeTrue("the bot is asked and the operation waits");
+        forge.RebaseAsked.Should().Equal(7);
+        factory.Services.GetRequiredService<ProblemParking>().IsParked("p-bot").Should().BeTrue();
+        line.Contains("p-bot").Should().BeTrue();
+        next.MissionId.Should().NotBeNull("a parked operation does not hold its lot");
+        factory.Services.GetRequiredService<IProblemStore>().Get("p-bot").Should().BeNull("a parked operation is planned, not started");
+    }
+
+    [Fact]
+    public async Task A_parked_pull_request_that_the_bot_made_again_is_followed_on_its_new_head_and_starts_when_its_lot_is_free()
+    {
+        var forge = new FakeForge { Author = "dependabot[bot]", PullMerge = MergeState.Behind };
+        using var factory = new WorldsFactory(forge);
+        var starter = factory.Services.GetRequiredService<ProblemStarter>();
+        var line = factory.Services.GetRequiredService<ProblemQueue>();
+        _ = await starter.StartOrQueueAsync(Prepared("p-bot", 7, "example/shop"), Ct);
+        forge.PullMerge = MergeState.Clean;
+        forge.Author = "dependabot[bot]";
+
+        await starter.StartReadyAsync(Ct);
+
+        // the forge still says the head it always said, so the pull request is ready as ticked: it starts, and is not parked any more
+        factory.Services.GetRequiredService<ProblemParking>().IsParked("p-bot").Should().BeFalse();
+        line.Contains("p-bot").Should().BeFalse();
+        factory.Services.GetRequiredService<IProblemStore>().Get("p-bot").Should().NotBeNull();
+        forge.RebaseAsked.Should().Equal(7);
+    }
+
+    [Fact]
+    public async Task A_pull_request_that_moved_and_is_not_a_bots_is_not_started_and_the_maintainer_ticks_it_again()
+    {
+        var forge = new FakeForge { Author = "alice" };
+        using var factory = new WorldsFactory(forge);
+        var starter = factory.Services.GetRequiredService<ProblemStarter>();
+        var moved = Prepared("p-moved", 7, "example/shop");
+
+        var answer = await starter.StartOrQueueAsync(moved with { Entry = moved.Entry! with { HeadSha = "0000000000000000000000000000000000000001" } }, Ct);
+
+        answer.Refusal.Should().Be("thePullRequestMoved");
+        factory.Services.GetRequiredService<IProblemStore>().Get("p-moved").Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_pull_request_that_its_bot_made_again_is_followed_on_the_new_head()
+    {
+        var forge = new FakeForge { Author = "dependabot[bot]" };
+        using var factory = new WorldsFactory(forge);
+        var starter = factory.Services.GetRequiredService<ProblemStarter>();
+        var again = Prepared("p-again", 7, "example/shop");
+
+        var answer = await starter.StartOrQueueAsync(again with { Entry = again.Entry! with { HeadSha = "0000000000000000000000000000000000000001" } }, Ct);
+
+        answer.MissionId.Should().NotBeNull(answer.Refusal);
+        factory.Services.GetRequiredService<IProblemStore>().Get("p-again")!.Entry.HeadSha.Should().Be(Head, "the work follows the head that the bot made");
+    }
+
+    private static PreparedProblem NoPullRequest(string problemId, params string[] repositories) =>
+        new($"row-{problemId}", new PlanEntry(problemId, "example/shop", "DependencyAlert", $"Solve {problemId}", repositories, World.Release, new MissionBudget(30, 3, 50), new Validation("alice", null), DateTimeOffset.UtcNow, null, null), null);
 
     [Fact]
     public async Task Two_problems_validated_at_the_same_time_on_one_repository_never_both_start()

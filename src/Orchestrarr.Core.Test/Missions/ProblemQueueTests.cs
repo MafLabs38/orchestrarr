@@ -41,6 +41,33 @@ public sealed class ProblemQueueTests
     }
 
     [Fact]
+    public void A_problem_that_cannot_start_does_not_hold_its_lot_and_the_next_of_the_route_takes_the_turn()
+    {
+        var line = new ProblemQueue();
+        line.Enqueue(OfKind("image", "o/one", "ImageUpdate", 0));
+        line.Enqueue(OfKind("bump", "o/one", "DependencyUpdate", 1));
+
+        var ready = line.TakeReady(_ => false, waiting => waiting.Entry.ProblemId != "image");
+
+        ready.Select(problem => problem.Entry.ProblemId).Should().Equal("bump");
+        line.Waiting().Select(problem => problem.Entry.ProblemId).Should().Equal("image");
+    }
+
+    [Fact]
+    public void A_parked_problem_is_not_ahead_of_a_new_one_and_the_entry_of_a_waiting_problem_can_follow_its_head()
+    {
+        var line = new ProblemQueue();
+        line.Enqueue(OfKind("parked", "o/one", "DependencyUpdate", 0));
+
+        line.Waits("o/one").Should().BeTrue();
+        line.Waits("o/one", waiting => waiting.Entry.ProblemId == "parked").Should().BeFalse();
+        var followed = line.Waiting()[0].Entry with { HeadSha = "new" };
+        line.Replace("parked", followed).Should().BeTrue();
+        line.Waiting()[0].Entry.HeadSha.Should().Be("new");
+        line.Replace("absent", followed).Should().BeFalse();
+    }
+
+    [Fact]
     public void The_same_problem_waits_once()
     {
         var line = new ProblemQueue();

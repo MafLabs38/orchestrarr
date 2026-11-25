@@ -206,6 +206,24 @@ public sealed partial class GitHubForgeActs : IForgeActs
         }
     }
 
+    // The command is one of the bot's own (a short line, no mention of anyone else): the comment is the only thing written
+    public async Task<bool> RequestBotRebaseAsync(string repositoryFullName, int number, string command, CancellationToken cancellationToken)
+    {
+        if (!RepositoryName().IsMatch(repositoryFullName) || number < 1 || string.IsNullOrWhiteSpace(command) || command.Length > 100 || command.Contains('\n', StringComparison.Ordinal))
+        {
+            return false;
+        }
+        try
+        {
+            using var commented = await SendAsync(HttpMethod.Post, $"repos/{repositoryFullName}/issues/{number}/comments", new { body = command }, cancellationToken);
+            return commented.Ok;
+        }
+        catch (Exception failure) when (failure is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            return false;
+        }
+    }
+
     private const int OpenAttempts = 3;
 
     private sealed record Answer(bool Ok, int Status, JsonDocument? Body) : IDisposable

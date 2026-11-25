@@ -2,6 +2,7 @@
 
 - **Status**: proposed (accepted when the pull request that carries it is merged)
 - **Date**: 2026-11-24
+- **Amended by**: [ADR 0055](0055-the-flow-is-a-fab-lots-routes-machines-and-rules-that-keep-it-moving.md): a bot's pull request that conflicts or is behind is no longer ended at once, its bot is asked to rebase it and the work follows (a pull request that is not a bot's is still ended)
 - **Spec**: D-103 ([SPEC.md](../SPEC.md)). Extends FR-MIS-6 ([FUNCTIONAL.md](../FUNCTIONAL.md): the lock of a problem on its repository; it does not yet describe the line in which a second problem waits, planned and not started, which is added there when this ADR is accepted), [ADR 0042](0042-a-runner-serves-one-world-and-the-test-bed-validates-through-the-plan.md) (the plan that starts a problem) and [ADR 0048](0048-a-problem-with-no-pull-request-is-solved-by-a-free-agent-in-staging.md). Case 07 of [CASE-GRID.md](../CASE-GRID.md).
 
 ## Context

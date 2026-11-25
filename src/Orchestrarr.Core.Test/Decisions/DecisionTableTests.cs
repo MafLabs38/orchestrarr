@@ -31,6 +31,17 @@ public sealed class DecisionTableTests
         rows.Single(row => row.Kind == ProblemKind.FailingCi).Nature.Should().Be(ProblemNature.FailingPipeline);
     }
 
+    [Fact]
+    public void A_pull_request_that_only_changes_the_pipeline_is_not_offered_because_an_agent_never_changes_a_pipeline_file()
+    {
+        var rows = Table(Item([Pull(1) with { HeadBranch = "dependabot/github_actions/actions/checkout-7" }, Pull(2)], [new Finding(FindingKind.OpenDependencyPullRequests, Severity.Info, 2)]));
+
+        var pipeline = rows.Single(row => row.PullRequest == 1);
+        pipeline.GoesUpTo.Should().Be(Ceiling.NoAction);
+        pipeline.Why.Should().Be(CeilingReason.PipelineFilesAreAPersons);
+        rows.Single(row => row.PullRequest == 2).GoesUpTo.Should().NotBe(Ceiling.NoAction, "a library update is still offered");
+    }
+
     private static PlanStep Step(StepKind kind, bool available = true, bool granted = true) => new(kind, null, null, true, available, granted, null);
 
     private static WorkItem Item(IReadOnlyList<PullRequestInfo>? pulls = null, IReadOnlyList<Finding>? findings = null, PullRequestsRead? read = null, bool grantMerge = true, bool grantValidate = true, string id = Id, bool grantRepair = true) =>

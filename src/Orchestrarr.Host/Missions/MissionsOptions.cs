@@ -65,6 +65,24 @@ public sealed class MissionsOptions
     public string? SandboxFindingsFile { get; set; }
 
     /// <summary>The paths no mission may touch, whatever its repository (pipelines, secrets). Unset: the pipelines of the forge, the encrypted files and the environment files.</summary>
+    /// <summary>
+    /// The accounts whose pull requests a bot makes and rebases by itself (ADR 0055): only for those is the bot asked to rebase a pull request that is behind or in conflict, and only those are followed when the bot made the pull
+    /// request again. Anyone else's pull request that moved is left to be ticked again. A deployment names its bots; the test bed adds the account of the lab, which plays one.
+    /// </summary>
+    public string[] BotAuthors { get; set; } = ["dependabot[bot]", "renovate[bot]"];
+
+    /// <summary>How long a problem waits for its bot to rebase its pull request before it is put aside (ADR 0055).</summary>
+    public int BotRebaseWaitMinutes { get; set; } = 30;
+
+    /// <summary>How many times the bot is asked to rebase one pull request.</summary>
+    public int BotRebaseRequests { get; set; } = 2;
+
+    /// <summary>The forge works out the merge state of a pull request when it is asked, after a merge moved the base: an unknown state is read again, up to three times, after this many seconds.</summary>
+    public int BotRebaseUnknownWaitSeconds { get; set; } = 3;
+
+    /// <summary>How often the forge is read again for a problem that waits for its bot to rebase its pull request.</summary>
+    public int BotRebaseRecheckSeconds { get; set; } = 30;
+
     public string[]? ForbiddenPaths { get; set; }
 
     /// <summary>The public key of the approval authority (ADR 0031 point 7), a file in SubjectPublicKeyInfo form. Unset: no certificate is ever valid, so no real mandate is issued.</summary>

@@ -65,9 +65,12 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefault
             var checks = await ChecksOfAsync(repositoryFullName, head, required, cancellationToken);
             var merged = pull.RootElement.TryGetProperty("merged", out var m) && m.ValueKind == JsonValueKind.True;
             var mergeCommit = merged && pull.RootElement.TryGetProperty("merge_commit_sha", out var mc) ? mc.GetString() : null;
+            var author = pull.RootElement.TryGetProperty("user", out var user) && user.TryGetProperty("login", out var login) ? login.GetString() : null;
+            var closed = pull.RootElement.TryGetProperty("state", out var state) && state.GetString() == "closed";
+            var mergeState = GitHubPullRequestSource.MergeOf(pull.RootElement.TryGetProperty("mergeable_state", out var ms) ? ms.GetString() : null);
             if (!merged || string.IsNullOrEmpty(mergeCommit))
             {
-                return new PullRequestFacts(head, baseSha, draft, checks, paths, complete, BaseRef: baseRef, DefaultBranch: defaultBranch);
+                return new PullRequestFacts(head, baseSha, draft, checks, paths, complete, BaseRef: baseRef, DefaultBranch: defaultBranch, Author: author, Merge: mergeState, Closed: closed);
             }
             // Once it is merged, what runs is the commit that the merge made on the base branch: its tree and the checks of its pipeline are the facts of the later worlds
             return new PullRequestFacts(head, baseSha, draft, checks, paths, complete, Merged: true, mergeCommit, await TreeOfAsync(repositoryFullName, mergeCommit, cancellationToken), await ChecksOfAsync(repositoryFullName, mergeCommit, [], cancellationToken), baseRef, defaultBranch);

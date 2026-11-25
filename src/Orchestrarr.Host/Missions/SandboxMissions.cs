@@ -194,6 +194,9 @@ internal sealed class GuardedForgeActs(IForgeActs inner, IReadOnlyList<string> a
             ? inner.OpenPullRequestFromBranchAsync(repositoryFullName, baseBranch, branch, expectedSha, title, body, cancellationToken)
             : Task.FromResult(new OpenedPullRequest(false, 0, null, "the gateway may not write on this repository (Missions:SandboxMergeRepositories)"));
 
+    public Task<bool> RequestBotRebaseAsync(string repositoryFullName, int number, string command, CancellationToken cancellationToken) =>
+        Allowed(repositoryFullName) ? inner.RequestBotRebaseAsync(repositoryFullName, number, command, cancellationToken) : Task.FromResult(false);
+
     private bool Allowed(string repository) => allowed.Any(pattern => Orchestrarr.Core.Tasks.RepositoryPattern.Matches(pattern, repository));
 }
 
