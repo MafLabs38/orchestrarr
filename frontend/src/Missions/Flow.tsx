@@ -4,7 +4,14 @@ import CapabilityHint from 'Components/CapabilityHint';
 import Label from 'Components/Label';
 import { type Kind, kinds } from 'Helpers/Props/kinds';
 import type { FlowActivity, FlowProblem, FlowStep, MissionView } from 'typings/api';
-import { describeAge, describeFlowState, describeFlowStep, describeMissionWorld } from 'Utilities/describe';
+import {
+  describeAge,
+  describeFlowState,
+  describeFlowStep,
+  describeMissionEnd,
+  describeMissionState,
+  describeMissionWorld,
+} from 'Utilities/describe';
 import translate from 'Utilities/translate';
 
 import styles from './Flow.module.css';
@@ -87,8 +94,8 @@ function Details({ missions }: Readonly<{ missions: MissionView[] }>) {
         {missions.map((mission) => (
           <li key={mission.id} className={styles.mission}>
             <p className={styles.meta}>
-              <strong>{describeMissionWorld(mission.world)}</strong> · {mission.state}
-              {mission.end ? ` · ${mission.end}` : ''}
+              <strong>{describeMissionWorld(mission.world)}</strong> · {describeMissionState(mission.state)}
+              {mission.end ? ` · ${describeMissionEnd(mission.end)}` : ''}
               {mission.mandate
                 ? ` · ${translate('MissionMandate', { runner: mission.mandate.runnerId, acts: mission.mandate.acts.join(', ') || '-' })}`
                 : ''}
@@ -138,7 +145,6 @@ function Problem({ problem, missions, now }: Readonly<{ problem: FlowProblem; mi
   );
 }
 
-// The same row ticked again later is the same problem: the missions of an earlier run are not the ones it is doing now
 // What the table says of a row is a number for an alert (the count of the alerts): it is told as what it is
 function titleOf(problem: FlowProblem): string {
   return problem.kind === 'DependencyAlert' && /^\d+$/.test(problem.title)
@@ -146,6 +152,7 @@ function titleOf(problem: FlowProblem): string {
     : problem.title;
 }
 
+// The same row ticked again later is the same problem: the missions of an earlier run are not the ones it is doing now
 function ofThisRun(mission: MissionView, problem: FlowProblem): boolean {
   return (
     mission.problemId === problem.problemId &&

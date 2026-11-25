@@ -155,6 +155,19 @@ public sealed class GitAndReleaseWorldTests
     }
 
     [Fact]
+    public async Task A_release_is_deployed_on_the_machine_of_its_lane_and_a_mission_with_none_on_the_one_of_the_runner()
+    {
+        var shell = new ScriptedShell(script => script.Contains("git clone", StringComparison.Ordinal) ? Ok("PREVIOUS none") : Ok("GET /health answers 200"));
+
+        await new ReleaseWorld(Allowing(), shell, Options()).RunAsync(Mission("Release") with { Machine = "prod-2" }, Quiet, Ct);
+        await new ReleaseWorld(Allowing(), shell, Options()).RunAsync(Mission("Release"), Quiet, Ct);
+
+        shell.Scripts.Should().HaveCount(4);
+        shell.Scripts.Take(2).Should().OnlyContain(script => script.Contains("prod-2", StringComparison.Ordinal));
+        shell.Scripts.Skip(2).Should().OnlyContain(script => script.Contains("prod-1", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task A_release_that_the_gateway_allows_is_built_on_the_deployment_machine_verified_and_handed_over_with_its_commit_and_the_previous_version()
     {
         var shell = new ScriptedShell(script => script.Contains("git clone", StringComparison.Ordinal) ? Ok("PREVIOUS orch-shop:11111111") : Ok("GET /health answers 200"));

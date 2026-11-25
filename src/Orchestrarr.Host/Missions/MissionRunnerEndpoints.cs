@@ -51,7 +51,7 @@ public sealed class MissionProgress(TimeProvider time)
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (DateTimeOffset At, string? Machine)> _offered = new(StringComparer.Ordinal);
 
     /// <summary>How long a mission that was offered to a lane is not offered to another while it has not started: a claim is answered in a moment, a lane that was offered a mission starts it at once.</summary>
-    public static TimeSpan OfferHolds { get; } = TimeSpan.FromSeconds(60);
+    public static readonly TimeSpan OfferHolds = TimeSpan.FromSeconds(60);
 
     /// <summary>
     /// Whether the mission was offered to another lane a moment ago and has not started: with several lanes asking at once, a mission goes to one of them. The lane of a machine that asks again for the mission it was offered gets it again
@@ -296,7 +296,7 @@ internal static partial class MissionRunnerEndpoints
         }
         var current = repairs?.Effective(mission.ProblemId, entry);
         return Results.Ok(new MissionClaimResponse(new ClaimedMission(mission.Id, mission.ProblemId, mission.ApplicationId, mission.World.ToString(), mission.Objective, entry.Repositories[0], current?.Number ?? entry.PullRequest, current?.Head ?? entry.HeadSha,
-            mandate.Mandate.ExpiresAt, [.. mandate.Mandate.Acts.Select(act => act.ToString())], conductor.AcceptedCommit(mission.Id) ?? entry.HeadSha, rework, rework ? progress.RemarksOf(mission.Id) : null, repairs?.FixOf(mission.ProblemId) is not null ? entry.PullRequest : null, mission.Instruction)));
+            mandate.Mandate.ExpiresAt, [.. mandate.Mandate.Acts.Select(act => act.ToString())], conductor.AcceptedCommit(mission.Id) ?? entry.HeadSha, rework, rework ? progress.RemarksOf(mission.Id) : null, repairs?.FixOf(mission.ProblemId) is not null ? entry.PullRequest : null, mission.Instruction, mission.World is World.Staging or World.Release ? machine : null)));
     }
 
     private static bool IsSentBack(Mission candidate, IDossierStore dossiers) => candidate.State == MissionState.Running && candidate.SendBacks > 0 && dossiers.Get(candidate.Id) is not null;

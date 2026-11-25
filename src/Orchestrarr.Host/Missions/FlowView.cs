@@ -6,7 +6,7 @@ namespace Orchestrarr.Host.Missions;
 /// <summary>Where one world of a problem stands: <c>notStarted</c>, <c>waiting</c> (a mandate that no runner has taken), <c>running</c>, <c>reading</c> (the controller reads the dossier), <c>done</c> or <c>ended</c> (not done). <c>Attempts</c> counts the missions of that world, a world that is done again after a release that failed.</summary>
 public sealed record FlowStep(string World, string State, string? MissionId, int Attempts);
 
-/// <summary>Why a problem does not move: <c>turn</c> (another problem is being done on its repository), <c>machine</c> (the machine of its world is not free), <c>busy</c> (the runner works on another problem), <c>runner</c> (no runner has asked for work lately) or <c>pickup</c> (nothing is in the way, the runner takes it at its next call).</summary>
+/// <summary>Why a problem does not move: <c>turn</c> (another problem is being done on its repository), <c>machine</c> (no machine of its world is free), <c>busy</c> (every lane of its world is at work; the subject is <c>World running/lanes</c>), <c>runner</c> (no runner has asked for work lately) or <c>pickup</c> (nothing is in the way, the runner takes it at its next call).</summary>
 public sealed record FlowWaiting(string Code, string? Subject);
 
 /// <summary>What a problem does now: the last thing its runner reported (<c>running</c>), the controller reading the dossier (<c>controller</c>), or what it waits for (<c>waiting</c>). <c>At</c> is when it last moved.</summary>

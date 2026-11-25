@@ -66,19 +66,6 @@ public sealed partial class MissionRunnerWorker(IMissionControlPlane controlPlan
         }
     }
 
-    /// <summary>One mission, if there is one, on the first lane that is offered one. True when work was done.</summary>
-    internal async Task<bool> TakeOneAsync(CancellationToken cancellationToken)
-    {
-        foreach (var lane in LanesOf())
-        {
-            if (await TakeOneAsync(lane, cancellationToken))
-            {
-                return true;
-            }
-        }
-        return false;
-    }
-
     /// <summary>One mission on this lane, if there is one. True when work was done.</summary>
     internal async Task<bool> TakeOneAsync(Lane lane, CancellationToken cancellationToken)
     {
@@ -240,22 +227,14 @@ public sealed partial class MissionRunnerWorker(IMissionControlPlane controlPlan
             return;
         }
         await controlPlane.MachineQualifyingAsync(machine, cancellationToken);
-        var checks = await qualifier.QualifyAsync(machine, restore: options.StagingMachineList().Contains(machine, StringComparer.Ordinal), cancellationToken);
+        var checks = await qualifier.QualifyAsync(machine, restore: options.StagingMachineList().Contains(machine, StringComparer.OrdinalIgnoreCase), cancellationToken);
         await controlPlane.MachineQualifiedAsync(machine, checks, cancellationToken);
     }
 
-    // When a lane has no mission: its machine, if it is Finished or Qualifying (the control plane started, a person asked, a mission ended while the runner was down), is restored and checked; if it is InProcess it is held by a mission
-    // that this runner is no longer working on (a machine is served by one lane, which is idle now), so the lease is given back
-    internal async Task MaintainMachinesAsync(CancellationToken cancellationToken)
-    {
-        foreach (var machine in options.StagingMachineList().Concat(options.DeployMachineList()).Distinct(StringComparer.Ordinal))
-        {
-            await MaintainSafelyAsync(machine, cancellationToken);
-        }
-    }
-
     // One machine that fails is told and does not keep the other from being maintained, nor stop the lane that serves it
-    private async Task MaintainSafelyAsync(string machine, CancellationToken cancellationToken)
+    // When a lane has no mission, its machine, if it is Finished or Qualifying (the control plane started, a person asked, a mission ended while the runner was down), is restored and checked; if it is InProcess it is held by a mission
+    // that this runner is no longer working on (a machine is served by one lane, which is idle now), so the lease is given back
+    internal async Task MaintainSafelyAsync(string machine, CancellationToken cancellationToken)
     {
         try
         {
@@ -269,7 +248,7 @@ public sealed partial class MissionRunnerWorker(IMissionControlPlane controlPlan
 
     private async Task MaintainMachineAsync(string machine, CancellationToken cancellationToken)
     {
-        var served = options.Worlds.Contains(options.StagingMachineList().Contains(machine, StringComparer.Ordinal) ? "Staging" : "Release", StringComparer.OrdinalIgnoreCase);
+        var served = options.Worlds.Contains(options.StagingMachineList().Contains(machine, StringComparer.OrdinalIgnoreCase) ? "Staging" : "Release", StringComparer.OrdinalIgnoreCase);
         if (!served || await controlPlane.MachineStateAsync(machine, cancellationToken) is not { } state)
         {
             return;

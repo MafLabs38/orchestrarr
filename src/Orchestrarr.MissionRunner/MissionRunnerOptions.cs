@@ -32,7 +32,7 @@ public sealed partial class MissionRunnerOptions
     /// </summary>
     public string[] StagingMachines { get; set; } = [];
 
-    /// <summary>The deployment machines when the runner has several: each is a lane of the release world. Empty: the one machine of <see cref="DeployMachine"/>.</summary>
+    /// <summary>The deployment machines: each is a lane of the release world. One is supported for now (ADR 0053): a deployment machine is a target environment, and applications are not yet bound to one. Empty: the one machine of <see cref="DeployMachine"/>.</summary>
     public string[] DeployMachines { get; set; } = [];
 
     /// <summary>How many missions of the Git world the runner works on at once (ADR 0053). The Git world has no machine, so its capacity is a limit that is set, not a count: the forge and the agents are what saturates. 1 by default.</summary>
@@ -92,15 +92,19 @@ public sealed partial class MissionRunnerOptions
         var staging = StagingMachineList();
         if (staging.Count == 0)
         {
-            throw new InvalidOperationException("MissionRunner:StagingMachine is required (the SSH alias of the machine to restore and work on).");
+            throw new InvalidOperationException("MissionRunner:StagingMachine (or StagingMachines) is required: the SSH alias of the machine to restore and work on.");
         }
         if (staging.Concat(DeployMachineList()).FirstOrDefault(machine => !StagingMachineShape().IsMatch(machine)) is { } badAlias)
         {
             throw new InvalidOperationException($"MissionRunner: '{badAlias}' is not an SSH alias: letters, digits, dot, underscore and dash only (StagingMachine, StagingMachines, DeployMachine, DeployMachines).");
         }
-        if (staging.Concat(DeployMachineList()).GroupBy(machine => machine, StringComparer.Ordinal).FirstOrDefault(group => group.Count() > 1) is { } twice)
+        if (staging.Concat(DeployMachineList()).GroupBy(machine => machine, StringComparer.OrdinalIgnoreCase).FirstOrDefault(group => group.Count() > 1) is { } twice)
         {
             throw new InvalidOperationException($"MissionRunner: '{twice.Key}' is listed twice (StagingMachine, StagingMachines, DeployMachine, DeployMachines): a machine is a lane of one world only, and a deployment machine is never a staging machine, which is restored after each job.");
+        }
+        if (DeployMachineList().Count > 1)
+        {
+            throw new InvalidOperationException("MissionRunner:DeployMachines: one deployment machine is supported for now (ADR 0053): a deployment machine is the target environment of an application, not a slot of capacity, and the health of a release is read on one machine.");
         }
         if (GitLanes is < 1 or > MaxGitLanes)
         {

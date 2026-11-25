@@ -147,6 +147,11 @@ internal static class MachineEndpoints
         {
             return (false, false);
         }
+        // A mission holds one machine: a lane that asks for it while another machine holds it is not given a second (a claim that was lost on the way leaves the first lease to its runner)
+        if (pool.All().Any(held => held.MissionId == mission.Id && !string.Equals(held.Id, setting.Id, StringComparison.Ordinal)))
+        {
+            return (false, false);
+        }
         var result = pool.TryLease(setting.Id, mission.Id);
         return (result.Ok, result.Taken);
     }

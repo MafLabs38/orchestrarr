@@ -409,6 +409,18 @@ export function describeMissionEnd(end: string): string {
   return Object.hasOwn(missionEnds, end) ? translate(missionEnds[end as keyof typeof missionEnds]) : end;
 }
 
+const missionStates = {
+  Mandated: 'MissionWaiting',
+  Running: 'MissionRunning',
+  HandingOver: 'MissionControllerReading',
+  Accepted: 'MissionAccepted',
+  Ended: 'MissionEnded',
+} as const;
+
+export function describeMissionState(state: string): string {
+  return Object.hasOwn(missionStates, state) ? translate(missionStates[state as keyof typeof missionStates]) : state;
+}
+
 const planRefusals = {
   theTableChanged: 'PlanRefusalTheTableChanged',
   thePullRequestMoved: 'PlanRefusalThePullRequestMoved',

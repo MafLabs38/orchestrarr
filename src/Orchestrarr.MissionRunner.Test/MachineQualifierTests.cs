@@ -152,7 +152,7 @@ public sealed class MachineQualifierTests
     private static MissionRunnerWorker Worker(IMissionControlPlane plane, IShell shell, MissionRunnerOptions options)
     {
         plane.MachineHeartbeatAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
-        return new MissionRunnerWorker(plane, [new StagingProof(shell, options)], options, NullLogger<MissionRunnerWorker>.Instance, new MachineQualifier(shell, options));
+        return new MissionRunnerWorker(plane, [new StagingProof(shell, options), new ReleaseWorld(plane, shell, options)], options, NullLogger<MissionRunnerWorker>.Instance, new MachineQualifier(shell, options));
     }
 
     [Fact]

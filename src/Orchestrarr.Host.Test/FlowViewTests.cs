@@ -64,17 +64,16 @@ public sealed class FlowViewTests
     }
 
     [Theory]
-    [InlineData(MachineState.InProcess, true, "machine")]
-    [InlineData(MachineState.Idle, true, "pickup")]
-    [InlineData(MachineState.Idle, false, "runner")]
-    public void A_mission_that_no_runner_has_taken_says_what_is_in_the_way(MachineState machineState, bool runner, string code)
+    [InlineData(MachineState.InProcess, true, "machine", "leipzig (InProcess)")]
+    [InlineData(MachineState.Idle, true, "pickup", null)]
+    [InlineData(MachineState.Idle, false, "runner", null)]
+    public void A_mission_that_no_runner_has_taken_says_what_is_in_the_way(MachineState machineState, bool runner, string code, string? subject)
     {
         var machines = new[] { new Machine("leipzig", MachineRole.Staging, machineState, T0) };
 
         var waiting = Build([Mission("m1", "p1", World.Staging, MissionState.Mandated)], Store(Run("p1")), machines: machines, runner: runner).Single().Activity!.Waiting!;
 
-        waiting.Code.Should().Be(code);
-        (code == "machine" ? waiting.Subject : "leipzig (InProcess)").Should().Contain("leipzig");
+        waiting.Should().Be(new FlowWaiting(code, subject));
     }
 
     [Fact]

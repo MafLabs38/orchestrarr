@@ -5,7 +5,7 @@ import type { FlowProblem } from 'typings/api';
 
 export const flowPath = '/api/v1/flow';
 
-// What the Missions screen follows: one entry per problem. The host announces every change on the missions topic, so this reads again at once.
+// What the Missions screen follows: one entry per problem. The host announces every change on the missions topic, so this reads again at once; the interval is only a fallback.
 export function useFlow() {
   return useApiQuery<FlowProblem[]>(flowPath, { refetchInterval: refreshIntervalMs });
 }

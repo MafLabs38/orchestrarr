@@ -62,14 +62,17 @@ public sealed class RunnerRegistry(TimeProvider time)
         && before.Repositories.SequenceEqual(now.Repositories, StringComparer.Ordinal)
         && before.Delegations.SequenceEqual(now.Delegations);
 
-    private static bool SameLanes(IReadOnlyDictionary<string, int>? before, IReadOnlyDictionary<string, int>? now) =>
-        (before?.Count ?? 0) == (now?.Count ?? 0) && (before ?? new Dictionary<string, int>()).All(pair => now is not null && now.TryGetValue(pair.Key, out var other) && other == pair.Value);
+    private static bool SameLanes(IReadOnlyDictionary<string, int>? before, IReadOnlyDictionary<string, int>? now)
+    {
+        var (was, after) = (before ?? new Dictionary<string, int>(), now ?? new Dictionary<string, int>());
+        return was.Count == after.Count && was.All(pair => after.TryGetValue(pair.Key, out var other) && other == pair.Value);
+    }
 
-    /// <summary>How many missions the connected runners work on at once in a world: what the runners said (0 when none did, which is not a limit).</summary>
+    /// <summary>How many missions the connected runners work on at once in a world: what the runners said (0 when none did, which is not a limit: it is shown, never enforced).</summary>
     public int LanesOf(string world)
     {
         var now = time.GetUtcNow();
-        return _seen.Values.Where(seen => now - seen.At <= ConnectedFor && seen.Hello.Lanes is not null).Sum(seen => seen.Hello.Lanes!.FirstOrDefault(pair => string.Equals(pair.Key, world, StringComparison.OrdinalIgnoreCase)).Value);
+        return _seen.Values.Where(seen => now - seen.At <= ConnectedFor).Sum(seen => seen.Hello.Lanes?.FirstOrDefault(pair => string.Equals(pair.Key, world, StringComparison.OrdinalIgnoreCase)).Value ?? 0);
     }
 
     public IReadOnlyList<RunnerStatus> Snapshot()

@@ -155,6 +155,18 @@ public sealed class LivePublishTests
     }
 
     [Fact]
+    public void The_lanes_of_several_connected_runners_add_up_and_a_runner_that_said_none_adds_nothing()
+    {
+        var registry = new RunnerRegistry(new FakeTimeProvider(new DateTimeOffset(2026, 11, 25, 12, 0, 0, TimeSpan.Zero)));
+
+        registry.Seen("runner-1", Hello() with { Lanes = new Dictionary<string, int> { ["Git"] = 3 } });
+        registry.Seen("runner-2", Hello() with { Name = "runner-2", Lanes = new Dictionary<string, int> { ["Git"] = 2 } });
+        registry.Seen("runner-3", Hello() with { Name = "runner-3" });
+
+        registry.LanesOf("Git").Should().Be(5);
+    }
+
+    [Fact]
     public void A_runner_that_is_working_stays_connected_by_any_call_it_makes_and_one_never_seen_is_not_made_known()
     {
         var time = new FakeTimeProvider(new DateTimeOffset(2026, 11, 11, 12, 0, 0, TimeSpan.Zero));
