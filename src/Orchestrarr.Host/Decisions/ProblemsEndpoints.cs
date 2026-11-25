@@ -41,12 +41,12 @@ internal static class ProblemsEndpoints
 {
     public static void MapProblemsEndpoints(this RouteGroupBuilder api)
     {
-        api.MapGet("/problems", async (WorkItemCatalog catalog, IApplicationCatalog applications, RunnerRegistry runners, IBatchQueue queue, IProblemHistory history, IApprovalStore approvals, TimeProvider time, RelevancePolicy policy, InfrastructureCatalog infrastructure, bool? refresh, CancellationToken ct) =>
+        api.MapGet("/problems", async (WorkItemCatalog catalog, IApplicationCatalog applications, RunnerRegistry runners, IBatchQueue queue, IProblemHistory history, IApprovalStore approvals, TimeProvider time, RelevancePolicy policy, InfrastructureCatalog infrastructure, IServiceProvider services, bool? refresh, CancellationToken ct) =>
         {
             var report = await catalog.GetAsync(refresh ?? false, ct);
             var code = await infrastructure.GetAsync(refresh ?? false, ct);
             var all = FullTable(new TableInputs(report, code.Index, infrastructure.Scope), applications, runners, queue, time, policy);
-            var rows = Visible(all, history, approvals);
+            var rows = MarkWorkedOn(Visible(all, history, approvals), services);
             return Results.Ok(new ProblemsReport(report.ReadAt, report.SourceKind, report.Stale, report.Error, applications.Version, rows, all.Count - rows.Count,
                 new CodeScopeStatus(code.Index.InScope, infrastructure.Scope.Repositories.Count, code.Index.FileCount, code.ReadAt, code.Stale, code.Index.Problems, code.Error)));
         }).RequireAuthorization(Permissions.FleetRead);
@@ -100,6 +100,22 @@ internal static class ProblemsEndpoints
         // A skip made when the row was less serious lapses as soon as it is a danger: a danger is never hidden
         return [.. table.Where(row => row.Severity == Core.WorkItems.Severity.Danger || !skips.Contains((row.Id, row.Description)))
             .Select(row => row.PullRequest is { } number && working.Contains($"{row.Source ?? row.Application}#{number}") ? row with { InProgress = true } : row)];
+    }
+
+    // A row that the conductor works on, or that waits in its line, is marked in progress whatever it is (a pull request or not): the table says that it is being done, and what is ticked again is refused as already being worked on
+    internal static IReadOnlyList<ProblemRow> MarkWorkedOn(IReadOnlyList<ProblemRow> rows, IServiceProvider services)
+    {
+        var problems = services.GetService<Orchestrarr.Core.Missions.IProblemStore>();
+        if (problems is null)
+        {
+            return rows;
+        }
+        var working = new HashSet<string>(problems.InProgress().Select(run => run.ProblemId), StringComparer.Ordinal);
+        foreach (var waiting in services.GetService<Orchestrarr.Core.Missions.ProblemQueue>()?.Waiting() ?? [])
+        {
+            working.Add(waiting.Entry.ProblemId);
+        }
+        return working.Count == 0 ? rows : [.. rows.Select(row => !row.InProgress && working.Contains(Orchestrarr.Core.Missions.PlanEntryFactory.ProblemIdOf(row.Id)) ? row with { InProgress = true } : row)];
     }
 
     // Every row there is, before the skips are applied

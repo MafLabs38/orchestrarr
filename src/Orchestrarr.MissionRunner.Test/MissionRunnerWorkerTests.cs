@@ -249,4 +249,195 @@ public sealed class MissionRunnerWorkerTests
         var none = () => new MissionRunnerOptions().TokenValue();
         none.Should().Throw<InvalidOperationException>();
     }
+
+    private static MissionRunnerOptions Ready(Action<MissionRunnerOptions> change)
+    {
+        var options = new MissionRunnerOptions { ControlPlaneUrl = new Uri("http://127.0.0.1:5180"), Token = "t", StagingMachine = "staging-1", LabTool = "/lab/lab.sh", Worlds = ["Staging", "Git", "Release"], DeployMachine = "prod-1" };
+        change(options);
+        options.Validate();
+        return options;
+    }
+
+    // A world's work that holds every mission until it is let go, so that the number at work at once can be read with no wait on the clock
+    private sealed class Probe(string world, int expected = int.MaxValue, int total = int.MaxValue) : IWorldWork
+    {
+        private readonly TaskCompletionSource _reached = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _go = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _all = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _inside;
+
+        public string World { get; } = world;
+
+        public int AtOnce { get; private set; }
+
+        public List<string?> Machines { get; } = [];
+
+        public Task Reached => _reached.Task;
+
+        public Task AllTaken => _all.Task;
+
+        public void Let() => _go.TrySetResult();
+
+        public async Task<MissionHandOver> RunAsync(ClaimedMission mission, Func<string, Task> report, CancellationToken cancellationToken)
+        {
+            int inside;
+            lock (Machines)
+            {
+                Machines.Add(mission.Machine);
+                inside = ++_inside;
+                AtOnce = Math.Max(AtOnce, inside);
+            }
+            if (Machines.Count >= total)
+            {
+                _all.TrySetResult();
+            }
+            if (inside >= expected)
+            {
+                _reached.TrySetResult();
+            }
+            try
+            {
+                await _go.Task.WaitAsync(cancellationToken);
+            }
+            finally
+            {
+                lock (Machines)
+                {
+                    _inside--;
+                }
+            }
+            return new MissionHandOver("claim", "what changed", [], [], false, null, null);
+        }
+    }
+
+    [Fact]
+    public void A_runner_has_a_lane_for_each_of_its_machines_and_for_each_slot_of_the_git_world_and_says_so()
+    {
+        var options = Ready(set => (set.StagingMachines, set.DeployMachines, set.GitLanes) = (["staging-1", "staging-2"], ["prod-1"], 3));
+        IWorldWork[] works = [new Probe("Staging"), new Probe("Git"), new Probe("Release")];
+
+        var lanes = new MissionRunnerWorker(Substitute.For<IMissionControlPlane>(), works, options, NullLogger<MissionRunnerWorker>.Instance).LanesOf();
+
+        lanes.Select(lane => $"{lane.World}:{lane.Machine}").Should().Equal("Release:prod-1", "Git:", "Git:", "Git:", "Staging:staging-1", "Staging:staging-2");
+        options.LanesByWorld().Should().Equal(new Dictionary<string, int> { ["Staging"] = 2, ["Git"] = 3, ["Release"] = 1 });
+    }
+
+    [Fact]
+    public async Task Two_staging_machines_work_on_two_missions_at_once_each_on_its_own_machine()
+    {
+        var plane = Substitute.For<IMissionControlPlane>();
+        var offered = new System.Collections.Concurrent.ConcurrentDictionary<string, bool>();
+        plane.ClaimAsync("Staging", Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(call =>
+        {
+            var machine = call.ArgAt<string?>(1)!;
+            var id = machine == "staging-1" ? "a" : "b";
+            return Task.FromResult<ClaimedMission?>(offered.TryAdd(machine, true) ? Mission("Staging") with { MissionId = id } : null);
+        });
+        plane.StartedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
+        var handedOver = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var handovers = 0;
+        plane.HandOverAsync(Arg.Any<string>(), Arg.Any<MissionHandOver>(), Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            if (Interlocked.Increment(ref handovers) == 2)
+            {
+                handedOver.TrySetResult();
+            }
+            return Task.FromResult(true);
+        });
+        plane.MachineStateAsync("staging-1", Arg.Any<CancellationToken>()).Returns(new MachineStateInfo("InProcess", "Staging", "a"));
+        plane.MachineStateAsync("staging-2", Arg.Any<CancellationToken>()).Returns(new MachineStateInfo("InProcess", "Staging", "b"));
+        plane.MachineHeartbeatAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
+        var probe = new Probe("Staging", expected: 2);
+        var options = Ready(set => (set.Worlds, set.StagingMachines, set.PollSeconds) = (["Staging"], ["staging-1", "staging-2"], 1));
+        var worker = new MissionRunnerWorker(plane, [probe], options, NullLogger<MissionRunnerWorker>.Instance);
+
+        await worker.StartAsync(Ct);
+        await probe.Reached.WaitAsync(TimeSpan.FromSeconds(10), Ct);
+        probe.AtOnce.Should().Be(2, "each machine is a lane of its own");
+        probe.Machines.Should().BeEquivalentTo("staging-1", "staging-2");
+        probe.Let();
+        await handedOver.Task.WaitAsync(TimeSpan.FromSeconds(10), Ct);
+        await worker.StopAsync(CancellationToken.None);
+
+        await plane.Received(1).HandOverAsync("a", Arg.Any<MissionHandOver>(), Arg.Any<CancellationToken>());
+        await plane.Received(1).HandOverAsync("b", Arg.Any<MissionHandOver>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task The_slots_of_the_git_world_work_at_once_and_no_more_than_the_runner_was_given()
+    {
+        var plane = Substitute.For<IMissionControlPlane>();
+        var queue = new System.Collections.Concurrent.ConcurrentQueue<ClaimedMission>(new[] { "a", "b", "c", "d" }.Select(id => Mission("Git") with { MissionId = id }));
+        plane.ClaimAsync("Git", Arg.Any<CancellationToken>()).Returns(_ => Task.FromResult<ClaimedMission?>(queue.TryDequeue(out var next) ? next : null));
+        plane.StartedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
+        plane.HandOverAsync(Arg.Any<string>(), Arg.Any<MissionHandOver>(), Arg.Any<CancellationToken>()).Returns(true);
+        var probe = new Probe("Git", expected: 3, total: 4);
+        var options = Ready(set => (set.Worlds, set.GitLanes, set.PollSeconds) = (["Git"], 3, 1));
+        var worker = new MissionRunnerWorker(plane, [probe], options, NullLogger<MissionRunnerWorker>.Instance);
+
+        await worker.StartAsync(Ct);
+        await probe.Reached.WaitAsync(TimeSpan.FromSeconds(10), Ct);
+        probe.AtOnce.Should().Be(3);
+        queue.Should().HaveCount(1, "the three lanes are at work: the fourth mission is not taken");
+        probe.Let();
+        await probe.AllTaken.WaitAsync(TimeSpan.FromSeconds(10), Ct);
+        await worker.StopAsync(CancellationToken.None);
+
+        probe.AtOnce.Should().Be(3);
+        probe.Machines.Should().AllSatisfy(machine => machine.Should().BeNull());
+    }
+
+    [Fact]
+    public async Task An_idle_lane_looks_after_its_own_machine_only_and_a_machine_that_fails_does_not_stop_it()
+    {
+        var plane = Substitute.For<IMissionControlPlane>();
+        plane.MachineStateAsync("staging-1", Arg.Any<CancellationToken>()).Returns(new MachineStateInfo("Idle", "Staging", null));
+        plane.MachineStateAsync("staging-2", Arg.Any<CancellationToken>()).Returns(new MachineStateInfo("Finished", "Staging", null));
+        var options = Ready(set => (set.Worlds, set.StagingMachines) = (["Staging"], ["staging-1", "staging-2"]));
+        var worker = new MissionRunnerWorker(plane, [new Probe("Staging")], options, NullLogger<MissionRunnerWorker>.Instance, new MachineQualifier(Substitute.For<IShell>(), options));
+
+        await worker.MaintainSafelyAsync("staging-2", Ct);
+        await worker.MaintainSafelyAsync("staging-1", Ct);
+
+        await plane.Received(1).MachineQualifyingAsync("staging-2", Arg.Any<CancellationToken>());
+        await plane.DidNotReceive().MachineQualifyingAsync("staging-1", Arg.Any<CancellationToken>());
+        plane.MachineStateAsync("staging-2", Arg.Any<CancellationToken>()).Returns<MachineStateInfo?>(_ => throw new HttpRequestException("down"));
+        var again = async () => await worker.MaintainSafelyAsync("staging-2", Ct);
+        await again.Should().NotThrowAsync("a machine that fails is told and does not stop its lane");
+    }
+
+    [Fact]
+    public void The_lanes_of_a_runner_reach_the_control_plane_in_its_hello_as_it_wrote_them()
+    {
+        var options = Ready(set => (set.StagingMachines, set.GitLanes) = (["staging-1", "staging-2"], 3));
+        var hello = new Orchestrarr.Core.Tasks.RunnerHello("runner", "1", [], [], [], false, false, options.LanesByWorld());
+
+        var wire = System.Text.Json.JsonSerializer.Serialize(hello, Orchestrarr.Core.Tasks.RunnerWire.Json);
+        var read = System.Text.Json.JsonSerializer.Deserialize<Orchestrarr.Core.Tasks.RunnerHello>(wire, Orchestrarr.Core.Tasks.RunnerWire.Json);
+
+        read!.Lanes.Should().Equal(new Dictionary<string, int> { ["Staging"] = 2, ["Git"] = 3, ["Release"] = 1 });
+    }
+
+    [Fact]
+    public void The_settings_of_the_lanes_are_checked_before_the_runner_starts()
+    {
+        Ready(set => set.StagingMachines = ["staging-1", "staging-2"]);
+
+        var twice = () => Ready(set => set.StagingMachines = ["staging-1", "prod-1"]);
+        twice.Should().Throw<InvalidOperationException>().WithMessage("*'prod-1' is listed twice*");
+        var unreadable = () => Ready(set => set.StagingMachines = ["staging-1", "not an alias"]);
+        unreadable.Should().Throw<InvalidOperationException>().WithMessage("*not an alias*");
+        var sameWithAnotherCase = () => Ready(set => (set.StagingMachines, set.DeployMachine) = (["Server-1"], "server-1"));
+        sameWithAnotherCase.Should().Throw<InvalidOperationException>().WithMessage("*listed twice*", "ssh reads an alias whatever its case");
+        var twoReleases = () => Ready(set => set.DeployMachines = ["prod-1", "prod-2"]);
+        twoReleases.Should().Throw<InvalidOperationException>().WithMessage("*one deployment machine*");
+        var noRelease = () => Ready(set => set.DeployMachine = null);
+        noRelease.Should().Throw<InvalidOperationException>().WithMessage("*DeployMachine*");
+        Ready(set => (set.StagingMachines, set.StagingMachine) = (["staging-2"], "staging-1")).StagingMachineList().Should().Equal("staging-2");
+        foreach (var wrong in new[] { 0, MissionRunnerOptions.MaxGitLanes + 1 })
+        {
+            var lanes = () => Ready(set => set.GitLanes = wrong);
+            lanes.Should().Throw<InvalidOperationException>().WithMessage("*GitLanes*");
+        }
+    }
 }

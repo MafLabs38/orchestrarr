@@ -1,6 +1,7 @@
 # 0047 — A machine has a state, and leaves a reset isolated and qualified
 
 - **Status**: proposed (accepted when the pull request that carries it is merged)
+- **Amended by** [ADR 0053](0053-each-world-has-lanes-and-a-machine-is-never-idle-while-a-mission-waits.md): A runner may serve several staging machines at once, one lane each, and a lane looks after its own machine only.
 - **Date**: 2026-11-22
 - **Spec**: D-101 ([SPEC.md](../SPEC.md)). Makes FR-STG-8 and FR-STG-9 mandatory ([FUNCTIONAL.md](../FUNCTIONAL.md)); builds on [ADR 0034](0034-staging-is-a-prerequisite-per-application.md), [ADR 0035](0035-the-frame-is-enforced-by-the-environment.md) and [ADR 0041](0041-a-problem-is-on-one-repository-and-the-staging-is-held-only-while-it-is-needed.md).
 

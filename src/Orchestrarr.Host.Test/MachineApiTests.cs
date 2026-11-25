@@ -18,7 +18,7 @@ public sealed class MachineApiTests
     private static readonly string Head = new('d', 40);
     private static readonly CancellationToken Ct = TestContext.Current.CancellationToken;
 
-    private sealed class MachineFactory : AccountsApiFactory
+    private class MachineFactory : AccountsApiFactory
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
@@ -37,6 +37,18 @@ public sealed class MachineApiTests
             builder.UseSetting("Missions:Machines:2:Id", "elsewhere");
             builder.UseSetting("Missions:Machines:2:Role", "Staging");
             builder.UseSetting("Missions:Machines:2:Runner", "another-runner");
+        }
+    }
+
+    // A second staging machine for the same runner: two lanes of the staging world
+    private sealed class TwoStagingFactory : MachineFactory
+    {
+        protected override void ConfigureWebHost(IWebHostBuilder builder)
+        {
+            base.ConfigureWebHost(builder);
+            builder.UseSetting("Missions:Machines:3:Id", "nantes");
+            builder.UseSetting("Missions:Machines:3:Role", "Staging");
+            builder.UseSetting("Missions:Machines:3:Runner", "runner-staging");
         }
     }
 
@@ -226,5 +238,42 @@ public sealed class MachineApiTests
         var all = await person.GetFromJsonAsync<JsonElement>("/api/v1/machines", Ct);
 
         all.GetProperty("machines").GetArrayLength().Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Two_lanes_that_ask_at_the_same_time_are_not_given_the_same_mission_nor_a_second_machine_for_it()
+    {
+        using var factory = new TwoStagingFactory();
+        var missionId = await StartProblemAsync(factory);
+        using var runner = Runner(factory, Token);
+        using var person = await SignedIn(factory);
+        await Qualify(runner, "leipzig", passed: true);
+        await Qualify(runner, "nantes", passed: true);
+
+        var claims = await Task.WhenAll(ClaimAsync(runner, "leipzig"), ClaimAsync(runner, "nantes"));
+
+        claims.Count(claim => claim.ValueKind != JsonValueKind.Null).Should().Be(1, "one mission goes to one lane");
+        claims.Single(claim => claim.ValueKind != JsonValueKind.Null).GetProperty("missionId").GetString().Should().Be(missionId);
+        var states = new[] { (await MachineOf(person, "leipzig")).GetProperty("state").GetString(), (await MachineOf(person, "nantes")).GetProperty("state").GetString() };
+        states.Should().BeEquivalentTo("InProcess", "Idle");
+    }
+
+    [Fact]
+    public async Task The_flow_is_read_by_a_person_who_may_read_the_fleet_and_by_nobody_else_and_says_why_a_mission_waits()
+    {
+        using var factory = new MachineFactory();
+        var missionId = await StartProblemAsync(factory);
+        using var runner = Runner(factory, Token);
+        using var person = await SignedIn(factory);
+        using var stranger = factory.CreateClient();
+
+        (await stranger.GetAsync("/api/v1/flow", Ct)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        var flow = await person.GetFromJsonAsync<JsonElement>("/api/v1/flow", Ct);
+
+        var problem = flow.EnumerateArray().Single(entry => entry.GetProperty("problemId").GetString() == "p-test");
+        problem.GetProperty("state").GetString().Should().Be("inProgress");
+        problem.GetProperty("activity").GetProperty("waiting").GetProperty("code").GetString().Should().Be("machine", "the machine is still being qualified");
+        missionId.Should().NotBeNullOrEmpty();
+        _ = runner;
     }
 }

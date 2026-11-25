@@ -1,0 +1,141 @@
+.list {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.problem {
+  padding: 12px;
+  border: var(--borderWidth) solid var(--hairline);
+  border-radius: var(--radiusSmall);
+}
+
+.active {
+  border-color: var(--warningColor);
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.title {
+  min-width: 0;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.repository,
+.meta,
+.claim,
+.age {
+  color: var(--inkMuted);
+  font-size: var(--fontSizeMeta);
+}
+
+.meta,
+.claim {
+  margin: 4px 0 0;
+}
+
+.steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.step {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px;
+  border: var(--borderWidth) solid currentcolor;
+  border-radius: var(--radiusSmall);
+  font-size: var(--fontSizeMeta);
+}
+
+.world {
+  font-weight: 800;
+}
+
+.notStarted {
+  color: var(--disabledColor);
+}
+
+.waiting {
+  color: var(--inkSoft);
+}
+
+.running {
+  color: var(--warningColor);
+}
+
+.reading {
+  color: var(--infoColor);
+}
+
+.done {
+  color: var(--successColor);
+}
+
+.ended {
+  color: var(--dangerColor);
+}
+
+.now {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: baseline;
+  margin: 10px 0 0;
+}
+
+.nowText {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.details {
+  margin-top: 10px;
+}
+
+.details summary {
+  cursor: pointer;
+  color: var(--inkMuted);
+  font-size: var(--fontSizeMeta);
+}
+
+.missions {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mission {
+  padding: 6px 0;
+  border-top: 1px solid var(--hairline);
+}
+
+.progress {
+  margin: 6px 0 0;
+  padding: 6px 8px;
+  max-height: 220px;
+  overflow: auto;
+  background: var(--surfaceMuted, transparent);
+  border: 1px solid var(--hairline);
+  font: var(--fontSizeMeta) var(--monoSpaceFontFamily);
+  white-space: pre-wrap;
+}
+
+@media (width <= 640px) {
+  .steps {
+    grid-template-columns: 1fr;
+  }
+}

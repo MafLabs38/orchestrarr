@@ -354,6 +354,39 @@ export interface ProblemsReport {
   code: CodeScopeStatus | null;
 }
 
+// Where one world of a problem stands, what it does now and what it waits for (the Missions screen follows these, FUNCTIONAL 5.12)
+export interface FlowStep {
+  world: 'Staging' | 'Git' | 'Release';
+  state: 'notStarted' | 'waiting' | 'running' | 'reading' | 'done' | 'ended';
+  missionId: string | null;
+  attempts: number;
+}
+
+export interface FlowWaiting {
+  code: 'turn' | 'machine' | 'busy' | 'runner' | 'pickup';
+  subject: string | null;
+}
+
+export interface FlowActivity {
+  kind: 'running' | 'controller' | 'waiting';
+  text: string | null;
+  at: string | null;
+  waiting: FlowWaiting | null;
+}
+
+export interface FlowProblem {
+  problemId: string;
+  title: string;
+  kind: string | null;
+  repository: string;
+  state: 'queued' | 'inProgress' | 'escalated' | 'closed' | 'failed' | 'setAside' | 'inPlan';
+  priority: number;
+  startedAt: string;
+  steps: FlowStep[];
+  activity: FlowActivity | null;
+  note: string | null;
+}
+
 // A mission of a problem, in the world where it works (FUNCTIONAL 5.12), with what its runner reported and the dossier it handed over
 export interface MissionView {
   id: string;

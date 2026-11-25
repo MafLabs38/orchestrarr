@@ -14,6 +14,10 @@ public sealed class MissionProgress(TimeProvider time)
     private const int MaxMissions = 200;
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, List<string>> _lines = new(StringComparer.Ordinal);
     private readonly System.Collections.Concurrent.ConcurrentQueue<string> _order = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (string Line, DateTimeOffset At)> _last = new(StringComparer.Ordinal);
+
+    /// <summary>The last thing a mission reported and when: what a person reads to tell a mission that works from one that has gone quiet.</summary>
+    public (string? Line, DateTimeOffset? At) LastNews(string missionId) => _last.TryGetValue(missionId, out var last) ? (last.Line, last.At) : (null, null);
 
     public void Add(string missionId, string line)
     {
@@ -28,15 +32,55 @@ public sealed class MissionProgress(TimeProvider time)
                 while (_lines.Count > MaxMissions && _order.TryDequeue(out var oldest))
                 {
                     _lines.TryRemove(oldest, out _);
+                    _last.TryRemove(oldest, out _);
                 }
             }
         }
+        var shown = line.Length > 500 ? line[..500] : line;
+        _last[missionId] = (shown, time.GetUtcNow());
         lock (list)
         {
-            list.Add($"{time.GetUtcNow():HH:mm:ss} {(line.Length > 500 ? line[..500] : line)}");
+            list.Add($"{time.GetUtcNow():HH:mm:ss} {shown}");
             if (list.Count > MaxLines)
             {
                 list.RemoveAt(0);
+            }
+        }
+    }
+
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (DateTimeOffset At, string? Machine)> _offered = new(StringComparer.Ordinal);
+
+    /// <summary>How long a mission that was offered to a lane is not offered to another while it has not started: a claim is answered in a moment, a lane that was offered a mission starts it at once.</summary>
+    public static readonly TimeSpan OfferHolds = TimeSpan.FromSeconds(60);
+
+    /// <summary>
+    /// Whether the mission was offered to another lane a moment ago and has not started: with several lanes asking at once, a mission goes to one of them. The lane of a machine that asks again for the mission it was offered gets it again
+    /// (a runner that restarted before it could start it); the lanes of the Git world have no machine to tell them apart, so none of them does.
+    /// </summary>
+    public bool RecentlyOffered(string missionId, string? machine) =>
+        _offered.TryGetValue(missionId, out var offer) && time.GetUtcNow() - offer.At < OfferHolds && (machine is null || !string.Equals(machine, offer.Machine, StringComparison.OrdinalIgnoreCase));
+
+    private readonly Lock _claimGate = new();
+
+    /// <summary>The lanes of a runner claim at the same time: choosing a mission, taking its machine and noting that it was offered are one step, with no other claim in between (one control-plane process, ADR 0053).</summary>
+    public T Claiming<T>(Func<T> claim)
+    {
+        lock (_claimGate)
+        {
+            return claim();
+        }
+    }
+
+    public void Offered(string missionId, string? machine)
+    {
+        var now = time.GetUtcNow();
+        _offered[missionId] = (now, machine);
+        // Old entries are forgotten with the lines of old missions: only a mission that is still waiting is of interest
+        if (_offered.Count > MaxMissions)
+        {
+            foreach (var old in _offered.Where(pair => now - pair.Value.At > OfferHolds).Select(pair => pair.Key).ToList())
+            {
+                _offered.TryRemove(old, out _);
             }
         }
     }
@@ -91,6 +135,7 @@ public sealed class MissionProgress(TimeProvider time)
 /// </summary>
 internal static partial class MissionRunnerEndpoints
 {
+
     public static void MapMissionRunnerRoutes(this RouteGroupBuilder group, Func<HttpContext, string> runnerName)
     {
         group.MapPost("/missions/claim", (ClaimRequest? request, string? world, string? machine, HttpContext context, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, ProblemConductor conductor, IDossierStore dossiers, MissionProgress progress, RepairRegistry? repairs, TimeProvider time, RunnerRegistry registry) =>
@@ -101,38 +146,8 @@ internal static partial class MissionRunnerEndpoints
                 // A runner of missions is seen like the others: what it accepts decides what the table offers
                 registry.Seen(name, hello);
             }
-            // A mission is offered when its mandate has just been issued, or when the controller sent it back after a dossier (once for each send-back): the same mandate goes on with the remarks
-            var mission = missions.Recent(200).Where(candidate => (candidate.State == MissionState.Mandated || (IsSentBack(candidate, dossiers) && !progress.WasOffered(candidate.Id, candidate.SendBacks))) && MandateOf(candidate, mandates) is { } signed && signed.Mandate.RunnerId == name && signed.Mandate.ExpiresAt > time.GetUtcNow() && (world is null || string.Equals(candidate.World.ToString(), world, StringComparison.OrdinalIgnoreCase)))
-                .Where(candidate => IsItsTurn(candidate, problems))
-                .FirstNext(problems);
-            if (mission is null || MandateOf(mission, mandates) is not { } mandate || problems.Get(mission.ProblemId)?.Entry is not { Repositories.Count: 1 } entry)
-            {
-                return Results.Ok(new MissionClaimResponse(null));
-            }
-            // A mission of a world that works on a lab machine is claimed with a lease on its machine (ADR 0047): one holder, and only an Idle machine. No machine free, the mission waits
-            var leaseTaken = false;
-            if (mission.World is World.Staging or World.Release && context.RequestServices.GetService<MachinePool>() is { } pool)
-            {
-                var (leased, taken) = MachineEndpoints.TryLeaseFor(pool, context.RequestServices.GetRequiredService<MissionsOptions>(), machine, name, mission);
-                if (!leased)
-                {
-                    return Results.Ok(new MissionClaimResponse(null));
-                }
-                leaseTaken = taken;
-            }
-            var rework = mission.State == MissionState.Running;
-            if (rework && !progress.TakeRework(mission.Id, mission.SendBacks))
-            {
-                // Nothing is offered after all: a lease that was just taken is given back (one that the mission already held is not touched: its runner is working on it)
-                if (leaseTaken && machine is not null)
-                {
-                    context.RequestServices.GetRequiredService<MachinePool>().Release(machine, mission.Id, "the claim offered nothing");
-                }
-                return Results.Ok(new MissionClaimResponse(null));
-            }
-            var current = repairs?.Effective(mission.ProblemId, entry);
-            return Results.Ok(new MissionClaimResponse(new ClaimedMission(mission.Id, mission.ProblemId, mission.ApplicationId, mission.World.ToString(), mission.Objective, entry.Repositories[0], current?.Number ?? entry.PullRequest, current?.Head ?? entry.HeadSha,
-                mandate.Mandate.ExpiresAt, [.. mandate.Mandate.Acts.Select(act => act.ToString())], conductor.AcceptedCommit(mission.Id) ?? entry.HeadSha, rework, rework ? progress.RemarksOf(mission.Id) : null, repairs?.FixOf(mission.ProblemId) is not null ? entry.PullRequest : null, mission.Instruction)));
+            // The lanes of a runner ask at the same time: choosing a mission, taking its machine and noting that it was offered are one step, so that a mission goes to one lane
+            return progress.Claiming(() => Claim(world, machine, name, context, missions, mandates, problems, conductor, dossiers, progress, repairs, time));
         });
 
         group.MapPost("/missions/{id}/started", async (string id, HttpContext context, IMissionStore missions, IMandateLedger mandates, ProblemConductor conductor, ILiveNotifier live, CancellationToken ct) =>
@@ -247,6 +262,47 @@ internal static partial class MissionRunnerEndpoints
         var list = candidates.ToList();
         var runs = problems.GetMany([.. list.Select(candidate => candidate.ProblemId)]);
         return list.OrderByDescending(candidate => runs.TryGetValue(candidate.ProblemId, out var run) ? run.Priority : FlowPriority.Lowest).ThenByDescending(candidate => candidate.World).ThenBy(candidate => candidate.Id, StringComparer.Ordinal).FirstOrDefault();
+    }
+
+    // Choosing a mission, taking the lease of its machine and noting that it was offered: one step, under the gate of the claims
+    private static IResult Claim(string? world, string? machine, string name, HttpContext context, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, ProblemConductor conductor, IDossierStore dossiers, MissionProgress progress, RepairRegistry? repairs, TimeProvider time)
+    {
+        // A mission is offered when its mandate has just been issued, or when the controller sent it back after a dossier (once for each send-back): the same mandate goes on with the remarks
+        var mission = missions.Recent(200).Where(candidate => ((candidate.State == MissionState.Mandated && !progress.RecentlyOffered(candidate.Id, machine)) || (IsSentBack(candidate, dossiers) && !progress.WasOffered(candidate.Id, candidate.SendBacks))) && MandateOf(candidate, mandates) is { } signed && signed.Mandate.RunnerId == name && signed.Mandate.ExpiresAt > time.GetUtcNow() && (world is null || string.Equals(candidate.World.ToString(), world, StringComparison.OrdinalIgnoreCase)))
+            .Where(candidate => IsItsTurn(candidate, problems))
+            .FirstNext(problems);
+        if (mission is null || MandateOf(mission, mandates) is not { } mandate || problems.Get(mission.ProblemId)?.Entry is not { Repositories.Count: 1 } entry)
+        {
+            return Results.Ok(new MissionClaimResponse(null));
+        }
+        // A mission of a world that works on a lab machine is claimed with a lease on its machine (ADR 0047): one holder, and only an Idle machine. No machine free, the mission waits
+        var leaseTaken = false;
+        if (mission.World is World.Staging or World.Release && context.RequestServices.GetService<MachinePool>() is { } pool)
+        {
+            var (leased, taken) = MachineEndpoints.TryLeaseFor(pool, context.RequestServices.GetRequiredService<MissionsOptions>(), machine, name, mission);
+            if (!leased)
+            {
+                return Results.Ok(new MissionClaimResponse(null));
+            }
+            leaseTaken = taken;
+        }
+        var rework = mission.State == MissionState.Running;
+        if (rework && !progress.TakeRework(mission.Id, mission.SendBacks))
+        {
+            // Nothing is offered after all: a lease that was just taken is given back (one that the mission already held is not touched: its runner is working on it)
+            if (leaseTaken && machine is not null)
+            {
+                context.RequestServices.GetRequiredService<MachinePool>().Release(machine, mission.Id, "the claim offered nothing");
+            }
+            return Results.Ok(new MissionClaimResponse(null));
+        }
+        if (!rework)
+        {
+            progress.Offered(mission.Id, machine);
+        }
+        var current = repairs?.Effective(mission.ProblemId, entry);
+        return Results.Ok(new MissionClaimResponse(new ClaimedMission(mission.Id, mission.ProblemId, mission.ApplicationId, mission.World.ToString(), mission.Objective, entry.Repositories[0], current?.Number ?? entry.PullRequest, current?.Head ?? entry.HeadSha,
+            mandate.Mandate.ExpiresAt, [.. mandate.Mandate.Acts.Select(act => act.ToString())], conductor.AcceptedCommit(mission.Id) ?? entry.HeadSha, rework, rework ? progress.RemarksOf(mission.Id) : null, repairs?.FixOf(mission.ProblemId) is not null ? entry.PullRequest : null, mission.Instruction, mission.World is World.Staging or World.Release ? machine : null)));
     }
 
     private static bool IsSentBack(Mission candidate, IDossierStore dossiers) => candidate.State == MissionState.Running && candidate.SendBacks > 0 && dossiers.Get(candidate.Id) is not null;

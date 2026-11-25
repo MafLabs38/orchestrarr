@@ -1,6 +1,7 @@
 # 0042 — A runner serves one world, and the test bed validates through the plan
 
 - **Status**: proposed (accepted when the pull request that carries it is merged)
+- **Amended by** [ADR 0053](0053-each-world-has-lanes-and-a-machine-is-never-idle-while-a-mission-waits.md): A runner now works one mission per lane, all lanes at once (a machine of the staging world, the deployment machine, a slot of the Git world), not one mission at a time.
 - **Date**: 2026-11-21
 - **Spec**: D-96 ([SPEC.md](../SPEC.md), [FUNCTIONAL.md](../FUNCTIONAL.md) FR-WLD, FR-STG). Builds on [ADR 0031](0031-a-mandate-is-the-signed-permission-for-a-mission.md), [ADR 0033](0033-the-controller-agent-and-the-agent-gateway.md) and [ADR 0041](0041-a-problem-is-on-one-repository-and-the-staging-is-held-only-while-it-is-needed.md).
 

@@ -84,6 +84,29 @@ public sealed class StagingProofTests
     }
 
     [Fact]
+    public async Task The_proof_is_made_on_the_machine_of_the_lane_that_took_the_mission_and_never_on_another()
+    {
+        var shell = Machine("package.json\npackage-lock.json\n");
+        var options = Options();
+        options.StagingMachines = ["staging-1", "staging-2"];
+
+        await new StagingProof(shell, options).RunAsync(Mission() with { Machine = "staging-2" }, _ => Task.CompletedTask, Ct);
+
+        var ssh = shell.Calls.Where(call => call.StartsWith("ssh ", StringComparison.Ordinal)).ToList();
+        ssh.Should().NotBeEmpty().And.OnlyContain(call => call.Contains(" staging-2 ", StringComparison.Ordinal) && !call.Contains("staging-1", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_mission_with_no_machine_is_proved_on_the_one_machine_of_the_runner()
+    {
+        var shell = Machine("package.json\npackage-lock.json\n");
+
+        await new StagingProof(shell, Options()).RunAsync(Mission(), _ => Task.CompletedTask, Ct);
+
+        shell.Calls.Where(call => call.StartsWith("ssh ", StringComparison.Ordinal)).Should().NotBeEmpty().And.OnlyContain(call => call.Contains(" staging-1 ", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task A_pull_request_with_no_merge_result_is_refused_before_anything_is_built()
     {
         var shell = new ScriptedShell((file, arguments) => file != "ssh" ? Ok() : Step(arguments[^1], "package.json\n", () => Ok(string.Empty), cloneFails: true));

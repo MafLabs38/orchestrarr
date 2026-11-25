@@ -1,7 +1,9 @@
 using Orchestrarr.Core.Accounts;
 using Orchestrarr.Core.Approvals;
+using Orchestrarr.Core.Machines;
 using Orchestrarr.Core.Missions;
 using Orchestrarr.Host.Approvals;
+using Orchestrarr.Host.Tasks;
 
 namespace Orchestrarr.Host.Missions;
 
@@ -24,6 +26,10 @@ internal static class MissionEndpoints
     {
         api.MapGet("/missions", (IMissionStore missions, IMandateLedger mandates, IProblemStore problems, IDossierStore dossiers, MissionProgress progress, int? limit) =>
             WhenReadable(() => Results.Ok(Views(missions.Recent(Math.Clamp(limit ?? DefaultPageSize, 1, MaxPageSize)), mandates, problems, dossiers, progress)))).RequireAuthorization(Permissions.FleetRead);
+        // What the Missions screen follows: one entry per problem, with where it stands in each world, what it does now and what it waits for
+        api.MapGet("/flow", (IServiceProvider services, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, MissionProgress progress, RunnerRegistry runners) =>
+            WhenReadable(() => Results.Ok(FlowView.Build(missions.Recent(MaxPageSize), problems, services.GetService<ProblemQueue>()?.Waiting() ?? [], services.GetService<MachinePool>()?.All() ?? [], runners.Snapshot().Any(runner => runner.Connected), progress.LastNews, mission => mission.MandateId is { } id && mandates.Get(id) is { } signed ? signed.Mandate.IssuedAt : null, mission => mission.State == MissionState.Running && mission.SendBacks > 0 && !progress.WasOffered(mission.Id, mission.SendBacks), runners.LanesOf))))
+            .RequireAuthorization(Permissions.FleetRead);
         api.MapGet("/missions/{id}", (string id, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, IDossierStore dossiers, MissionProgress progress) =>
             WhenReadable(() => missions.Get(id) is { } mission ? Results.Ok(View(mission, mandates, problems, dossiers, progress)) : Results.NotFound())).RequireAuthorization(Permissions.FleetRead);
     }
