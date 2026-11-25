@@ -19,6 +19,18 @@ public sealed class DecisionTableTests
         new(number, $"Bump a from 1.0.0 to 2.0.{number}", new Uri($"https://github.com/example/shop/pull/{number}"), "dependabot[bot]", "dependabot/npm", draft, checks, merge, [],
             [new DependencyChange("lodash", "1.0.0", "1.1.0", kind)], At, head.Length == 0 ? Head : head);
 
+    [Fact]
+    public void A_row_says_what_it_really_is_whatever_its_kind()
+    {
+        var item = Item([Pull(1) with { HeadBranch = "dependabot/github_actions/actions/checkout-7" }, Pull(2)], [new Finding(FindingKind.OpenDependencyPullRequests, Severity.Info, 2), new Finding(FindingKind.FailingCi, Severity.Warning, 1)]);
+
+        var rows = Table(item);
+
+        rows.Single(row => row.PullRequest == 1).Nature.Should().Be(ProblemNature.PipelineToolUpdate);
+        rows.Single(row => row.PullRequest == 2).Nature.Should().Be(ProblemNature.LibraryUpdate);
+        rows.Single(row => row.Kind == ProblemKind.FailingCi).Nature.Should().Be(ProblemNature.FailingPipeline);
+    }
+
     private static PlanStep Step(StepKind kind, bool available = true, bool granted = true) => new(kind, null, null, true, available, granted, null);
 
     private static WorkItem Item(IReadOnlyList<PullRequestInfo>? pulls = null, IReadOnlyList<Finding>? findings = null, PullRequestsRead? read = null, bool grantMerge = true, bool grantValidate = true, string id = Id, bool grantRepair = true) =>

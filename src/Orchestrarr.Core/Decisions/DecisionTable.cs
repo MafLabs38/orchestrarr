@@ -144,7 +144,8 @@ public sealed record ProblemRow(
     string? Source = null,
     IReadOnlyList<CodeLocation>? Locations = null,
     IReadOnlyList<RepositoryProblem>? Warnings = null,
-    string? ParsedChange = null);
+    string? ParsedChange = null,
+    ProblemNature Nature = ProblemNature.Other);
 
 /// <summary>
 /// What a connected runner accepts, as it reported it. The table never promises more than they would run: with none connected, nothing can be run, and every row says so. <c>FreeAgent</c>: it has a free agent for a problem that has
@@ -179,6 +180,7 @@ public static class DecisionTable
                 AddOtherProblems(rows, item, policy, infrastructure, dormant: true);
                 NameApplication(rows, before, item, applicationNames ?? []);
                 Warn(rows, before, infrastructure);
+                NameNature(rows, before);
                 continue;
             }
             AddDependencyUpdates(rows, item, applications, runners, results ?? [], policy);
@@ -189,6 +191,7 @@ public static class DecisionTable
             }
             NameApplication(rows, before, item, applicationNames ?? []);
             Warn(rows, before, infrastructure);
+            NameNature(rows, before);
         }
         return rows;
     }
@@ -205,6 +208,18 @@ public static class DecisionTable
         }
         var days = (int)(at - lastPush).TotalDays;
         return days > policy.DormantAfterDays ? days : null;
+    }
+
+    // A row that is not a bot's pull request is what its kind says it is
+    private static void NameNature(List<ProblemRow> rows, int from)
+    {
+        for (var index = from; index < rows.Count; index++)
+        {
+            if (rows[index].Nature == ProblemNature.Other)
+            {
+                rows[index] = rows[index] with { Nature = ProblemNatures.OfKind(rows[index].Kind) };
+            }
+        }
     }
 
     // What the bell says about a repository that cannot be read is also said on the rows it concerns: the rows about that very repository, and the rows that stopped
@@ -280,7 +295,7 @@ public static class DecisionTable
             var description = parsedChange ?? pullRequest.Title;
             rows.Add(new ProblemRow(
                 $"{PullRequestRowPrefix}{item.RepositoryFullName}#{pullRequest.Number}", item.Id, item.RepositoryFullName, ProblemKind.DependencyUpdate, description,
-                null, null, change?.Kind ?? UpdateKind.Unknown, pullRequest.Checks, pullRequest.Url, pullRequest.Number, pullRequest.HeadSha, ceiling, why, canStop, VerdictOf(mine), ParsedChange: parsedChange));
+                null, null, change?.Kind ?? UpdateKind.Unknown, pullRequest.Checks, pullRequest.Url, pullRequest.Number, pullRequest.HeadSha, ceiling, why, canStop, VerdictOf(mine), ParsedChange: parsedChange, Nature: ProblemNatures.OfPullRequest(pullRequest)));
         }
     }
 

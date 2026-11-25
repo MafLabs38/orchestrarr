@@ -12,7 +12,7 @@ const rows: ProblemRow[] = [
   problem({ id: 'd', application: 'example/mid', goesUpTo: 'qualification', checks: null, workshop: 'repaired' }),
 ];
 const numbers = new Map(rows.map((row, index) => [row.id, index + 1]));
-const text = (row: ProblemRow) => ({ type: 'Update', problem: row.description, why: row.id });
+const text = (row: ProblemRow) => ({ type: 'Update', nature: 'Library', problem: row.description, why: row.id });
 const ids = (sorted: ProblemRow[]) => sorted.map((row) => row.id);
 
 describe('nextSort', () => {

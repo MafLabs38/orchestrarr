@@ -1,6 +1,7 @@
 import type { ChecksState, ProblemRow, WorkshopVerdict } from 'typings/api';
 
-export type SortColumn = 'number' | 'application' | 'type' | 'problem' | 'checks' | 'workshop' | 'plan' | 'why';
+export type SortColumn =
+  'number' | 'application' | 'type' | 'nature' | 'problem' | 'checks' | 'workshop' | 'plan' | 'why';
 export interface Sort {
   column: SortColumn;
   descending: boolean;
@@ -33,7 +34,7 @@ export function sortRows(
   rows: readonly ProblemRow[],
   numbers: ReadonlyMap<string, number>,
   sort: Sort | null,
-  textOf: (row: ProblemRow) => { type: string; problem: string; why: string },
+  textOf: (row: ProblemRow) => { type: string; nature: string; problem: string; why: string },
 ): ProblemRow[] {
   const number = (row: ProblemRow) => numbers.get(row.id) ?? 0;
   const byNumber = (a: ProblemRow, b: ProblemRow) => number(a) - number(b);
@@ -48,6 +49,8 @@ export function sortRows(
         return compareText(a.application, b.application);
       case 'type':
         return compareText(textOf(a).type, textOf(b).type);
+      case 'nature':
+        return compareText(textOf(a).nature, textOf(b).nature);
       case 'problem':
         return compareText(textOf(a).problem, textOf(b).problem);
       case 'checks':

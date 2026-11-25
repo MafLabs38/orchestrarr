@@ -105,6 +105,28 @@ afterEach(() => {
 });
 
 describe('Decisions', () => {
+  it('says what each row really is and, for a tool of the pipeline, what that tool does', async () => {
+    stub(
+      problemsReport([
+        problem({ id: 'pr:example/shop#1', description: 'actions/checkout 3 → 7', nature: 'pipelineToolUpdate' }),
+        problem({ id: 'pr:example/shop#2', description: 'actions/setup-ruby 1 → 2', nature: 'pipelineToolUpdate' }),
+        problem({ id: 'pr:example/shop#3', description: 'lodash 4.17.4 → 4.17.21', nature: 'libraryUpdate' }),
+        problem({ id: 'finding:example/shop:Secret', kind: 'exposedSecret', description: '1', nature: 'other' }),
+      ]),
+    );
+
+    renderWithProviders(<Decisions />);
+
+    expect(await screen.findAllByText('Pipeline tool')).toHaveLength(2);
+    expect(
+      screen.getByText(/fetches the code of the repository at the start of every pipeline run/),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText(/not of the application/)).toHaveLength(2);
+    expect(screen.queryByText(/installs Node\.js/)).not.toBeInTheDocument();
+    expect(screen.getByText('Library')).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: /What it is/ })).toBeInTheDocument();
+  });
+
   it('shows one numbered line per problem: what it is, the forge and the workshop, the plan step by step and why in a few words', async () => {
     stub(problemsReport(rows));
 

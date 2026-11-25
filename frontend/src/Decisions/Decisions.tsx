@@ -15,6 +15,7 @@ import type { Ceiling, ProblemRow, ProblemsReport, WorkshopVerdict } from 'typin
 import {
   describeCeiling,
   describeError,
+  describeNature,
   describeProblem,
   describeProblemKind,
   describeProblemKindShort,
@@ -110,6 +111,7 @@ function Problems({ report }: Readonly<{ report: ProblemsReport }>) {
     sort,
     (row) => ({
       type: describeProblemKindShort(row.kind),
+      nature: describeNature(row.nature),
       problem: describeProblem(row),
       why: describeWhyShort(row.why),
     }),

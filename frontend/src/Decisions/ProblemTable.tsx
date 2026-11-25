@@ -6,12 +6,14 @@ import { iconSizes } from 'Helpers/Props/sizes';
 import type { ChecksState, ProblemRow, Severity, WorkshopVerdict } from 'typings/api';
 import {
   describeChecks,
+  describeNature,
   describeProblem,
   describeProblemKindShort,
   describeSeverity,
   describeWhy,
   describeWhyShort,
   describeWorkshop,
+  explainNature,
 } from 'Utilities/describe';
 import translate from 'Utilities/translate';
 
@@ -43,6 +45,7 @@ const columns: { column: SortColumn; label: Parameters<typeof translate>[0]; cla
   { column: 'number', label: 'ColumnNumber', className: styles.narrow },
   { column: 'application', label: 'ColumnApplication', className: styles.app },
   { column: 'type', label: 'ColumnType' },
+  { column: 'nature', label: 'ColumnNature', className: styles.nature },
   { column: 'problem', label: 'ColumnProblem' },
   { column: 'checks', label: 'ColumnForge', className: styles.narrow },
   { column: 'workshop', label: 'ColumnWorkshop' },
@@ -226,6 +229,10 @@ function ProblemTableRow({
         <AppCell application={row.application} icon={row.icon} source={row.source} />
       </td>
       <td>{describeProblemKindShort(row.kind)}</td>
+      <td className={styles.nature}>
+        <strong>{describeNature(row.nature)}</strong>
+        <span className={styles.explained}>{explainNature(row)}</span>
+      </td>
       <td className={styles.problem}>
         {row.severity ? (
           <span

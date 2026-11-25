@@ -273,7 +273,7 @@ This section answers the maintainer's question: *is there an environment that is
 
 The maintainer's needs, not a screen design. The existing screens are adapted; no new screen is added unless the maintainer asks. **(M, rule 16 of CLAUDE.md)**
 
-**FR-VIEW-1.** The **plan**: every problem, where it stands, how far it may go, its priority, in one table the maintainer already knows. **(M)**
+**FR-VIEW-1.** The **plan**: every problem, where it stands, how far it may go, its priority, in one table the maintainer already knows. **Each row says what it really is, in a column of its own with a sentence for a person who has never met the word** (a tool of the pipeline such as `actions/checkout`, a library, a base image, a security flaw; the maintainer, 2026-11-25, ADR 0054). **(M)**
 **FR-VIEW-2.** The **missions in progress**, live: the world, what the agent is doing, its trace, its evidence as it appears. **The screen follows problems, not missions: one card per problem, with where it stands in each world, what it does now or what it waits for (another problem on its repository, machines that are not free, every lane of its world at work), how long ago it last said something, and the missions behind it (ADR 0052, the maintainer, 2026-11-25).** **(M, "live by default")**
 **FR-VIEW-3.** The **history** of what was done and decided, with the dossiers and reports. **(M)**
 **FR-VIEW-4.** The **state of staging** per application: requirement, state, last baseline, availability. **(P)**
