@@ -14,7 +14,9 @@ export default function PageHeader() {
       <span className={styles.name}>{translate('AppName')}</span>
       <span className={styles.spacer} />
       <LiveBadge />
-      <SourceBadge />
+      <span className={styles.source}>
+        <SourceBadge />
+      </span>
       <NotificationBell />
       <SignedInUser />
     </header>

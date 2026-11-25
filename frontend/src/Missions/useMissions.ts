@@ -6,10 +6,12 @@ import useApiQuery, { refreshIntervalMs } from 'Helpers/Hooks/useApiQuery';
 import type { MissionView, PlanStatus, ValidatedProblem } from 'typings/api';
 
 export const missionsPath = '/api/v1/missions';
+// The detail of every problem the screen follows is read with the flow: the same window
+const missionsWindow = `${missionsPath}?limit=200`;
 export const planPath = '/api/v1/plan';
 
 export function useMissions() {
-  return useApiQuery<MissionView[]>(missionsPath, { refetchInterval: refreshIntervalMs });
+  return useApiQuery<MissionView[]>(missionsWindow, { refetchInterval: refreshIntervalMs });
 }
 
 // Whether this host validates a selection through the missions (the answer does not change while the page is open)

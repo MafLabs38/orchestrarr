@@ -14,6 +14,10 @@ public sealed class MissionProgress(TimeProvider time)
     private const int MaxMissions = 200;
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, List<string>> _lines = new(StringComparer.Ordinal);
     private readonly System.Collections.Concurrent.ConcurrentQueue<string> _order = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (string Line, DateTimeOffset At)> _last = new(StringComparer.Ordinal);
+
+    /// <summary>The last thing a mission reported and when: what a person reads to tell a mission that works from one that has gone quiet.</summary>
+    public (string? Line, DateTimeOffset? At) LastNews(string missionId) => _last.TryGetValue(missionId, out var last) ? (last.Line, last.At) : (null, null);
 
     public void Add(string missionId, string line)
     {
@@ -28,12 +32,15 @@ public sealed class MissionProgress(TimeProvider time)
                 while (_lines.Count > MaxMissions && _order.TryDequeue(out var oldest))
                 {
                     _lines.TryRemove(oldest, out _);
+                    _last.TryRemove(oldest, out _);
                 }
             }
         }
+        var shown = line.Length > 500 ? line[..500] : line;
+        _last[missionId] = (shown, time.GetUtcNow());
         lock (list)
         {
-            list.Add($"{time.GetUtcNow():HH:mm:ss} {(line.Length > 500 ? line[..500] : line)}");
+            list.Add($"{time.GetUtcNow():HH:mm:ss} {shown}");
             if (list.Count > MaxLines)
             {
                 list.RemoveAt(0);

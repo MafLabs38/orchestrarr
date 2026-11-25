@@ -1,7 +1,7 @@
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 
 import { renderWithProviders, stubApi } from 'testUtils';
-import type { MissionView } from 'typings/api';
+import type { FlowProblem, MissionView } from 'typings/api';
 
 import Missions from './Missions';
 
@@ -35,53 +35,180 @@ const mission: MissionView = {
   progress: ['12:00:01 Fetching example/shop pull request #7', '12:00:20 Build and tests passed'],
 };
 
+const staging = { world: 'Staging', state: 'done', missionId: 'm1', attempts: 1 } as const;
+const git = { world: 'Git', state: 'running', missionId: 'm2', attempts: 1 } as const;
+const release = { world: 'Release', state: 'notStarted', missionId: null, attempts: 0 } as const;
+
+const working: FlowProblem = {
+  problemId: 'p1',
+  title: 'nginx:1.14 → 1.28',
+  kind: 'ImageUpdate',
+  repository: 'example/shop',
+  state: 'inProgress',
+  priority: 50,
+  startedAt: '2026-11-21T11:59:00Z',
+  steps: [staging, git, release],
+  activity: {
+    kind: 'running',
+    text: '12:00:20 Merged. Waiting for the pipeline of the integration branch',
+    at: new Date(Date.now() - 20_000).toISOString(),
+    waiting: null,
+  },
+  note: null,
+};
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
 describe('Missions', () => {
-  it('shows each mission with its world, its state in words, its dossier and what its runner reported', async () => {
+  it('follows each problem: its title, where it stands in each world, what it does now and how long ago', async () => {
+    stubApi({ '/api/v1/flow': [working], '/api/v1/missions?limit=200': [mission] });
+
+    renderWithProviders(<Missions />);
+
+    expect(await screen.findByText('nginx:1.14 → 1.28')).toBeInTheDocument();
+    expect(screen.getByText('example/shop')).toBeInTheDocument();
+    expect(screen.getByText('Working')).toBeInTheDocument();
+    const worlds = screen.getByRole('list', { name: 'Worlds' });
+    expect(within(worlds).getByText('Staging').closest('li')).toHaveTextContent('done');
+    expect(within(worlds).getByText('Git').closest('li')).toHaveTextContent('running');
+    expect(within(worlds).getByText('Release').closest('li')).toHaveTextContent('not started');
+    expect(screen.getByText('Merged. Waiting for the pipeline of the integration branch')).toBeInTheDocument();
+    expect(screen.getByText(/ago$/)).toBeInTheDocument();
+  });
+
+  it('says what a problem waits for, and that one that is urgent is urgent', async () => {
     stubApi({
-      '/api/v1/missions': [
+      '/api/v1/flow': [
+        {
+          ...working,
+          problemId: 'p2',
+          title: 'lodash 4.17.20 → 4.17.21',
+          state: 'queued',
+          steps: [{ ...staging, state: 'notStarted', missionId: null, attempts: 0 }],
+          activity: { kind: 'waiting', text: null, at: null, waiting: { code: 'turn', subject: 'nginx:1.14 → 1.28' } },
+        },
+        {
+          ...working,
+          problemId: 'p3',
+          priority: 71,
+          activity: {
+            kind: 'waiting',
+            text: null,
+            at: null,
+            waiting: { code: 'machine', subject: 'leipzig (InProcess)' },
+          },
+        },
+      ],
+      '/api/v1/missions?limit=200': [],
+    });
+
+    renderWithProviders(<Missions />);
+
+    expect(await screen.findByText('In line')).toBeInTheDocument();
+    expect(
+      screen.getByText(/Waits for its turn on this repository: nginx:1.14 → 1.28 is being done first/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Waits for a machine: leipzig \(InProcess\)/)).toBeInTheDocument();
+    expect(screen.getByText('Urgent 71')).toBeInTheDocument();
+    expect(screen.queryByText(/Waits for the runner, which is busy/)).not.toBeInTheDocument();
+  });
+
+  it('says that the runner is busy with another problem when a mission waits for it', async () => {
+    stubApi({
+      '/api/v1/flow': [
+        {
+          ...working,
+          activity: {
+            kind: 'waiting',
+            text: null,
+            at: null,
+            waiting: { code: 'busy', subject: 'lodash 4.17.20 → 4.17.21' },
+          },
+        },
+      ],
+      '/api/v1/missions?limit=200': [],
+    });
+
+    renderWithProviders(<Missions />);
+
+    expect(
+      await screen.findByText(/Waits for the runner, which is busy with lodash 4.17.20 → 4.17.21/),
+    ).toBeInTheDocument();
+  });
+
+  it('tells the alerts of a row as what they are, not as a bare number', async () => {
+    stubApi({
+      '/api/v1/flow': [{ ...working, kind: 'DependencyAlert', title: '2' }],
+      '/api/v1/missions?limit=200': [],
+    });
+
+    renderWithProviders(<Missions />);
+
+    expect(await screen.findByText('2 dependency alerts')).toBeInTheDocument();
+  });
+
+  it('tells a mission that has gone quiet', async () => {
+    stubApi({
+      '/api/v1/flow': [
+        {
+          ...working,
+          activity: {
+            kind: 'running',
+            text: 'Building',
+            at: new Date(Date.now() - 12 * 60_000).toISOString(),
+            waiting: null,
+          },
+        },
+      ],
+      '/api/v1/missions?limit=200': [],
+    });
+
+    renderWithProviders(<Missions />);
+
+    expect(await screen.findByText(/No news for 12 min/)).toBeInTheDocument();
+  });
+
+  it('shows the missions behind a problem: the dossier, what the runner reported and why one ended', async () => {
+    stubApi({
+      '/api/v1/flow': [working],
+      '/api/v1/missions?limit=200': [
         mission,
         {
           ...mission,
-          id: 'm2',
+          id: 'm3',
           world: 'Git',
-          state: 'Mandated',
-          end: null,
-          progress: [],
-          dossier: null,
-          mandate: { ...mission.mandate, runnerId: 'runner-git', acts: ['MergePullRequest'], revoked: false },
+          state: 'Ended',
+          end: 'Refused',
+          endReason: 'a pipeline file changed',
+          progress: null,
         },
-        { ...mission, id: 'm3', state: 'Ended', end: 'Refused', endReason: 'a pipeline file changed', progress: null },
       ],
     });
 
     renderWithProviders(<Missions />);
 
-    expect(await screen.findByText('Accepted')).toBeInTheDocument();
-    expect(screen.getByText('Waiting for its runner')).toBeInTheDocument();
-    expect(screen.getByText('Refused')).toBeInTheDocument();
-    expect(screen.getAllByText('It builds and its tests pass').length).toBeGreaterThan(0);
+    expect(await screen.findByText('Missions of this problem (2)')).toBeInTheDocument();
+    expect(screen.getAllByText('It builds and its tests pass')).toHaveLength(2);
     expect(screen.getByText(/Build and tests passed/)).toBeInTheDocument();
-    expect(screen.getByText(/mandate for runner-git, acts: MergePullRequest/)).toBeInTheDocument();
+    expect(screen.getAllByText(/mandate for runner-staging/)).toHaveLength(2);
     expect(screen.getByText('a pipeline file changed')).toBeInTheDocument();
   });
 
-  it('says when there is no mission yet', async () => {
-    stubApi({ '/api/v1/missions': [] });
+  it('says when nothing is being done', async () => {
+    stubApi({ '/api/v1/flow': [], '/api/v1/missions?limit=200': [] });
 
     renderWithProviders(<Missions />);
 
-    expect(await screen.findByText(/No mission yet/)).toBeInTheDocument();
+    expect(await screen.findByText(/Nothing is being done and nothing waits/)).toBeInTheDocument();
   });
 
-  it('says when the missions cannot be read', async () => {
+  it('says when the problems cannot be read', async () => {
     stubApi({});
 
     renderWithProviders(<Missions />);
 
-    expect(await screen.findByText(/Cannot read the missions/)).toBeInTheDocument();
+    expect(await screen.findByText(/Cannot read the problems being followed/)).toBeInTheDocument();
   });
 });

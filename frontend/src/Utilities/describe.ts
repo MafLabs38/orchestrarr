@@ -424,3 +424,43 @@ export function describePlanRefusal(code: string): string {
     ? translate(planRefusals[code as keyof typeof planRefusals])
     : translate('PlanRefusalOther');
 }
+
+const flowStates = {
+  queued: 'FlowStateQueued',
+  inProgress: 'FlowStateWorking',
+  escalated: 'FlowStateEscalated',
+  closed: 'FlowStateDone',
+  failed: 'FlowStateFailed',
+  setAside: 'FlowStateSetAside',
+  inPlan: 'FlowStateInPlan',
+} as const;
+
+export function describeFlowState(state: string): string {
+  return Object.hasOwn(flowStates, state) ? translate(flowStates[state as keyof typeof flowStates]) : state;
+}
+
+const flowStepStates = {
+  notStarted: 'FlowStepNotStarted',
+  waiting: 'FlowStepWaiting',
+  running: 'FlowStepRunning',
+  reading: 'FlowStepReading',
+  done: 'FlowStepDone',
+  ended: 'FlowStepEnded',
+} as const;
+
+export function describeFlowStep(state: string): string {
+  return Object.hasOwn(flowStepStates, state) ? translate(flowStepStates[state as keyof typeof flowStepStates]) : state;
+}
+
+// How long ago, in the unit a person reads: seconds up to a minute, then minutes, then hours
+export function describeAge(milliseconds: number): string {
+  const seconds = Math.max(0, Math.round(milliseconds / 1000));
+  if (seconds < 60) {
+    return translate('FlowSeconds', { count: seconds });
+  }
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) {
+    return translate('FlowMinutes', { count: minutes });
+  }
+  return translate('FlowHours', { count: Math.floor(minutes / 60), minutes: minutes % 60 });
+}

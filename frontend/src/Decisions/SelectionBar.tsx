@@ -173,7 +173,7 @@ export default function SelectionBar({
         </label>
       ) : null}
       <Button type="submit" kind={kinds.PRIMARY} disabled={!canSubmit}>
-        {translate('ValidateSelection')}
+        {plan.isPending ? translate('PlanPlanning', { count: chosen.length }) : translate('ValidateSelection')}
       </Button>
     </form>
   );

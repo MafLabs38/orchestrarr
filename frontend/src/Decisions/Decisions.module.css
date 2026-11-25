@@ -9,12 +9,13 @@
 .filter {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   font-weight: 800;
 }
 
 .search {
-  min-width: 280px;
+  min-width: min(280px, 100%);
 }
 
 .filter select,

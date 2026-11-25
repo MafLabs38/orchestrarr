@@ -20,6 +20,15 @@ Optional: `LAB_BASE_BRANCH` (`develop`), `LAB_WORKDIR` (the clones, `~/.cache/or
 - The staging virtual machines are reset by their own tool, outside this repository (the staging lab), which also puts their hypervisor firewall back **before** a machine starts, because a restore brings back the network settings of the snapshot (ADR 0047); their state and their isolation are checked by the runner at each qualification and shown on the Missions screen.
 - Nothing here is a secret; the organisation and the token come from the environment.
 
+## A demo
+
+`lab/demo.sh` plants the faults of several cases together (`lab/scenarios/DEMO.json`: four dependency pull requests on one repository, two of which conflict with each other, two advisories, and the images of the seeds) and writes the findings of the fake source (`LAB_FINDINGS_FILE`). It ticks and validates nothing: a person does that on the screens, and follows the problems on the Missions screen.
+
+```bash
+export LAB_ORG=<test-bed organisation> GH_TOKEN=<token> LAB_FINDINGS_FILE=<the Missions:SandboxFindingsFile of the control plane>
+lab/demo.sh
+```
+
 ## Playing a scenario
 
 A scenario (`lab/scenarios/<case>.json`) names the faults to plant, the rows to tick and what must be true at the end. The runner does the whole case, the way the maintainer does it, and exits 0 only when every expectation holds:

@@ -15,3 +15,16 @@
 .spacer {
   flex: 1;
 }
+
+/* On a phone the header keeps what a person acts on (the live state, the bell, who is signed in): the name and where the data comes from go */
+@media (width <= 640px) {
+  .header {
+    gap: 6px;
+    padding: 0 10px;
+  }
+
+  .name,
+  .source {
+    display: none;
+  }
+}
