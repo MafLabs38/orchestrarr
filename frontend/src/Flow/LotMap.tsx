@@ -9,6 +9,9 @@ import { operationLook, operationTitle, placeName } from './operationState';
 
 const urgentFrom = 70;
 
+// What is over stays in sight for a while, the newest first: the earlier ones are counted, not drawn
+const outShown = 3;
+
 function Operation({ operation }: Readonly<{ operation: BoardOperation }>) {
   const look = operationLook(operation.state);
   const title = operationTitle(operation.title, operation.kind);
@@ -57,7 +60,8 @@ export default function LotMap({ lots, places }: Readonly<{ lots: BoardLot[]; pl
             {lot.repository.split('/').pop()}
           </span>
           {places.map((place) => {
-            const here = lot.operations.filter((operation) => operation.place === place);
+            const all = lot.operations.filter((operation) => operation.place === place);
+            const here = place === 'out' ? all.slice(0, outShown) : all;
             return (
               <div
                 key={place}
@@ -71,6 +75,9 @@ export default function LotMap({ lots, places }: Readonly<{ lots: BoardLot[]; pl
                       <Operation key={operation.problemId} operation={operation} />
                     ))}
                   </ul>
+                ) : null}
+                {all.length > here.length ? (
+                  <p className={styles.more}>{translate('FlowEarlier', { count: all.length - here.length })}</p>
                 ) : null}
               </div>
             );

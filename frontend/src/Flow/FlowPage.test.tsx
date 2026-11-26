@@ -43,6 +43,7 @@ const board: FlowBoard = {
           repository: 'orchestrarr-sandbox/shop-api',
           since: minutesAgo(2),
           reason: null,
+          operationKind: null,
         },
         {
           id: 'dresden',
@@ -53,6 +54,7 @@ const board: FlowBoard = {
           repository: null,
           since: minutesAgo(9),
           reason: 'the qualification failed: disk',
+          operationKind: null,
         },
       ],
       inProcess: 1,
@@ -71,6 +73,7 @@ const board: FlowBoard = {
           repository: null,
           since: null,
           reason: null,
+          operationKind: null,
         },
       ],
       inProcess: 0,
@@ -142,6 +145,21 @@ describe('FlowPage', () => {
       ),
     ).toBeInTheDocument();
     expect(screen.getByRole('cell', { name: 'orchestrarr-sandbox/ledger-worker · Forge' })).toBeEmptyDOMElement();
+  });
+
+  it('keeps the newest of what is over in sight and counts the earlier ones', async () => {
+    const out = Array.from({ length: 5 }, (_, index) =>
+      operation(`p-out-${index}`, 'out', 'done', { title: `done ${index}` }),
+    );
+    stubApi({
+      '/api/v1/flow/board': { ...board, lots: [{ repository: 'orchestrarr-sandbox/shop-api', operations: out }] },
+    });
+
+    renderWithProviders(<FlowPage />);
+
+    const cell = await screen.findByRole('cell', { name: 'orchestrarr-sandbox/shop-api · Out' });
+    expect(within(cell).getAllByRole('listitem')).toHaveLength(3);
+    expect(within(cell).getByText('and 2 earlier')).toBeInTheDocument();
   });
 
   it('says that the flow is empty when no operation was validated', async () => {

@@ -615,5 +615,7 @@
   "EquipmentInProcess": "in process",
   "EquipmentIdle": "idle",
   "EquipmentQualifying": "qualifying",
-  "EquipmentDown": "down"
+  "EquipmentDown": "down",
+  "FlowTitlePipelineRed": "the pipeline is red",
+  "FlowEarlier": "and {count} earlier"
 }

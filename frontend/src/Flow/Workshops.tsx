@@ -22,8 +22,10 @@ function Equipment({ equipment }: Readonly<{ equipment: BoardEquipment }>) {
       </div>
       {equipment.title ? (
         <p className={styles.on} title={equipment.title}>
-          {operationTitle(equipment.title, null)}
-          {equipment.repository ? <span className={styles.repository}> · {equipment.repository}</span> : null}
+          {operationTitle(equipment.title, equipment.operationKind)}
+          {equipment.repository ? (
+            <span className={styles.repository}> · {equipment.repository.split('/').pop()}</span>
+          ) : null}
         </p>
       ) : null}
       {equipment.reason ? <p className={styles.reason}>{equipment.reason}</p> : null}

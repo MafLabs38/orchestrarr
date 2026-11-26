@@ -497,6 +497,7 @@ export interface BoardEquipment {
   repository: string | null;
   since: string | null;
   reason: string | null;
+  operationKind: string | null;
 }
 
 export type OperationState =

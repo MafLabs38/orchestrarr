@@ -44,6 +44,21 @@ public sealed class FlowBoardTests
     }
 
     [Fact]
+    public void A_row_ticked_again_is_shown_once_as_its_new_run()
+    {
+        var flow = new[]
+        {
+            Problem("p-again", "o/one", "queued", new FlowActivity("waiting", null, T0, new FlowWaiting("turn", null))),
+            Problem("p-again", "o/one", "closed"),
+        };
+
+        var board = Board(flow);
+
+        board.Lots.Single().Operations.Should().ContainSingle().Which.Place.Should().Be("queue");
+        board.Counters.Done.Should().Be(0);
+    }
+
+    [Fact]
     public void A_lot_shows_what_is_worked_on_first_then_its_line_in_the_order_of_the_route_then_what_is_over()
     {
         var flow = new[]

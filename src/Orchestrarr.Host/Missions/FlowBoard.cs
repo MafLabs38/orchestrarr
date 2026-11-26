@@ -7,7 +7,7 @@ namespace Orchestrarr.Host.Missions;
 /// One piece of equipment of a workshop (ADR 0056): a lab machine, or a slot of the forge, which has no machine. Its state is said in the words of a fab: <c>inProcess</c> (productive), <c>idle</c> (standby), <c>qualifying</c> (being restored
 /// and checked, or waiting to be), <c>down</c> (unscheduled downtime, with its reason). What it works on is the operation of the mission that holds it.
 /// </summary>
-public sealed record BoardEquipment(string Id, string Kind, string State, string? ProblemId, string? Title, string? Repository, DateTimeOffset? Since, string? Reason);
+public sealed record BoardEquipment(string Id, string Kind, string State, string? ProblemId, string? Title, string? Repository, DateTimeOffset? Since, string? Reason, string? OperationKind = null);
 
 /// <summary>A workshop (a world): its equipment, how many operations it works on now, how many wait in front of it, and why they wait (the codes of <see cref="FlowWaiting"/>, each once).</summary>
 public sealed record BoardWorkshop(string World, IReadOnlyList<BoardEquipment> Equipment, int InProcess, int Waiting, IReadOnlyList<string> Why);
@@ -35,8 +35,10 @@ internal static class FlowBoard
     internal const string Queue = "queue";
     internal const string Out = "out";
 
-    internal static FlowBoardView Build(IReadOnlyList<FlowProblem> flow, IReadOnlyList<Machine> machines, IReadOnlyList<Mission> missions, Func<string, int> lanesOf)
+    internal static FlowBoardView Build(IReadOnlyList<FlowProblem> all, IReadOnlyList<Machine> machines, IReadOnlyList<Mission> missions, Func<string, int> lanesOf)
     {
+        // A row ticked again is the same problem: its new run (in the line or in process, which the flow lists first) is the one shown, not the run before it that is over
+        var flow = all.DistinctBy(problem => problem.ProblemId, StringComparer.Ordinal).ToList();
         var missionById = missions.GroupBy(mission => mission.Id, StringComparer.Ordinal).ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
         var byProblem = flow.ToDictionary(problem => problem.ProblemId, StringComparer.Ordinal);
         var operations = flow.Select(problem => OperationOf(problem, machines)).ToList();
@@ -134,7 +136,7 @@ internal static class FlowBoard
             // The forge has no machine: its equipment is its slots (the lanes the runners said they work on at once), filled by the operations it works on; with no lane said, one slot per operation at work
             var slots = Math.Max(lanes, working.Count);
             equipment = [.. Enumerable.Range(0, slots).Select(index => index < working.Count
-                ? new BoardEquipment($"slot-{index + 1}", "slot", "inProcess", working[index].ProblemId, working[index].Title, working[index].Repository, working[index].Since, null)
+                ? new BoardEquipment($"slot-{index + 1}", "slot", "inProcess", working[index].ProblemId, working[index].Title, working[index].Repository, working[index].Since, null, working[index].Kind)
                 : new BoardEquipment($"slot-{index + 1}", "slot", "idle", null, null, null, null, null))];
         }
         return new BoardWorkshop(world, equipment, working.Count, waiting.Count, [.. waiting.Select(operation => operation.State).Distinct(StringComparer.Ordinal)]);
@@ -151,6 +153,6 @@ internal static class FlowBoard
             _ => "qualifying",
         };
         var problem = machine.MissionId is { } id && missionById.TryGetValue(id, out var mission) && byProblem.TryGetValue(mission.ProblemId, out var found) ? found : null;
-        return new BoardEquipment(machine.Id, "machine", state, problem?.ProblemId, problem?.Title, problem?.Repository, machine.Since, machine.State == MachineState.Down ? machine.Reason : null);
+        return new BoardEquipment(machine.Id, "machine", state, problem?.ProblemId, problem?.Title, problem?.Repository, machine.Since, machine.State == MachineState.Down ? machine.Reason : null, problem?.Kind);
     }
 }

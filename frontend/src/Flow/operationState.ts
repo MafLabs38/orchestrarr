@@ -71,7 +71,13 @@ export function placeName(place: string): string {
 
 // What the table says of an alert row is a number (the count of the alerts): it is told as what it is
 export function operationTitle(title: string, kind: string | null): string {
-  return kind === 'DependencyAlert' && /^\d+$/.test(title) ? translate('FlowTitleAlerts', { count: title }) : title;
+  if (!/^\d+$/.test(title)) {
+    return title;
+  }
+  if (kind === 'DependencyAlert') {
+    return translate('FlowTitleAlerts', { count: title });
+  }
+  return kind === 'FailingCi' ? translate('FlowTitlePipelineRed') : title;
 }
 
 // What a problem that is not over does now, in the words of the Flow screen (the same rule as the factory view of the host): null when it is over
