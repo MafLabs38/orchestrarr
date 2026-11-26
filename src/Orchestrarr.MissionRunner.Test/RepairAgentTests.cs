@@ -152,7 +152,6 @@ public sealed class RepairAgentTests : IDisposable
     }
 
     [Theory]
-    [InlineData("package.json\n")]
     [InlineData("server.js\nCLAUDE.md\n")]
     [InlineData("test/api.test.js\n")]
     [InlineData("a file with spaces.js\n")]

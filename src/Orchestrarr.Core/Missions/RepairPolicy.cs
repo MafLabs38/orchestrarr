@@ -15,9 +15,7 @@ public static partial class RepairPolicy
 
     public static readonly IReadOnlyList<string> ProtectedPaths =
     [
-        // Dependencies: the change under repair is a bump, it is not the agent's to widen, pin or undo
-        "**/package.json", "**/package-lock.json", "**/yarn.lock", "**/pnpm-lock.yaml", "**/.npmrc", "**/requirements*.txt", "**/Pipfile*", "**/poetry.lock", "**/pyproject.toml", "**/setup.py", "**/setup.cfg",
-        "**/*.csproj", "**/Directory.Packages.props", "**/Directory.Build.*", "**/go.mod", "**/go.sum", "**/Cargo.toml", "**/Cargo.lock", "**/pom.xml", "**/*.gradle*", "**/Gemfile*", "**/composer.*",
+        // The dependencies are not among them (the maintainer, 2026-11-26, ADR 0055): a bump that needs a companion one (a library that requires a newer version of another) is repaired as a developer would, by raising it too
         // What decides whether it passes
         "test/**", "tests/**", "**/test/**", "**/tests/**", "**/__tests__/**", "**/*.test.*", "**/*.spec.*", "**/test_*.py", "**/*_test.py", "**/conftest.py", "**/pytest.ini", "**/tox.ini", "**/.mocharc*", "**/jest.config.*", "**/vitest.config.*",
         "**/.eslintrc*", "**/eslint.config.*", "**/tsconfig*.json", "**/Makefile",
@@ -25,7 +23,7 @@ public static partial class RepairPolicy
         ".git/**", "**/.git/**", "**/.claude/**", "**/CLAUDE.md", "**/CLAUDE.local.md", "**/.mcp.json", "**/.gitattributes", "**/.gitmodules",
         // The other ecosystems and forges: their tests, their pipelines, their runtimes and their package managers' settings. The list is a floor, not an inventory: a repair of a source that none of these names is still bounded by the limits and by the pipeline
         "**/*_test.go", "**/*.Tests/**", "**/*.Test/**", "**/*Tests.cs", "**/*Test.cs", "**/*Test.java", "**/*Tests.java", "spec/**", "**/spec/**", "**/*_spec.rb", "**/__snapshots__/**",
-        "**/.nvmrc", "**/.node-version", "**/.python-version", "**/.tool-versions", "**/.yarnrc*", "**/.pnpmfile.cjs", "**/pnpm-workspace.yaml", "**/pip.conf", "**/NuGet.config", "**/global.json", "**/dotnet-tools.json", "**/*.sln*", "**/Pipfile", "**/*.lock", "**/packages.lock.json",
+        "**/.nvmrc", "**/.node-version", "**/.python-version", "**/.tool-versions", "**/.yarnrc*", "**/.pnpmfile.cjs", "**/pnpm-workspace.yaml", "**/.npmrc", "**/pip.conf", "**/NuGet.config", "**/global.json", "**/dotnet-tools.json", "**/*.sln*",
         "**/jest.setup.*", "**/vitest.setup.*", "**/setupTests.*", "**/babel.config.*", "**/.babelrc*", "**/vite.config.*", "**/webpack.config.*", "**/rollup.config.*", "**/karma.conf.*", "**/playwright.config.*", "**/cypress/**", "**/e2e/**", "**/.husky/**", "**/.pre-commit-config.yaml", "**/*.snap", ".gitlab/**",
     ];
 

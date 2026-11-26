@@ -976,7 +976,7 @@ public sealed class MissionWorldsApiTests
     }
 
     [Theory]
-    [InlineData("package.json")]
+    [InlineData("CLAUDE.md")]
     [InlineData(".github/workflows/ci.yml")]
     [InlineData("test/api.test.js")]
     [InlineData("../server.js")]

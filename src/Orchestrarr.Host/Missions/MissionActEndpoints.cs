@@ -215,8 +215,9 @@ internal static class MissionActEndpoints
     }
 
     // Only a pipeline that is not over yet is worth asking again about: a red one, or any other check that failed, is final
+    // A pull request that was just opened has the checks of its push and none yet of the pull request: the forge reads green while the result that counts is not known. Only a red pipeline is a reason not to wait (ADR 0055)
     private static bool WaitingForPipeline(ActAuthorisation authorisation, ChecksState checks) =>
-        checks is ChecksState.Pending or ChecksState.Unknown or ChecksState.NotRun && authorisation.Failures.Count > 0
+        checks is not ChecksState.Failing && authorisation.Failures.Count > 0
         && authorisation.Failures.All(failure => failure is PreconditionFailure.CiNotGreenOnExactCommit or PreconditionFailure.CiResultNotKnown);
 
     private static string Describe(ActAuthorisation authorisation) =>

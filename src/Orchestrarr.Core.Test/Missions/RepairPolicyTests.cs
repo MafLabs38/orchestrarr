@@ -5,16 +5,12 @@ namespace Orchestrarr.Core.Test.Missions;
 public sealed class RepairPolicyTests
 {
     [Theory]
-    [InlineData("package.json")]
-    [InlineData("app/package-lock.json")]
-    [InlineData("requirements.txt")]
     [InlineData("test/api.test.js")]
     [InlineData("src/__tests__/a.js")]
     [InlineData("tests/test_app.py")]
     [InlineData("app/test_models.py")]
     [InlineData("CLAUDE.md")]
     [InlineData(".claude/settings.json")]
-    [InlineData("pyproject.toml")]
     [InlineData("pkg/handler_test.go")]
     [InlineData("src/App.Tests/OrderTests.cs")]
     [InlineData("spec/models/order_spec.rb")]
@@ -62,7 +58,8 @@ public sealed class RepairPolicyTests
     {
         RepairPolicy.Refusal([new PatchedFile("server.js", "ok")]).Should().BeNull();
         RepairPolicy.Refusal([]).Should().Contain("between 1 and");
-        RepairPolicy.Refusal([new PatchedFile("package.json", "{}")]).Should().Contain("protected");
+        RepairPolicy.Refusal([new PatchedFile("test/api.test.js", "x")]).Should().Contain("protected");
+        RepairPolicy.Refusal([new PatchedFile("requirements.txt", "urllib3==2.2.3")]).Should().BeNull("a companion dependency is raised as a developer would (ADR 0055)");
         RepairPolicy.Refusal([new PatchedFile("a.js", "x"), new PatchedFile("a.js", "y")]).Should().Contain("twice");
         RepairPolicy.Refusal([new PatchedFile("a.js", new string('x', RepairPolicy.MaxFileBytes + 1))]).Should().Contain("too big");
         RepairPolicy.Refusal([new PatchedFile("a.js", "bin\0ary")]).Should().Contain("not text");
