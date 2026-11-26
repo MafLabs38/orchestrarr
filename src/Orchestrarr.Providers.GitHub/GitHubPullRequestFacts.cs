@@ -6,7 +6,7 @@ using Orchestrarr.Core.Forge;
 namespace Orchestrarr.Providers.GitHub;
 
 /// <summary>Reads one pull request from GitHub's REST API: its head and base commits, the checks of the head and the paths that change. Read-only, redirects never followed, the token goes to the configured address only.</summary>
-public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefaultBranchSource, IBranchSource
+public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefaultBranchSource, IBranchSource, IPipelineFailures
 {
     private const int MaxPages = 10;
 
@@ -110,6 +110,51 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefault
 
     [GeneratedRegex("^[0-9a-f]{40}$", RegexOptions.None, 250)]
     private static partial Regex Sha();
+
+    // The last run of each workflow of the repository on its default branch, newest first as the forge lists them; the forge's own jobs (`dynamic/...`) are not the repository's pipelines
+    async Task<IReadOnlyList<string>> IPipelineFailures.ReadAsync(string repositoryFullName, CancellationToken cancellationToken)
+    {
+        if (await ReadAsync(repositoryFullName, cancellationToken) is not { } head)
+        {
+            return [];
+        }
+        try
+        {
+            using var runs = await GetAsync($"repos/{repositoryFullName}/actions/runs?branch={Uri.EscapeDataString(head.Branch)}&exclude_pull_requests=true&per_page=100", cancellationToken);
+            if (runs is null || !runs.RootElement.TryGetProperty("workflow_runs", out var list))
+            {
+                return [];
+            }
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            var failing = new List<string>();
+            foreach (var run in list.EnumerateArray())
+            {
+                if (!run.TryGetProperty("path", out var pathValue) || pathValue.GetString() is not { Length: > 0 } path || path.StartsWith("dynamic/", StringComparison.Ordinal)
+                    || run.GetProperty("status").GetString() != "completed" || !seen.Add(path))
+                {
+                    continue;
+                }
+                var conclusion = run.TryGetProperty("conclusion", out var ended) ? ended.GetString() : null;
+                if (conclusion is "failure" or "timed_out" or "startup_failure" or "cancelled" or "action_required")
+                {
+                    var name = run.TryGetProperty("name", out var runName) ? runName.GetString() : null;
+                    failing.Add(Plain($"pipeline {path}{(name is { Length: > 0 } ? $" ({name})" : "")}: its last run on {head.Branch} ended {conclusion}"));
+                }
+            }
+            return failing;
+        }
+        catch (Exception failure) when (failure is HttpRequestException or JsonException or KeyNotFoundException or InvalidOperationException || failure is TaskCanceledException && !cancellationToken.IsCancellationRequested)
+        {
+            return [];
+        }
+    }
+
+    // One line of plain text, bounded: what the forge says is data for an agent, never a fence or a page
+    private static string Plain(string value)
+    {
+        var flat = value.ReplaceLineEndings(" ").Replace("<", " ", StringComparison.Ordinal).Replace(">", " ", StringComparison.Ordinal).Trim();
+        return flat.Length <= 300 ? flat : flat[..300];
+    }
 
     public async Task<string?> HeadOfAsync(string repositoryFullName, string branch, CancellationToken cancellationToken)
     {

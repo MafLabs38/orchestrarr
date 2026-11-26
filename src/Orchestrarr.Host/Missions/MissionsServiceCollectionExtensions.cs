@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using Orchestrarr.Core.Approvals;
 using Orchestrarr.Core.Launch;
 using Orchestrarr.Core.Machines;
+using Orchestrarr.Core.Forge;
 using Orchestrarr.Core.Missions;
 using Orchestrarr.Host.Agents;
 using Orchestrarr.Host.Storage;
@@ -65,6 +66,7 @@ internal static class MissionsServiceCollectionExtensions
                 provider.GetRequiredService<MandateSigner>(), provider.GetRequiredService<MissionStores>(), provider.GetRequiredService<PowerSources>(), provider.GetRequiredService<ConductorServices>(), options.Conductor(), provider.GetRequiredService<ProblemLocks>()));
         services.AddSingleton<MissionProgress>();
         services.TryAddSingleton<IDependencyFindings>(_ => new NoDependencyFindings());
+        services.TryAddSingleton<IPipelineFailures>(_ => new NoPipelineFailures());
         if (options.Machines.Length > 0)
         {
             services.AddMachines(options, storage);

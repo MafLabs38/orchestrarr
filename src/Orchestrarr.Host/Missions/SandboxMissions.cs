@@ -293,6 +293,7 @@ internal static class SandboxMissionsExtensions
             .AddSingleton<IPullRequestFacts>(_ => githubFacts.Value is { } facts ? facts : new NoPullRequestFacts())
             .AddSingleton<IDefaultBranchSource>(_ => githubFacts.Value is { } facts ? facts : new NoDefaultBranchSource())
             .AddSingleton<IBranchSource>(_ => githubFacts.Value is { } facts ? facts : new NoBranchSource())
+            .AddSingleton<IPipelineFailures>(_ => githubFacts.Value is { } facts ? facts : new NoPipelineFailures())
             .AddSingleton<IForgeActs>(_ => string.IsNullOrWhiteSpace(missions.SandboxMergeToken) ? new NoForgeActs() : new GuardedForgeActs(GitHubForgeActs.Create(github.WithToken(missions.SandboxMergeToken)), missions.SandboxMergeRepositories))
             .AddSingleton<IFactsSource, SandboxFacts>()
             .AddSingleton<IDependencyFindings>(_ => string.IsNullOrWhiteSpace(missions.SandboxFindingsFile) ? new NoDependencyFindings() : new FileDependencyFindings(missions.SandboxFindingsFile));

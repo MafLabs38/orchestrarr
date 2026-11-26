@@ -104,6 +104,21 @@ public sealed class NoDefaultBranchSource : IDefaultBranchSource
     public Task<DefaultBranchHead?> ReadAsync(string repositoryFullName, CancellationToken cancellationToken) => Task.FromResult<DefaultBranchHead?>(null);
 }
 
+/// <summary>
+/// The pipelines that are red on the default branch of a repository, read from the forge: for each workflow of the repository, its last run on that branch, when it did not pass (a red pipeline is a problem whose
+/// worker must know **which** pipeline to repair, ADR 0055). One plain line each (the file of the workflow, its name, how it ended). The forge's own jobs are not the repository's pipelines. Empty when nothing can be read.
+/// </summary>
+public interface IPipelineFailures
+{
+    Task<IReadOnlyList<string>> ReadAsync(string repositoryFullName, CancellationToken cancellationToken);
+}
+
+/// <summary>Used when no forge is connected.</summary>
+public sealed class NoPipelineFailures : IPipelineFailures
+{
+    public Task<IReadOnlyList<string>> ReadAsync(string repositoryFullName, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<string>>([]);
+}
+
 /// <summary>One file of what a branch changes, as the forge says it (never as a runner says it): the path, what happened to it, how many lines, and the patch when the forge gives one.</summary>
 public sealed record BranchFile(string Path, string Status, int Changes, string? Patch);
 

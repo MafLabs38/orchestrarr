@@ -250,6 +250,31 @@ public sealed class GitHubPullRequestFactsTests
         change.BehindBy.Should().Be(1, "a forge that does not say how far behind it is counts as behind");
     }
 
+    [Fact]
+    public async Task The_red_pipelines_of_the_default_branch_are_the_last_run_of_each_workflow_that_did_not_pass_and_never_the_forges_own_jobs()
+    {
+        _routes["/repos/example/app"] = """{ "default_branch": "develop" }""";
+        _routes["/repos/example/app/branches/develop"] = $$"""{ "commit": { "sha": "{{Head}}" } }""";
+        _routes["/repos/example/app/actions/runs"] = """
+            { "workflow_runs": [
+                { "path": ".github/workflows/build.yml", "name": "build", "status": "completed", "conclusion": "success" },
+                { "path": ".github/workflows/build.yml", "name": "build", "status": "completed", "conclusion": "failure" },
+                { "path": ".github/workflows/deploy.yml", "name": "deploy", "status": "completed", "conclusion": "timed_out" },
+                { "path": ".github/workflows/lint.yml", "name": "lint", "status": "in_progress", "conclusion": null },
+                { "path": ".github/workflows/lint.yml", "name": "lint <b>", "status": "completed", "conclusion": "failure" },
+                { "path": "dynamic/dependabot/update-graph", "name": "graph", "status": "completed", "conclusion": "failure" } ] }
+            """;
+
+        var red = await ((IPipelineFailures)Facts()).ReadAsync("example/app", TestContext.Current.CancellationToken);
+
+        red.Should().HaveCount(2, "the last run of build passed, the forge's job is not a pipeline of the repository");
+        red.Should().Contain(line => line.Contains(".github/workflows/deploy.yml", StringComparison.Ordinal) && line.Contains("timed_out", StringComparison.Ordinal));
+        red.Should().Contain(line => line.Contains(".github/workflows/lint.yml", StringComparison.Ordinal) && !line.Contains('<'), "a run that is not over says nothing yet, and what the forge says is plain text");
+
+        _routes.Remove("/repos/example/app/actions/runs");
+        (await ((IPipelineFailures)Facts()).ReadAsync("example/app", TestContext.Current.CancellationToken)).Should().BeEmpty("nothing that cannot be read is guessed");
+    }
+
     private sealed class Handler(Dictionary<string, string> routes) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
