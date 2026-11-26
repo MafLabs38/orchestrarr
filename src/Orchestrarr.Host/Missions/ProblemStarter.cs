@@ -54,7 +54,7 @@ internal sealed class ProblemStarter(IServiceProvider services, MissionsOptions 
                         _ = await audit.RecordAsync(MissionAuditEvents.ProblemFollowedBot, entry.ProblemId, $"the bot made the pull request again: the work follows its new head {Short(verdict.Head)}", CancellationToken.None);
                         break;
                     case Freshness.NeedsRebase:
-                        _ = line.Enqueue(new QueuedProblem(one.RowId, entry, time.GetUtcNow()));
+                        _ = line.Enqueue(new QueuedProblem(one.RowId, verdict.Head is { } newer ? entry with { HeadSha = newer } : entry, time.GetUtcNow()));
                         await ParkAsync(entry, verdict.Reason!, null, cancellationToken);
                         return new ValidatedProblem(one.RowId, entry.ProblemId, null, null, null, Queued: true);
                     default:
@@ -145,6 +145,12 @@ internal sealed class ProblemStarter(IServiceProvider services, MissionsOptions 
                     await PutAsideAsync(entry, verdict.Reason!, cancellationToken);
                     break;
                 case Freshness.NeedsRebase:
+                    // A new head is the bot answering: the wait starts again from it (a bot that keeps up with a base that keeps moving is not put aside for it)
+                    if (verdict.Head is { } newer)
+                    {
+                        _ = line.Replace(id, entry with { HeadSha = newer });
+                        _ = parking.Release(id);
+                    }
                     await ParkAsync(entry, verdict.Reason!, parking.Get(id), cancellationToken);
                     break;
                 case Freshness.Followed:

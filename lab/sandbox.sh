@@ -192,6 +192,7 @@ cmd_reset() {
 }
 
 # A scenario lists faults to plant: {"plants": [{"repo", "branch", "title", "body", "kind": "npm-bump"|"patch", ...}]}
+#   pip-bump: "package", "from", "version" (a pinned line of requirements.txt)
 #   npm-bump: "package", "from", "version"  (the version the seed holds, checked; the lock file follows), "patches" (optional: files next to the scenario, applied with git apply)
 #   patch: "patch" (a file next to the scenario, applied with git apply)
 plant_one() {
@@ -228,6 +229,16 @@ plant_one() {
         if [ -n "${REBASE:-}" ]; then git -C "$dir" apply "$(dirname "$scenario")/$patch" 2>/dev/null || echo "$repo: the base already holds the change that $patch carries: dropped"; continue; fi
         git -C "$dir" apply "$(dirname "$scenario")/$patch"
       done ;;
+    pip-bump)
+      # what a bot does to a pinned Python requirement: the line of the package in requirements.txt says the new version
+      local package from to current
+      package=$(jq -r .package <<<"$item"); from=$(jq -r .from <<<"$item"); to=$(jq -r .version <<<"$item")
+      [[ "$package" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || { echo "refused: '$package' is not a package name" >&2; return 1; }
+      [[ "$to" =~ ^[0-9]+(\.[0-9]+)*$ ]] || { echo "refused: '$to' is not a version" >&2; return 1; }
+      current=$(grep -iE "^${package}==" "$dir/requirements.txt" | head -1 | cut -d= -f3)
+      [ -n "$current" ] || { echo "$repo: $package is not pinned in requirements.txt" >&2; return 1; }
+      [ -n "${REBASE:-}" ] || [ "$current" = "$from" ] || { echo "$repo: $package is $current in the seed, the scenario says $from" >&2; return 1; }
+      sed -i -E "s/^(${package})==.*$/\1==${to}/I" "$dir/requirements.txt" ;;
     patch)
       local patch; patch=$(jq -r .patch <<<"$item"); valid_name "$patch"
       git -C "$dir" apply "$(dirname "$scenario")/$patch" ;;

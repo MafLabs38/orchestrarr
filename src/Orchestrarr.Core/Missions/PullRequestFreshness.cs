@@ -18,7 +18,7 @@ public enum Freshness
     Left,
 }
 
-/// <summary>The verdict, with the head to follow (Followed) or the reason in words (NeedsRebase, Left).</summary>
+/// <summary>The verdict, with the head to follow (Followed, and NeedsRebase when the bot made a new head that is not yet on the base as it is now) and the reason in words (NeedsRebase, Left).</summary>
 public sealed record FreshnessVerdict(Freshness Kind, string? Head, string? Reason);
 
 /// <summary>
@@ -46,18 +46,18 @@ public static class PullRequestFreshness
             return new FreshnessVerdict(Freshness.Left, null, "the pull request is closed (its bot closes a pull request that another change made useless)");
         }
         var bot = isBot(facts.Author);
-        if (!string.Equals(facts.HeadSha, entry.HeadSha, StringComparison.Ordinal))
+        var moved = !string.Equals(facts.HeadSha, entry.HeadSha, StringComparison.Ordinal);
+        if (moved && !bot)
         {
-            return bot
-                ? new FreshnessVerdict(Freshness.Followed, facts.HeadSha, null)
-                : new FreshnessVerdict(Freshness.Left, null, "the pull request moved since the maintainer ticked it and it is not a bot's: it is ticked again on the commit it is at");
+            return new FreshnessVerdict(Freshness.Left, null, "the pull request moved since the maintainer ticked it and it is not a bot's: it is ticked again on the commit it is at");
         }
-        // The merge state is worked out by the forge lazily, a while after the base moved: how far behind the base the head is, is known at once, and is the one that says that a merge has just moved the base
+        // The merge state is worked out by the forge lazily, a while after the base moved: how far behind the base the head is, is known at once, and is the one that says that a merge has just moved the base. A new head that
+        // the bot made is followed only once it is on the base as it is now: a bot that made it again on a base that moved since is asked again (the head is followed meanwhile)
         var behind = facts.BehindBy is > 0 || facts.Merge == MergeState.Behind;
         if ((behind || facts.Merge == MergeState.Conflicting) && bot)
         {
-            return new FreshnessVerdict(Freshness.NeedsRebase, null, facts.Merge == MergeState.Conflicting ? "it conflicts with its base branch" : "it is behind its base branch");
+            return new FreshnessVerdict(Freshness.NeedsRebase, moved ? facts.HeadSha : null, facts.Merge == MergeState.Conflicting ? "it conflicts with its base branch" : "it is behind its base branch");
         }
-        return new FreshnessVerdict(Freshness.Ready, null, null);
+        return moved ? new FreshnessVerdict(Freshness.Followed, facts.HeadSha, null) : new FreshnessVerdict(Freshness.Ready, null, null);
     }
 }

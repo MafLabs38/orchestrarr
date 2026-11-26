@@ -57,6 +57,15 @@ public sealed class PullRequestFreshnessTests
     }
 
     [Fact]
+    public void A_new_head_that_the_bot_made_on_a_base_that_has_moved_since_is_followed_but_waits_for_another_rebase()
+    {
+        var verdict = PullRequestFreshness.Of(Entry(), Facts(head: Newer, merge: MergeState.Unknown, behindBy: 1), IsBot);
+
+        verdict.Kind.Should().Be(Freshness.NeedsRebase);
+        verdict.Head.Should().Be(Newer);
+    }
+
+    [Fact]
     public void A_new_head_that_is_not_a_bots_is_never_followed()
     {
         PullRequestFreshness.Of(Entry(), Facts(head: Newer, author: "mallory"), IsBot).Kind.Should().Be(Freshness.Left);

@@ -19,6 +19,86 @@
       "patches": [
         "CASE-02-node-22.patch"
       ]
+    },
+    {
+      "repo": "ledger-worker",
+      "branch": "lab/bump-jinja2",
+      "kind": "pip-bump",
+      "package": "Jinja2",
+      "from": "2.11.3",
+      "version": "3.1.6",
+      "title": "build(deps): bump jinja2 from 2.11.3 to 3.1.6",
+      "body": "A bump of a pinned requirement, as a dependency bot opens it. A major version: the code or a companion library may have to follow."
+    },
+    {
+      "repo": "ledger-worker",
+      "branch": "lab/bump-markupsafe",
+      "kind": "pip-bump",
+      "package": "MarkupSafe",
+      "from": "1.1.1",
+      "version": "3.0.2",
+      "title": "build(deps): bump markupsafe from 1.1.1 to 3.0.2",
+      "body": "A bump of a pinned requirement, as a dependency bot opens it. A major version: the code or a companion library may have to follow."
+    },
+    {
+      "repo": "ledger-worker",
+      "branch": "lab/bump-click",
+      "kind": "pip-bump",
+      "package": "click",
+      "from": "7.1.2",
+      "version": "8.1.8",
+      "title": "build(deps): bump click from 7.1.2 to 8.1.8",
+      "body": "A bump of a pinned requirement, as a dependency bot opens it. A major version: the code or a companion library may have to follow."
+    },
+    {
+      "repo": "ledger-worker",
+      "branch": "lab/bump-itsdangerous",
+      "kind": "pip-bump",
+      "package": "itsdangerous",
+      "from": "1.1.0",
+      "version": "2.2.0",
+      "title": "build(deps): bump itsdangerous from 1.1.0 to 2.2.0",
+      "body": "A bump of a pinned requirement, as a dependency bot opens it. A major version: the code or a companion library may have to follow."
+    },
+    {
+      "repo": "ledger-worker",
+      "branch": "lab/bump-pyyaml",
+      "kind": "pip-bump",
+      "package": "PyYAML",
+      "from": "5.3",
+      "version": "6.0.2",
+      "title": "build(deps): bump pyyaml from 5.3 to 6.0.2",
+      "body": "A bump of a pinned requirement, as a dependency bot opens it. A major version: the code or a companion library may have to follow."
+    },
+    {
+      "repo": "ledger-worker",
+      "branch": "lab/bump-pytest",
+      "kind": "pip-bump",
+      "package": "pytest",
+      "from": "6.2.5",
+      "version": "8.3.5",
+      "title": "build(deps): bump pytest from 6.2.5 to 8.3.5",
+      "body": "A bump of a pinned requirement, as a dependency bot opens it. A major version: the code or a companion library may have to follow."
+    },
+    {
+      "repo": "ledger-worker",
+      "branch": "lab/bump-urllib3",
+      "kind": "pip-bump",
+      "package": "urllib3",
+      "from": "1.23",
+      "version": "1.26.20",
+      "title": "build(deps): bump urllib3 from 1.23 to 1.26.20",
+      "body": "A bump of a pinned requirement, as a dependency bot opens it."
+    },
+    {
+      "repo": "shop-api",
+      "branch": "lab/bump-mocha",
+      "kind": "npm-bump",
+      "package": "mocha",
+      "from": "8.0.1",
+      "version": "10.8.2",
+      "title": "build(deps-dev): bump mocha from 8.0.1 to 10.8.2",
+      "body": "A major bump of the test runner, as a dependency bot opens it."
     }
   ],
   "findings": {

@@ -249,12 +249,13 @@ public sealed class StagingProofTests
     }
 
     [Fact]
-    public async Task A_repository_with_nothing_to_build_is_handed_over_as_complex()
+    public async Task A_repository_with_nothing_to_build_is_proved_by_its_pipeline_and_says_so()
     {
         var dossier = await new StagingProof(Machine("README.md\n"), Options()).RunAsync(Mission(), _ => Task.CompletedTask, Ct);
 
-        dossier.Complex.Should().BeTrue();
-        dossier.ComplexReason.Should().Contain("No build recipe");
+        dossier.Complex.Should().BeFalse();
+        dossier.EvidenceDigests.Should().Contain("build:none");
+        dossier.Claim.Should().Contain("proved by its pipeline");
     }
 
     [Fact]
