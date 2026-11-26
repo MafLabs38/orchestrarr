@@ -296,6 +296,9 @@ internal static class SandboxMissionsExtensions
             .AddSingleton<IPipelineFailures>(_ => githubFacts.Value is { } facts ? facts : new NoPipelineFailures())
             .AddSingleton<IForgeActs>(_ => string.IsNullOrWhiteSpace(missions.SandboxMergeToken) ? new NoForgeActs() : new GuardedForgeActs(GitHubForgeActs.Create(github.WithToken(missions.SandboxMergeToken)), missions.SandboxMergeRepositories))
             .AddSingleton<IFactsSource, SandboxFacts>()
-            .AddSingleton<IDependencyFindings>(_ => string.IsNullOrWhiteSpace(missions.SandboxFindingsFile) ? new NoDependencyFindings() : new FileDependencyFindings(missions.SandboxFindingsFile));
+            // What the lab planted for a repository wins (its fake advisories, the grain of sand); else what the forge says of the alerts of the repository
+            .AddSingleton<IDependencyFindings>(_ => new FirstDependencyFindings([
+                string.IsNullOrWhiteSpace(missions.SandboxFindingsFile) ? new NoDependencyFindings() : new FileDependencyFindings(missions.SandboxFindingsFile),
+                githubFacts.Value is { } facts ? facts : new NoDependencyFindings()]));
     }
 }

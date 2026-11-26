@@ -6,7 +6,7 @@ using Orchestrarr.Core.Forge;
 namespace Orchestrarr.Providers.GitHub;
 
 /// <summary>Reads one pull request from GitHub's REST API: its head and base commits, the checks of the head and the paths that change. Read-only, redirects never followed, the token goes to the configured address only.</summary>
-public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefaultBranchSource, IBranchSource, IPipelineFailures
+public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefaultBranchSource, IBranchSource, IPipelineFailures, Orchestrarr.Core.Missions.IDependencyFindings
 {
     private const int MaxPages = 10;
 
@@ -146,6 +146,82 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefault
         catch (Exception failure) when (failure is HttpRequestException or JsonException or KeyNotFoundException or InvalidOperationException || failure is TaskCanceledException && !cancellationToken.IsCancellationRequested)
         {
             return [];
+        }
+    }
+
+    // The open security alerts of the forge on the dependencies of the repository (Dependabot's), one finding per package: the version that fixes every alert of the package (the highest of their first patched versions), the
+    // highest severity and how many advisories. A package with an alert that has no patched version says so. Data for the lead, never an order; nothing that cannot be read is guessed
+    async Task<IReadOnlyList<Orchestrarr.Core.Missions.DependencyFinding>> Orchestrarr.Core.Missions.IDependencyFindings.ReadAsync(string repository, CancellationToken cancellationToken)
+    {
+        if (!RepositoryName().IsMatch(repository))
+        {
+            return [];
+        }
+        try
+        {
+            using var alerts = await GetAsync($"repos/{repository}/dependabot/alerts?state=open&per_page=100", cancellationToken);
+            if (alerts is null || alerts.RootElement.ValueKind != JsonValueKind.Array)
+            {
+                return [];
+            }
+            var byPackage = new Dictionary<string, List<(string? Fix, string? Severity, string? Summary, string? Range)>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var alert in alerts.RootElement.EnumerateArray())
+            {
+                if (!alert.TryGetProperty("dependency", out var dependency) || !dependency.TryGetProperty("package", out var package) || package.GetProperty("name").GetString() is not { Length: > 0 } name
+                    || !alert.TryGetProperty("security_vulnerability", out var vulnerability))
+                {
+                    continue;
+                }
+                var fix = vulnerability.TryGetProperty("first_patched_version", out var patched) && patched.ValueKind == JsonValueKind.Object ? patched.GetProperty("identifier").GetString() : null;
+                var range = vulnerability.TryGetProperty("vulnerable_version_range", out var vulnerable) ? vulnerable.GetString() : null;
+                var advisory = alert.TryGetProperty("security_advisory", out var found) ? found : default;
+                var severity = advisory.ValueKind == JsonValueKind.Object && advisory.TryGetProperty("severity", out var level) ? level.GetString() : null;
+                var summary = advisory.ValueKind == JsonValueKind.Object && advisory.TryGetProperty("summary", out var text) ? text.GetString() : null;
+                if (!byPackage.TryGetValue(name, out var list))
+                {
+                    byPackage[name] = list = [];
+                }
+                list.Add((fix, severity, summary, range));
+            }
+            return [.. byPackage.Take(50).Select(package => Finding(package.Key, package.Value))];
+        }
+        catch (Exception failure) when (failure is HttpRequestException or JsonException or KeyNotFoundException or InvalidOperationException || failure is TaskCanceledException && !cancellationToken.IsCancellationRequested)
+        {
+            return [];
+        }
+    }
+
+    private static Orchestrarr.Core.Missions.DependencyFinding Finding(string package, List<(string? Fix, string? Severity, string? Summary, string? Range)> alerts)
+    {
+        // One alert with no patched version leaves the package with no fixed version: a higher version does not remove that flaw
+        var fix = alerts.Any(alert => alert.Fix is null) ? null : alerts.Select(alert => alert.Fix!).MaxBy(VersionKey, VersionComparer.Instance);
+        var severity = alerts.Select(alert => alert.Severity).MaxBy(level => level switch { "critical" => 4, "high" => 3, "medium" => 2, "low" => 1, _ => 0 });
+        var ranges = string.Join(", ", alerts.Select(alert => alert.Range).OfType<string>().Distinct(StringComparer.Ordinal).Take(3));
+        var summary = Plain($"{alerts.Count} advisor{(alerts.Count == 1 ? "y" : "ies")} (vulnerable: {ranges}); {alerts[0].Summary}");
+        return new Orchestrarr.Core.Missions.DependencyFinding("advisory", package, null, fix, severity, summary, null);
+    }
+
+    // A version as numbers for the comparison (1.26.20 after 1.26.3); what is not a number sorts first
+    private static int[] VersionKey(string version) =>
+        [.. version.Split('.', '-', '+').Select(part => int.TryParse(part, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var number) ? number : -1)];
+
+    private sealed class VersionComparer : IComparer<int[]>
+    {
+        public static readonly VersionComparer Instance = new();
+
+        public int Compare(int[]? x, int[]? y)
+        {
+            x ??= [];
+            y ??= [];
+            for (var index = 0; index < Math.Max(x.Length, y.Length); index++)
+            {
+                var difference = (index < x.Length ? x[index] : 0).CompareTo(index < y.Length ? y[index] : 0);
+                if (difference != 0)
+                {
+                    return difference;
+                }
+            }
+            return 0;
         }
     }
 

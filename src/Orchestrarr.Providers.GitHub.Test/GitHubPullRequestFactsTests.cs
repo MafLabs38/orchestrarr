@@ -275,6 +275,29 @@ public sealed class GitHubPullRequestFactsTests
         (await ((IPipelineFailures)Facts()).ReadAsync("example/app", TestContext.Current.CancellationToken)).Should().BeEmpty("nothing that cannot be read is guessed");
     }
 
+    [Fact]
+    public async Task The_open_alerts_of_the_forge_are_one_finding_per_package_with_the_version_that_fixes_all_of_them()
+    {
+        _routes["/repos/example/app/dependabot/alerts"] = """
+            [ { "dependency": { "package": { "name": "urllib3" } }, "security_vulnerability": { "vulnerable_version_range": "< 2.5.0", "first_patched_version": { "identifier": "2.5.0" } }, "security_advisory": { "severity": "medium", "summary": "redirects" } },
+              { "dependency": { "package": { "name": "urllib3" } }, "security_vulnerability": { "vulnerable_version_range": "< 2.10.1", "first_patched_version": { "identifier": "2.10.1" } }, "security_advisory": { "severity": "high", "summary": "<b>bomb</b>" } },
+              { "dependency": { "package": { "name": "Werkzeug" } }, "security_vulnerability": { "vulnerable_version_range": "< 3.1.9", "first_patched_version": { "identifier": "3.1.9" } }, "security_advisory": { "severity": "medium", "summary": "safe_join" } },
+              { "dependency": { "package": { "name": "werkzeug" } }, "security_vulnerability": { "vulnerable_version_range": "< 9", "first_patched_version": null }, "security_advisory": { "severity": "low", "summary": "no fix" } } ]
+            """;
+
+        var found = await ((Orchestrarr.Core.Missions.IDependencyFindings)Facts()).ReadAsync("example/app", TestContext.Current.CancellationToken);
+
+        found.Should().HaveCount(2, "one finding per package, whatever the case of its name");
+        var urllib3 = found.Single(finding => finding.Package == "urllib3");
+        urllib3.FixedIn.Should().Be("2.10.1", "the version that fixes every alert of the package, compared as numbers");
+        urllib3.Severity.Should().Be("high");
+        urllib3.Line.Should().NotContain("<");
+        found.Single(finding => finding.Package.Equals("werkzeug", StringComparison.OrdinalIgnoreCase)).FixedIn.Should().BeNull("one alert with no patched version is a flaw that no higher version removes");
+
+        _routes.Remove("/repos/example/app/dependabot/alerts");
+        (await ((Orchestrarr.Core.Missions.IDependencyFindings)Facts()).ReadAsync("example/app", TestContext.Current.CancellationToken)).Should().BeEmpty();
+    }
+
     private sealed class Handler(Dictionary<string, string> routes) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
