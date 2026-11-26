@@ -71,7 +71,7 @@ public static partial class RepairPolicy
             }
             if (IsProtected(file.Path))
             {
-                return $"the path '{file.Path}' is protected: a repair does not change the tests, the dependencies, the build or the pipelines";
+                return $"the path '{file.Path}' is protected: a repair does not change the tests, the registries of the package managers or the instructions of the repository";
             }
             var size = System.Text.Encoding.UTF8.GetByteCount(file.Content);
             total += size;
