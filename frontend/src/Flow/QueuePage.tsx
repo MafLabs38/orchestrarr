@@ -114,7 +114,8 @@ function HoldControl({ entry }: Readonly<{ entry: DispatchEntry }>) {
 
 function LineRow({ entry, now, canAct }: Readonly<{ entry: DispatchEntry; now: number; canAct: boolean }>) {
   const look = operationLook(entry.state);
-  let why = entry.detail ?? '';
+  let why =
+    entry.detail && entry.state === 'waitingTurn' ? translate('Behind', { title: entry.detail }) : (entry.detail ?? '');
   if (entry.held) {
     why = translate('HeldBy', { by: entry.held.by, reason: entry.held.reason });
   }

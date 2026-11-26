@@ -98,7 +98,14 @@ internal static class FlowView
     };
 
     // What a person reads as the name of the problem: what the control plane read of the row (an image, a version, a count of alerts), then where
-    private static string TitleOf(PlanEntry entry) => entry.Brief is { Description.Length: > 0 } brief ? brief.Description : entry.Objective;
+    // A row of alerts or of a red pipeline is read as a number (how many): it is said as what it is
+    internal static string TitleOf(PlanEntry entry) => entry.Brief switch
+    {
+        { Kind: "DependencyAlert", Description: var count } when int.TryParse(count, out _) => $"{count} dependency alerts",
+        { Kind: "FailingCi", Description: var count } when int.TryParse(count, out _) => "the pipeline is red",
+        { Description.Length: > 0 } brief => brief.Description,
+        _ => entry.Objective,
+    };
 
     private static IEnumerable<World> Worlds(World highest, bool uses) =>
         Enum.GetValues<World>().Where(world => world <= highest && (uses || world != World.Staging));
