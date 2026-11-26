@@ -57,6 +57,7 @@ public sealed class LeadAgentTests
         var data = plan.UserPrompt.IndexOf("<<<DATA B3", StringComparison.Ordinal);
         plan.UserPrompt.IndexOf("fixed in 4.17.21", StringComparison.Ordinal).Should().BeGreaterThan(data);
         plan.SystemPrompt.Should().Contain("the facts the worker needs").And.Contain("say what must be true at the end, not the commands");
+        plan.SystemPrompt.Should().Contain("make every pipeline of the repository pass").And.Contain("never retried until it passes", "a red pipeline is repaired as a developer does, a flaky test made deterministic");
     }
 
     [Fact]

@@ -988,7 +988,7 @@ public sealed class ProblemConductorTests : IDisposable
         run.Entry.PullRequest.Should().BeNull("the change is merged: the fix is a new change, made by a free agent on the branch as it is now");
         run.Entry.HeadSha.Should().BeNull();
         run.Entry.Plan!.First.Should().Be(World.Staging);
-        run.Entry.Plan.InstructionFor(World.Staging).Should().Contain("01234567").And.Contain("red");
+        run.Entry.Plan.InstructionFor(World.Staging).Should().Contain("01234567").And.Contain("red").And.Contain("never retried until it passes");
         run.Entry.Plan.Last.Should().Be(Entry().Plan?.Last ?? World.Release, "the later worlds are the ones the plan had");
         _restarts.Problems.Should().Equal("problem-1");
     }

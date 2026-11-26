@@ -49,7 +49,7 @@ public sealed partial class ProblemConductor
         var change = entry.PullRequest is { } number && entry.Repositories.Count == 1 ? Text($"pull request #{number} of {entry.Repositories[0]}") : Text($"the change for \"{entry.Objective}\"");
         var at = merged is { Length: >= 8 } commit ? Text($" at commit {commit[..8]}") : "";
         var objective = Text($"The integration branch of {string.Join(", ", entry.Repositories)} is green again: the merge of {change}{at} turned its pipeline red.");
-        var instruction = Text($"The merge of {change} into the integration branch{at} turned the pipeline of the integration branch red. Find out why (run the steps of its pipeline here, on the branch as it is now) and make the change that brings it back to green. Keep what was merged unless it cannot be made to work; if it must be undone, say so and why.");
+        var instruction = Text($"The merge of {change} into the integration branch{at} turned the pipeline of the integration branch red. Find out why (run the steps of its pipeline here, on the branch as it is now) and make the change that brings it back to green. A test that fails only some of the time is made deterministic (a seed, a fixed value, no dependence on chance or on time), never retried until it passes. Keep what was merged unless it cannot be made to work; if it must be undone, say so and why.");
         var later = entry.Plan is { Steps.Count: > 0 } plan
             ? plan.Steps.Where(step => step.World > World.Staging).ToList()
             : [.. Enum.GetValues<World>().Where(world => world > World.Staging && world <= highest).Select(world => new PlannedStep(world, null))];
