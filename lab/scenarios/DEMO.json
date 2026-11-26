@@ -1,6 +1,6 @@
 {
   "case": "DEMO",
-  "title": "A demo of the product on the test bed: faults of several cases planted together, to be ticked all at once and followed from the screens, with a grain of sand: a flaw in the postgres image of edge-stack that no published version fixes",
+  "title": "A demo of the product on the test bed: faults of several cases planted together, to be ticked all at once and followed from the screens, with a grain of sand: a flaw in the Node.js runtime of pipeline-scenarios that no published version fixes",
   "repos": [
     "shop-api",
     "ledger-worker",
@@ -120,14 +120,14 @@
         "summary": "Prototype pollution in minimist"
       }
     ],
-    "edge-stack": [
+    "pipeline-scenarios": [
       {
         "kind": "advisory",
-        "package": "postgres (container image)",
-        "installed": "9.6",
+        "package": "node (the runtime of the project)",
+        "installed": "20",
         "fixedIn": null,
         "severity": "critical",
-        "summary": "CVE-2026-41877: remote code execution in the PostgreSQL server; every release up to the latest 17.x is affected and no fixed version has been published"
+        "summary": "CVE-2026-41877: remote code execution in the Node.js runtime itself; every release line up to the latest 26.x is affected and no fixed version has been published"
       }
     ]
   }
