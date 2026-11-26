@@ -31,6 +31,18 @@ public sealed class FlowViewTests
         return store;
     }
 
+    [Fact]
+    public void A_row_that_the_lead_plans_is_at_the_entry_of_the_line_until_it_has_its_place()
+    {
+        var store = new InMemoryProblemStore();
+        var planning = new[] { new PlannedRow("p-planned", "mocha 8 → 10", "DependencyUpdate", "o/shop", T0), new PlannedRow("p-waits", "redis", "ImageUpdate", "o/shop", T0) };
+
+        var flow = FlowView.Build([], store, [new QueuedProblem("row", Entry("p-waits"), T0)], [], true, _ => (null, null), _ => null, planning: planning);
+
+        flow.Select(problem => (problem.ProblemId, problem.Activity?.Waiting?.Code)).Should().Equal(("p-waits", "turn"), ("p-planned", "planning"));
+        FlowBoard.Build(flow, [], [], _ => 0).Lots.Single().Operations.Single(operation => operation.ProblemId == "p-planned").Should().Match<BoardOperation>(operation => operation.Place == "queue" && operation.State == "planning");
+    }
+
     [Theory]
     [InlineData("DependencyAlert", "5", "5 dependency alerts")]
     [InlineData("FailingCi", "1", "the pipeline is red")]

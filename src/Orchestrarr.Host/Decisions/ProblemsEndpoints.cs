@@ -115,6 +115,11 @@ internal static class ProblemsEndpoints
         {
             working.Add(waiting.Entry.ProblemId);
         }
+        // A row validated and being planned is a decision taken (ADR 0056)
+        foreach (var planned in services.GetService<Orchestrarr.Host.Missions.ProblemPlanning>()?.All() ?? [])
+        {
+            working.Add(planned.ProblemId);
+        }
         // A decision that was taken and done is not one to take again while the fleet has not been read since it was done (the fleet is read on its own beat, and a read from before the fix still reports what it fixed): it is in the
         // decisions taken (ADR 0056). A read made after it was done that still reports it says the problem is there again: it is a decision to take. What was put aside is shown again, to be ticked again (ADR 0055 point 4)
         var done = problems.GetMany([.. rows.Select(row => Orchestrarr.Core.Missions.PlanEntryFactory.ProblemIdOf(row.Id))]).Values

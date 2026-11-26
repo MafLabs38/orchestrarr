@@ -23,7 +23,7 @@ internal static class FlowView
 {
     private const int MaxFinished = 20;
 
-    internal static IReadOnlyList<FlowProblem> Build(IReadOnlyList<Mission> recent, IProblemStore problems, IReadOnlyList<QueuedProblem> waiting, IReadOnlyList<Machine> machines, bool runnerConnected, Func<string, (string? Line, DateTimeOffset? At)> lastNews, Func<Mission, DateTimeOffset?> issuedAt, Func<Mission, bool>? reworkPending = null, Func<string, int>? lanesOf = null, Func<string, string?>? parkedReason = null, Func<string, HeldProblem?>? heldOf = null)
+    internal static IReadOnlyList<FlowProblem> Build(IReadOnlyList<Mission> recent, IProblemStore problems, IReadOnlyList<QueuedProblem> waiting, IReadOnlyList<Machine> machines, bool runnerConnected, Func<string, (string? Line, DateTimeOffset? At)> lastNews, Func<Mission, DateTimeOffset?> issuedAt, Func<Mission, bool>? reworkPending = null, Func<string, int>? lanesOf = null, Func<string, string?>? parkedReason = null, Func<string, HeldProblem?>? heldOf = null, IReadOnlyList<PlannedRow>? planning = null)
     {
         heldOf ??= _ => null;
         reworkPending ??= _ => false;
@@ -57,7 +57,11 @@ internal static class FlowView
         var started = going.Select(flow => flow.ProblemId).ToHashSet(StringComparer.Ordinal);
         // A problem that has just left the line and is not yet saved as started is in both lists for an instant: it is shown once
         var queued = ProblemQueue.InOrder(waiting.Where(problem => !started.Contains(problem.Entry.ProblemId))).Select(problem => Queued(problem, inProgress, parkedReason(problem.Entry.ProblemId), heldOf(problem.Entry.ProblemId))).ToList();
-        return [.. going, .. queued, .. finished.Take(MaxFinished)];
+        // What the lead is planning comes at the entry of the line: validated, not placed yet
+        var shownNow = going.Concat(queued).Select(flow => flow.ProblemId).ToHashSet(StringComparer.Ordinal);
+        var planned = (planning ?? []).Where(row => !shownNow.Contains(row.ProblemId))
+            .Select(row => new FlowProblem(row.ProblemId, row.Title, row.Kind, row.Repository, "queued", FlowPriority.Normal, row.Since, [], new FlowActivity("waiting", null, row.Since, new FlowWaiting("planning", null)), null)).ToList();
+        return [.. going, .. queued, .. planned, .. finished.Take(MaxFinished)];
     }
 
     private static FlowProblem Of(ProblemRun run, IReadOnlyList<Mission> missions, IReadOnlyList<ProblemRun> inProgress, IReadOnlyList<Machine> machines, bool runnerConnected, Func<string, (string? Line, DateTimeOffset? At)> lastNews,

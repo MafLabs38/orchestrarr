@@ -26,7 +26,7 @@ internal static class MissionEndpoints
     internal static IReadOnlyList<FlowProblem> FlowOf(IServiceProvider services, IReadOnlyList<Mission> recent, IMandateLedger mandates, IProblemStore problems, MissionProgress progress, RunnerRegistry runners) =>
         FlowView.Build(recent, problems, services.GetService<ProblemQueue>()?.Waiting() ?? [], services.GetService<MachinePool>()?.All() ?? [], runners.Snapshot().Any(runner => runner.Connected), progress.LastNews,
             mission => mission.MandateId is { } id && mandates.Get(id) is { } signed ? signed.Mandate.IssuedAt : null, mission => mission.State == MissionState.Running && mission.SendBacks > 0 && !progress.WasOffered(mission.Id, mission.SendBacks),
-            runners.LanesOf, id => services.GetService<ProblemParking>()?.Get(id)?.Reason, id => services.GetService<ProblemHolds>()?.Get(id));
+            runners.LanesOf, id => services.GetService<ProblemParking>()?.Get(id)?.Reason, id => services.GetService<ProblemHolds>()?.Get(id), services.GetService<ProblemPlanning>()?.All());
 
     public static void MapMissionEndpoints(this RouteGroupBuilder api)
     {

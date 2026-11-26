@@ -76,6 +76,17 @@ internal static class PlanEndpoints
             // The rows are taken **in the order of the route** (ADR 0055: the runtime, then the alerts, then the updates), not in the order of the ticks, and a problem **starts as soon as its own plan is ready**: the machines
             // do not wait for the lead to have thought about every row of the selection (a plan is a minute of the subscription, and a hundred rows would keep them idle for an hour). The planning goes on behind it
             var rows = InRouteOrder(request.Rows ?? [], table);
+            // Each row is a decision taken from now on: the table does not offer it again and the Flow shows it at the entry of the line while the lead plans it (ADR 0056)
+            var planned = services.GetService<ProblemPlanning>();
+            var problemIds = rows.Select(chosen => chosen.Id is { } rowId ? PlanEntryFactory.ProblemIdOf(rowId) : null).ToList();
+            foreach (var (chosen, index) in rows.Select((chosen, index) => (chosen, index)))
+            {
+                if (problemIds[index] is { } id && chosen.Id is { } rowId && table.TryGetValue(rowId, out var known))
+                {
+                    planned?.Add(new PlannedRow(id, PlannedTitle(known), known.Kind.ToString(), known.Source ?? known.Application, time.GetUtcNow()));
+                }
+            }
+            live.Publish(LiveTopics.Missions);
             var planning = rows.Select((chosen, index) => PrepareAsync(chosen, table, approver.Subject, lead, new ProblemSources(findings, pipelines), conductor, audit, stop, NotAsked(index, agents.LeadMaxRows), time, ct)).ToList();
             // One work site at a time on a repository: the first problem of a free repository starts, the others wait for their turn (ProblemQueue). The plans of a lot are placed in the order of its route, and the lots
             // go side by side: a plan that is slow to come holds its own lot only, never the machines of the others
@@ -86,7 +97,18 @@ internal static class PlanEndpoints
                 {
                     foreach (var (plan, index, _) in lot)
                     {
-                        placed[index] = await starter.StartOrQueueAsync(await plan, ct);
+                        try
+                        {
+                            placed[index] = await starter.StartOrQueueAsync(await plan, ct);
+                        }
+                        finally
+                        {
+                            if (problemIds[index] is { } id)
+                            {
+                                planned?.Remove(id);
+                            }
+                            live.Publish(LiveTopics.Missions);
+                        }
                     }
                 });
             await Task.WhenAll(lots);
@@ -105,6 +127,14 @@ internal static class PlanEndpoints
         [.. chosen.DistinctBy(row => row.Id, StringComparer.Ordinal).OrderBy(row => row.Id is { } rowId && table.TryGetValue(rowId, out var known) ? RouteRank.Of(known.Kind, known.Nature) : int.MaxValue)];
 
     internal static World CeilingOf(ValidatedRow chosen) => chosen.StopBeforeProduction ? World.Git : PlanCeiling;
+
+    // What a person reads of a row being planned: what the table says, a count of alerts or a red pipeline said as what it is
+    private static string PlannedTitle(ProblemRow row) => row.Kind switch
+    {
+        ProblemKind.DependencyAlert when int.TryParse(row.Description, out _) => $"{row.Description} dependency alerts",
+        ProblemKind.FailingCi when int.TryParse(row.Description, out _) => "the pipeline is red",
+        _ => row.ParsedChange ?? row.Description,
+    };
 
     // The lot of a row is its repository (ADR 0055); a row that the table does not know is a lot of its own
     private static string LotOf(ValidatedRow chosen, Dictionary<string, ProblemRow> table) =>

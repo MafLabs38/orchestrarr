@@ -14,7 +14,7 @@ public sealed record BoardWorkshop(string World, IReadOnlyList<BoardEquipment> E
 
 /// <summary>
 /// One operation of a lot, placed where it is: <c>Place</c> is <c>queue</c> (validated, not started), a world, or <c>out</c> (over); <c>State</c> says what it does there, in a word a screen translates: <c>working</c>, <c>judging</c> (the
-/// controller reads its dossier), <c>waitingMachine</c>, <c>waitingLane</c>, <c>waitingPickup</c>, <c>waitingRunner</c>, <c>waitingTurn</c>, <c>waitingBot</c>, <c>held</c> (a person held it, ADR 0056), <c>done</c> or <c>putAside</c>. <c>Detail</c> is the last thing said of it, or what it waits for.
+/// controller reads its dossier), <c>waitingMachine</c>, <c>waitingLane</c>, <c>waitingPickup</c>, <c>waitingRunner</c>, <c>waitingTurn</c>, <c>waitingBot</c>, <c>held</c> (a person held it, ADR 0056), <c>planning</c> (validated, the lead plans it), <c>done</c> or <c>putAside</c>. <c>Detail</c> is the last thing said of it, or what it waits for.
 /// </summary>
 public sealed record BoardOperation(string ProblemId, string Title, string? Kind, string Repository, string Place, string State, string? Detail, int Priority, DateTimeOffset Since, string? Equipment);
 
@@ -91,7 +91,7 @@ internal static class FlowBoard
         switch (problem.State)
         {
             case "queued":
-                return new BoardOperation(problem.ProblemId, problem.Title, problem.Kind, problem.Repository, Queue, problem.Activity?.Waiting?.Code switch { "bot" => "waitingBot", "held" => "held", _ => "waitingTurn" },
+                return new BoardOperation(problem.ProblemId, problem.Title, problem.Kind, problem.Repository, Queue, problem.Activity?.Waiting?.Code switch { "bot" => "waitingBot", "held" => "held", "planning" => "planning", _ => "waitingTurn" },
                     problem.Activity?.Waiting?.Subject, problem.Priority, problem.StartedAt, null);
             case "inProgress":
                 var step = CurrentStep(problem.Steps);

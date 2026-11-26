@@ -683,5 +683,7 @@
   "StepClosed": "done",
   "StepFailed": "put aside",
   "StepEscalated": "escalated to a person",
-  "SetAsideAndEarlier": "Rows set aside, and the approvals of the first design"
+  "SetAsideAndEarlier": "Rows set aside, and the approvals of the first design",
+  "OperationPlanning": "the lead plans it",
+  "FlowWaitingPlanning": "Validated: the lead is planning it. It takes its place in the line when its plan is ready."
 }

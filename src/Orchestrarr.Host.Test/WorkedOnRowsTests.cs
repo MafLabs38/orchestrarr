@@ -19,9 +19,13 @@ public sealed class WorkedOnRowsTests
     private static ProblemRun Run(string rowId, ProblemState state, DateTimeOffset? endedAt = null) =>
         new(PlanEntryFactory.ProblemIdOf(rowId), "shop", state, T0, Entry(rowId), World.Release, true, new SignedApproval(new ApprovalCertificate("c", CertificateKind.Problem, "p", "shop", ["o/shop"], World.Release, new MissionBudget(1, 1, 1), T0, T0.AddHours(1), "x", "n", [], 8), []), EndedAt: endedAt);
 
-    private static ServiceProvider Services(IProblemStore? problems, ProblemQueue? queue = null)
+    private static ServiceProvider Services(IProblemStore? problems, ProblemQueue? queue = null, Orchestrarr.Host.Missions.ProblemPlanning? planning = null)
     {
         var services = new ServiceCollection();
+        if (planning is not null)
+        {
+            services.AddSingleton(planning);
+        }
         if (problems is not null)
         {
             services.AddSingleton(problems);
@@ -60,6 +64,16 @@ public sealed class WorkedOnRowsTests
 
         before.Select(row => (row.Id, row.RecentlyDone, row.InProgress)).Should().Equal(("row-done", true, false), ("row-aside", false, false));
         ProblemsEndpoints.MarkWorkedOn([Row("row-done")], services, fleetReadAt: T0.AddMinutes(40)).Single().RecentlyDone.Should().BeFalse("a read of the fleet made after it was done that still reports it says it is there again");
+    }
+
+    [Fact]
+    public void A_row_validated_and_being_planned_is_a_decision_taken()
+    {
+        var planning = new Orchestrarr.Host.Missions.ProblemPlanning();
+        planning.Add(new Orchestrarr.Host.Missions.PlannedRow(PlanEntryFactory.ProblemIdOf("row-planned"), "x", null, "o/shop", T0));
+        using var services = Services(new InMemoryProblemStore(), planning: planning);
+
+        ProblemsEndpoints.MarkWorkedOn([Row("row-planned"), Row("row-free")], services).Select(row => row.InProgress).Should().Equal(true, false);
     }
 
     [Fact]

@@ -29,6 +29,8 @@ export function operationLook(state: OperationState): StateLook {
       return { text: translate('OperationWaitingTurn'), kind: kinds.DEFAULT, Icon: icons.WAITING_TURN, waiting: true };
     case 'waitingBot':
       return { text: translate('OperationWaitingBot'), kind: kinds.PINK, Icon: icons.WAITING_BOT, waiting: true };
+    case 'planning':
+      return { text: translate('OperationPlanning'), kind: kinds.DEFAULT, Icon: icons.AI, waiting: true };
     case 'held':
       return { text: translate('OperationHeld'), kind: kinds.WARNING, Icon: icons.HELD, waiting: true };
     case 'done':
@@ -86,8 +88,8 @@ export function operationTitle(title: string, kind: string | null): string {
 export function operationStateOf(problem: FlowProblem): OperationState | null {
   const code = problem.activity?.waiting?.code;
   if (problem.state === 'queued') {
-    if (code === 'held') {
-      return 'held';
+    if (code === 'held' || code === 'planning') {
+      return code;
     }
     return code === 'bot' ? 'waitingBot' : 'waitingTurn';
   }

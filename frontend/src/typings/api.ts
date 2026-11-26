@@ -378,7 +378,7 @@ export interface FlowStep {
 }
 
 export interface FlowWaiting {
-  code: 'turn' | 'machine' | 'busy' | 'bot' | 'held' | 'runner' | 'pickup';
+  code: 'turn' | 'machine' | 'busy' | 'bot' | 'held' | 'planning' | 'runner' | 'pickup';
   subject: string | null;
 }
 
@@ -512,6 +512,7 @@ export type OperationState =
   | 'waitingTurn'
   | 'waitingBot'
   | 'held'
+  | 'planning'
   | 'done'
   | 'putAside';
 
