@@ -71,7 +71,7 @@ internal static class FlowEndpoints
             {
                 return refusal;
             }
-            var by = accessor.Current(context)!.Subject;
+            var by = WhoIs(context, accessor);
             if (string.IsNullOrWhiteSpace(request.Reason) || request.Reason.Length > ProblemHolds.MaxReason)
             {
                 return Results.Json(new ErrorResponse("holdNeedsAReason"), statusCode: StatusCodes.Status422UnprocessableEntity);
@@ -97,7 +97,7 @@ internal static class FlowEndpoints
             {
                 return Results.Json(new ErrorResponse("notHeld"), statusCode: StatusCodes.Status409Conflict);
             }
-            _ = await audit.RecordAsync(MissionAuditEvents.ProblemReleased, problemId, $"released by {accessor.Current(context)!.Subject}", CancellationToken.None);
+            _ = await audit.RecordAsync(MissionAuditEvents.ProblemReleased, problemId, $"released by {WhoIs(context, accessor)}", CancellationToken.None);
             live.Publish(LiveTopics.Missions);
             return Results.Ok();
         }).RequireAuthorization(Permissions.ApprovalsCreate);
@@ -113,7 +113,7 @@ internal static class FlowEndpoints
             {
                 return Results.Json(new ErrorResponse("priorityOutOfRange"), statusCode: StatusCodes.Status422UnprocessableEntity);
             }
-            var by = accessor.Current(context)!.Subject;
+            var by = WhoIs(context, accessor);
             if (services.GetService<ProblemQueue>() is { } line && line.SetPriority(problemId, request.Priority))
             {
                 _ = await audit.RecordAsync(MissionAuditEvents.PrioritySet, problemId, $"priority in the line set to {request.Priority}, by {by}", CancellationToken.None);
@@ -126,6 +126,10 @@ internal static class FlowEndpoints
             return Results.Ok();
         }).RequireAuthorization(Permissions.ApprovalsCreate);
     }
+
+    // Who acted, as a person reads it: the name of the account, else its identifier
+    private static string WhoIs(HttpContext context, IApproverAccessor accessor) =>
+        context.User.Identity?.Name is { Length: > 0 } name ? name : accessor.Current(context)!.Subject;
 
     // The same gate as approving: a person who may approve
     private static (Approver? Approver, IResult? Refusal) Operator(IApproverAccessor accessor, HttpContext context)

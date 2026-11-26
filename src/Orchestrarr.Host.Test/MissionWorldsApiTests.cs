@@ -365,6 +365,7 @@ public sealed class MissionWorldsApiTests
         var held = line.GetProperty("line").EnumerateArray().Single(entry => entry.GetProperty("problemId").GetString() == "p-held");
         held.GetProperty("state").GetString().Should().Be("held");
         held.GetProperty("held").GetProperty("reason").GetString().Should().Be("an analysis first");
+        held.GetProperty("held").GetProperty("by").GetString().Should().Be(AccountsApiFactory.AdminName, "a person reads who held it by name");
 
         // the first one ends: the lot is free, and the held one lets the next of the route go
         problems.Save(problems.Get("p-first")! with { State = ProblemState.Closed });
