@@ -58,7 +58,7 @@ public sealed class LeadAgentTests
         plan.UserPrompt.IndexOf("fixed in 4.17.21", StringComparison.Ordinal).Should().BeGreaterThan(data);
         plan.SystemPrompt.Should().Contain("the facts the worker needs").And.Contain("say what must be true at the end, not the commands");
         plan.SystemPrompt.Should().Contain("make every pipeline of the repository pass").And.Contain("never retried until it passes", "a red pipeline is repaired as a developer does, a flaky test made deterministic")
-            .And.Contain("never the fix of a finding");
+            .And.Contain("never the fix of a finding").And.Contain("never plan a rewrite of the application in another language");
     }
 
     [Fact]
@@ -141,7 +141,8 @@ public sealed class LeadAgentTests
 
         request.UserPrompt.IndexOf("no fixed version exists", StringComparison.Ordinal).Should().BeGreaterThan(request.UserPrompt.IndexOf("<<<DATA B4", StringComparison.Ordinal));
         request.SystemPrompt.Should().Contain("a count (the alerts the source counts) that is larger than the findings").And.Contain("the dependency as it is").And.Contain("escalate to the maintainer")
-            .And.Contain("accepting a risk is the maintainer's decision", "a note or a mitigation that leaves the flaw is not a fix");
+            .And.Contain("accepting a risk is the maintainer's decision", "a note or a mitigation that leaves the flaw is not a fix")
+            .And.Contain("out of proportion with the problem", "a rewrite in another language is a decision of the maintainer, not maintenance");
     }
 
     [Fact]
