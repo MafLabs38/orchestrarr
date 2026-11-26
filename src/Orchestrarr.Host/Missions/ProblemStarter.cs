@@ -175,6 +175,12 @@ internal sealed class ProblemStarter(IServiceProvider services, MissionsOptions 
     private async Task ParkAsync(PlanEntry entry, string reason, ParkedProblem? before, CancellationToken cancellationToken)
     {
         var now = time.GetUtcNow();
+        // A parked problem is read only while its lot is free: when another operation of the lot held it, the clock of the bot did not run, and the base has moved since (that operation was merged), so the wait
+        // and the requests start again from now (ADR 0055)
+        if (before is not null && now - before.LastChecked > TimeSpan.FromSeconds(Math.Max(300, options.BotRebaseRecheckSeconds * 4)))
+        {
+            before = before with { Since = now, Requests = 0, LastRequested = null };
+        }
         var since = before?.Since ?? now;
         var id = entry.ProblemId;
         if (now - since >= TimeSpan.FromMinutes(Math.Max(1, options.BotRebaseWaitMinutes)))

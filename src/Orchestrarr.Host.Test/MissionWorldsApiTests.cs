@@ -392,6 +392,24 @@ public sealed class MissionWorldsApiTests
     }
 
     [Fact]
+    public async Task The_clock_of_a_parked_pull_request_does_not_run_while_another_operation_of_its_lot_holds_it()
+    {
+        var forge = new FakeForge { Author = "dependabot[bot]", PullMerge = MergeState.Conflicting };
+        using var factory = new WorldsFactory(forge);
+        var starter = factory.Services.GetRequiredService<ProblemStarter>();
+        _ = await starter.StartOrQueueAsync(Prepared("p-bot", 7, "example/shop"), Ct);
+        // parked 31 minutes ago and last read 25 minutes ago: its lot was busy in between, so it was not read and its bot was not asked again
+        factory.Services.GetRequiredService<ProblemParking>().Set("p-bot", new ParkedProblem(DateTimeOffset.UtcNow - TimeSpan.FromMinutes(31), 1, DateTimeOffset.UtcNow - TimeSpan.FromMinutes(25), DateTimeOffset.UtcNow - TimeSpan.FromMinutes(31), "it conflicts with its base branch"));
+
+        await starter.StartReadyAsync(Ct);
+
+        factory.Services.GetRequiredService<ProblemQueue>().Contains("p-bot").Should().BeTrue("the wait starts again when the lot is free: the base moved meanwhile");
+        var parked = factory.Services.GetRequiredService<ProblemParking>().Get("p-bot")!;
+        parked.Since.Should().BeAfter(DateTimeOffset.UtcNow - TimeSpan.FromMinutes(1));
+        parked.Requests.Should().Be(1, "the bot is asked again at once, on the base as it is now");
+    }
+
+    [Fact]
     public async Task A_waiting_pull_request_that_its_bot_closed_because_another_change_brought_it_is_done_not_failed()
     {
         var forge = new FakeForge { Author = "dependabot[bot]", PullMerge = MergeState.Conflicting };
