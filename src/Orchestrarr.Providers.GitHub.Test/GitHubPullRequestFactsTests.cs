@@ -140,6 +140,28 @@ public sealed class GitHubPullRequestFactsTests
     }
 
     [Fact]
+    public async Task A_failure_of_the_forges_own_dependency_service_on_a_merge_commit_is_not_the_projects_pipeline()
+    {
+        const string MergeSha = "3333333333333333333333333333333333333333";
+        Serve("""{ "check_runs": [ { "status": "completed", "conclusion": "success" } ] }""");
+        _routes["/repos/example/app/pulls/3"] = $$"""{ "draft": false, "merged": true, "merge_commit_sha": "{{MergeSha}}", "head": { "sha": "{{Head}}" }, "base": { "sha": "{{Base}}" } }""";
+        _routes[$"/repos/example/app/git/commits/{MergeSha}"] = """{ "tree": { "sha": "4444444444444444444444444444444444444444" } }""";
+        _routes[$"/repos/example/app/commits/{MergeSha}/check-runs"] = """
+            { "check_runs": [ { "name": "build", "status": "completed", "conclusion": "success", "check_suite": { "id": 1 } },
+                              { "name": "update-pip-graph", "status": "completed", "conclusion": "failure", "check_suite": { "id": 2 } } ] }
+            """;
+        _routes["/repos/example/app/actions/runs"] = """{ "workflow_runs": [ { "path": "dynamic/dependabot/update-graph", "check_suite_id": 2 } ] }""";
+
+        (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!.MergeChecks.Should().Be(ChecksState.Passing, "a job that the forge runs for its own service says nothing of the commit");
+
+        _routes["/repos/example/app/actions/runs"] = """{ "workflow_runs": [ { "path": ".github/workflows/graph.yml", "check_suite_id": 2 } ] }""";
+        (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!.MergeChecks.Should().Be(ChecksState.Failing, "a workflow of the repository is its pipeline, whatever its name");
+
+        _routes.Remove("/repos/example/app/actions/runs");
+        (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!.MergeChecks.Should().Be(ChecksState.Failing, "a list of runs that cannot be read leaves nothing out");
+    }
+
+    [Fact]
     public async Task A_pull_request_that_is_not_merged_has_no_merge_commit()
     {
         Serve("""{ "check_runs": [ { "status": "completed", "conclusion": "success" } ] }""");

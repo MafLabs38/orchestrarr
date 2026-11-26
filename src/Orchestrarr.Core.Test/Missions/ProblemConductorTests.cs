@@ -72,6 +72,8 @@ public sealed class ProblemConductorTests : IDisposable
 
         public bool? Confined { get; set; } = true;
 
+        /// <summary>Whether the source reads the pull request as merged (the Git world after the merge).</summary>
+        public bool? Merged { get; set; }
 
         /// <summary>What the forge says the head is; null: the head is the commit that was asked about.</summary>
         public string? HeadCommit { get; set; }
@@ -81,7 +83,7 @@ public sealed class ProblemConductorTests : IDisposable
         public ValueTask<ObservedFacts> FactsAsync(FactsQuery query, CancellationToken cancellationToken)
         {
             Last = query;
-            return ValueTask.FromResult(new ObservedFacts(true, DiffSaysClean, CiGreen, ArtifactProved, WayBack, ClaimMatches, MergeMayDeploy, ExecutedFiles, TagsBlocked, BranchSafe, HeadCommit ?? query.Commit, Confined, Paths(), query.Repository, BaseCommit ?? query.BaseCommit));
+            return ValueTask.FromResult(new ObservedFacts(true, DiffSaysClean, CiGreen, ArtifactProved, WayBack, ClaimMatches, MergeMayDeploy, ExecutedFiles, TagsBlocked, BranchSafe, HeadCommit ?? query.Commit, Confined, Paths(), query.Repository, BaseCommit ?? query.BaseCommit, Merged: Merged));
         }
     }
 
@@ -133,6 +135,15 @@ public sealed class ProblemConductorTests : IDisposable
         }
     }
 
+    private sealed class FakeRestarts : IProblemRestarts
+    {
+        public List<string> Problems { get; } = [];
+
+        public void Restarted(string problemId) => Problems.Add(problemId);
+    }
+
+    private readonly FakeRestarts _restarts = new();
+
     private sealed class Runners : IRunnerDirectory
     {
         public string RunnerFor(World world, string applicationId) => $"runner-{world}".ToLowerInvariant();
@@ -141,7 +152,7 @@ public sealed class ProblemConductorTests : IDisposable
     private ProblemConductor Conductor(ConductorOptions? options = null) => Build(_authority, options, "id", locks: null);
 
     private ProblemConductor Build(IApprovalSource approvals, ConductorOptions? options, string idPrefix, ProblemLocks? locks) =>
-        new(_signer, new MissionStores(_missions, _mandates, _problems, _dossiers, new InMemoryMissionUnit()), new PowerSources(approvals, _authority.Verifier, _withdrawals, _grants, _stop), new ConductorServices(_facts, new Runners(), _audit, _time, () => $"{idPrefix}-{Interlocked.Increment(ref _ids)}"), options ?? ConductorOptions.Default, locks);
+        new(_signer, new MissionStores(_missions, _mandates, _problems, _dossiers, new InMemoryMissionUnit()), new PowerSources(approvals, _authority.Verifier, _withdrawals, _grants, _stop), new ConductorServices(_facts, new Runners(), _audit, _time, () => $"{idPrefix}-{Interlocked.Increment(ref _ids)}", _restarts), options ?? ConductorOptions.Default, locks);
 
     private static PlanEntry Entry(World max = World.Release, string rule = "") => new("problem-1", "shop", "deprecated-dependency", "Replace the removed method", ["example/shop"], max, new MissionBudget(20, 3, 50),
         new Validation("alice", rule.Length == 0 ? null : rule), new DateTimeOffset(2026, 11, 13, 11, 0, 0, TimeSpan.Zero));
@@ -941,6 +952,70 @@ public sealed class ProblemConductorTests : IDisposable
         await conductor.StartedAsync(release.Id, Ct);
         await conductor.HandOverAsync(release.Id, DossierFor(release.Id), Ct);
         return await conductor.DecideAsync(release.Id, Grant(), Ct);
+    }
+
+    // A Git mission that merged its change, as the source then reads it: merged, and the pipeline of the merge commit as given
+    private async Task<(ProblemConductor Conductor, Mission Git)> MergedInGit(bool? ciGreen, bool staged = true)
+    {
+        var conductor = Conductor();
+        var git = staged
+            ? (await Through(conductor, await StartStaged(conductor))).Mission!
+            : (await conductor.StartAsync(Entry(), StagingDeclaration.DeclaredNoStaging, StagingRequirement.BlankMachine, StagingState.NotDefined, Ct)).Mission!;
+        _facts.Merged = true;
+        _facts.CiGreen = ciGreen;
+        await conductor.StartedAsync(git.Id, Ct);
+        await conductor.HandOverAsync(git.Id, DossierFor(git.Id) with { Commit = "0123456789abcdef0123456789abcdef01234567" }, Ct);
+        return (conductor, git);
+    }
+
+    [Theory]
+    [InlineData(ControllerDecisionKind.End)]
+    [InlineData(ControllerDecisionKind.SendBack)]
+    [InlineData(ControllerDecisionKind.Grant)]
+    public async Task A_merge_that_turns_the_integration_branch_red_goes_back_to_staging_to_be_fixed_forward_whatever_the_controller_decided(ControllerDecisionKind kind)
+    {
+        var (conductor, git) = await MergedInGit(ciGreen: false);
+
+        var result = await conductor.DecideAsync(git.Id, new ControllerDecision(kind, ["every pipeline must be green"], kind == ControllerDecisionKind.SendBack ? "make it green" : null), Ct);
+
+        result.Failures.Should().Contain(PreconditionFailure.IntegrationBranchRedAfterMerge);
+        result.Mandate!.Mandate.World.Should().Be(World.Staging, "an agent brings the branch back to green in staging, as a developer fixes forward");
+        _missions.Get(git.Id)!.State.Should().Be(MissionState.Ended);
+        var run = _problems.Get("problem-1")!;
+        run.State.Should().Be(ProblemState.InProgress, "the lot waits while its integration branch is red");
+        run.CurrentWorld.Should().Be(World.Staging);
+        run.Priority.Should().BeGreaterThan(FlowPriority.Normal, "a red integration branch goes ahead of the normal work");
+        run.Entry.PullRequest.Should().BeNull("the change is merged: the fix is a new change, made by a free agent on the branch as it is now");
+        run.Entry.HeadSha.Should().BeNull();
+        run.Entry.Plan!.First.Should().Be(World.Staging);
+        run.Entry.Plan.InstructionFor(World.Staging).Should().Contain("01234567").And.Contain("red");
+        run.Entry.Plan.Last.Should().Be(Entry().Plan?.Last ?? World.Release, "the later worlds are the ones the plan had");
+        _restarts.Problems.Should().Equal("problem-1");
+    }
+
+    [Fact]
+    public async Task A_pipeline_of_the_merge_that_is_not_over_is_not_a_red_branch()
+    {
+        var (conductor, git) = await MergedInGit(ciGreen: null);
+
+        var result = await conductor.DecideAsync(git.Id, new ControllerDecision(ControllerDecisionKind.SendBack, ["the pipeline runs"], "wait for it"), Ct);
+
+        result.Mission!.World.Should().Be(World.Git, "the worker waits for the pipeline where it is");
+        result.Mandate.Should().BeNull();
+        _restarts.Problems.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_red_integration_branch_of_an_application_with_no_staging_stops_the_work_with_its_reason()
+    {
+        var (conductor, git) = await MergedInGit(ciGreen: false, staged: false);
+
+        var result = await conductor.DecideAsync(git.Id, new ControllerDecision(ControllerDecisionKind.End, ["red"], null), Ct);
+
+        result.Mandate.Should().BeNull();
+        var run = _problems.Get("problem-1")!;
+        run.State.Should().Be(ProblemState.Failed);
+        run.Note.Should().Contain("no staging world");
     }
 
     [Fact]

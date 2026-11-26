@@ -52,6 +52,11 @@ public sealed partial class ProblemConductor
         {
             failures.Add(PreconditionFailure.ReleaseCommitIsNotTheAcceptedOne);
         }
+        // A merge that turned the integration branch red: read in the Git world, and at the crossing out of it (the only crossing into the release world that is issued)
+        if (observed.Merged == true && observed.CiGreenOnExactCommit == false && (check.InWorld == World.Git || (check.Issuing && check.InWorld == World.Release)))
+        {
+            failures.Add(PreconditionFailure.IntegrationBranchRedAfterMerge);
+        }
         return failures;
     }
 

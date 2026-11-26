@@ -19,7 +19,7 @@ internal sealed record FixPullRequest(int Number, string Head, string OriginalHe
 /// What the control plane keeps of the repairs (ADR 0044), in memory: the files of a repair (checked against the policy before they are kept) and the pull request that the gateway opened for them. In memory because the test bed is, and
 /// because a repair that is lost is made again by the loop of the problem, not trusted from a store that nobody can check. A problem has one repair at a time.
 /// </summary>
-internal sealed class RepairRegistry
+internal sealed class RepairRegistry : IProblemRestarts
 {
     private readonly ConcurrentDictionary<string, PendingRepair> _pending = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, FixPullRequest> _fixes = new(StringComparer.Ordinal);
@@ -44,6 +44,9 @@ internal sealed class RepairRegistry
         _pending.TryRemove(problemId, out _);
         _fixes.TryRemove(problemId, out _);
     }
+
+    /// <summary>A problem that starts again from a new base (the integration branch turned red after its merge): the repair and the pull request held are about a change that is merged.</summary>
+    public void Restarted(string problemId) => Forget(problemId);
 
     public PendingRepair? PendingOf(string problemId) => _pending.GetValueOrDefault(problemId);
 

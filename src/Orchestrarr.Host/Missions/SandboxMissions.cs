@@ -170,6 +170,7 @@ internal sealed class SandboxFacts(IProblemStore problems, IPullRequestFacts pul
             ChangedPaths: read.ChangedPaths,
             Repository: entry.Repositories[0],
             BaseCommit: read.BaseSha,
+            Merged: read.Merged,
             Health: query.World == World.Release && health is not null ? await health.ReadAsync(entry.Repositories[0], cancellationToken) : null);
     }
 }

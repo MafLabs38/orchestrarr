@@ -22,6 +22,9 @@ public sealed partial class ProblemConductor
 
         /// <summary>The release did not verify: the problem starts again in the first world.</summary>
         BackToFirstWorld,
+
+        /// <summary>The merge turned the integration branch red: the problem goes back to the staging world to bring it back to green (ADR 0055).</summary>
+        FixForward,
     }
 
     // The precedence: what a person must decide first, then what stops the work, then a pipeline result that is not known yet (a verdict cannot be taken on a fact that is not there: the mission goes back
@@ -65,6 +68,11 @@ public sealed partial class ProblemConductor
         {
             return (Route.Stop, "the budget is used up");
         }
+        // A merge that turned the integration branch red is fixed forward, as a developer does: the problem goes back to staging, where an agent brings the branch back to green, and its lot waits (ADR 0055)
+        if (world == World.Git && failures.Contains(PreconditionFailure.IntegrationBranchRedAfterMerge))
+        {
+            return (Route.FixForward, "the merge turned the integration branch red: the problem goes back to the staging world to bring it back to green");
+        }
         // A release that the controller judged failed never stays in the release world (its mandate could only deploy the same commit again): the problem goes back to the first world, whose mandate is issued
         // like the first one of a problem, so a certificate that backs no more mandates or a loop at its bound refuse there with their own reason. A pipeline result that is not known keeps its answer.
         if (repairsByRestart)
@@ -82,6 +90,7 @@ public sealed partial class ProblemConductor
             Route.Escalate => Moved(await EscalateAsync(run, mission, why), "escalated to the maintainer", failures),
             Route.Stop => Moved(await EndAsync(run, mission, MissionEvent.EndedByController, why), $"{why}: the work stops", failures),
             Route.BackToFirstWorld => await BackToFirstWorldAsync(mission, run, failures, cancellationToken),
+            Route.FixForward => await FixForwardAsync(mission, run, failures),
             _ => Moved(await SendBackAsync(mission, run), why, failures),
         };
     }

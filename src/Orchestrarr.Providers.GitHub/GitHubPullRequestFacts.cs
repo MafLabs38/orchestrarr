@@ -200,57 +200,86 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefault
         return (paths, false);
     }
 
-    // Passing: every check run of the head is over and none failed; Pending: one is not over; Failing: one failed; Unknown: none, or not all of them could be read
+    // Passing: every check run of the head is over and none failed; Pending: one is not over; Failing: one failed; Unknown: none, or not all of them could be read.
+    // The runs of the forge's own dependency service (GitHub runs Dependabot's updates and its dependency graph as workflows of its own, `dynamic/dependabot/...`, on the commits of the default branch) are not
+    // the project's pipeline: their failure says nothing about the commit (an image of the service that could not be pulled), and they are left out of the verdict
     private async Task<ChecksState> ChecksOfAsync(string repository, string sha, IReadOnlyList<string> required, CancellationToken cancellationToken)
     {
-        var pending = false;
-        var present = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var seen = 0;
-        var judged = 0;
-        for (var page = 1; page <= MaxPages; page++)
+        var runs = new List<CheckRunRead>();
+        var complete = false;
+        for (var page = 1; page <= MaxPages && !complete; page++)
         {
-            using var runs = await GetAsync($"repos/{repository}/commits/{sha}/check-runs?per_page=100&page={page}", cancellationToken);
-            if (runs is null || !runs.RootElement.TryGetProperty("check_runs", out var list))
+            using var document = await GetAsync($"repos/{repository}/commits/{sha}/check-runs?per_page=100&page={page}", cancellationToken);
+            if (document is null || !document.RootElement.TryGetProperty("check_runs", out var list))
             {
                 return ChecksState.Unknown;
             }
-            foreach (var run in list.EnumerateArray())
+            runs.AddRange(list.EnumerateArray().Select(CheckRunRead.Of));
+            var total = document.RootElement.TryGetProperty("total_count", out var count) && count.TryGetInt32(out var number) ? number : runs.Count;
+            if (runs.Count >= total)
             {
-                seen++;
-                // What is judged: the checks that the rules of the branch require, when they name some; else every check but the ones that the operator listed. A run that is not judged is counted as read (the total is of every run)
-                var name = run.TryGetProperty("name", out var runName) ? runName.GetString() : null;
-                var isJudged = required.Count > 0 ? name is not null && required.Contains(name, StringComparer.OrdinalIgnoreCase) : name is null || !_ignored.Contains(name, StringComparer.OrdinalIgnoreCase);
-                if (!isJudged)
-                {
-                    continue;
-                }
-                if (name is not null)
-                {
-                    present.Add(name);
-                }
-                judged++;
-                if (run.GetProperty("status").GetString() != "completed")
-                {
-                    pending = true;
-                }
-                else if (run.GetProperty("conclusion").GetString() is not ("success" or "neutral" or "skipped"))
-                {
-                    return ChecksState.Failing;
-                }
+                complete = true;
             }
-            var total = runs.RootElement.TryGetProperty("total_count", out var count) && count.TryGetInt32(out var number) ? number : seen;
-            if (seen >= total || list.GetArrayLength() == 0)
+            else if (list.GetArrayLength() == 0)
             {
-                // A green that was read only in part is not a green: unknown counts as failing for whoever asks
-                if (judged == 0 && required.Count == 0 || seen < total)
-                {
-                    return ChecksState.Unknown;
-                }
-                // A required check that has not appeared yet is a pipeline that is not over
-                return pending || required.Any(context => !present.Contains(context)) ? ChecksState.Pending : ChecksState.Passing;
+                return ChecksState.Unknown;
             }
         }
-        return ChecksState.Unknown;
+        // A green that was read only in part is not a green: unknown counts as failing for whoever asks
+        if (!complete)
+        {
+            return ChecksState.Unknown;
+        }
+        // What is judged: the checks that the rules of the branch require, when they name some; else every check but the ones that the operator listed
+        var judged = runs.Where(run => required.Count > 0 ? run.Name is not null && required.Contains(run.Name, StringComparer.OrdinalIgnoreCase) : run.Name is null || !_ignored.Contains(run.Name, StringComparer.OrdinalIgnoreCase)).ToList();
+        // The forge's own service is read only when it could change the verdict: a run that is not green
+        if (judged.Any(run => !run.IsGreen) && await ServiceSuitesAsync(repository, sha, cancellationToken) is { Count: > 0 } service)
+        {
+            judged = [.. judged.Where(run => run.Suite is not { } suite || !service.Contains(suite))];
+        }
+        if (judged.Count == 0 && required.Count == 0)
+        {
+            return ChecksState.Unknown;
+        }
+        if (judged.Any(run => run.IsCompleted && !run.IsGreen))
+        {
+            return ChecksState.Failing;
+        }
+        // A required check that has not appeared yet is a pipeline that is not over
+        var present = judged.Select(run => run.Name).OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return judged.Any(run => !run.IsCompleted) || required.Any(context => !present.Contains(context)) ? ChecksState.Pending : ChecksState.Passing;
+    }
+
+    // The check suites of a commit that the forge's dependency service made (its workflow runs under `dynamic/dependabot/`): read once, and an answer that cannot be read leaves nothing out
+    private async Task<HashSet<long>> ServiceSuitesAsync(string repository, string sha, CancellationToken cancellationToken)
+    {
+        var suites = new HashSet<long>();
+        using var document = await GetAsync($"repos/{repository}/actions/runs?head_sha={sha}&event=dynamic&per_page=100", cancellationToken);
+        if (document is null || !document.RootElement.TryGetProperty("workflow_runs", out var list))
+        {
+            return suites;
+        }
+        foreach (var run in list.EnumerateArray())
+        {
+            if (run.TryGetProperty("path", out var path) && path.GetString() is { } file && file.StartsWith("dynamic/dependabot/", StringComparison.Ordinal)
+                && run.TryGetProperty("check_suite_id", out var suite) && suite.TryGetInt64(out var id))
+            {
+                _ = suites.Add(id);
+            }
+        }
+        return suites;
+    }
+
+    // One check run as it was read: its name, whether it is over and green, and the suite it belongs to
+    private sealed record CheckRunRead(string? Name, bool IsCompleted, bool IsGreen, long? Suite)
+    {
+        public static CheckRunRead Of(JsonElement run)
+        {
+            var completed = run.GetProperty("status").GetString() == "completed";
+            var green = completed && run.GetProperty("conclusion").GetString() is "success" or "neutral" or "skipped";
+            long? suite = run.TryGetProperty("check_suite", out var owner) && owner.ValueKind == JsonValueKind.Object && owner.TryGetProperty("id", out var id) && id.TryGetInt64(out var number) ? number : null;
+            return new CheckRunRead(run.TryGetProperty("name", out var name) ? name.GetString() : null, completed, green, suite);
+        }
     }
 
     private async Task<int?> BehindByAsync(string repositoryFullName, string baseRef, string head, CancellationToken cancellationToken)

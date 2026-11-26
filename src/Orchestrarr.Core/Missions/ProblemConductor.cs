@@ -24,7 +24,16 @@ public sealed record ConductResult(bool Ok, string? Refusal, IReadOnlyList<Preco
 }
 
 /// <summary>What the conductor reaches outside itself: the facts it reads, the runners it names, the audit trail, the clock and the source of identifiers.</summary>
-public sealed record ConductorServices(IFactsSource Facts, IRunnerDirectory Runners, IMissionAudit Audit, TimeProvider Time, Func<string> NewId);
+public sealed record ConductorServices(IFactsSource Facts, IRunnerDirectory Runners, IMissionAudit Audit, TimeProvider Time, Func<string> NewId, IProblemRestarts? Restarts = null);
+
+/// <summary>
+/// Told when a problem starts its work again from a new base (a merge that turned the integration branch red, ADR 0055): what the host keeps of the problem's earlier change (a repair, the pull request that carried it) is about a
+/// change that is merged, and is forgotten.
+/// </summary>
+public interface IProblemRestarts
+{
+    void Restarted(string problemId);
+}
 
 /// <summary>
 /// Conducts a problem through the worlds (FUNCTIONAL 4, ADR 0030 to 0032, 0036): it issues the first mandate from the plan **on a proved approval**, applies what the controller decides, issues
@@ -39,6 +48,7 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
     private readonly IMissionAudit audit = services.Audit;
     private readonly TimeProvider time = services.Time;
     private readonly Func<string> newId = services.NewId;
+    private readonly IProblemRestarts? restarts = services.Restarts;
     private readonly IMissionStore missions = stores.Missions;
     private readonly IMandateLedger mandates = stores.Mandates;
     private readonly IProblemStore problems = stores.Problems;
@@ -236,6 +246,13 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
             if (problems.Get(mission.ProblemId) is not { } run)
             {
                 return ConductResult.Fail("the problem of this mission is unknown");
+            }
+            // A merge that turned the integration branch red is never only sent back or ended: whatever the controller judged, the facts route it, and the problem goes back to staging to fix it forward (ADR 0055)
+            if (mission.World == World.Git && decision.Kind is ControllerDecisionKind.SendBack or ControllerDecisionKind.End
+                && await ClosingChecksAsync(run, mission, dossiers.Get(mission.Id), cancellationToken) is { } closing && closing.Contains(PreconditionFailure.IntegrationBranchRedAfterMerge))
+            {
+                _ = await RequiredAsync(MissionAuditEvents.ControllerDecided, missionId, Text($"{decision.Kind}: {string.Join(" | ", decision.Reasons)}"), cancellationToken);
+                return await RouteFailuresAsync(mission, run, closing, cancellationToken);
             }
             var decided = await RequiredAsync(MissionAuditEvents.ControllerDecided, missionId, Text($"{decision.Kind}: {string.Join(" | ", decision.Reasons)}"), cancellationToken);
             if (!decided && decision.Kind == ControllerDecisionKind.Grant)
