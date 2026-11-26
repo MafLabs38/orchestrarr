@@ -33,3 +33,12 @@
   color: var(--inkMuted);
   font-size: var(--fontSizeMeta);
 }
+
+.setAside {
+  margin: 0 0 96px;
+}
+
+.setAside summary {
+  cursor: pointer;
+  font-weight: 800;
+}

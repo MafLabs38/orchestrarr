@@ -1,6 +1,7 @@
 # 0029 — The table is one table, and the history is a screen of its own
 
 - **Status**: proposed, accepted when the pull request is merged
+- **Amended by**: [ADR 0056](0056-the-screens-follow-the-fab-flow-dispatch-traveler-and-decisions.md): the History screen is the traveler of an operation; the rows set aside are taken back from a section of the Decisions screen
 - **Date**: 2026-11-12
 - **Spec**: D-75 (amended), D-82; supersedes decision 1 of [ADR 0027](0027-the-table-shows-what-can-be-decided-by-application-and-keeps-what-was-decided.md)
 

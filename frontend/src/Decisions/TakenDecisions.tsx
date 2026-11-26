@@ -1,5 +1,7 @@
+import { historyOf } from 'Flow/HistoryPage';
 import { operationLook, operationTitle, placeName } from 'Flow/operationState';
 import { useFlowBoard } from 'Flow/useFlowBoard';
+import { Link } from 'react-router-dom';
 
 import CapabilityHint from 'Components/CapabilityHint';
 import Label from 'Components/Label';
@@ -49,7 +51,9 @@ export default function TakenDecisions() {
                 const look = operationLook(operation.state);
                 return (
                   <tr key={operation.problemId}>
-                    <td className={styles.operation}>{operationTitle(operation.title, operation.kind)}</td>
+                    <td className={styles.operation}>
+                      <Link to={historyOf(operation.problemId)}>{operationTitle(operation.title, operation.kind)}</Link>
+                    </td>
                     <td>{operation.repository.split('/').pop()}</td>
                     <td>{placeName(operation.place)}</td>
                     <td>

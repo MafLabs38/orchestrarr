@@ -1,9 +1,11 @@
 import classNames from 'classnames';
+import { Link } from 'react-router-dom';
 
 import { iconSizes } from 'Helpers/Props/sizes';
 import type { BoardLot, BoardOperation } from 'typings/api';
 import translate from 'Utilities/translate';
 
+import { historyOf } from './HistoryPage';
 import styles from './LotMap.module.css';
 import { operationLook, operationTitle, placeName } from './operationState';
 
@@ -21,10 +23,10 @@ function Operation({ operation }: Readonly<{ operation: BoardOperation }>) {
       className={classNames(styles.operation, styles[look.kind], look.waiting && styles.waiting)}
       title={operation.detail ? `${title}\n${operation.detail}` : title}
     >
-      <span className={styles.operationHead}>
+      <Link className={styles.operationHead} to={historyOf(operation.problemId)}>
         <look.Icon size={iconSizes.SMALL} aria-hidden="true" />
         <span className={styles.operationTitle}>{title}</span>
-      </span>
+      </Link>
       <span className={styles.operationState}>
         <span className={styles.place}>{placeName(operation.place)} · </span>
         {look.text}

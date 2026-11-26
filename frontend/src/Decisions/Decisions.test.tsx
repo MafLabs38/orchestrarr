@@ -5,7 +5,6 @@ import { problem, problemsReport, readerOnly, renderWithProviders, status, stubA
 import type { HistoryLine, HistoryReport, ProblemRow, ProblemsReport } from 'typings/api';
 
 import Decisions from './Decisions';
-import HistoryPage from './HistoryPage';
 
 const head = (letter: string) => letter.repeat(40);
 const rows: ProblemRow[] = [
@@ -779,7 +778,7 @@ describe('Decisions', () => {
     expect(within(taken).getByText('done')).toBeInTheDocument();
   });
 
-  it('reads the history only when its tab is opened, newest first, and takes a skip back', async () => {
+  it('reads the rows set aside only when they are opened, newest first, and takes a skip back', async () => {
     const line = (id: number, state: HistoryLine['state'], outcome: HistoryLine['outcome']): HistoryLine => ({
       id,
       state,
@@ -799,12 +798,15 @@ describe('Decisions', () => {
       lines: [line(3, 'skipped', 'skipped'), line(2, 'approved', 'repaired'), line(1, 'approved', 'failed')],
       next: null,
     });
-    const view = renderWithProviders(<Decisions />);
+    renderWithProviders(<Decisions />);
     await screen.findByText('express 4.16.0 → 4.21.2');
     expect(fetchMock.mock.calls.some(([path]) => String(path).startsWith('/api/v1/problems/history'))).toBe(false);
-    view.unmount();
-
-    renderWithProviders(<HistoryPage />);
+    const setAside = screen.getByText('Rows set aside, and the approvals of the first design').closest('details');
+    expect(setAside).not.toBeNull();
+    if (setAside) {
+      setAside.open = true;
+      fireEvent(setAside, new Event('toggle'));
+    }
 
     expect(await screen.findByText('express 3')).toBeInTheDocument();
     expect(screen.getByText('Repaired')).toBeInTheDocument();

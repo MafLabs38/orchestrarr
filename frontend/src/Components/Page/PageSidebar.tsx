@@ -43,11 +43,6 @@ export default function PageSidebar() {
         icon={<icons.RUNS size={iconSizes.LARGE} aria-hidden="true" />}
         label={translate('Missions')}
       />
-      <SidebarLink
-        to="/runs"
-        icon={<icons.RUNS size={iconSizes.LARGE} aria-hidden="true" />}
-        label={translate('Runs')}
-      />
       <div className={styles.group}>{translate('System')}</div>
       <SidebarLink
         to="/system/status"

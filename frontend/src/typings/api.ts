@@ -593,3 +593,23 @@ export interface DispatchView {
   line: DispatchEntry[];
   inProcess: InProcessEntry[];
 }
+
+// The traveler of an operation (ADR 0056): its steps one after the other, read from the audit trail
+export interface TravelerStep {
+  at: string;
+  event: string;
+  world: string | null;
+  text: string | null;
+  times: number;
+}
+
+export interface TravelerView {
+  problemId: string;
+  title: string;
+  kind: string | null;
+  repository: string;
+  state: string;
+  priority: number;
+  note: string | null;
+  steps: TravelerStep[];
+}

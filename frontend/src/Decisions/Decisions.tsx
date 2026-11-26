@@ -26,6 +26,7 @@ import formatTime from 'Utilities/formatTime';
 import translate from 'Utilities/translate';
 
 import styles from './Decisions.module.css';
+import History from './History';
 import ProblemTable, { isActionable } from './ProblemTable';
 import SelectionBar from './SelectionBar';
 import { type Sort, sortRows } from './sortRows';
@@ -232,6 +233,7 @@ function Problems({ report: all }: Readonly<{ report: ProblemsReport }>) {
             />
           )}
           <TakenDecisions />
+          <SetAside canDecide={status?.approvals.isOperator ?? false} />
           <SelectionBar
             chosen={chosen}
             descriptionsVersion={report.descriptionsVersion}
@@ -243,5 +245,16 @@ function Problems({ report: all }: Readonly<{ report: ProblemsReport }>) {
         </>
       )}
     </>
+  );
+}
+
+// The rows set aside (which can be taken back) and the approvals of the first design: read only when it is opened
+function SetAside({ canDecide }: Readonly<{ canDecide: boolean }>) {
+  const [open, setOpen] = useState(false);
+  return (
+    <details className={styles.setAside} onToggle={(event) => setOpen(event.currentTarget.open)}>
+      <summary>{translate('SetAsideAndEarlier')}</summary>
+      {open ? <History canDecide={canDecide} /> : null}
+    </details>
   );
 }

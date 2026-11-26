@@ -109,6 +109,8 @@
   gap: 6px;
   align-items: center;
   min-width: 0;
+  color: inherit;
+  text-decoration: none;
 }
 
 .operationTitle {
@@ -162,4 +164,8 @@
   .place {
     display: inline;
   }
+}
+
+.operationHead:hover .operationTitle {
+  text-decoration: underline;
 }
