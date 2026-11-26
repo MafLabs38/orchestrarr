@@ -22,6 +22,11 @@ export default function PageSidebar() {
         badge={data?.rows.length}
       />
       <SidebarLink
+        to="/flow"
+        icon={<icons.FLOW size={iconSizes.LARGE} aria-hidden="true" />}
+        label={translate('Flow')}
+      />
+      <SidebarLink
         to="/history"
         icon={<icons.HISTORY size={iconSizes.LARGE} aria-hidden="true" />}
         label={translate('History')}

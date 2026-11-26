@@ -1,4 +1,5 @@
 import { QueryClientProvider } from '@tanstack/react-query';
+import FlowPage from 'Flow/FlowPage';
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
 
 import Account from 'Account/Account';
@@ -27,6 +28,7 @@ export default function App() {
             <Route path="/" element={<Decisions />} />
             <Route path="/history" element={<HistoryPage />} />
             <Route path="/queue" element={<Queue />} />
+            <Route path="/flow" element={<FlowPage />} />
             <Route path="/missions" element={<Missions />} />
             <Route path="/runs" element={<Runs />} />
             <Route path="/runs/:id" element={<RunDetail />} />

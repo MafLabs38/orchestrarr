@@ -1,8 +1,10 @@
 import classNames from 'classnames';
+import { operationLook, operationStateOf } from 'Flow/operationState';
 
 import CapabilityHint from 'Components/CapabilityHint';
 import Label from 'Components/Label';
 import { type Kind, kinds } from 'Helpers/Props/kinds';
+import { iconSizes } from 'Helpers/Props/sizes';
 import type { FlowActivity, FlowProblem, FlowStep, MissionView } from 'typings/api';
 import {
   describeAge,
@@ -116,15 +118,24 @@ function Details({ missions }: Readonly<{ missions: MissionView[] }>) {
 
 // One problem, followed: what it is, where it stands in each world, what it does now or what it waits for (the maintainer, 2026-11-25)
 function Problem({ problem, missions, now }: Readonly<{ problem: FlowProblem; missions: MissionView[]; now: number }>) {
-  const active = problem.state === 'inProgress' || problem.state === 'queued';
+  // The frame and the label say what the problem does now: at work, judged, or waiting (dashed), and for what (ADR 0056)
+  const operation = operationStateOf(problem);
+  const look = operation ? operationLook(operation) : null;
   return (
-    <li className={classNames(styles.problem, active && styles.active)}>
+    <li className={classNames(styles.problem, look && frameOf(look))}>
       <div className={styles.head}>
         <span className={styles.title} title={titleOf(problem)}>
           {titleOf(problem)}
         </span>
         <span className={styles.repository}>{problem.repository}</span>
-        <Label kind={stateKinds[problem.state]}>{describeFlowState(problem.state)}</Label>
+        {look ? (
+          <Label kind={look.kind}>
+            <look.Icon size={iconSizes.SMALL} aria-hidden="true" />
+            {look.text}
+          </Label>
+        ) : (
+          <Label kind={stateKinds[problem.state]}>{describeFlowState(problem.state)}</Label>
+        )}
         {problem.priority >= urgentFrom ? (
           <Label kind={kinds.DANGER}>{translate('FlowUrgent', { priority: problem.priority })}</Label>
         ) : null}
@@ -145,6 +156,20 @@ function Problem({ problem, missions, now }: Readonly<{ problem: FlowProblem; mi
       {missions.length > 0 ? <Details missions={missions} /> : null}
     </li>
   );
+}
+
+// The frame of a card: at work in the colour of what it does, waiting dashed (in the colour of a bot or of a missing runner when that is why)
+function frameOf(look: { kind: string; waiting: boolean }): string | undefined {
+  if (look.kind === kinds.PINK) {
+    return classNames(styles.frameWaiting, styles.framePink);
+  }
+  if (look.kind === kinds.DANGER) {
+    return classNames(look.waiting && styles.frameWaiting, styles.frameDanger);
+  }
+  if (look.waiting) {
+    return styles.frameWaiting;
+  }
+  return look.kind === kinds.PURPLE ? styles.framePurple : styles.frameInfo;
 }
 
 // What the table says of a row is a number for an alert (the count of the alerts): it is told as what it is

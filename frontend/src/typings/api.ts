@@ -484,3 +484,71 @@ export interface MachinesResponse {
   machines: MachineView[];
   windowHours: number;
 }
+
+// The factory view of the flow (ADR 0056): workshops (worlds) with their equipment, lots (repositories) with their operations placed where they are
+export type EquipmentState = 'inProcess' | 'idle' | 'qualifying' | 'down';
+
+export interface BoardEquipment {
+  id: string;
+  kind: 'machine' | 'slot';
+  state: EquipmentState;
+  problemId: string | null;
+  title: string | null;
+  repository: string | null;
+  since: string | null;
+  reason: string | null;
+}
+
+export type OperationState =
+  | 'working'
+  | 'judging'
+  | 'waitingMachine'
+  | 'waitingLane'
+  | 'waitingPickup'
+  | 'waitingRunner'
+  | 'waitingTurn'
+  | 'waitingBot'
+  | 'done'
+  | 'putAside';
+
+export interface BoardWorkshop {
+  world: string;
+  equipment: BoardEquipment[];
+  inProcess: number;
+  waiting: number;
+  why: OperationState[];
+}
+
+export interface BoardOperation {
+  problemId: string;
+  title: string;
+  kind: string | null;
+  repository: string;
+  place: string;
+  state: OperationState;
+  detail: string | null;
+  priority: number;
+  since: string;
+  equipment: string | null;
+}
+
+export interface BoardLot {
+  repository: string;
+  operations: BoardOperation[];
+}
+
+export interface BoardCounters {
+  queued: number;
+  inProcess: number;
+  waiting: number;
+  done: number;
+  putAside: number;
+  oldestQueuedSince: string | null;
+}
+
+export interface FlowBoard {
+  places: string[];
+  workshops: BoardWorkshop[];
+  lots: BoardLot[];
+  counters: BoardCounters;
+}

@@ -69,7 +69,7 @@ describe('Missions', () => {
 
     expect(await screen.findByText('nginx:1.14 → 1.28')).toBeInTheDocument();
     expect(screen.getByText('example/shop')).toBeInTheDocument();
-    expect(screen.getByText('Working')).toBeInTheDocument();
+    expect(screen.getByText('in process')).toBeInTheDocument();
     const worlds = screen.getByRole('list', { name: 'Worlds' });
     expect(within(worlds).getByText('Staging').closest('li')).toHaveTextContent('done');
     expect(within(worlds).getByText('Git').closest('li')).toHaveTextContent('running');
@@ -106,7 +106,8 @@ describe('Missions', () => {
 
     renderWithProviders(<Missions />);
 
-    expect(await screen.findByText('In line')).toBeInTheDocument();
+    expect(await screen.findByText('waits for its turn')).toBeInTheDocument();
+    expect(screen.getByText('waits for a machine')).toBeInTheDocument();
     expect(
       screen.getByText(/Waits for its turn on this repository: nginx:1.14 → 1.28 is being done first/),
     ).toBeInTheDocument();

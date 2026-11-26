@@ -16,6 +16,7 @@ export default defineConfig({
       Activity: src('Activity'),
       Approvals: src('Approvals'),
       Decisions: src('Decisions'),
+      Flow: src('Flow'),
       Helpers: src('Helpers'),
       Options: src('Options'),
       System: src('System'),
