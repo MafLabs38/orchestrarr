@@ -65,7 +65,8 @@ internal static class MissionActEndpoints
                 }
             }
             live.Publish(LiveTopics.Missions, id);
-            return Results.Ok(new MissionActResponse(merged.Merged, merged.Merged ? null : merged.Error, [], Retry: false, merged.Commit));
+            // A forge that refuses because a check it requires has not reported yet (the pipeline of the pull request was only just queued) is a wait, not a refusal: the runner asks again
+            return Results.Ok(new MissionActResponse(merged.Merged, merged.Merged ? null : merged.Error, [], Retry: !merged.Merged && ChecksNotOverYet(merged.Error), merged.Commit));
         });
 
         // The pull request that carries the repair of a staging runner: the gateway makes the branch and the commit itself from the files that it checked, so that the runner never holds a credential that writes to a repository
@@ -216,6 +217,11 @@ internal static class MissionActEndpoints
 
     // Only a pipeline that is not over yet is worth asking again about: a red one, or any other check that failed, is final
     // A pull request that was just opened has the checks of its push and none yet of the pull request: the forge reads green while the result that counts is not known. Only a red pipeline is a reason not to wait (ADR 0055)
+    // What GitHub says when a required check is not over: "Required status check \"build\" is queued" (or in progress, or expected)
+    internal static bool ChecksNotOverYet(string? error) =>
+        error is not null && error.Contains("Required status check", StringComparison.OrdinalIgnoreCase)
+        && (error.Contains("is queued", StringComparison.OrdinalIgnoreCase) || error.Contains("is in progress", StringComparison.OrdinalIgnoreCase) || error.Contains("is expected", StringComparison.OrdinalIgnoreCase) || error.Contains("is pending", StringComparison.OrdinalIgnoreCase));
+
     private static bool WaitingForPipeline(ActAuthorisation authorisation, ChecksState checks) =>
         checks is not ChecksState.Failing && authorisation.Failures.Count > 0
         && authorisation.Failures.All(failure => failure is PreconditionFailure.CiNotGreenOnExactCommit or PreconditionFailure.CiResultNotKnown);

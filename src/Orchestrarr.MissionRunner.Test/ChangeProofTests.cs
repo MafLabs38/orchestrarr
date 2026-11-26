@@ -124,7 +124,7 @@ public sealed class ChangeProofTests : IDisposable
         _ = await Run(machine);
 
         var reset = machine.Scripts.FindIndex(script => script.Contains($"git reset -q --hard {Pushed}", StringComparison.Ordinal) && script.Contains("git clean -fdxq", StringComparison.Ordinal));
-        var removed = machine.Scripts.FindIndex(script => script.Contains("docker rm -f", StringComparison.Ordinal));
+        var removed = machine.Scripts.FindIndex(script => script.Contains("docker ps -aq | xargs -r docker rm -f", StringComparison.Ordinal));
         var steps = machine.Scripts.FindIndex(script => script.Contains("npm ci", StringComparison.Ordinal) || script.Contains("docker run --rm --cap-drop", StringComparison.Ordinal));
         reset.Should().BeGreaterThan(-1);
         reset.Should().BeLessThan(removed);
@@ -145,7 +145,9 @@ public sealed class ChangeProofTests : IDisposable
         machine.Setup.Should().Contain("credential.https://github.com.helper", "only the forge's host receives the token").And.Contain("$AGENT_GIT_TOKEN").And.NotContain("the-git-token", "git is given the token by a helper that reads the environment, in no file");
         machine.AgentInput.Should().Be("the-token\nthe-git-token\n", "both tokens go by the standard input of the connection, never in an argument");
         machine.Scripts.Where(script => !script.Contains("read -r", StringComparison.Ordinal)).Should().OnlyContain(script => !script.Contains("the-token", StringComparison.Ordinal) && !script.Contains("the-git-token", StringComparison.Ordinal));
-        machine.Scripts.Single(script => script.Contains("claude -p", StringComparison.Ordinal)).Should().Contain("-e AGENT_GIT_TOKEN").And.Contain("--dangerously-skip-permissions");
+        machine.Scripts.Single(script => script.Contains("claude -p", StringComparison.Ordinal)).Should().Contain("-e AGENT_GIT_TOKEN").And.Contain("--dangerously-skip-permissions")
+            .And.Contain("--name orchestrarr-agent", "the agent's own container has a name that it is told never to remove");
+        machine.Prompt.Should().Contain("orchestrarr-agent").And.Contain("never stop, kill or remove it");
     }
 
     [Theory]
