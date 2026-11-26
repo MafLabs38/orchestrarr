@@ -58,7 +58,8 @@ public sealed class LeadAgentTests
         plan.UserPrompt.IndexOf("fixed in 4.17.21", StringComparison.Ordinal).Should().BeGreaterThan(data);
         plan.SystemPrompt.Should().Contain("the facts the worker needs").And.Contain("say what must be true at the end, not the commands");
         plan.SystemPrompt.Should().Contain("make every pipeline of the repository pass").And.Contain("never retried until it passes", "a red pipeline is repaired as a developer does, a flaky test made deterministic")
-            .And.Contain("never the fix of a finding").And.Contain("never plan a rewrite of the application in another language");
+            .And.Contain("never the fix of a finding").And.Contain("never plan a rewrite of the application in another language")
+            .And.Contain("a check or a smoke test is never weakened to pass");
     }
 
     [Fact]
