@@ -61,11 +61,22 @@ public sealed class ProblemQueue
         lock (_gate)
         {
             var ready = new List<QueuedProblem>();
+            // Whether a repository is busy is asked **once per pass**: the problem before may end while the pass runs, and the route must not see the lot busy for its first operation and free for a later one
+            var busy = new Dictionary<string, bool>(StringComparer.Ordinal);
+            bool Busy(string repository)
+            {
+                if (!busy.TryGetValue(repository, out var known))
+                {
+                    known = isBusy(repository);
+                    busy[repository] = known;
+                }
+                return known;
+            }
             foreach (var problem in _waiting.OrderBy(other => RouteRank.Of(other.Entry)).ThenBy(other => other.QueuedAt))
             {
                 var repository = RepositoryOf(problem);
                 // A problem that cannot start now (it waits for a bot to rebase its pull request) does not hold its lot: the next one of the route takes the turn (ADR 0055)
-                if (repository is not null && !isBusy(repository) && !ready.Exists(other => IsOn(other, repository)) && (canStart is null || canStart(problem)))
+                if (repository is not null && !Busy(repository) && !ready.Exists(other => IsOn(other, repository)) && (canStart is null || canStart(problem)))
                 {
                     ready.Add(problem);
                 }

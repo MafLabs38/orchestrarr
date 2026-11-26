@@ -31,6 +31,21 @@ public sealed class ProblemQueueTests
     }
 
     [Fact]
+    public void A_lot_that_becomes_free_while_the_line_is_read_never_lets_a_later_operation_of_its_route_go_first()
+    {
+        var line = new ProblemQueue();
+        line.Enqueue(OfKind("alert", "o/one", "DependencyAlert", 0));
+        line.Enqueue(OfKind("bump", "o/one", "DependencyUpdate", 1));
+        var asked = 0;
+
+        // the operation before ends while the pass runs: busy when the line asks first, free afterwards
+        var ready = line.TakeReady(_ => asked++ == 0);
+
+        ready.Should().BeEmpty("the lot is busy for the whole pass, as it was when the pass asked");
+        line.TakeReady(_ => false).Select(problem => problem.Entry.ProblemId).Should().Equal("alert");
+    }
+
+    [Fact]
     public void Two_operations_of_the_same_rank_keep_their_order_of_arrival()
     {
         var line = new ProblemQueue();
