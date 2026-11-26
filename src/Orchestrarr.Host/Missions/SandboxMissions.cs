@@ -1,3 +1,4 @@
+using Orchestrarr.Core.Fleet;
 using Orchestrarr.Core.Forge;
 using Orchestrarr.Core.Missions;
 using Orchestrarr.Core.SecondFactor;
@@ -272,6 +273,13 @@ internal static class SandboxMissionsExtensions
         }
         // One reader of the forge for the facts of a pull request and for the default branch, made when it is first needed
         var githubFacts = new Lazy<GitHubPullRequestFacts?>(() => string.IsNullOrWhiteSpace(github.Token) ? null : GitHubPullRequestFacts.Create(github));
+        // The fake source of findings reaches the rows: the lab can plant an advisory that no real scanner reports (ADR 0055)
+        if (!string.IsNullOrWhiteSpace(missions.SandboxFindingsFile) && services.LastOrDefault(descriptor => descriptor.ServiceType == typeof(IFleetSource)) is { ImplementationFactory: { } real } fleet)
+        {
+            var file = missions.SandboxFindingsFile;
+            services.Remove(fleet);
+            services.AddSingleton<IFleetSource>(provider => new SandboxFleetFindings((IFleetSource)real(provider), file));
+        }
         return services
             .AddSingleton<SandboxApprovals>()
             .AddSingleton<RepairRegistry>()

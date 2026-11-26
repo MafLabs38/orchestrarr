@@ -1,6 +1,6 @@
 {
   "case": "DEMO",
-  "title": "A demo of the product on the test bed: faults of several cases planted together, to be ticked and followed from the screens. The planted pull requests touch separate lines of package.json (a bump of express next to one of lodash conflicts by construction, which is case 07's own scenario)",
+  "title": "A demo of the product on the test bed: faults of several cases planted together, to be ticked all at once and followed from the screens, with a grain of sand: a flaw in the postgres image of edge-stack that no published version fixes",
   "repos": [
     "shop-api",
     "ledger-worker",
@@ -38,6 +38,16 @@
         "fixedIn": "1.2.8",
         "severity": "critical",
         "summary": "Prototype pollution in minimist"
+      }
+    ],
+    "edge-stack": [
+      {
+        "kind": "advisory",
+        "package": "postgres (container image)",
+        "installed": "9.6",
+        "fixedIn": null,
+        "severity": "critical",
+        "summary": "CVE-2026-41877: remote code execution in the PostgreSQL server; every release up to the latest 17.x is affected and no fixed version has been published"
       }
     ]
   }
