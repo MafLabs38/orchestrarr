@@ -57,7 +57,7 @@ public sealed class ProblemConductorTests : IDisposable
             {
                 return null;
             }
-            return ChangedPaths ?? (DiffTouchesForbidden ? [".github/workflows/ci.yml"] : ["src/Orders.cs", "tests/OrdersTests.cs"]);
+            return ChangedPaths ?? (DiffTouchesForbidden ? [".env.production"] : ["src/Orders.cs", "tests/OrdersTests.cs"]);
         }
 
         public bool? WayBack { get; set; } = true;
@@ -1153,7 +1153,7 @@ public sealed class ProblemConductorTests : IDisposable
 
         var staging = await StartStaged(conductor);
 
-        staging.Mandate!.Mandate.Frame.ForbiddenPaths.Should().Contain("infra/prod/**").And.Contain(".github/**");
+        staging.Mandate!.Mandate.Frame.ForbiddenPaths.Should().Contain("infra/prod/**").And.Contain("**/.env*");
         staging.Mandate.Mandate.ApplicationId.Should().Be("shop");
         staging.Mandate.Mandate.ProblemClass.Should().Be("deprecated-dependency");
     }
@@ -1642,11 +1642,11 @@ public sealed class ProblemConductorTests : IDisposable
     {
         var conductor = Conductor(ConductorOptions.Default with { ForbiddenPaths = [] });
         var staging = await StartStaged(conductor);
-        staging.Mandate!.Mandate.Frame.ForbiddenPaths.Should().Contain(".github/**", "the certificate's floor is in the frame whatever the options say");
+        staging.Mandate!.Mandate.Frame.ForbiddenPaths.Should().Contain("**/.env*", "the certificate's floor is in the frame whatever the options say");
         var id = staging.Mission!.Id;
         await conductor.StartedAsync(id, Ct);
         await conductor.HandOverAsync(id, DossierFor(id), Ct);
-        _facts.ChangedPaths = [".github/workflows/ci.yml"];
+        _facts.ChangedPaths = [".env.production"];
 
         var decided = await conductor.DecideAsync(id, Grant(), Ct);
 
@@ -1654,14 +1654,14 @@ public sealed class ProblemConductorTests : IDisposable
     }
 
     [Fact]
-    public async Task A_rename_out_of_a_forbidden_path_counts_by_its_old_path_so_a_pipeline_cannot_be_moved_out_of_the_floor()
+    public async Task A_rename_out_of_a_forbidden_path_counts_by_its_old_path_so_a_secret_cannot_be_moved_out_of_the_floor()
     {
         var conductor = Conductor();
         var id = (await StartStaged(conductor)).Mission!.Id;
         await conductor.StartedAsync(id, Ct);
         await conductor.HandOverAsync(id, DossierFor(id), Ct);
         _facts.DiffSaysClean = true;
-        _facts.ChangedPaths = [".github/workflows/codeql.yml", "src/codeql.yml"];
+        _facts.ChangedPaths = ["config/prod.enc.yaml", "src/prod.yaml"];
 
         (await conductor.DecideAsync(id, Grant(), Ct)).Failures.Should().Contain(PreconditionFailure.DiffTouchesForbiddenPath, "the source lists both sides of the rename, and the old path is in the floor");
     }

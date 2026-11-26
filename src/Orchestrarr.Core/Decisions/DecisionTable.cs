@@ -58,9 +58,6 @@ public enum CeilingReason
     /// <summary>A version of Node that is not a long-term release: it is not proposed.</summary>
     NotLongTermSupport,
 
-    /// <summary>The pull request changes the pipeline of the repository (a GitHub action, for example): a pipeline file is never changed by an agent, so it is a person's to merge.</summary>
-    PipelineFilesAreAPersons,
-
     /// <summary>The image comes with the platform (K3s): it is updated with it, not on its own.</summary>
     ManagedByPlatform,
 
@@ -292,11 +289,6 @@ public static class DecisionTable
             var mine = results.Where(row => string.Equals(row.Repository, item.RepositoryFullName, StringComparison.OrdinalIgnoreCase) && row.PullRequest == pullRequest.Number && string.Equals(row.HeadSha, pullRequest.HeadSha, StringComparison.OrdinalIgnoreCase))
                 .OrderByDescending(row => row.At).ToList();
             (ceiling, why, canStop) = WorkshopWord(item, pullRequest, ceiling, why, canStop, runners, mine);
-            // A pipeline file is never in a change that the product makes (the frame of every mission forbids it), so a row that only changes one cannot be done here: it is not offered, and says why
-            if (ProblemNatures.OfPullRequest(pullRequest) == ProblemNature.PipelineToolUpdate && ceiling != Ceiling.NoAction)
-            {
-                (ceiling, why, canStop) = (Ceiling.NoAction, CeilingReason.PipelineFilesAreAPersons, false);
-            }
             var change = pullRequest.Changes.Count == 1 ? pullRequest.Changes[0] : null;
             // What the control plane read from the title (package, from, to), apart from the title itself: only this is a statement of its own
             var parsedChange = change is { From: not null, To: not null } ? $"{change.Package} {change.From} → {change.To}" : null;
@@ -436,9 +428,9 @@ public static class DecisionTable
             : (Ceiling.MergeIntoDevelop, CeilingReason.UpdateClassStopsBeforeProduction, false);
     }
 
-    // The problems that have no pull request and that a worker agent solves in staging (ADR 0048, ADR 0051): a dependency alert, an image that has a newer version, an image run under a tag that moves. An image that the platform or
+    // The problems that have no pull request and that a worker agent solves in staging (ADR 0048, ADR 0051, ADR 0055): a dependency alert, an image that has a newer version, an image run under a tag that moves, a pipeline that is red on the main branch. An image that the platform or
     // an automation keeps, that is not written in the code that was read, or that differs from what runs, stays without action, with its own reason: only the reasons below leave a row that an agent can work on.
-    private static readonly ProblemKind[] SolvedInStaging = [ProblemKind.DependencyAlert, ProblemKind.ImageUpdate, ProblemKind.FloatingImage];
+    private static readonly ProblemKind[] SolvedInStaging = [ProblemKind.DependencyAlert, ProblemKind.ImageUpdate, ProblemKind.FloatingImage, ProblemKind.FailingCi];
 
     private static readonly CeilingReason[] LeavesAnAgentWork = [CeilingReason.NoActionDefined, CeilingReason.MajorNeedsPlan];
 
@@ -454,7 +446,7 @@ public static class DecisionTable
             }
             // An image is solved where it is written: in the repository of the problem, in code that was read, and not on a line that an automation rewrites. No place read in this repository (no code perimeter, a place
             // in another repository, a reference that is not one) is no problem that an agent can work on
-            if (rows[index].Kind != ProblemKind.DependencyAlert && !WrittenHere(rows[index], item.RepositoryFullName))
+            if (rows[index].Kind is ProblemKind.ImageUpdate or ProblemKind.FloatingImage && !WrittenHere(rows[index], item.RepositoryFullName))
             {
                 continue;
             }

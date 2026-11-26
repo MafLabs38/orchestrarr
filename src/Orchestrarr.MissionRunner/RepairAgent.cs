@@ -10,7 +10,7 @@ public sealed record RepairOutcome(bool Repaired, IReadOnlyList<PatchedFile> Fil
 
 /// <summary>
 /// The worker agent of the staging world (ADR 0044): when the change does not pass, Claude Code, in a container of the staging machine, reads and edits the source of the application (it has no shell, no network tool, and no access to the
-/// machine), the runner runs the steps again itself, and what the agent changed is handed over **whole** and **checked against the policy of the repair** (never the tests, the dependencies, the build or the pipelines). The agent works on a copy
+/// machine), the runner runs the steps again itself, and what the agent changed is handed over **whole** and **checked against the policy of the repair** (never the tests or the dependencies, which are what the pull request is judged on). The agent works on a copy
 /// without the repository's own metadata or the files that instruct an agent; the only secret of its container is the token of the subscription, which reaches it by the standard input of the connection.
 /// </summary>
 public sealed partial class RepairAgent(IShell shell, MissionRunnerOptions options)

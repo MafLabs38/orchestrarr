@@ -26,8 +26,6 @@ public sealed class ChangePolicyTests
     }
 
     [Theory]
-    [InlineData(".github/workflows/ci.yml")]
-    [InlineData(".gitlab-ci.yml")]
     [InlineData("deploy/.env")]
     [InlineData("secrets/db.txt")]
     [InlineData("config/server.key")]
@@ -38,12 +36,6 @@ public sealed class ChangePolicyTests
     [InlineData("frontend/.yarnrc.yml")]
     [InlineData("pip.conf")]
     [InlineData(".gitattributes")]
-    [InlineData("sub/.github/workflows/x.yml")]
-    [InlineData("Jenkinsfile")]
-    [InlineData("ci/Jenkinsfile.release")]
-    [InlineData("azure-pipelines.yml")]
-    [InlineData(".circleci/config.yml")]
-    [InlineData("app/.travis.yml")]
     [InlineData(".pypirc")]
     [InlineData(".netrc")]
     [InlineData(".yarnrc")]
@@ -60,9 +52,18 @@ public sealed class ChangePolicyTests
     [InlineData("config/app.enc.yaml")]
     [InlineData("config/credentials.json")]
     [InlineData(".gitmodules")]
-    public void Never_the_pipelines_the_files_that_hold_a_secret_or_the_files_that_instruct_an_agent(string path)
+    public void Never_the_files_that_hold_a_secret_the_metadata_of_the_repository_or_the_files_that_instruct_an_agent(string path)
     {
         ChangePolicy.Refusal(Change(File(path))).Should().Contain("protected");
+    }
+
+    [Theory]
+    [InlineData(".github/workflows/ci.yml")]
+    [InlineData(".gitlab-ci.yml")]
+    [InlineData("Jenkinsfile")]
+    public void A_pipeline_is_maintenance_like_any_other_file_and_may_be_changed(string path)
+    {
+        ChangePolicy.IsProtected(path).Should().BeFalse("changing a pipeline is maintenance (the maintainer, 2026-11-26, ADR 0055)");
     }
 
     [Theory]
@@ -182,7 +183,7 @@ public sealed class ChangePolicyTests
     [Fact]
     public void A_floor_path_of_the_frame_that_this_policy_does_not_name_is_refused_too()
     {
-        ChangePolicy.IsProtected(".github/workflows/x.yml").Should().BeTrue();
+        ChangePolicy.IsProtected("CODEOWNERS").Should().BeTrue();
         ChangePolicy.IsProtected("src/server.js").Should().BeFalse();
     }
 }

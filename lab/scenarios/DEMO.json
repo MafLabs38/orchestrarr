@@ -19,14 +19,6 @@
       "patches": [
         "CASE-02-node-22.patch"
       ]
-    },
-    {
-      "repo": "shop-api",
-      "branch": "lab/grain-contradiction",
-      "kind": "patch",
-      "patch": "GRAIN-contradictory-tests.patch",
-      "title": "build(deps): Bump left-pad from 1.0.0 to 1.3.0",
-      "body": "A grain of sand, on purpose: this pull request carries two tests that contradict each other (the same call must answer 200 and 503), so no change to the source can make it pass, and the tests may not be touched. The flow must put it aside and go on with everything else."
     }
   ],
   "findings": {

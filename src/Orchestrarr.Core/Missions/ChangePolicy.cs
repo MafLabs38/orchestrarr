@@ -4,7 +4,7 @@ namespace Orchestrarr.Core.Missions;
 
 /// <summary>
 /// What may be **integrated** when a worker agent solves a problem that has no pull request (ADR 0048). Inside the machine the agent is free: it installs, builds, tests and breaks what it needs, and no rule says how it works.
-/// The frame is on what it hands over, because that is what reaches a repository and then production: never the pipelines, the files that carry secrets, the files that instruct an agent or the repository's own metadata. Whatever the
+/// The frame is on what it hands over, because that is what reaches a repository and then production: never the files that carry secrets, the files that instruct an agent or the repository's own metadata; the pipelines are maintenance like the rest (the maintainer, 2026-11-26, ADR 0055). Whatever the
 /// agent did with the tests and the dependencies is its own judgement, and the pipelines and the controller judge it afterwards. It is read by the control plane that opens the pull request:
 /// the control plane's own reading is the one that counts.
 /// </summary>
@@ -15,10 +15,9 @@ public static partial class ChangePolicy
     public const int MaxFilePatch = 1_000_000;
     public const int MaxTotalPatch = 4_000_000;
 
-    /// <summary>The paths that never leave the machine, whatever the problem: how the code is built and released by the forge, what carries a secret, what instructs an agent.</summary>
+    /// <summary>The paths that never leave the machine, whatever the problem: the repository's own metadata, where the dependencies come from, what carries a secret, what instructs an agent.</summary>
     public static readonly IReadOnlyList<string> ProtectedPaths =
     [
-        ".github/**", "**/.github/**", ".gitlab-ci.yml", ".circleci/**", "**/Jenkinsfile*", "azure-pipelines.yml", "**/.travis.yml", "**/bitbucket-pipelines.yml",
         ".git/**", "**/.git/**", "**/.gitmodules", "**/.gitattributes",
         // Where the dependencies come from: a registry that a change points elsewhere is a change of what is installed, not of what is asked for
         "**/.npmrc", "**/.yarnrc", "**/.yarnrc.yml", "**/pip.conf", "**/.pypirc", "**/.netrc",

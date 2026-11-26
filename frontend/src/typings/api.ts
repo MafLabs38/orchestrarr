@@ -242,7 +242,6 @@ export type CeilingReason =
   | 'passesHereChecksFailing'
   | 'checksNotRun'
   | 'notLongTermSupport'
-  | 'pipelineFilesAreAPersons'
   | 'managedByPlatform'
   | 'majorNeedsPlan'
   | 'notInScope'

@@ -24,20 +24,13 @@ public sealed class PathPatternsTests
     }
 
     [Theory]
-    [InlineData(".github/workflows/ci.yml")]
-    [InlineData(".gitlab-ci.yml")]
-    [InlineData(".gitea/workflows/build.yml")]
-    [InlineData(".forgejo/workflows/build.yml")]
-    [InlineData(".woodpecker/build.yml")]
-    [InlineData(".woodpecker.yml")]
-    [InlineData(".drone.yml")]
     [InlineData("CODEOWNERS")]
     [InlineData("docs/CODEOWNERS")]
     [InlineData(".github/CODEOWNERS")]
     [InlineData(".gitmodules")]
     [InlineData("deploy/secrets.enc.yaml")]
     [InlineData("app/.env.production")]
-    public void The_floor_of_forbidden_paths_covers_the_pipelines_of_every_supported_forge_the_code_owners_and_the_submodules(string path)
+    public void The_floor_of_forbidden_paths_covers_the_code_owners_the_submodules_and_the_secrets_but_not_the_pipelines(string path)
     {
         PathPatterns.AnyMatches(ForbiddenPathsDefaults.Floor, [path]).Should().BeTrue();
     }

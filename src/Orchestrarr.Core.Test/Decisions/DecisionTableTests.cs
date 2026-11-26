@@ -32,14 +32,11 @@ public sealed class DecisionTableTests
     }
 
     [Fact]
-    public void A_pull_request_that_only_changes_the_pipeline_is_not_offered_because_an_agent_never_changes_a_pipeline_file()
+    public void A_pull_request_that_changes_the_pipeline_is_offered_like_any_other_maintenance()
     {
-        var rows = Table(Item([Pull(1) with { HeadBranch = "dependabot/github_actions/actions/checkout-7" }, Pull(2)], [new Finding(FindingKind.OpenDependencyPullRequests, Severity.Info, 2)]));
+        var rows = Table(Item([Pull(1) with { HeadBranch = "dependabot/github_actions/actions/checkout-7" }], [new Finding(FindingKind.OpenDependencyPullRequests, Severity.Info, 1)]));
 
-        var pipeline = rows.Single(row => row.PullRequest == 1);
-        pipeline.GoesUpTo.Should().Be(Ceiling.NoAction);
-        pipeline.Why.Should().Be(CeilingReason.PipelineFilesAreAPersons);
-        rows.Single(row => row.PullRequest == 2).GoesUpTo.Should().NotBe(Ceiling.NoAction, "a library update is still offered");
+        rows.Single(row => row.PullRequest == 1).GoesUpTo.Should().NotBe(Ceiling.NoAction, "changing a pipeline is maintenance (ADR 0055)");
     }
 
     private static PlanStep Step(StepKind kind, bool available = true, bool granted = true) => new(kind, null, null, true, available, granted, null);
@@ -485,7 +482,7 @@ public sealed class DecisionTableTests
 
         rows.Select(row => row.Kind).Should().Equal(ProblemKind.DependencyAlert, ProblemKind.CodeScanningAlert, ProblemKind.ExposedSecret, ProblemKind.FailingCi, ProblemKind.ImageUpdate, ProblemKind.DependencyScanUnavailable);
         rows.Should().OnlyContain(row => row.PullRequest == null);
-        rows.Where(row => row.Kind is not (ProblemKind.DependencyAlert or ProblemKind.ImageUpdate or ProblemKind.FloatingImage)).Should().OnlyContain(row => row.GoesUpTo == Ceiling.NoAction && row.Why == CeilingReason.NoActionDefined && !row.CanStopBeforeProduction);
+        rows.Where(row => row.Kind is not (ProblemKind.DependencyAlert or ProblemKind.ImageUpdate or ProblemKind.FloatingImage or ProblemKind.FailingCi)).Should().OnlyContain(row => row.GoesUpTo == Ceiling.NoAction && row.Why == CeilingReason.NoActionDefined && !row.CanStopBeforeProduction);
         rows.Single(row => row.Kind == ProblemKind.DependencyAlert).Should().Match<ProblemRow>(row => row.Count == 2 && row.Severity == Severity.Danger);
         rows.Single(row => row.Kind == ProblemKind.ImageUpdate).Description.Should().Be("ghcr.io/example/app:1 → 2");
         rows.Select(row => row.Id).Should().OnlyHaveUniqueItems();

@@ -21,10 +21,10 @@ public static partial class RepairPolicy
         // What decides whether it passes
         "test/**", "tests/**", "**/test/**", "**/tests/**", "**/__tests__/**", "**/*.test.*", "**/*.spec.*", "**/test_*.py", "**/*_test.py", "**/conftest.py", "**/pytest.ini", "**/tox.ini", "**/.mocharc*", "**/jest.config.*", "**/vitest.config.*",
         "**/.eslintrc*", "**/eslint.config.*", "**/tsconfig*.json", "**/Makefile",
-        // How it is built and released, and what instructs an agent
-        ".github/**", ".gitlab-ci.yml", "**/Dockerfile*", "**/.dockerignore", "**/docker-compose*", "**/compose.y*ml", ".git/**", "**/.git/**", "**/.claude/**", "**/CLAUDE.md", "**/CLAUDE.local.md", "**/.mcp.json", "**/.gitattributes", "**/.gitmodules",
+        // What instructs an agent and the repository's metadata (the pipelines and the container files are maintenance like the rest: the maintainer, 2026-11-26, ADR 0055)
+        ".git/**", "**/.git/**", "**/.claude/**", "**/CLAUDE.md", "**/CLAUDE.local.md", "**/.mcp.json", "**/.gitattributes", "**/.gitmodules",
         // The other ecosystems and forges: their tests, their pipelines, their runtimes and their package managers' settings. The list is a floor, not an inventory: a repair of a source that none of these names is still bounded by the limits and by the pipeline
-        "**/*_test.go", "**/*.Tests/**", "**/*.Test/**", "**/*Tests.cs", "**/*Test.cs", "**/*Test.java", "**/*Tests.java", "spec/**", "**/spec/**", "**/*_spec.rb", "**/__snapshots__/**", "**/Jenkinsfile*", ".circleci/**", "azure-pipelines*.yml", "**/.travis.yml", "**/bitbucket-pipelines.yml",
+        "**/*_test.go", "**/*.Tests/**", "**/*.Test/**", "**/*Tests.cs", "**/*Test.cs", "**/*Test.java", "**/*Tests.java", "spec/**", "**/spec/**", "**/*_spec.rb", "**/__snapshots__/**",
         "**/.nvmrc", "**/.node-version", "**/.python-version", "**/.tool-versions", "**/.yarnrc*", "**/.pnpmfile.cjs", "**/pnpm-workspace.yaml", "**/pip.conf", "**/NuGet.config", "**/global.json", "**/dotnet-tools.json", "**/*.sln*", "**/Pipfile", "**/*.lock", "**/packages.lock.json",
         "**/jest.setup.*", "**/vitest.setup.*", "**/setupTests.*", "**/babel.config.*", "**/.babelrc*", "**/vite.config.*", "**/webpack.config.*", "**/rollup.config.*", "**/karma.conf.*", "**/playwright.config.*", "**/cypress/**", "**/e2e/**", "**/.husky/**", "**/.pre-commit-config.yaml", "**/*.snap", ".gitlab/**",
     ];
