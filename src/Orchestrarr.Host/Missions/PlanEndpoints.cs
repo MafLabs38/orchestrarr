@@ -77,12 +77,20 @@ internal static class PlanEndpoints
             // do not wait for the lead to have thought about every row of the selection (a plan is a minute of the subscription, and a hundred rows would keep them idle for an hour). The planning goes on behind it
             var rows = (request.Rows ?? []).DistinctBy(row => row.Id, StringComparer.Ordinal).OrderBy(chosen => chosen.Id is { } rowId && table.TryGetValue(rowId, out var known) ? RouteRank.Of(known.Kind.ToString()) : int.MaxValue).ToList();
             var planning = rows.Select((chosen, index) => PrepareAsync(chosen, table, approver.Subject, lead, new ProblemSources(findings, pipelines), conductor, audit, stop, NotAsked(index, agents.LeadMaxRows), time, ct)).ToList();
-            // One work site at a time on a repository: the first problem of a free repository starts, the others wait for their turn (ProblemQueue)
-            var started = new List<ValidatedProblem>();
-            foreach (var plan in planning)
-            {
-                started.Add(await starter.StartOrQueueAsync(await plan, ct));
-            }
+            // One work site at a time on a repository: the first problem of a free repository starts, the others wait for their turn (ProblemQueue). The plans of a lot are placed in the order of its route, and the lots
+            // go side by side: a plan that is slow to come holds its own lot only, never the machines of the others
+            var placed = new ValidatedProblem?[planning.Count];
+            var lots = planning.Select((plan, index) => (Plan: plan, Index: index, Lot: LotOf(rows[index], table)))
+                .GroupBy(item => item.Lot, StringComparer.Ordinal)
+                .Select(async lot =>
+                {
+                    foreach (var (plan, index, _) in lot)
+                    {
+                        placed[index] = await starter.StartOrQueueAsync(await plan, ct);
+                    }
+                });
+            await Task.WhenAll(lots);
+            var started = placed.OfType<ValidatedProblem>().ToList();
             live.Publish(LiveTopics.Missions);
             return Results.Json(new ValidatePlanResponse(started), statusCode: StatusCodes.Status201Created);
         }).RequireAuthorization(Permissions.ApprovalsCreate).RequireRateLimiting(ApprovalsServiceCollectionExtensions.ApprovingPolicy);
@@ -93,6 +101,10 @@ internal static class PlanEndpoints
         [.. places.Where(place => string.Equals(place.Repository, repository, StringComparison.OrdinalIgnoreCase) && place.Managed is null).Take(MaxPlaces).Select(place => $"image written in {place.Path} line {place.Line} as {place.Image.Name}{(place.Image.Tag is { } tag ? $":{tag}" : string.Empty)}")];
 
     internal static World CeilingOf(ValidatedRow chosen) => chosen.StopBeforeProduction ? World.Git : PlanCeiling;
+
+    // The lot of a row is its repository (ADR 0055); a row that the table does not know is a lot of its own
+    private static string LotOf(ValidatedRow chosen, Dictionary<string, ProblemRow> table) =>
+        chosen.Id is { } rowId && table.TryGetValue(rowId, out var known) ? known.Source ?? known.Application : $"row:{chosen.Id}";
 
     // Why a row is not asked about at all: the selection is beyond what the lead is asked about at once (Agents:LeadMaxRows)
     private static string? NotAsked(int index, int maxRows) => index >= maxRows ? "tooManyToPlanAtOnce" : null;
