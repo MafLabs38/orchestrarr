@@ -16,13 +16,12 @@ public sealed class WorkedOnRowsTests
     private static PlanEntry Entry(string rowId) =>
         new(PlanEntryFactory.ProblemIdOf(rowId), "shop", "ImageUpdate", "o", ["o/shop"], World.Release, new MissionBudget(1, 1, 1), new Validation("x", null), T0);
 
-    private static ProblemRun Run(string rowId, ProblemState state) =>
-        new(PlanEntryFactory.ProblemIdOf(rowId), "shop", state, T0, Entry(rowId), World.Release, true, new SignedApproval(new ApprovalCertificate("c", CertificateKind.Problem, "p", "shop", ["o/shop"], World.Release, new MissionBudget(1, 1, 1), T0, T0.AddHours(1), "x", "n", [], 8), []));
+    private static ProblemRun Run(string rowId, ProblemState state, DateTimeOffset? endedAt = null) =>
+        new(PlanEntryFactory.ProblemIdOf(rowId), "shop", state, T0, Entry(rowId), World.Release, true, new SignedApproval(new ApprovalCertificate("c", CertificateKind.Problem, "p", "shop", ["o/shop"], World.Release, new MissionBudget(1, 1, 1), T0, T0.AddHours(1), "x", "n", [], 8), []), EndedAt: endedAt);
 
-    private static ServiceProvider Services(IProblemStore? problems, ProblemQueue? queue = null, TimeProvider? time = null)
+    private static ServiceProvider Services(IProblemStore? problems, ProblemQueue? queue = null)
     {
         var services = new ServiceCollection();
-        services.AddSingleton(time ?? new Microsoft.Extensions.Time.Testing.FakeTimeProvider(T0.AddHours(1)));
         if (problems is not null)
         {
             services.AddSingleton(problems);
@@ -50,18 +49,17 @@ public sealed class WorkedOnRowsTests
     }
 
     [Fact]
-    public void A_decision_done_lately_is_a_decision_taken_and_one_put_aside_is_one_to_take_again()
+    public void A_decision_done_is_taken_until_the_fleet_is_read_again_and_one_put_aside_is_one_to_take_again()
     {
         var store = new InMemoryProblemStore();
-        store.Save(Run("row-done", ProblemState.Closed));
+        store.Save(Run("row-done", ProblemState.Closed, endedAt: T0.AddMinutes(30)));
         store.Save(Run("row-aside", ProblemState.Failed));
-        using var lately = Services(store);
-        using var later = Services(store, time: new Microsoft.Extensions.Time.Testing.FakeTimeProvider(T0.AddHours(7)));
+        using var services = Services(store);
 
-        var rows = ProblemsEndpoints.MarkWorkedOn([Row("row-done"), Row("row-aside")], lately);
+        var before = ProblemsEndpoints.MarkWorkedOn([Row("row-done"), Row("row-aside")], services, fleetReadAt: T0.AddMinutes(20));
 
-        rows.Select(row => (row.Id, row.RecentlyDone, row.InProgress)).Should().Equal(("row-done", true, false), ("row-aside", false, false));
-        ProblemsEndpoints.MarkWorkedOn([Row("row-done")], later).Single().RecentlyDone.Should().BeFalse("a finding the fleet still reports hours after it was done is a decision to take again");
+        before.Select(row => (row.Id, row.RecentlyDone, row.InProgress)).Should().Equal(("row-done", true, false), ("row-aside", false, false));
+        ProblemsEndpoints.MarkWorkedOn([Row("row-done")], services, fleetReadAt: T0.AddMinutes(40)).Single().RecentlyDone.Should().BeFalse("a read of the fleet made after it was done that still reports it says it is there again");
     }
 
     [Fact]

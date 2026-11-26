@@ -46,7 +46,7 @@ internal static class ProblemsEndpoints
             var report = await catalog.GetAsync(refresh ?? false, ct);
             var code = await infrastructure.GetAsync(refresh ?? false, ct);
             var all = FullTable(new TableInputs(report, code.Index, infrastructure.Scope), applications, runners, queue, time, policy);
-            var rows = MarkWorkedOn(Visible(all, history, approvals), services);
+            var rows = MarkWorkedOn(Visible(all, history, approvals), services, report.ReadAt);
             return Results.Ok(new ProblemsReport(report.ReadAt, report.SourceKind, report.Stale, report.Error, applications.Version, rows, all.Count - rows.Count,
                 new CodeScopeStatus(code.Index.InScope, infrastructure.Scope.Repositories.Count, code.Index.FileCount, code.ReadAt, code.Stale, code.Index.Problems, code.Error)));
         }).RequireAuthorization(Permissions.FleetRead);
@@ -102,11 +102,8 @@ internal static class ProblemsEndpoints
             .Select(row => row.PullRequest is { } number && working.Contains($"{row.Source ?? row.Application}#{number}") ? row with { InProgress = true } : row)];
     }
 
-    // How long a decision that was done stays out of the decisions to take while the fleet still reports it
-    private static readonly TimeSpan RecentlyDoneFor = TimeSpan.FromHours(6);
-
     // A row that the conductor works on, or that waits in its line, is marked in progress whatever it is (a pull request or not): the table says that it is being done, and what is ticked again is refused as already being worked on
-    internal static IReadOnlyList<ProblemRow> MarkWorkedOn(IReadOnlyList<ProblemRow> rows, IServiceProvider services)
+    internal static IReadOnlyList<ProblemRow> MarkWorkedOn(IReadOnlyList<ProblemRow> rows, IServiceProvider services, DateTimeOffset? fleetReadAt = null)
     {
         var problems = services.GetService<Orchestrarr.Core.Missions.IProblemStore>();
         if (problems is null)
@@ -118,11 +115,10 @@ internal static class ProblemsEndpoints
         {
             working.Add(waiting.Entry.ProblemId);
         }
-        // A decision that was taken and done is not one to take again while the fleet still reports what it fixed (the fleet is read again on its own beat): it is in the decisions taken (ADR 0056). What was put aside is shown again, to be
-        // ticked again if a person wants to (ADR 0055 point 4)
-        var since = (services.GetService<TimeProvider>() ?? TimeProvider.System).GetUtcNow() - RecentlyDoneFor;
+        // A decision that was taken and done is not one to take again while the fleet has not been read since it was done (the fleet is read on its own beat, and a read from before the fix still reports what it fixed): it is in the
+        // decisions taken (ADR 0056). A read made after it was done that still reports it says the problem is there again: it is a decision to take. What was put aside is shown again, to be ticked again (ADR 0055 point 4)
         var done = problems.GetMany([.. rows.Select(row => Orchestrarr.Core.Missions.PlanEntryFactory.ProblemIdOf(row.Id))]).Values
-            .Where(run => run.State == Orchestrarr.Core.Missions.ProblemState.Closed && run.StartedAt >= since).Select(run => run.ProblemId).ToHashSet(StringComparer.Ordinal);
+            .Where(run => run.State == Orchestrarr.Core.Missions.ProblemState.Closed && run.EndedAt is { } ended && (fleetReadAt is not { } readAt || readAt <= ended)).Select(run => run.ProblemId).ToHashSet(StringComparer.Ordinal);
         return working.Count == 0 && done.Count == 0 ? rows : [.. rows.Select(row =>
         {
             var id = Orchestrarr.Core.Missions.PlanEntryFactory.ProblemIdOf(row.Id);

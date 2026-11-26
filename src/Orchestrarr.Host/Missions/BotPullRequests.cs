@@ -176,7 +176,7 @@ internal sealed class BotPullRequests(IServiceProvider services, MissionsOptions
     {
         if (services.GetService<SandboxApprovals>() is { } approvals && await approvals.PrepareAsync(entry, cancellationToken) && approvals.For(entry) is { } approval)
         {
-            problems.Save(new ProblemRun(entry.ProblemId, entry.ApplicationId, state, time.GetUtcNow(), entry, entry.MaxWorld, true, approval, Note: note));
+            problems.Save(new ProblemRun(entry.ProblemId, entry.ApplicationId, state, time.GetUtcNow(), entry, entry.MaxWorld, true, approval, Note: note, EndedAt: time.GetUtcNow()));
         }
     }
 

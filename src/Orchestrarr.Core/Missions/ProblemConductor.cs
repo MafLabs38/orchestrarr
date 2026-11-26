@@ -342,7 +342,7 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
     private async Task<ConductResult> CloseAsync(ProblemRun run, Mission mission, bool complex, string? problemNote, string acceptedDetail, string? closedDetail)
     {
         var closed = MissionMachine.Apply(mission, MissionEvent.Granted, options.Loop, complex: complex).Mission ?? mission;
-        await SettleAsync(mission, closed, run with { State = ProblemState.Closed, CurrentWorld = null, Note = problemNote },
+        await SettleAsync(mission, closed, run with { State = ProblemState.Closed, CurrentWorld = null, Note = problemNote, EndedAt = time.GetUtcNow() },
             new AuditLine(MissionAuditEvents.MissionAccepted, mission.Id, acceptedDetail), new AuditLine(MissionAuditEvents.ProblemClosed, run.ProblemId, closedDetail));
         return ConductResult.Success(closed);
     }

@@ -198,6 +198,7 @@ public sealed class ProblemConductorTests : IDisposable
         closed.Ok.Should().BeTrue();
         closed.Mission!.State.Should().Be(MissionState.Accepted);
         _problems.Get("problem-1")!.State.Should().Be(ProblemState.Closed);
+        _problems.Get("problem-1")!.EndedAt.Should().NotBeNull("a problem says when it was done: the table of decisions compares it with the last read of the fleet");
         _missions.ForProblem("problem-1").Should().HaveCount(3);
     }
 
