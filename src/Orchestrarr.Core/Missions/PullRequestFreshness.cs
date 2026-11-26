@@ -16,6 +16,9 @@ public enum Freshness
 
     /// <summary>It moved and is not a bot's, or it is merged: it cannot be done on what was ticked. The maintainer ticks it again.</summary>
     Left,
+
+    /// <summary>Its bot closed it: a bot closes its own pull request when another change made it useless (the base already holds that version or a newer one). Nothing is left to do: the operation is done by another one.</summary>
+    Superseded,
 }
 
 /// <summary>The verdict, with the head to follow (Followed, and NeedsRebase when the bot made a new head that is not yet on the base as it is now) and the reason in words (NeedsRebase, Left).</summary>
@@ -41,11 +44,13 @@ public static class PullRequestFreshness
             return new FreshnessVerdict(Freshness.Left, null, "the pull request is already merged");
         }
         // A bot closes its own pull request when another change made it useless (the dependency was raised some other way): there is nothing left to do on it
+        var bot = isBot(facts.Author);
         if (facts.Closed)
         {
-            return new FreshnessVerdict(Freshness.Left, null, "the pull request is closed (its bot closes a pull request that another change made useless)");
+            return bot
+                ? new FreshnessVerdict(Freshness.Superseded, null, "its bot closed the pull request: another change already brought what it carried")
+                : new FreshnessVerdict(Freshness.Left, null, "the pull request is closed");
         }
-        var bot = isBot(facts.Author);
         var moved = !string.Equals(facts.HeadSha, entry.HeadSha, StringComparison.Ordinal);
         if (moved && !bot)
         {

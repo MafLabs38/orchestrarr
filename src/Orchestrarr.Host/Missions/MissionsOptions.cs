@@ -19,6 +19,12 @@ public sealed class MissionsOptions
     public MachineSetting[] Machines { get; set; } = [];
 
     /// <summary>How long a lease lives without a sign of life of its runner. Generous: a long troubleshooting is normal; only a runner that has disappeared must not keep a machine for ever.</summary>
+    /// <summary>A machine that went Down is qualified again by itself after this many minutes (ADR 0055).</summary>
+    public int MachineRequalifyMinutes { get; set; } = 5;
+
+    /// <summary>At most this many automatic qualifications of one machine an hour; then it stays Down for a person. 0: never by itself.</summary>
+    public int MachineRequalifyPerHour { get; set; } = 3;
+
     public int MachineLeaseMinutes { get; set; } = (int)MachineOptions.Default.LeaseTimeout.TotalMinutes;
 
     public int MandateMinutes { get; set; } = (int)ConductorOptions.Default.MandateLifetime.TotalMinutes;

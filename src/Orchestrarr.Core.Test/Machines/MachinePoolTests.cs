@@ -94,6 +94,26 @@ public sealed class MachinePoolTests
         pool.Report("leipzig", Passing(_time.GetUtcNow())).Machine!.State.Should().Be(MachineState.Idle);
     }
 
+    [Fact]
+    public void A_machine_that_went_down_is_qualified_again_by_itself_after_a_while_a_bounded_number_of_times_an_hour()
+    {
+        var pool = Pool();
+        pool.Register("bilbao", MachineRole.Release);
+        _ = pool.Report("bilbao", Failing(_time.GetUtcNow()));
+
+        pool.RequalifyAfterFault(TimeSpan.FromMinutes(5), 2).Should().BeEmpty("not before the delay");
+        for (var round = 0; round < 2; round++)
+        {
+            _time.Advance(TimeSpan.FromMinutes(6));
+            pool.RequalifyAfterFault(TimeSpan.FromMinutes(5), 2).Should().ContainSingle().Which.Reason.Should().StartWith(MachinePool.AutomaticRequalification);
+            _ = pool.Report("bilbao", Failing(_time.GetUtcNow()));
+        }
+        _time.Advance(TimeSpan.FromMinutes(6));
+
+        pool.RequalifyAfterFault(TimeSpan.FromMinutes(5), 2).Should().BeEmpty("a machine that keeps failing stays down for a person");
+        pool.Get("bilbao")!.State.Should().Be(MachineState.Down);
+    }
+
     [Theory]
     [InlineData("isolation")]
     [InlineData("reachable")]

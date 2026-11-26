@@ -87,7 +87,7 @@ public sealed class MissionWorldsApiTests
         public string BaseRef { get; set; } = "main";
 
         public Task<PullRequestFacts?> ReadAsync(string repositoryFullName, int number, CancellationToken cancellationToken) =>
-            Task.FromResult<PullRequestFacts?>(new PullRequestFacts(Opened.Count > 0 && number == RepairNumber ? PullHead : Head, "base", false, Opened.Count > 0 && number == RepairNumber ? ChecksState.Passing : HeadChecks, ["package.json"], PathsComplete: true, Merged, Merged ? MergeCommit : null, Merged ? TreeOfTheMerge : null, Merged ? MergeChecks : ChecksState.Unknown, BaseRef: BaseRef, DefaultBranch: "main", Author: Author, Merge: PullMerge));
+            Task.FromResult<PullRequestFacts?>(new PullRequestFacts(Opened.Count > 0 && number == RepairNumber ? PullHead : Head, "base", false, Opened.Count > 0 && number == RepairNumber ? ChecksState.Passing : HeadChecks, ["package.json"], PathsComplete: true, Merged, Merged ? MergeCommit : null, Merged ? TreeOfTheMerge : null, Merged ? MergeChecks : ChecksState.Unknown, BaseRef: BaseRef, DefaultBranch: "main", Author: Author, Merge: PullMerge, Closed: Closed.Contains(number)));
 
         public Task<DefaultBranchHead?> ReadAsync(string repositoryFullName, CancellationToken cancellationToken) =>
             Task.FromResult<DefaultBranchHead?>(DefaultReadable ? new DefaultBranchHead("main", DefaultHead) : null);
@@ -389,6 +389,22 @@ public sealed class MissionWorldsApiTests
         var run = factory.Services.GetRequiredService<IProblemStore>().Get("p-bot")!;
         run.State.Should().Be(ProblemState.Failed);
         run.Note.Should().Contain("the bot did not rebase").And.Contain("put aside before it started");
+    }
+
+    [Fact]
+    public async Task A_waiting_pull_request_that_its_bot_closed_because_another_change_brought_it_is_done_not_failed()
+    {
+        var forge = new FakeForge { Author = "dependabot[bot]", PullMerge = MergeState.Conflicting };
+        using var factory = new WorldsFactory(forge);
+        var starter = factory.Services.GetRequiredService<ProblemStarter>();
+        _ = await starter.StartOrQueueAsync(Prepared("p-bot", 7, "example/shop"), Ct);
+        forge.Closed.Add(7);
+
+        await starter.StartReadyAsync(Ct);
+
+        var run = factory.Services.GetRequiredService<IProblemStore>().Get("p-bot")!;
+        run.State.Should().Be(ProblemState.Closed);
+        run.Note.Should().Contain("done by another operation");
     }
 
     [Fact]

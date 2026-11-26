@@ -119,6 +119,28 @@ public sealed class MachinePool(IMachineStore store, TimeProvider time, MachineO
         return result;
     }
 
+    /// <summary>The reason that marks a qualification that the control plane asked by itself after a fault, so that the tries can be counted.</summary>
+    public const string AutomaticRequalification = "automatic requalification after a fault";
+
+    /// <summary>
+    /// A machine that went Down is qualified again by itself after <paramref name="after"/>, at most <paramref name="perHour"/> times an hour (ADR 0055): a passing fault (a route that did not answer for a minute) does not stop the
+    /// flow until a person comes, and a machine that keeps failing stays Down for a person. The qualification is the whole one (restore and every check): it only puts back a machine that passes.
+    /// </summary>
+    public IReadOnlyList<Machine> RequalifyAfterFault(TimeSpan after, int perHour)
+    {
+        var now = time.GetUtcNow();
+        var asked = new List<Machine>();
+        foreach (var machine in store.All().Where(machine => machine.State == MachineState.Down && now - machine.Since >= after))
+        {
+            var tries = store.Transitions(machine.Id, now.AddHours(-1)).Count(transition => transition.To == MachineState.Qualifying && transition.Reason?.StartsWith(AutomaticRequalification, StringComparison.Ordinal) == true);
+            if (tries < perHour && BeginQualification(machine.Id, $"{AutomaticRequalification} ({machine.Reason})") is { Ok: true, Machine: { } qualifying })
+            {
+                asked.Add(qualifying);
+            }
+        }
+        return asked;
+    }
+
     /// <summary>A machine that is Finished, Down or Idle goes to be qualified (an Idle one only when it is asked: it is then not given to anyone meanwhile).</summary>
     public MachineResult BeginQualification(string id, string? reason = null)
     {

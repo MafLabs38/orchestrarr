@@ -45,7 +45,7 @@ internal sealed class ProblemStarter(IServiceProvider services, MissionsOptions 
                 var verdict = await JudgeAsync(entry, cancellationToken);
                 switch (verdict.Kind)
                 {
-                    case Freshness.Left:
+                    case Freshness.Left or Freshness.Superseded:
                         _ = await audit.RecordAsync(MissionAuditEvents.QueuedProblemRefused, entry.ProblemId, $"not started: {verdict.Reason}", CancellationToken.None);
                         return new ValidatedProblem(one.RowId, entry.ProblemId, null, null, "thePullRequestMoved");
                     case Freshness.Followed:
@@ -144,6 +144,12 @@ internal sealed class ProblemStarter(IServiceProvider services, MissionsOptions 
                     _ = await audit.RecordAsync(MissionAuditEvents.QueuedProblemRefused, id, $"left the line without starting: {verdict.Reason}", CancellationToken.None);
                     await PutAsideAsync(entry, verdict.Reason!, cancellationToken);
                     break;
+                case Freshness.Superseded:
+                    _ = line.Remove(id);
+                    _ = parking.Release(id);
+                    _ = await audit.RecordAsync(MissionAuditEvents.ProblemClosed, id, $"nothing left to do: {verdict.Reason}", CancellationToken.None);
+                    await SettleBeforeStartAsync(entry, ProblemState.Closed, $"done by another operation: {verdict.Reason}", cancellationToken);
+                    break;
                 case Freshness.NeedsRebase:
                     // A new head is the bot answering: the wait starts again from it (a bot that keeps up with a base that keeps moving is not put aside for it)
                     if (verdict.Head is { } newer)
@@ -231,12 +237,15 @@ internal sealed class ProblemStarter(IServiceProvider services, MissionsOptions 
         }
     }
 
-    // A problem that leaves the line without having started is **put aside in the flow, with its reason**, so that the maintainer sees it where he follows the work (a failed problem with a note), not only in the audit trail
-    private async Task PutAsideAsync(PlanEntry entry, string reason, CancellationToken cancellationToken)
+    // A problem that leaves the line without having started is **settled in the flow, with its reason**, so that the maintainer sees it where he follows the work (a failed problem put aside, or one that another operation did), not only in the audit trail
+    private Task PutAsideAsync(PlanEntry entry, string reason, CancellationToken cancellationToken) =>
+        SettleBeforeStartAsync(entry, ProblemState.Failed, $"put aside before it started: {reason}", cancellationToken);
+
+    private async Task SettleBeforeStartAsync(PlanEntry entry, ProblemState state, string note, CancellationToken cancellationToken)
     {
         if (services.GetService<SandboxApprovals>() is { } approvals && await approvals.PrepareAsync(entry, cancellationToken) && approvals.For(entry) is { } approval)
         {
-            problems.Save(new ProblemRun(entry.ProblemId, entry.ApplicationId, ProblemState.Failed, time.GetUtcNow(), entry, entry.MaxWorld, true, approval, Note: $"put aside before it started: {reason}"));
+            problems.Save(new ProblemRun(entry.ProblemId, entry.ApplicationId, state, time.GetUtcNow(), entry, entry.MaxWorld, true, approval, Note: note));
         }
     }
 

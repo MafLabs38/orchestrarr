@@ -195,6 +195,13 @@ cmd_reset() {
 #   pip-bump: "package", "from", "version" (a pinned line of requirements.txt)
 #   npm-bump: "package", "from", "version"  (the version the seed holds, checked; the lock file follows), "patches" (optional: files next to the scenario, applied with git apply)
 #   patch: "patch" (a file next to the scenario, applied with git apply)
+# What Dependabot does when the base already holds the version it proposed: it says so and closes its pull request
+close_useless() {
+  local repo="$1" branch="$2" package="$3" current="$4"
+  gh pr close "$branch" -R "$ORG/$repo" --delete-branch --comment "Looks like $package is up-to-date now ($current on the base), so this is no longer needed." >/dev/null 2>&1 || true
+  echo "$repo: closed $branch, $package is already $current on $BASE"
+}
+
 plant_one() {
   local scenario="$1" index="$2" dir item repo branch title body kind
   item=$(jq -c --argjson i "$index" '.plants[$i]' "$scenario")
@@ -215,6 +222,7 @@ plant_one() {
       [[ "$package" =~ ^(@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*$ ]] || { echo "refused: '$package' is not a package name" >&2; return 1; }
       [[ "$to" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]] || { echo "refused: '$to' is not a version" >&2; return 1; }
       current=$(jq -r --arg p "$package" '(.dependencies[$p] // .devDependencies[$p] // "")' "$dir/package.json")
+      if [ -n "${REBASE:-}" ] && [ -n "$current" ] && [ "$(printf '%s\n%s\n' "$to" "${current#^}" | sort -V | tail -1)" = "${current#^}" ]; then close_useless "$repo" "$branch" "$package" "$current"; return 0; fi
       # a bot that makes its pull request again does not mind what the base holds now: it bumps to the version it was asked for (the first planting checks the seed)
       [ -n "${REBASE:-}" ] || [ "$current" = "$from" ] || { echo "$repo: $package is $current in the seed, the scenario says $from" >&2; return 1; }
       # npm reads the .npmrc of the repository, which may expand environment variables: it runs with an empty environment, none of the lab's credentials
@@ -238,6 +246,8 @@ plant_one() {
       current=$(grep -iE "^${package}==" "$dir/requirements.txt" | head -1 | cut -d= -f3)
       [ -n "$current" ] || { echo "$repo: $package is not pinned in requirements.txt" >&2; return 1; }
       [ -n "${REBASE:-}" ] || [ "$current" = "$from" ] || { echo "$repo: $package is $current in the seed, the scenario says $from" >&2; return 1; }
+      # a bot never goes down: a base that already holds this version or a newer one makes the pull request useless, and the bot closes it
+      if [ -n "${REBASE:-}" ] && [ "$(printf '%s\n%s\n' "$to" "$current" | sort -V | tail -1)" = "$current" ]; then close_useless "$repo" "$branch" "$package" "$current"; return 0; fi
       sed -i -E "s/^(${package})==.*$/\1==${to}/I" "$dir/requirements.txt" ;;
     patch)
       local patch; patch=$(jq -r .patch <<<"$item"); valid_name "$patch"

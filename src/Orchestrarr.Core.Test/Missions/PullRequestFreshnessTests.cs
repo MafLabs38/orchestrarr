@@ -73,9 +73,10 @@ public sealed class PullRequestFreshnessTests
     }
 
     [Fact]
-    public void A_pull_request_that_its_bot_closed_is_left_and_the_bot_is_not_asked_to_rebase_it()
+    public void A_pull_request_that_its_bot_closed_is_done_by_another_change_and_one_that_someone_else_closed_is_left()
     {
-        PullRequestFreshness.Of(Entry(), Facts(merge: MergeState.Conflicting, closed: true), IsBot).Kind.Should().Be(Freshness.Left);
+        PullRequestFreshness.Of(Entry(), Facts(merge: MergeState.Conflicting, closed: true), IsBot).Kind.Should().Be(Freshness.Superseded);
+        PullRequestFreshness.Of(Entry(), Facts(author: "alice", closed: true), IsBot).Kind.Should().Be(Freshness.Left);
     }
 
     [Fact]

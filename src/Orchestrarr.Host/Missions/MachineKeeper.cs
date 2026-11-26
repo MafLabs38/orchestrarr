@@ -29,6 +29,10 @@ internal sealed class MachineKeeper(MachinePool pool, MissionsOptions options, I
                     {
                         logger.LogWarning("The lease of {Machine} expired: its runner gave no sign of life", machine.Id);
                     }
+                    foreach (var machine in pool.RequalifyAfterFault(TimeSpan.FromMinutes(Math.Max(1, options.MachineRequalifyMinutes)), Math.Max(0, options.MachineRequalifyPerHour)))
+                    {
+                        logger.LogWarning("{Machine} was down: it is qualified again by itself", machine.Id);
+                    }
                 }
                 catch (Exception failure) when (failure is not OperationCanceledException)
                 {
