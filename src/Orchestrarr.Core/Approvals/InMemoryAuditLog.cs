@@ -38,6 +38,16 @@ public sealed class InMemoryAuditLog(int capacity = InMemoryAuditLog.DefaultCapa
         }
     }
 
+    public IReadOnlyList<AuditRow> About(IReadOnlyCollection<string> subjects, int limit)
+    {
+        ArgumentNullException.ThrowIfNull(subjects);
+        lock (_lock)
+        {
+            var about = _entries.Select((entry, index) => new AuditRow(index + 1, entry)).Where(row => subjects.Contains(row.Entry.Subject)).ToList();
+            return [.. about.Skip(Math.Max(0, about.Count - limit))];
+        }
+    }
+
     public IReadOnlyList<AuditRow> Page(int limit)
     {
         lock (_lock)

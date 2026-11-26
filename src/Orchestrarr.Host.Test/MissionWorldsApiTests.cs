@@ -381,6 +381,9 @@ public sealed class MissionWorldsApiTests
         await starter.StartReadyAsync(Ct);
         problems.Get("p-held")!.State.Should().Be(ProblemState.InProgress);
         (await person.PostAsync("/api/v1/flow/p-held/release", null, Ct)).StatusCode.Should().Be(HttpStatusCode.Conflict, "what is not held is not released");
+        var traveler = await person.GetFromJsonAsync<JsonElement>("/api/v1/problems/p-held/traveler", Ct);
+        traveler.GetProperty("steps").EnumerateArray().Select(step => step.GetProperty("event").GetString()).Should().ContainInOrder("problem.queued", "problem.held", "problem.released", "problem.started");
+        (await person.GetAsync("/api/v1/problems/p-unknown/traveler", Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     [Fact]

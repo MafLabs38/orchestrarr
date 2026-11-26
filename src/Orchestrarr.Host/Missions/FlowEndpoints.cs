@@ -1,6 +1,7 @@
 using Orchestrarr.Core.Missions;
 using Orchestrarr.Host.Approvals;
 using Orchestrarr.Core.Accounts;
+using Orchestrarr.Core.Approvals;
 using Orchestrarr.Core.Launch;
 using Orchestrarr.Host.Tasks;
 using Orchestrarr.Host.Live;
@@ -26,6 +27,8 @@ public sealed record PriorityRequest(int Priority);
 /// </summary>
 internal static class FlowEndpoints
 {
+    private const int MaxTravelerSteps = 500;
+
     public static void MapFlowEndpoints(this RouteGroupBuilder api)
     {
         api.MapGet("/flow/queue", (IServiceProvider services, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, MissionProgress progress, RunnerRegistry runners) =>
@@ -63,6 +66,19 @@ internal static class FlowEndpoints
                 .ToList();
             return Results.Ok(new DispatchView(entries, inProcess));
         }).RequireAuthorization(Permissions.FleetRead);
+
+        // The traveler of an operation (ADR 0056): its steps one after the other, from the audit trail
+        api.MapGet("/problems/{problemId}/traveler", (string problemId, IServiceProvider services, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, MissionProgress progress, RunnerRegistry runners, IAuditLog audit) =>
+        {
+            var shown = MissionEndpoints.FlowOf(services, missions.Recent(MissionEndpoints.MaxPageSize), mandates, problems, progress, runners).FirstOrDefault(problem => string.Equals(problem.ProblemId, problemId, StringComparison.Ordinal));
+            if (shown is null)
+            {
+                return Results.NotFound();
+            }
+            var ofProblem = missions.ForProblem(problemId);
+            var rows = audit.About([problemId, .. ofProblem.Select(mission => mission.Id)], MaxTravelerSteps);
+            return Results.Ok(Traveler.Build(shown, ofProblem, rows));
+        }).RequireAuthorization(Permissions.AuditRead);
 
         // A hold: an operation of the line does not start until it is released, and never holds its lot (ADR 0056). A reason in words is required
         api.MapPost("/flow/{problemId}/hold", async (string problemId, HoldRequest request, HttpContext context, IApproverAccessor accessor, IServiceProvider services, IMissionAudit audit, ILiveNotifier live, TimeProvider time) =>

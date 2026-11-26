@@ -13,6 +13,9 @@ public interface IAuditLog : IAuditSink
 {
     /// <summary>The newest entries with their numbers, newest first: at most <paramref name="limit"/>, since a trail in a file can hold hundreds of thousands.</summary>
     IReadOnlyList<AuditRow> Page(int limit);
+
+    /// <summary>The entries about these subjects (a problem and its missions, for the traveler of ADR 0056), oldest first: at most <paramref name="limit"/>, the newest ones when there are more.</summary>
+    IReadOnlyList<AuditRow> About(IReadOnlyCollection<string> subjects, int limit);
 }
 
 public static class AuditLogExtensions

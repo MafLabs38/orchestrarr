@@ -49,12 +49,39 @@ public sealed class SqliteAuditLog(SqliteDatabase database, int capacity = Store
         }
     }
 
+    // At most this many subjects in one read: a problem and its missions are a few dozen
+    private const int MaxSubjects = 200;
+
+    public IReadOnlyList<AuditRow> About(IReadOnlyCollection<string> subjects, int limit) => SqliteDatabase.Guard<IReadOnlyList<AuditRow>>(() =>
+    {
+        ArgumentNullException.ThrowIfNull(subjects);
+        var asked = subjects.Distinct(StringComparer.Ordinal).Take(MaxSubjects).ToList();
+        if (asked.Count == 0)
+        {
+            return [];
+        }
+        using var connection = database.Connect();
+        using var command = connection.CreateCommand();
+        // The subjects go as one parameter, a JSON list that SQLite reads itself: nothing is written into the text of the query
+        command.CommandText = "SELECT id, at, event, subject, order_id, detail FROM audit WHERE subject IN (SELECT value FROM json_each($subjects)) ORDER BY id DESC LIMIT $limit;";
+        command.Parameters.AddWithValue("$subjects", System.Text.Json.JsonSerializer.Serialize(asked));
+        command.Parameters.AddWithValue("$limit", limit);
+        var rows = Read(command);
+        rows.Reverse();
+        return rows;
+    });
+
     public IReadOnlyList<AuditRow> Page(int limit) => SqliteDatabase.Guard<IReadOnlyList<AuditRow>>(() =>
     {
         using var connection = database.Connect();
         using var command = connection.CreateCommand();
         command.CommandText = "SELECT id, at, event, subject, order_id, detail FROM audit ORDER BY id DESC LIMIT $limit;";
         command.Parameters.AddWithValue("$limit", limit);
+        return Read(command);
+    });
+
+    private static List<AuditRow> Read(SqliteCommand command)
+    {
         using var reader = command.ExecuteReader();
         var rows = new List<AuditRow>();
         while (reader.Read())
@@ -69,7 +96,7 @@ public sealed class SqliteAuditLog(SqliteDatabase database, int capacity = Store
                     reader.IsDBNull(5) ? null : reader.GetString(5))));
         }
         return rows;
-    });
+    }
 
     // Rows are never deleted (the triggers forbid it), so the number of entries is the last number given: no scan under the write lock
     internal static int Count(SqliteConnection connection) => Scalar(connection, "SELECT COALESCE(MAX(id), 0) FROM audit;");
