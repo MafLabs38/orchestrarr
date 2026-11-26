@@ -6,6 +6,23 @@ public sealed partial class ProblemConductor
     /// <summary>The global stop, the maintainer or the budget: every mandate of the problem is revoked and the running mission ends cleanly.</summary>
     public async Task<ConductResult> StopAsync(string problemId, string reason, CancellationToken cancellationToken) => await LockedAsync(problemId, () => StopLockedAsync(problemId, reason), cancellationToken);
 
+    /// <summary>
+    /// A person sets the priority of a problem in progress (0 to 100, ADR 0056): it orders the next mission a runner is given, never interrupts one that runs and grants no power. Under the lock of the problem, so that a move between worlds
+    /// never writes an older priority back. Fails for a problem that is not in progress.
+    /// </summary>
+    public async Task<ConductResult> SetPriorityAsync(string problemId, int priority, string by, CancellationToken cancellationToken) =>
+        await LockedAsync(problemId, async () =>
+        {
+            if (problems.Get(problemId) is not { State: ProblemState.InProgress } run)
+            {
+                return ConductResult.Fail("the problem is not being worked on");
+            }
+            var set = Math.Clamp(priority, FlowPriority.Lowest, FlowPriority.Highest);
+            problems.Save(run with { Priority = set });
+            await BestEffortAsync(MissionAuditEvents.PrioritySet, problemId, Text($"priority {run.Priority} to {set}, by {by}"));
+            return new ConductResult(true, null, [], null, null);
+        }, cancellationToken);
+
     /// <summary>The mission used up its budget: it ends as failed and the problem fails with it; a loop never goes on past a budget.</summary>
     public async Task<ConductResult> BudgetExhaustedAsync(string missionId, CancellationToken cancellationToken) =>
         await OnMissionAsync(missionId, async mission => problems.Get(mission.ProblemId) is { } run ? await EndAsync(run, mission, MissionEvent.BudgetExhausted, "the budget is used up") : ConductResult.Fail("the problem of this mission is unknown"), cancellationToken);

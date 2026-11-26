@@ -339,6 +339,76 @@ public sealed class MissionWorldsApiTests
         (await starter.StartOrQueueAsync(Prepared("p-b", 8, "example/shop"), Ct)).Refusal.Should().Be("alreadyQueued");
     }
 
+    private static async Task<HttpClient> Operator(AccountsApiFactory factory)
+    {
+        var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Orchestrarr-Request", "test");
+        (await client.PostAsJsonAsync("/api/v1/auth/login", new { name = AccountsApiFactory.AdminName, password = AccountsApiFactory.AdminPassword }, Ct)).EnsureSuccessStatusCode();
+        return client;
+    }
+
+    [Fact]
+    public async Task A_held_operation_does_not_start_never_holds_its_lot_and_starts_when_a_person_releases_it()
+    {
+        using var factory = new WorldsFactory(new FakeForge());
+        var starter = factory.Services.GetRequiredService<ProblemStarter>();
+        var problems = factory.Services.GetRequiredService<IProblemStore>();
+        using var person = await Operator(factory);
+        _ = await starter.StartOrQueueAsync(Prepared("p-first", 7, "example/shop"), Ct);
+        _ = await starter.StartOrQueueAsync(Prepared("p-held", 8, "example/shop"), Ct);
+        _ = await starter.StartOrQueueAsync(NoPullRequest("p-next", "example/shop"), Ct);
+
+        (await person.PostAsJsonAsync("/api/v1/flow/p-held/hold", new { reason = "" }, Ct)).StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity, "a hold says why");
+        (await person.PostAsJsonAsync("/api/v1/flow/p-unknown/hold", new { reason = "look first" }, Ct)).StatusCode.Should().Be(HttpStatusCode.Conflict, "only an operation of the line is held");
+        (await person.PostAsJsonAsync("/api/v1/flow/p-held/hold", new { reason = "an analysis first" }, Ct)).EnsureSuccessStatusCode();
+        var line = await person.GetFromJsonAsync<JsonElement>("/api/v1/flow/queue", Ct);
+        var held = line.GetProperty("line").EnumerateArray().Single(entry => entry.GetProperty("problemId").GetString() == "p-held");
+        held.GetProperty("state").GetString().Should().Be("held");
+        held.GetProperty("held").GetProperty("reason").GetString().Should().Be("an analysis first");
+
+        // the first one ends: the lot is free, and the held one lets the next of the route go
+        problems.Save(problems.Get("p-first")! with { State = ProblemState.Closed });
+        await starter.StartReadyAsync(Ct);
+
+        problems.Get("p-next")!.State.Should().Be(ProblemState.InProgress, "a held operation never holds its lot");
+        problems.Get("p-held").Should().BeNull();
+        problems.Save(problems.Get("p-next")! with { State = ProblemState.Closed });
+        await starter.StartReadyAsync(Ct);
+        problems.Get("p-held").Should().BeNull("it waits for a person to release it");
+
+        (await person.PostAsync("/api/v1/flow/p-held/release", null, Ct)).EnsureSuccessStatusCode();
+        await starter.StartReadyAsync(Ct);
+        problems.Get("p-held")!.State.Should().Be(ProblemState.InProgress);
+        (await person.PostAsync("/api/v1/flow/p-held/release", null, Ct)).StatusCode.Should().Be(HttpStatusCode.Conflict, "what is not held is not released");
+    }
+
+    [Fact]
+    public async Task A_priority_set_by_a_person_orders_the_line_and_goes_with_the_operation_when_it_starts()
+    {
+        using var factory = new WorldsFactory(new FakeForge());
+        var starter = factory.Services.GetRequiredService<ProblemStarter>();
+        var problems = factory.Services.GetRequiredService<IProblemStore>();
+        using var person = await Operator(factory);
+        _ = await starter.StartOrQueueAsync(Prepared("p-first", 7, "example/shop"), Ct);
+        _ = await starter.StartOrQueueAsync(Prepared("p-early", 8, "example/shop"), Ct);
+        _ = await starter.StartOrQueueAsync(Prepared("p-late", 9, "example/shop"), Ct);
+
+        (await person.PostAsJsonAsync("/api/v1/flow/p-late/priority", new { priority = 101 }, Ct)).StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        (await person.PostAsJsonAsync("/api/v1/flow/p-late/priority", new { priority = 80 }, Ct)).EnsureSuccessStatusCode();
+        (await person.PostAsJsonAsync("/api/v1/flow/p-first/priority", new { priority = 60 }, Ct)).EnsureSuccessStatusCode();
+
+        var line = await person.GetFromJsonAsync<JsonElement>("/api/v1/flow/queue", Ct);
+        line.GetProperty("line").EnumerateArray().Select(entry => entry.GetProperty("problemId").GetString()).Should().Equal("p-late", "p-early");
+        line.GetProperty("line")[0].GetProperty("next").GetBoolean().Should().BeTrue();
+        line.GetProperty("inProcess").EnumerateArray().Single().GetProperty("priority").GetInt32().Should().Be(60, "an operation in process takes its priority too");
+        problems.Save(problems.Get("p-first")! with { State = ProblemState.Closed });
+        await starter.StartReadyAsync(Ct);
+
+        problems.Get("p-late")!.Priority.Should().Be(80);
+        problems.Get("p-early").Should().BeNull();
+        (await person.PostAsJsonAsync("/api/v1/flow/p-nothing/priority", new { priority = 60 }, Ct)).StatusCode.Should().Be(HttpStatusCode.Conflict);
+    }
+
     [Fact]
     public async Task A_bots_pull_request_that_is_behind_its_base_is_parked_and_the_lot_goes_on_with_its_next_operation()
     {

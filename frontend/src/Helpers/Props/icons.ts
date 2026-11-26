@@ -10,6 +10,7 @@ export {
   PackageCheck as DONE,
   ChevronDown as EXPANDED,
   Factory as FLOW,
+  CirclePause as HELD,
   Archive as HISTORY,
   Info as INFO,
   Scale as JUDGING,

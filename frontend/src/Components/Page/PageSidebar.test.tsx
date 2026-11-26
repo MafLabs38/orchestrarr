@@ -31,16 +31,20 @@ describe('PageSidebar', () => {
     expect(screen.queryByText('0')).not.toBeInTheDocument();
   });
 
-  it('counts the approvals in the queue and links to the activity', async () => {
+  it('counts the operations in the line and the decisions to take only, and links to the activity', async () => {
     stubApi({
-      '/api/v1/problems': problemsReport([]),
-      '/api/v1/approvals': [{ id: 'a' }, { id: 'b' }, { id: 'c' }],
+      '/api/v1/problems': problemsReport([
+        problem({ inProgress: true }),
+        problem({ id: 'pr:example/shop#3', recentlyDone: true }),
+      ]),
+      '/api/v1/flow/queue': { line: [{ problemId: 'a' }, { problemId: 'b' }, { problemId: 'c' }], inProcess: [] },
     });
 
     renderWithProviders(<PageSidebar />);
 
     expect(await screen.findByText('3')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Queue/ })).toHaveAttribute('href', '/queue');
+    expect(screen.getByRole('link', { name: 'Decisions' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Activity' })).toHaveAttribute('href', '/system/activity');
   });
 });

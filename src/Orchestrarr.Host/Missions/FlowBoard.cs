@@ -14,7 +14,7 @@ public sealed record BoardWorkshop(string World, IReadOnlyList<BoardEquipment> E
 
 /// <summary>
 /// One operation of a lot, placed where it is: <c>Place</c> is <c>queue</c> (validated, not started), a world, or <c>out</c> (over); <c>State</c> says what it does there, in a word a screen translates: <c>working</c>, <c>judging</c> (the
-/// controller reads its dossier), <c>waitingMachine</c>, <c>waitingLane</c>, <c>waitingPickup</c>, <c>waitingRunner</c>, <c>waitingTurn</c>, <c>waitingBot</c>, <c>done</c> or <c>putAside</c>. <c>Detail</c> is the last thing said of it, or what it waits for.
+/// controller reads its dossier), <c>waitingMachine</c>, <c>waitingLane</c>, <c>waitingPickup</c>, <c>waitingRunner</c>, <c>waitingTurn</c>, <c>waitingBot</c>, <c>held</c> (a person held it, ADR 0056), <c>done</c> or <c>putAside</c>. <c>Detail</c> is the last thing said of it, or what it waits for.
 /// </summary>
 public sealed record BoardOperation(string ProblemId, string Title, string? Kind, string Repository, string Place, string State, string? Detail, int Priority, DateTimeOffset Since, string? Equipment);
 
@@ -22,7 +22,7 @@ public sealed record BoardOperation(string ProblemId, string Title, string? Kind
 public sealed record BoardLot(string Repository, IReadOnlyList<BoardOperation> Operations);
 
 /// <summary>What a person counts at a glance: the operations in the line, in process, waiting in a workshop, done and put aside (among the recent ones), and since when the oldest of the line waits.</summary>
-public sealed record BoardCounters(int Queued, int InProcess, int Waiting, int Done, int PutAside, DateTimeOffset? OldestQueuedSince);
+public sealed record BoardCounters(int Queued, int InProcess, int Waiting, int Done, int PutAside, DateTimeOffset? OldestQueuedSince, int Held = 0);
 
 /// <summary>The factory view of the flow (ADR 0056): the places an operation can be in, in order, the workshops with their equipment, the lots with their operations, and the counters.</summary>
 public sealed record FlowBoardView(IReadOnlyList<string> Places, IReadOnlyList<BoardWorkshop> Workshops, IReadOnlyList<BoardLot> Lots, BoardCounters Counters);
@@ -55,7 +55,8 @@ internal static class FlowBoard
             operations.Count(operation => operation.Place is not (Queue or Out) && operation.State.StartsWith("waiting", StringComparison.Ordinal)),
             operations.Count(operation => operation.State == "done"),
             operations.Count(operation => operation.State == "putAside"),
-            queued.Count > 0 ? queued.Min(operation => operation.Since) : null);
+            queued.Count > 0 ? queued.Min(operation => operation.Since) : null,
+            queued.Count(operation => operation.State == "held"));
         return new FlowBoardView([Queue, .. worlds, Out], workshops, lots, counters);
     }
 
@@ -90,7 +91,7 @@ internal static class FlowBoard
         switch (problem.State)
         {
             case "queued":
-                return new BoardOperation(problem.ProblemId, problem.Title, problem.Kind, problem.Repository, Queue, problem.Activity?.Waiting?.Code == "bot" ? "waitingBot" : "waitingTurn",
+                return new BoardOperation(problem.ProblemId, problem.Title, problem.Kind, problem.Repository, Queue, problem.Activity?.Waiting?.Code switch { "bot" => "waitingBot", "held" => "held", _ => "waitingTurn" },
                     problem.Activity?.Waiting?.Subject, problem.Priority, problem.StartedAt, null);
             case "inProgress":
                 var step = CurrentStep(problem.Steps);

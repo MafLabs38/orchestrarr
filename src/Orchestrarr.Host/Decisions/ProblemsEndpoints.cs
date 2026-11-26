@@ -102,6 +102,9 @@ internal static class ProblemsEndpoints
             .Select(row => row.PullRequest is { } number && working.Contains($"{row.Source ?? row.Application}#{number}") ? row with { InProgress = true } : row)];
     }
 
+    // How long a decision that was done stays out of the decisions to take while the fleet still reports it
+    private static readonly TimeSpan RecentlyDoneFor = TimeSpan.FromHours(6);
+
     // A row that the conductor works on, or that waits in its line, is marked in progress whatever it is (a pull request or not): the table says that it is being done, and what is ticked again is refused as already being worked on
     internal static IReadOnlyList<ProblemRow> MarkWorkedOn(IReadOnlyList<ProblemRow> rows, IServiceProvider services)
     {
@@ -115,7 +118,17 @@ internal static class ProblemsEndpoints
         {
             working.Add(waiting.Entry.ProblemId);
         }
-        return working.Count == 0 ? rows : [.. rows.Select(row => !row.InProgress && working.Contains(Orchestrarr.Core.Missions.PlanEntryFactory.ProblemIdOf(row.Id)) ? row with { InProgress = true } : row)];
+        // A decision that was taken and done is not one to take again while the fleet still reports what it fixed (the fleet is read again on its own beat): it is in the decisions taken (ADR 0056). What was put aside is shown again, to be
+        // ticked again if a person wants to (ADR 0055 point 4)
+        var since = (services.GetService<TimeProvider>() ?? TimeProvider.System).GetUtcNow() - RecentlyDoneFor;
+        var done = problems.GetMany([.. rows.Select(row => Orchestrarr.Core.Missions.PlanEntryFactory.ProblemIdOf(row.Id))]).Values
+            .Where(run => run.State == Orchestrarr.Core.Missions.ProblemState.Closed && run.StartedAt >= since).Select(run => run.ProblemId).ToHashSet(StringComparer.Ordinal);
+        return working.Count == 0 && done.Count == 0 ? rows : [.. rows.Select(row =>
+        {
+            var id = Orchestrarr.Core.Missions.PlanEntryFactory.ProblemIdOf(row.Id);
+            var marked = !row.InProgress && working.Contains(id) ? row with { InProgress = true } : row;
+            return done.Contains(id) ? marked with { RecentlyDone = true } : marked;
+        })];
     }
 
     // Every row there is, before the skips are applied

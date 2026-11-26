@@ -100,7 +100,7 @@ const board: FlowBoard = {
       ],
     },
   ],
-  counters: { queued: 1, inProcess: 1, waiting: 1, done: 4, putAside: 1, oldestQueuedSince: minutesAgo(3) },
+  counters: { queued: 1, inProcess: 1, waiting: 1, done: 4, putAside: 1, oldestQueuedSince: minutesAgo(3), held: 0 },
 };
 
 afterEach(() => {

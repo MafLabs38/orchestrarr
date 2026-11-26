@@ -61,6 +61,8 @@ function waitingText(activity: FlowActivity): string {
       return translate('FlowWaitingBusy', { subject: waiting.subject ?? '' });
     case 'bot':
       return translate('FlowWaitingBot', { subject: waiting.subject ?? '' });
+    case 'held':
+      return translate('FlowWaitingHeld', { subject: waiting.subject ?? '' });
     case 'runner':
       return translate('FlowWaitingRunner');
     default:

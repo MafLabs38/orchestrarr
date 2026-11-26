@@ -50,6 +50,20 @@ public sealed class ProblemQueueTests
     }
 
     [Fact]
+    public void The_priority_a_person_sets_goes_before_the_route_and_is_bounded()
+    {
+        var line = new ProblemQueue();
+        line.Enqueue(OfKind("image", "o/one", "ImageUpdate", 0));
+        line.Enqueue(OfKind("bump", "o/one", "DependencyUpdate", 1));
+
+        line.SetPriority("bump", 250).Should().BeTrue();
+        line.SetPriority("absent", 60).Should().BeFalse();
+
+        line.Ordered().Select(problem => (problem.Entry.ProblemId, problem.Priority)).Should().Equal(("bump", FlowPriority.Highest), ("image", FlowPriority.Normal));
+        line.TakeReady(_ => false).Select(problem => problem.Entry.ProblemId).Should().Equal("bump");
+    }
+
+    [Fact]
     public void Two_operations_of_the_same_rank_keep_their_order_of_arrival()
     {
         var line = new ProblemQueue();

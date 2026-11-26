@@ -19,9 +19,10 @@ public sealed class WorkedOnRowsTests
     private static ProblemRun Run(string rowId, ProblemState state) =>
         new(PlanEntryFactory.ProblemIdOf(rowId), "shop", state, T0, Entry(rowId), World.Release, true, new SignedApproval(new ApprovalCertificate("c", CertificateKind.Problem, "p", "shop", ["o/shop"], World.Release, new MissionBudget(1, 1, 1), T0, T0.AddHours(1), "x", "n", [], 8), []));
 
-    private static ServiceProvider Services(IProblemStore? problems, ProblemQueue? queue = null)
+    private static ServiceProvider Services(IProblemStore? problems, ProblemQueue? queue = null, TimeProvider? time = null)
     {
         var services = new ServiceCollection();
+        services.AddSingleton(time ?? new Microsoft.Extensions.Time.Testing.FakeTimeProvider(T0.AddHours(1)));
         if (problems is not null)
         {
             services.AddSingleton(problems);
@@ -46,6 +47,21 @@ public sealed class WorkedOnRowsTests
         var rows = ProblemsEndpoints.MarkWorkedOn([Row("row-working"), Row("row-waiting"), Row("row-closed"), Row("row-free")], services);
 
         rows.Select(row => (row.Id, row.InProgress)).Should().Equal(("row-working", true), ("row-waiting", true), ("row-closed", false), ("row-free", false));
+    }
+
+    [Fact]
+    public void A_decision_done_lately_is_a_decision_taken_and_one_put_aside_is_one_to_take_again()
+    {
+        var store = new InMemoryProblemStore();
+        store.Save(Run("row-done", ProblemState.Closed));
+        store.Save(Run("row-aside", ProblemState.Failed));
+        using var lately = Services(store);
+        using var later = Services(store, time: new Microsoft.Extensions.Time.Testing.FakeTimeProvider(T0.AddHours(7)));
+
+        var rows = ProblemsEndpoints.MarkWorkedOn([Row("row-done"), Row("row-aside")], lately);
+
+        rows.Select(row => (row.Id, row.RecentlyDone, row.InProgress)).Should().Equal(("row-done", true, false), ("row-aside", false, false));
+        ProblemsEndpoints.MarkWorkedOn([Row("row-done")], later).Single().RecentlyDone.Should().BeFalse("a finding the fleet still reports hours after it was done is a decision to take again");
     }
 
     [Fact]

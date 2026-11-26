@@ -11,7 +11,7 @@ internal sealed record PreparedProblem(string RowId, PlanEntry? Entry, Validated
 /// Starts the problems of the test bed, **one work site at a time on a repository** (ADR 0049): the decision "start now, or wait in line" and the start itself are made under one gate per repository, by the endpoint that validates and by the
 /// driver that takes the line, so that two requests, or a request and a pass of the driver, never both find the repository free. A problem that waits is planned and not started: it has no mandate and uses no approval until it starts.
 /// </summary>
-internal sealed class ProblemStarter(IServiceProvider services, MissionsOptions options, BotPullRequests bots, ProblemParking parking, IProblemStore problems, ProblemQueue line, ProblemLocks locks, ProblemConductor conductor, MissionProgress progress, IMissionAudit audit, IStopSignal stop, TimeProvider time)
+internal sealed class ProblemStarter(IServiceProvider services, MissionsOptions options, BotPullRequests bots, ProblemParking parking, ProblemHolds holds, IProblemStore problems, ProblemQueue line, ProblemLocks locks, ProblemConductor conductor, MissionProgress progress, IMissionAudit audit, IStopSignal stop, TimeProvider time)
 {
     /// <summary>
     /// How long a problem may wait: the lifetime of the approval that was proved for it (two hours). A problem that waited longer is not started on a validation that old: the maintainer validates again.
@@ -70,7 +70,7 @@ internal sealed class ProblemStarter(IServiceProvider services, MissionsOptions 
                 }
             }
             // A problem already in progress is the conductor's to refuse ("already being worked on"), not a reason to queue it again
-            if (problems.Get(entry.ProblemId) is { State: ProblemState.InProgress } || (!line.Waits(repository, parked => parking.IsParked(parked.Entry.ProblemId)) && !Busy(repository)))
+            if (problems.Get(entry.ProblemId) is { State: ProblemState.InProgress } || (!line.Waits(repository, waiting => CannotStart(waiting.Entry.ProblemId)) && !Busy(repository)))
             {
                 return await StartAsync(one, cancellationToken);
             }
@@ -127,7 +127,7 @@ internal sealed class ProblemStarter(IServiceProvider services, MissionsOptions 
                         parking.LotBusy(parked.Entry.ProblemId);
                     }
                 }
-                foreach (var ready in line.TakeReady(other => !string.Equals(other, repository, StringComparison.Ordinal) || Busy(other), waiting => !parking.IsParked(waiting.Entry.ProblemId)))
+                foreach (var ready in line.TakeReady(other => !string.Equals(other, repository, StringComparison.Ordinal) || Busy(other), waiting => !CannotStart(waiting.Entry.ProblemId)))
                 {
                     parking.Release(ready.Entry.ProblemId);
                     await StartQueuedAsync(ready, cancellationToken);
@@ -160,6 +160,9 @@ internal sealed class ProblemStarter(IServiceProvider services, MissionsOptions 
         }
     }
 
+    // A problem that waits for its bot or that a person held does not start, and does not hold its lot (ADR 0055, ADR 0056)
+    private bool CannotStart(string problemId) => parking.IsParked(problemId) || holds.IsHeld(problemId);
+
 
     // A problem that leaves the line without starting says why in the trail; an exception of the start is a refusal like any other, so that it neither loses the problem silently nor stops the others
     private async Task StartQueuedAsync(QueuedProblem ready, CancellationToken cancellationToken)
@@ -168,6 +171,11 @@ internal sealed class ProblemStarter(IServiceProvider services, MissionsOptions 
         try
         {
             refusal = (await StartAsync(new PreparedProblem(ready.RowId, ready.Entry, null), cancellationToken)).Refusal;
+            // The priority that a person gave it in the line goes with it (ADR 0056)
+            if (refusal is null && ready.Priority != FlowPriority.Normal)
+            {
+                _ = await conductor.SetPriorityAsync(ready.Entry.ProblemId, ready.Priority, "its priority in the line", cancellationToken);
+            }
         }
         catch (Exception failure) when (failure is not OperationCanceledException)
         {

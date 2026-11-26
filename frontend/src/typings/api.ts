@@ -298,6 +298,8 @@ export interface ProblemRow {
   canStopBeforeProduction: boolean;
   workshop: WorkshopVerdict;
   inProgress: boolean;
+  // Done lately: a decision taken, not one to take, while the fleet still reports what it fixed (ADR 0056)
+  recentlyDone?: boolean;
   // The application a person knows, as the source of the fleet names it, and the name of its icon; the repository or the image stays in `source`
   applicationId: string | null;
   icon: string | null;
@@ -376,7 +378,7 @@ export interface FlowStep {
 }
 
 export interface FlowWaiting {
-  code: 'turn' | 'machine' | 'busy' | 'bot' | 'runner' | 'pickup';
+  code: 'turn' | 'machine' | 'busy' | 'bot' | 'held' | 'runner' | 'pickup';
   subject: string | null;
 }
 
@@ -509,6 +511,7 @@ export type OperationState =
   | 'waitingRunner'
   | 'waitingTurn'
   | 'waitingBot'
+  | 'held'
   | 'done'
   | 'putAside';
 
@@ -545,6 +548,7 @@ export interface BoardCounters {
   done: number;
   putAside: number;
   oldestQueuedSince: string | null;
+  held: number;
 }
 
 export interface FlowBoard {
@@ -552,4 +556,40 @@ export interface FlowBoard {
   workshops: BoardWorkshop[];
   lots: BoardLot[];
   counters: BoardCounters;
+}
+
+// The dispatch list (ADR 0056): the line in the order it goes, and the operations in process
+export interface HeldBy {
+  by: string;
+  at: string;
+  reason: string;
+}
+
+export interface DispatchEntry {
+  position: number;
+  problemId: string;
+  title: string;
+  kind: string | null;
+  repository: string;
+  priority: number;
+  rank: number;
+  since: string;
+  state: 'waitingTurn' | 'waitingBot' | 'held';
+  detail: string | null;
+  held: HeldBy | null;
+  next: boolean;
+}
+
+export interface InProcessEntry {
+  problemId: string;
+  title: string;
+  kind: string | null;
+  repository: string;
+  place: string;
+  priority: number;
+}
+
+export interface DispatchView {
+  line: DispatchEntry[];
+  inProcess: InProcessEntry[];
 }

@@ -1,7 +1,7 @@
 namespace Orchestrarr.Core.Missions;
 
 /// <summary>A problem that the maintainer validated and the lead planned, and that waits for its repository to be free (<see cref="ProblemQueue"/>).</summary>
-public sealed record QueuedProblem(string RowId, PlanEntry Entry, DateTimeOffset QueuedAt);
+public sealed record QueuedProblem(string RowId, PlanEntry Entry, DateTimeOffset QueuedAt, int Priority = FlowPriority.Normal);
 
 /// <summary>
 /// **One work site at a time on a repository** (the maintainer's Git flow rule, 2026-11-24): problems that are validated together on one repository are done one after the other, so that what is proved in staging is what is
@@ -54,10 +54,35 @@ public sealed class ProblemQueue
         }
     }
 
-    /// <summary>The order in which the line goes (ADR 0055): the rank in the route, then arrival. The screens show the line in this order, the one <see cref="TakeReady"/> follows.</summary>
-    public static IEnumerable<QueuedProblem> InOrder(IEnumerable<QueuedProblem> waiting) => waiting.OrderBy(other => RouteRank.Of(other.Entry)).ThenBy(other => other.QueuedAt);
+    /// <summary>The line in the order it goes (ADR 0055, ADR 0056): the priority first, then the rank in the route, then arrival. What the dispatch list shows, and what <see cref="TakeReady"/> follows.</summary>
+    public IReadOnlyList<QueuedProblem> Ordered()
+    {
+        lock (_gate)
+        {
+            return [.. InOrder(_waiting)];
+        }
+    }
 
-    /// <summary>The problems that may start now: the first of each repository that <paramref name="isBusy"/> says is free, in the order of the route (<see cref="RouteRank"/>, then arrival). They leave the line.</summary>
+    /// <summary>A person sets the priority of a waiting problem (0 to 100, ADR 0056): it orders the line and grants no power. False when it was not waiting.</summary>
+    public bool SetPriority(string problemId, int priority)
+    {
+        lock (_gate)
+        {
+            var index = _waiting.FindIndex(other => string.Equals(other.Entry.ProblemId, problemId, StringComparison.Ordinal));
+            if (index < 0)
+            {
+                return false;
+            }
+            _waiting[index] = _waiting[index] with { Priority = Math.Clamp(priority, FlowPriority.Lowest, FlowPriority.Highest) };
+            return true;
+        }
+    }
+
+    /// <summary>The order in which the line goes (ADR 0055, ADR 0056): the priority, then the rank in the route, then arrival. The screens show the line in this order, the one <see cref="TakeReady"/> follows.</summary>
+    public static IOrderedEnumerable<QueuedProblem> InOrder(IEnumerable<QueuedProblem> waiting) =>
+        waiting.OrderByDescending(other => other.Priority).ThenBy(other => RouteRank.Of(other.Entry)).ThenBy(other => other.QueuedAt);
+
+    /// <summary>The problems that may start now: the first of each repository that <paramref name="isBusy"/> says is free, in the order of the line (priority, then <see cref="RouteRank"/>, then arrival). They leave the line.</summary>
     public IReadOnlyList<QueuedProblem> TakeReady(Func<string, bool> isBusy, Func<QueuedProblem, bool>? canStart = null)
     {
         ArgumentNullException.ThrowIfNull(isBusy);

@@ -29,7 +29,8 @@ import styles from './Decisions.module.css';
 import ProblemTable, { isActionable } from './ProblemTable';
 import SelectionBar from './SelectionBar';
 import { type Sort, sortRows } from './sortRows';
-import useProblems, { useRefreshProblems, useSkipProblems } from './useProblems';
+import TakenDecisions from './TakenDecisions';
+import useProblems, { isToTake, useRefreshProblems, useSkipProblems } from './useProblems';
 
 const ceilingOrder: Ceiling[] = ['production', 'mergeIntoDevelop', 'repair', 'qualification', 'noAction'];
 const workshopOrder: WorkshopVerdict[] = ['fails', 'passes', 'repaired', 'unknown'];
@@ -95,7 +96,9 @@ function Table({ report }: Readonly<{ report: ProblemsReport }>) {
   );
 }
 
-function Problems({ report }: Readonly<{ report: ProblemsReport }>) {
+function Problems({ report: all }: Readonly<{ report: ProblemsReport }>) {
+  // The decisions to take: a row that was validated is a decision taken, shown below with what became of it (ADR 0056)
+  const report = { ...all, rows: all.rows.filter(isToTake) };
   const { data: status } = useSystemStatus();
   const [filters, setFilters] = useState<Filters>(noFilters);
   // The selection remembers the commit that was shown: a row whose pull request moved since is no longer what was chosen
@@ -228,6 +231,7 @@ function Problems({ report }: Readonly<{ report: ProblemsReport }>) {
               }
             />
           )}
+          <TakenDecisions />
           <SelectionBar
             chosen={chosen}
             descriptionsVersion={report.descriptionsVersion}

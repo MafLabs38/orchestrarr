@@ -20,13 +20,13 @@ public sealed record MissionView(
 internal static class MissionEndpoints
 {
     private const int DefaultPageSize = 50;
-    private const int MaxPageSize = 200;
+    internal const int MaxPageSize = 200;
 
     // The flow of the problems, as the Missions and Flow screens read it: the recent missions, the line, the machines, the runners, the last news of each mission and the bots that are waited for
-    private static IReadOnlyList<FlowProblem> FlowOf(IServiceProvider services, IReadOnlyList<Mission> recent, IMandateLedger mandates, IProblemStore problems, MissionProgress progress, RunnerRegistry runners) =>
+    internal static IReadOnlyList<FlowProblem> FlowOf(IServiceProvider services, IReadOnlyList<Mission> recent, IMandateLedger mandates, IProblemStore problems, MissionProgress progress, RunnerRegistry runners) =>
         FlowView.Build(recent, problems, services.GetService<ProblemQueue>()?.Waiting() ?? [], services.GetService<MachinePool>()?.All() ?? [], runners.Snapshot().Any(runner => runner.Connected), progress.LastNews,
             mission => mission.MandateId is { } id && mandates.Get(id) is { } signed ? signed.Mandate.IssuedAt : null, mission => mission.State == MissionState.Running && mission.SendBacks > 0 && !progress.WasOffered(mission.Id, mission.SendBacks),
-            runners.LanesOf, id => services.GetService<ProblemParking>()?.Get(id)?.Reason);
+            runners.LanesOf, id => services.GetService<ProblemParking>()?.Get(id)?.Reason, id => services.GetService<ProblemHolds>()?.Get(id));
 
     public static void MapMissionEndpoints(this RouteGroupBuilder api)
     {

@@ -145,7 +145,8 @@ public sealed record ProblemRow(
     IReadOnlyList<CodeLocation>? Locations = null,
     IReadOnlyList<RepositoryProblem>? Warnings = null,
     string? ParsedChange = null,
-    ProblemNature Nature = ProblemNature.Other);
+    ProblemNature Nature = ProblemNature.Other,
+    bool RecentlyDone = false);
 
 /// <summary>
 /// What a connected runner accepts, as it reported it. The table never promises more than they would run: with none connected, nothing can be run, and every row says so. <c>FreeAgent</c>: it has a free agent for a problem that has
