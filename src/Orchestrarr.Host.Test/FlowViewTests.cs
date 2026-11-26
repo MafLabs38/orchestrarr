@@ -31,6 +31,13 @@ public sealed class FlowViewTests
         return store;
     }
 
+    [Theory]
+    [InlineData("DependencyAlert", "5", "5 dependency alerts")]
+    [InlineData("FailingCi", "1", "the pipeline is red")]
+    [InlineData("ImageUpdate", "nginx:1.14 → 1.28", "nginx:1.14 → 1.28")]
+    public void A_row_read_as_a_number_is_titled_as_what_it_is(string kind, string description, string title) =>
+        FlowView.TitleOf(Entry("p") with { Brief = new ProblemBrief(kind, "o/shop", description, true) }).Should().Be(title);
+
     [Fact]
     public void A_problem_that_waits_for_its_bot_to_rebase_its_pull_request_says_so_and_not_that_it_waits_for_its_turn()
     {
