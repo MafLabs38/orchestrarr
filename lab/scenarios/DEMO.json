@@ -127,7 +127,7 @@
         "installed": "20",
         "fixedIn": null,
         "severity": "critical",
-        "summary": "CVE-2026-41877: remote code execution in the Node.js runtime itself; every release line up to the latest 26.x is affected and no fixed version has been published"
+        "summary": "embargoed advisory of the security team of the organisation (internal reference SEC-2026-0117, coordinated disclosure with the Node.js project planned for 2027, so it is in no public database yet): remote code execution in the Node.js runtime itself; every release line up to the latest 26.x is affected and no fixed version exists yet"
       }
     ]
   }
