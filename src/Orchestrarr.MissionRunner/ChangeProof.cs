@@ -107,7 +107,15 @@ public sealed partial class ChangeProof(IShell shell, MissionRunnerOptions optio
         var (kind, command) = StagingProof.Recipe(listing.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToHashSet(StringComparer.Ordinal));
         if (command is null)
         {
-            return Unfinished(mission, "The runner knows no way to build and test this repository, so the change was not proved.", evidence, head, complex: true);
+            // A repository that holds nothing the runner builds (its pipelines, its scripts) is proved by its pipeline on the forge, which the Git world requires green on the exact head (ADR 0055)
+            evidence.Add("build:none");
+            evidence.Add($"{MissionEvidence.ArtifactTree}{tree}");
+            evidence.Add($"{MissionEvidence.Repair}{count}");
+            await report($"The agent pushed {count} file(s); the repository has nothing that the runner builds, so its pipeline on the forge is the proof");
+            return new MissionHandOver(
+                $"{mission.Repository}: a free agent pushed {agentBranch} at {Short(pushed)}; the repository has nothing that the runner builds (no package.json, requirements.txt or compose file), so what it changes is proved by its pipeline on the forge, which the Git world requires green on the exact head.",
+                $"Made against {Short(head)} of {branch}; pushed to {agentBranch}. The agent said: {said}. What the change is, the control plane reads on the forge.",
+                evidence, [], Complex: false, ComplexReason: null, Commit: pushed, Branch: agentBranch);
         }
         // What the agent left running on the docker of the machine is not part of the proof: the containers are removed before the steps are run
         _ = await OnMachineAsync(machine, "docker ps -aq | xargs -r docker rm -f >/dev/null 2>&1; true", quick, cancellationToken);
