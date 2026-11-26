@@ -9,7 +9,8 @@
   },
   {
     "repository": "pipeline-scenarios",
-    "seed": "394574968bcc819da861f4e1f0118d8edaf647b3"
+    "seed": "394574968bcc819da861f4e1f0118d8edaf647b3",
+    "red": true
   },
   {
     "repository": "ledger-worker",

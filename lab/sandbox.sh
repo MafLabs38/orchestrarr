@@ -61,11 +61,23 @@ clone() {
 lab_commit() { git -C "$1" -c user.name="lab" -c user.email="lab@users.noreply.github.com" commit -q -m "$2"; }
 
 # The seed of a repository is pinned in lab/seeds.json (repository -> commit): the tag of the remote is only where the commit is fetched from.
-# A moved tag, or a repository that is not pinned, is no seed: nothing is restored or planted there.
+# A moved tag, or a repository that is not pinned, is no seed: nothing is restored or planted there. A seed marked "red" has red pipelines as its fault (pipeline-scenarios): its restore is not held
+# by its checks, and its pipelines are run on the base afterwards, so that the forge shows the default branch as the seed has it, as a real repository's would be.
 SEEDS_FILE="${LAB_SEEDS_FILE:-$HERE/seeds.json}"
 [ -r "$SEEDS_FILE" ] && jq -e 'type == "array"' "$SEEDS_FILE" >/dev/null 2>&1 || { echo "$SEEDS_FILE is missing or is not a list of {repository, seed}" >&2; exit 2; }
 pinned_seed() { jq -r --arg r "$1" '.[] | select(.repository == $r) | .seed' "$SEEDS_FILE"; }
 pinned_repositories() { jq -r '.[].repository' "$SEEDS_FILE"; }
+pinned_red() { jq -r --arg r "$1" '.[] | select(.repository == $r) | (.red // false)' "$SEEDS_FILE"; }
+
+# The pipelines of a red seed, run on the base: each workflow that can be started by hand
+run_pipelines() {
+  local repo="$1" id
+  [ "$(pinned_red "$repo")" = true ] || return 0
+  for id in $(gh workflow list -R "$ORG/$repo" --json id,state --jq '.[] | select(.state == "active") | .id'); do
+    gh workflow run "$id" -R "$ORG/$repo" --ref "$BASE" >/dev/null 2>&1 || true
+  done
+  echo "$repo: its pipelines were run on $BASE, as its seed has them"
+}
 has_seed() {
   local dir="$1" repo="$2" pin tag
   pin=$(pinned_seed "$repo"); [ -n "$pin" ] || return 1
@@ -106,7 +118,7 @@ cmd_mark_seed() {
   git -C "$dir" tag -f lab-seed "$ref"
   git -C "$dir" push -q --force origin refs/tags/lab-seed
   local sha; sha=$(git -C "$dir" rev-parse "lab-seed^{commit}")
-  local tmp; tmp=$(mktemp); jq --arg r "$repo" --arg s "$sha" 'map(select(.repository != $r)) + [{repository: $r, seed: $s}]' "$SEEDS_FILE" > "$tmp" && cat "$tmp" > "$SEEDS_FILE" && rm -f "$tmp"
+  local tmp; tmp=$(mktemp); jq --arg r "$repo" --arg s "$sha" 'if any(.[]; .repository == $r) then map(if .repository == $r then .seed = $s else . end) else . + [{repository: $r, seed: $s}] end' "$SEEDS_FILE" > "$tmp" && cat "$tmp" > "$SEEDS_FILE" && rm -f "$tmp"
   echo "$repo: seed is now ${sha:0:7}, pinned in $SEEDS_FILE (commit that file)"
 }
 
@@ -157,7 +169,7 @@ reset_one() {
   close_pull_requests "$repo"
   delete_work_branches "$dir"
   git -C "$dir" fetch -q --prune --tags origin
-  if same_as_seed "$dir"; then echo "$repo: already at the seed"; return 0; fi
+  if same_as_seed "$dir"; then echo "$repo: already at the seed"; run_pipelines "$repo"; return 0; fi
 
   local branch="lab/restore-$(date +%Y%m%d%H%M%S)"
   git -C "$dir" checkout -q -B "$branch" "origin/$BASE"
@@ -169,7 +181,13 @@ reset_one() {
   local pr; pr=$(gh pr create -R "$ORG/$repo" --base "$BASE" --head "$branch" --title "chore(lab): restore the seed" --body "The test-bed repository goes back to its seed so that a scenario can be played again." | grep -oE '[0-9]+$')
   # The forge can still list a required check as queued when the rollup already shows the earlier ones as passed: a merge it refuses for that is asked for again after the checks are waited for again
   local head attempt
+  # A red seed is restored with its red pipelines: its checks fail by design, so the merge is pinned to the head that was pushed and does not wait for them
+  if [ "$(pinned_red "$repo")" = true ]; then
+    head=$(gh pr view "$pr" -R "$ORG/$repo" --json headRefOid --jq .headRefOid)
+    gh pr merge "$pr" -R "$ORG/$repo" --squash --match-head-commit "$head" >/dev/null || return 1
+  fi
   for attempt in 1 2 3; do
+    [ "$(pinned_red "$repo")" = true ] && break
     head=$(wait_checks "$repo" "$pr")
     if gh pr merge "$pr" -R "$ORG/$repo" --squash --match-head-commit "$head" >/dev/null 2>"${TMPDIR:-/tmp}/lab-merge-$$.err"; then rm -f "${TMPDIR:-/tmp}/lab-merge-$$.err"; break; fi
     if [ "$attempt" = 3 ] || ! grep -qiE 'status check|queued|in progress|pending|base branch policy' "${TMPDIR:-/tmp}/lab-merge-$$.err"; then cat "${TMPDIR:-/tmp}/lab-merge-$$.err" >&2; rm -f "${TMPDIR:-/tmp}/lab-merge-$$.err"; return 1; fi
@@ -180,6 +198,7 @@ reset_one() {
   git -C "$dir" fetch -q --prune --tags origin
   same_as_seed "$dir" || { echo "$repo: restored, but $BASE still differs from the seed" >&2; return 1; }
   echo "$repo: restored through #$pr"
+  run_pipelines "$repo"
 }
 
 cmd_reset() {
