@@ -81,6 +81,11 @@ export default function Workshops({
             ? translate('FlowOldestWaits', { age: describeAge(now - Date.parse(counters.oldestQueuedSince)) })
             : translate('FlowLineEmpty')}
         </p>
+        {counters.held > 0 ? (
+          <p className={styles.outcome}>
+            <Label kind={operationLook('held').kind}>{translate('FlowHeldCount', { count: counters.held })}</Label>
+          </p>
+        ) : null}
       </section>
       {workshops.map((workshop) => (
         <Fragment key={workshop.world}>

@@ -100,7 +100,7 @@ const board: FlowBoard = {
       ],
     },
   ],
-  counters: { queued: 1, inProcess: 1, waiting: 1, done: 4, putAside: 1, oldestQueuedSince: minutesAgo(3), held: 0 },
+  counters: { queued: 1, inProcess: 1, waiting: 1, done: 4, putAside: 1, oldestQueuedSince: minutesAgo(3), held: 1 },
 };
 
 afterEach(() => {
@@ -123,6 +123,7 @@ describe('FlowPage', () => {
       within(screen.getByRole('region', { name: 'Line' })).getByText(/the oldest waits for 3 min/),
     ).toBeInTheDocument();
     expect(within(screen.getByRole('region', { name: 'Out' })).getByText('4 done')).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Line' })).getByText('1 held')).toBeInTheDocument();
   });
 
   it('places each operation of a lot in the column where it is, with what it does in words', async () => {

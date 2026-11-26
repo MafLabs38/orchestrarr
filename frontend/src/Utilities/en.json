@@ -649,5 +649,6 @@
   "ColumnSince": "Since",
   "ColumnState": "State",
   "DecisionsToTake": "Decisions to take",
-  "Behind": "behind {title}"
+  "Behind": "behind {title}",
+  "FlowHeldCount": "{count} held"
 }
