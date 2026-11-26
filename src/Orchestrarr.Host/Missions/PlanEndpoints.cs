@@ -111,7 +111,19 @@ internal static class PlanEndpoints
                         }
                     }
                 });
-            await Task.WhenAll(lots);
+            try
+            {
+                await Task.WhenAll(lots);
+            }
+            finally
+            {
+                // A validation that ends early (the request was cancelled, a plan failed) leaves nothing shown as being planned
+                foreach (var id in problemIds.OfType<string>())
+                {
+                    planned?.Remove(id);
+                }
+                live.Publish(LiveTopics.Missions);
+            }
             var started = placed.OfType<ValidatedProblem>().ToList();
             live.Publish(LiveTopics.Missions);
             return Results.Json(new ValidatePlanResponse(started), statusCode: StatusCodes.Status201Created);
