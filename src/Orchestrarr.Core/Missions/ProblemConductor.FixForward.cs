@@ -23,7 +23,7 @@ public sealed partial class ProblemConductor
             return await EndAsync(run, mission, MissionEvent.EndedByController, "the powers of the problem no longer reach the Git world, or the grant was withdrawn");
         }
         // One fix forward per problem: a branch that is red again after one is a person's to look at, not a loop of agents
-        if (missions.ForProblem(run.ProblemId).Any(other => other.EndReason?.StartsWith(FixForwardReason, StringComparison.Ordinal) == true))
+        if (missions.ForProblem(run.ProblemId).Any(other => string.Equals(other.EndReason, FixForwardReason, StringComparison.Ordinal)))
         {
             return Moved(await EscalateAsync(run, mission, "the integration branch is red again after a fix forward"), "the integration branch is red again after a fix forward: a person decides", failures);
         }

@@ -148,7 +148,7 @@ public interface IDossierStore
 public sealed record ObservedFacts(
     bool BudgetAvailable, bool? DiffIsClean, bool? CiGreenOnExactCommit, bool? ArtifactIsTheOneProvedInStaging, bool? WayBackKnown, bool WorkerClaimMatchesFacts,
     bool? MergeMayDeploy = null, bool? ExecutedFilesTouched = null, bool? TagCreationBlocked = null, bool? BranchCannotReachWriteCredentials = null, string? HeadCommit = null, bool? IdentityConfinedToItsBranches = null, IReadOnlyList<string>? ChangedPaths = null, string? Repository = null, string? BaseCommit = null,
-    string? Health = null, string? ChangeReading = null, bool? Merged = null);
+    string? Health = null, string? ChangeReading = null, bool? Merged = null, bool? BaseWasRedBeforeMerge = null);
 
 /// <summary>
 /// The source of the facts. It says only what it observed: the plan, the stop, the loop and the staging are the conductor's own. **The commit it is given is the worker's claim, not the commit to look at**: the source reads

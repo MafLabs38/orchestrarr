@@ -78,7 +78,11 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefault
                     CommitAuthors: commits?.Authors, CommitsSigned: commits?.Signed ?? false);
             }
             // Once it is merged, what runs is the commit that the merge made on the base branch: its tree and the checks of its pipeline are the facts of the later worlds
-            return new PullRequestFacts(head, baseSha, draft, checks, paths, complete, Merged: true, mergeCommit, await TreeOfAsync(repositoryFullName, mergeCommit, cancellationToken), await ChecksOfAsync(repositoryFullName, mergeCommit, [], cancellationToken, ownWorkflowsOnly: true), baseRef, defaultBranch);
+            var mergeChecks = await ChecksOfAsync(repositoryFullName, mergeCommit, [], cancellationToken, ownWorkflowsOnly: true);
+            // A merge commit that is red turned the branch red only if the base before it was not red already (a push-only job that fails on every commit is not the merge's doing)
+            var baseWasRed = mergeChecks == ChecksState.Failing && await FirstParentAsync(repositoryFullName, mergeCommit, cancellationToken) is { } parent
+                && await ChecksOfAsync(repositoryFullName, parent, [], cancellationToken, ownWorkflowsOnly: true) == ChecksState.Failing;
+            return new PullRequestFacts(head, baseSha, draft, checks, paths, complete, Merged: true, mergeCommit, await TreeOfAsync(repositoryFullName, mergeCommit, cancellationToken), mergeChecks, baseRef, defaultBranch, BaseWasRed: baseWasRed);
             // The checks of the commit that the merge made are those that ran on it (a push), not the checks that the rules require of a pull request, which may run on pull requests only
         }
         catch (Exception failure) when (failure is HttpRequestException or JsonException or KeyNotFoundException or InvalidOperationException || failure is TaskCanceledException && !cancellationToken.IsCancellationRequested)
@@ -241,6 +245,13 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefault
     {
         var flat = value.ReplaceLineEndings(" ").Replace("<", " ", StringComparison.Ordinal).Replace(">", " ", StringComparison.Ordinal).Trim();
         return flat.Length <= 300 ? flat : flat[..300];
+    }
+
+    private async Task<string?> FirstParentAsync(string repository, string sha, CancellationToken cancellationToken)
+    {
+        using var commit = await GetAsync($"repos/{repository}/commits/{sha}", cancellationToken);
+        return commit is not null && commit.RootElement.TryGetProperty("parents", out var parents) && parents.ValueKind == JsonValueKind.Array && parents.GetArrayLength() > 0
+            && parents[0].TryGetProperty("sha", out var parent) && parent.GetString() is { } found && Sha().IsMatch(found) ? found : null;
     }
 
     public async Task<FileAt?> FileAtAsync(string repositoryFullName, string sha, string path, CancellationToken cancellationToken)

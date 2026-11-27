@@ -22,7 +22,8 @@ public sealed record PullRequestFacts(
     bool Closed = false,
     int? BehindBy = null,
     IReadOnlyList<string>? CommitAuthors = null,
-    bool CommitsSigned = false)
+    bool CommitsSigned = false,
+    bool BaseWasRed = false)
 {
     /// <summary>Whether the pull request targets the default branch of its repository: the only base that staging proves a merge onto. Unknown counts as not.</summary>
     public bool TargetsDefaultBranch => BaseRef is not null && string.Equals(BaseRef, DefaultBranch, StringComparison.Ordinal);

@@ -75,6 +75,8 @@ public sealed class ProblemConductorTests : IDisposable
         /// <summary>Whether the source reads the pull request as merged (the Git world after the merge).</summary>
         public bool? Merged { get; set; }
 
+        public bool? BaseWasRed { get; set; }
+
         /// <summary>What the forge says the head is; null: the head is the commit that was asked about.</summary>
         public string? HeadCommit { get; set; }
 
@@ -83,7 +85,7 @@ public sealed class ProblemConductorTests : IDisposable
         public ValueTask<ObservedFacts> FactsAsync(FactsQuery query, CancellationToken cancellationToken)
         {
             Last = query;
-            return ValueTask.FromResult(new ObservedFacts(true, DiffSaysClean, CiGreen, ArtifactProved, WayBack, ClaimMatches, MergeMayDeploy, ExecutedFiles, TagsBlocked, BranchSafe, HeadCommit ?? query.Commit, Confined, Paths(), query.Repository, BaseCommit ?? query.BaseCommit, Merged: Merged));
+            return ValueTask.FromResult(new ObservedFacts(true, DiffSaysClean, CiGreen, ArtifactProved, WayBack, ClaimMatches, MergeMayDeploy, ExecutedFiles, TagsBlocked, BranchSafe, HeadCommit ?? query.Commit, Confined, Paths(), query.Repository, BaseCommit ?? query.BaseCommit, Merged: Merged, BaseWasRedBeforeMerge: BaseWasRed));
         }
     }
 
@@ -1024,6 +1026,18 @@ public sealed class ProblemConductorTests : IDisposable
         result.Mandate.Should().BeNull();
         _problems.Get("problem-1")!.State.Should().Be(ProblemState.Failed);
         _restarts.Problems.Should().BeEmpty("nothing is restarted for a problem whose power was withdrawn");
+    }
+
+    [Fact]
+    public async Task A_merge_on_a_branch_that_was_already_red_is_not_blamed_for_it_and_not_fixed_forward()
+    {
+        var (conductor, git) = await MergedInGit(ciGreen: false);
+        _facts.BaseWasRed = true;
+
+        var result = await conductor.DecideAsync(git.Id, new ControllerDecision(ControllerDecisionKind.End, ["red"], null), Ct);
+
+        result.Failures.Should().NotContain(PreconditionFailure.IntegrationBranchRedAfterMerge, "the branch was red before the merge");
+        _restarts.Problems.Should().BeEmpty();
     }
 
     [Fact]
