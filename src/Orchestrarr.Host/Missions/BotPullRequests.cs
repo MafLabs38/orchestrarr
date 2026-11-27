@@ -28,10 +28,12 @@ internal sealed class BotPullRequests(IServiceProvider services, MissionsOptions
             await Task.Delay(TimeSpan.FromSeconds(Math.Max(0, options.BotRebaseUnknownWaitSeconds)), time, cancellationToken);
             read = await facts.ReadAsync(entry.Repositories[0], number, cancellationToken);
         }
-        return PullRequestFreshness.Of(entry, read, IsBot);
+        return PullRequestFreshness.Of(entry, read, IsBot, IsUnsignedBot);
     }
 
     private bool IsBot(string? login) => login is not null && options.BotAuthors.Contains(login, StringComparer.OrdinalIgnoreCase);
+
+    private bool IsUnsignedBot(string? login) => IsBot(login) && options.BotUnsignedAuthors.Contains(login, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>What becomes of a problem that waits in the line, from the verdict on its pull request. True when it is ready to start (nothing else of the lot is read in this pass).</summary>
     internal async Task<bool> ApplyInLineAsync(PlanEntry entry, FreshnessVerdict verdict, CancellationToken cancellationToken)
@@ -52,12 +54,14 @@ internal sealed class BotPullRequests(IServiceProvider services, MissionsOptions
                 return false;
             case Freshness.NeedsRebase:
                 // A new head is the bot answering: the wait starts again from it (a bot that keeps up with a base that keeps moving is not put aside for it)
+                // (the requests made over the life of the problem are kept: BotRebaseRequestsInAll is never passed)
+                var before = parking.Get(id);
                 if (verdict.Head is { } newer)
                 {
                     _ = line.Replace(id, entry with { HeadSha = newer });
-                    _ = parking.Release(id);
+                    before = before is null ? null : before with { Since = time.GetUtcNow(), Requests = 0, LastRequested = null, LotWasBusy = false };
                 }
-                await ParkAsync(entry, verdict.Reason ?? "it is behind its base branch", verdict.Author, parking.Get(id), cancellationToken);
+                await ParkAsync(entry, verdict.Reason ?? "it is behind its base branch", verdict.Author, before, cancellationToken);
                 return false;
             case Freshness.Followed:
                 _ = line.Replace(id, entry with { HeadSha = verdict.Head });
@@ -142,7 +146,7 @@ internal sealed class BotPullRequests(IServiceProvider services, MissionsOptions
             return;
         }
         var read = await facts.ReadAsync(entry.Repositories[0], number, cancellationToken);
-        if (read is null || read.Merged || read.Closed || !IsBot(read.Author) || !PullRequestFreshness.IsTheBotsOwn(read))
+        if (read is null || read.Merged || read.Closed || !IsBot(read.Author) || !PullRequestFreshness.IsTheBotsOwn(read, IsUnsignedBot(read.Author)))
         {
             return;
         }

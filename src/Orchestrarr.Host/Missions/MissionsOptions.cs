@@ -79,6 +79,12 @@ public sealed class MissionsOptions
     /// </summary>
     public string[] BotAuthors { get; set; } = ["dependabot[bot]", "renovate[bot]"];
 
+    /// <summary>
+    /// The accounts of <see cref="BotAuthors"/> whose commits are followed to a new head **without a signature** that the forge verified (ADR 0055). Empty by default: a bot's commits are signed by the forge (Dependabot's are), and the
+    /// account that a commit is linked to is otherwise only an e-mail that whoever wrote it chose. A test bed names the account of its lab bot, which pushes unsigned commits.
+    /// </summary>
+    public string[] BotUnsignedAuthors { get; set; } = [];
+
     /// <summary>How long a problem waits for its bot to rebase its pull request before it is put aside (ADR 0055).</summary>
     public int BotRebaseWaitMinutes { get; set; } = 30;
 

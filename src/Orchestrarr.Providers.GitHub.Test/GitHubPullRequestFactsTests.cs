@@ -323,6 +323,10 @@ public sealed class GitHubPullRequestFactsTests
         _routes["/repos/example/app/pulls/3"] = $$"""{ "draft": false, "state": "closed", "mergeable_state": "behind", "user": { "login": "dependabot[bot]" }, "head": { "sha": "{{Head}}" }, "base": { "sha": "{{Base}}", "ref": "develop", "repo": { "default_branch": "develop" } } }""";
         _routes[$"/repos/example/app/compare/develop...{Head}"] = """{ "behind_by": 2, "files": [] }""";
         _routes["/repos/example/app/pulls/3/commits"] = """[ { "author": { "login": "dependabot[bot]" } }, { "author": null } ]""";
+        _routes["/repos/example/app/pulls/4/commits"] = """[ { "author": { "login": "dependabot[bot]" }, "committer": { "login": "web-flow" }, "commit": { "verification": { "verified": true } } } ]""";
+        _routes["/repos/example/app/pulls/4"] = _routes["/repos/example/app/pulls/3"];
+        _routes["/repos/example/app/pulls/5/commits"] = """[ { "author": { "login": "dependabot[bot]" }, "committer": { "login": "mallory" }, "commit": { "verification": { "verified": true } } } ]""";
+        _routes["/repos/example/app/pulls/5"] = _routes["/repos/example/app/pulls/3"];
 
         var facts = (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!;
 
@@ -331,6 +335,9 @@ public sealed class GitHubPullRequestFactsTests
         facts.Merge.Should().Be(MergeState.Behind);
         facts.BehindBy.Should().Be(2);
         facts.CommitAuthors.Should().Equal(["dependabot[bot]", ""], "a commit that no account is linked to is no one's: it is not the bot's");
+        facts.CommitsSigned.Should().BeFalse("no signature was verified");
+        (await Facts().ReadAsync("example/app", 4, TestContext.Current.CancellationToken))!.CommitsSigned.Should().BeTrue("signed, and committed by the forge for the bot");
+        (await Facts().ReadAsync("example/app", 5, TestContext.Current.CancellationToken))!.CommitsSigned.Should().BeFalse("signed, but committed by someone else");
 
         _routes.Remove($"/repos/example/app/compare/develop...{Head}");
         _routes.Remove("/repos/example/app/pulls/3/commits");

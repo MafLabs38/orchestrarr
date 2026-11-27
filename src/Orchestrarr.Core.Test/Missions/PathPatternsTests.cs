@@ -30,9 +30,23 @@ public sealed class PathPatternsTests
     [InlineData(".gitmodules")]
     [InlineData("deploy/secrets.enc.yaml")]
     [InlineData("app/.env.production")]
-    public void The_floor_of_forbidden_paths_covers_the_code_owners_the_submodules_and_the_secrets_but_not_the_pipelines(string path)
+    [InlineData(".github/dependabot.yml")]
+    [InlineData(".github/copilot-instructions.md")]
+    [InlineData(".github/prompts/review.prompt.md")]
+    [InlineData(".github/settings.yml")]
+    public void The_floor_of_forbidden_paths_covers_the_code_owners_the_submodules_the_bot_the_agents_of_the_forge_and_the_secrets(string path)
     {
         PathPatterns.AnyMatches(ForbiddenPathsDefaults.Floor, [path]).Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(".github/workflows/ci.yml")]
+    [InlineData(".gitlab-ci.yml")]
+    [InlineData("Jenkinsfile")]
+    public void The_pipelines_are_not_in_the_floor_they_are_in_the_frame_of_each_operation_that_is_not_about_them(string path)
+    {
+        PathPatterns.AnyMatches(ForbiddenPathsDefaults.Floor, [path]).Should().BeFalse();
+        PipelineChanges.IsPipeline(path).Should().BeTrue();
     }
 
     [Fact]

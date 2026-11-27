@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using Orchestrarr.Core.Decisions;
 
 namespace Orchestrarr.Core.Missions;
 
@@ -23,7 +24,7 @@ public static partial class PipelineChanges
     public static bool MayChange(PlanEntry entry)
     {
         ArgumentNullException.ThrowIfNull(entry);
-        return entry.Brief is { Kind: "FailingCi" } or { Nature: "PipelineToolUpdate" or "BaseImageUpdate" };
+        return entry.Brief is { Kind: nameof(ProblemKind.FailingCi) } or { Nature: nameof(ProblemNature.PipelineToolUpdate) or nameof(ProblemNature.BaseImageUpdate) };
     }
 
     /// <summary>The paths that the frame of this operation's missions forbids beyond the floor: the pipelines, unless the operation is about them.</summary>
@@ -46,7 +47,23 @@ public static partial class PipelineChanges
         return null;
     }
 
-    // What weakens a pipeline: a step or a job that cannot fail or never runs, a command made to succeed whatever happens, a token with write rights, a trigger that runs with the credentials of the base branch, a secret that a job reads
-    [GeneratedRegex(@"continue-on-error:\s*true|^\s*if:\s*(false|\$\{\{\s*false\s*\}\})\s*$|\|\|\s*(true|:|exit\s+0)\b|^\s*-?\s*run:\s*(true|:|exit\s+0)\s*$|pull_request_target|workflow_run|write-all|^\s*[a-z-]+:\s*write\s*$|\$\{\{\s*secrets\.|allow_failure:\s*true|failure:\s*ignore", RegexOptions.IgnoreCase | RegexOptions.Multiline, 250)]
+    /// <summary>
+    /// Why a change of a pipeline file removes what it checks, or null: more steps (a <c>run</c>, a <c>uses</c>, a <c>script</c>, a <c>needs</c>) leave the file than come into it. Removing a step is the commonest way to make a red
+    /// pipeline green; a change that replaces a step by another keeps the count. A net, not a proof: the controller reads the lines too.
+    /// </summary>
+    public static string? Removal(string path, IEnumerable<string> removedLines, IEnumerable<string> addedLines)
+    {
+        ArgumentNullException.ThrowIfNull(removedLines);
+        ArgumentNullException.ThrowIfNull(addedLines);
+        var removed = removedLines.Count(line => Step().IsMatch(line));
+        var added = addedLines.Count(line => Step().IsMatch(line));
+        return removed > added ? $"the change removes {removed - added} step(s) of the pipeline '{path}': what a pipeline checks is not taken out of it to make it pass, that is a person's decision" : null;
+    }
+
+    [GeneratedRegex(@"^\s*-?\s*(run|uses|script|needs)\s*:", RegexOptions.IgnoreCase, 250)]
+    private static partial Regex Step();
+
+    // What weakens a pipeline: a step or a job that cannot fail or never runs (in any spelling the line-based net knows; a net, not a proof), a command made to succeed whatever happens, a token with write rights, a trigger that runs with the credentials of the base branch, a secret that a job reads
+    [GeneratedRegex(@"continue-on-error:\s*(\$\{\{\s*)?['""]?true|^\s*if:\s*(\$\{\{\s*)?(always\(\)\s*&&\s*)?['""]?false\b|\|\|\s*(true|:|exit\s+0)\b|^\s*-?\s*run:\s*(true|:|exit\s+0)\s*$|\bset\s+\+e\b|pull_request_target|workflow_run|issue_comment|write-all|^\s*[a-z-]+:\s*['""]?write['""]?\s*(#.*)?$|\{[^}]*:\s*write\b|\bsecrets\s*[.\[]|toJSON\(\s*secrets|secrets:\s*inherit|allow_failure:\s*true|failure:\s*ignore", RegexOptions.IgnoreCase | RegexOptions.Multiline, 250)]
     private static partial Regex Weakens();
 }

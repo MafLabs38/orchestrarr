@@ -8,7 +8,11 @@ namespace Orchestrarr.Core.Missions;
 public static class ForbiddenPathsDefaults
 {
     public static IReadOnlyList<string> Floor { get; } =
-    ["CODEOWNERS", "docs/CODEOWNERS", ".github/CODEOWNERS", ".github/dependabot.yml", ".github/dependabot.yaml", ".gitmodules", "**/*.enc.*", "**/.env*"];
+    [
+        "CODEOWNERS", "docs/CODEOWNERS", ".github/CODEOWNERS", ".github/dependabot.yml", ".github/dependabot.yaml", ".gitmodules", "**/*.enc.*", "**/.env*",
+        // What instructs an agent of the forge, and the repository's settings as code: beside the pipelines in .github, never maintenance
+        ".github/copilot-instructions.md", ".github/instructions/**", ".github/prompts/**", ".github/agents/**", ".github/chatmodes/**", ".github/settings.yml",
+    ];
 }
 
 /// <summary>The rule that a problem is on exactly one repository (D-95, ADR 0041), under one name: the authority, the verifier and the conductor all make this same check.</summary>

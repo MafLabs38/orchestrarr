@@ -11,6 +11,13 @@ public static partial class DependencySources
     // The keys of package.json that say where the project lives, not where a dependency comes from
     private static readonly string[] NpmMetadata = ["homepage", "url", "repository", "bugs", "funding", "author", "email", "web", "$schema", "description", "license"];
 
+    /// <summary>Whether this rule reads the file (a manifest of a package manager or a container file).</summary>
+    public static bool Reads(string path)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        return RuleFor(path[(path.LastIndexOf('/') + 1)..]) is not null;
+    }
+
     /// <summary>Why these lines of this file fetch a dependency from outside a registry, or null when they do not (or when the file is not a manifest nor a container file).</summary>
     public static string? Foreign(string path, IEnumerable<string> lines)
     {

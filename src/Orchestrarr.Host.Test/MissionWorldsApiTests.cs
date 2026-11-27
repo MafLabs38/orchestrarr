@@ -40,6 +40,9 @@ public sealed class MissionWorldsApiTests
         /// <summary>Who wrote each commit of the pull request; null: every commit is its author's.</summary>
         public IReadOnlyList<string>? CommitAuthors { get; set; }
 
+        /// <summary>Whether the forge verified the signature of every commit (a bot's are signed).</summary>
+        public bool CommitsSigned { get; set; } = true;
+
         /// <summary>The commands that the bots were asked to rebase with, by pull request.</summary>
         public List<(int Number, string Command)> RebaseCommands { get; } = [];
 
@@ -94,7 +97,7 @@ public sealed class MissionWorldsApiTests
         public string BaseRef { get; set; } = "main";
 
         public Task<PullRequestFacts?> ReadAsync(string repositoryFullName, int number, CancellationToken cancellationToken) =>
-            Task.FromResult<PullRequestFacts?>(new PullRequestFacts(Opened.Count > 0 && number == RepairNumber ? PullHead : Head, "base", false, Opened.Count > 0 && number == RepairNumber ? ChecksState.Passing : HeadChecks, ["package.json"], PathsComplete: true, Merged, Merged ? MergeCommit : null, Merged ? TreeOfTheMerge : null, Merged ? MergeChecks : ChecksState.Unknown, BaseRef: BaseRef, DefaultBranch: "main", Author: Author, Merge: PullMerge, Closed: Closed.Contains(number), CommitAuthors: CommitAuthors ?? (Author is null ? null : [Author])));
+            Task.FromResult<PullRequestFacts?>(new PullRequestFacts(Opened.Count > 0 && number == RepairNumber ? PullHead : Head, "base", false, Opened.Count > 0 && number == RepairNumber ? ChecksState.Passing : HeadChecks, ["package.json"], PathsComplete: true, Merged, Merged ? MergeCommit : null, Merged ? TreeOfTheMerge : null, Merged ? MergeChecks : ChecksState.Unknown, BaseRef: BaseRef, DefaultBranch: "main", Author: Author, Merge: PullMerge, Closed: Closed.Contains(number), CommitAuthors: CommitAuthors ?? (Author is null ? null : [Author]), CommitsSigned: CommitsSigned));
 
         public Task<DefaultBranchHead?> ReadAsync(string repositoryFullName, CancellationToken cancellationToken) =>
             Task.FromResult<DefaultBranchHead?>(DefaultReadable ? new DefaultBranchHead("main", DefaultHead) : null);
@@ -372,15 +375,14 @@ public sealed class MissionWorldsApiTests
         var line = factory.Services.GetRequiredService<ProblemQueue>();
         _ = await starter.StartOrQueueAsync(Prepared("p-bot", 7, "example/shop"), Ct);
         forge.PullMerge = MergeState.Clean;
-        forge.Author = "dependabot[bot]";
 
         await starter.StartReadyAsync(Ct);
 
         // the forge still says the head it always said, so the pull request is ready as ticked: it starts, and is not parked any more
         factory.Services.GetRequiredService<ProblemParking>().IsParked("p-bot").Should().BeFalse();
         line.Contains("p-bot").Should().BeFalse();
-        factory.Services.GetRequiredService<IProblemStore>().Get("p-bot").Should().NotBeNull();
-        forge.RebaseAsked.Should().Equal(7);
+        factory.Services.GetRequiredService<IProblemStore>().Get("p-bot").Should().NotBeNull("it started");
+        factory.Services.GetRequiredService<IMissionStore>().ForProblem("p-bot").Should().NotBeEmpty("its first mission was issued");
     }
 
     [Fact]
@@ -497,6 +499,19 @@ public sealed class MissionWorldsApiTests
         answer.MissionId.Should().NotBeNull(answer.Refusal);
         factory.Services.GetRequiredService<IProblemStore>().Get("p-again")!.Entry.HeadSha.Should().Be(Head, "the work follows the head that the bot made");
         factory.Services.GetRequiredService<Orchestrarr.Core.Approvals.IAuditLog>().Page(100).Select(row => row.Entry.Event).Should().Contain(MissionAuditEvents.ProblemFollowedBot, "following a new head is in the trail");
+    }
+
+    [Fact]
+    public async Task A_new_head_whose_commits_are_not_signed_is_followed_only_for_a_bot_that_the_settings_allow_to_be_unsigned()
+    {
+        var forge = new FakeForge { Author = "dependabot[bot]", CommitsSigned = false };
+        using var factory = new WorldsFactory(forge);
+        var again = Prepared("p-again", 7, "example/shop");
+
+        var answer = await factory.Services.GetRequiredService<ProblemStarter>().StartOrQueueAsync(again with { Entry = again.Entry! with { HeadSha = "0000000000000000000000000000000000000001" } }, Ct);
+
+        answer.MissionId.Should().BeNull("an e-mail in a commit is chosen by whoever wrote it: an unsigned commit is not the bot's own");
+        answer.Refusal.Should().Be("thePullRequestMoved");
     }
 
     [Fact]

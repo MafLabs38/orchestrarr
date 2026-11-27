@@ -38,7 +38,7 @@ internal sealed class SandboxApprovals : IApprovalSource
             return false;
         }
         var code = Totp.Code(secret, Totp.StepAt(_time.GetUtcNow(), _factor.Totp), _factor.Totp);
-        var request = new ApprovalRequest(CertificateKind.Problem, entry.ProblemId, entry.ApplicationId, entry.Repositories, entry.MaxWorld, entry.Budget, TimeSpan.FromHours(2));
+        var request = new ApprovalRequest(CertificateKind.Problem, entry.ProblemId, entry.ApplicationId, entry.Repositories, entry.MaxWorld, entry.Budget, TimeSpan.FromHours(2), PipelineChanges.ForbiddenFor(entry));
         if (_authority.Propose(request, Subject) is { } proposal && (await _authority.ApproveAsync(proposal.Id, Subject, code, cancellationToken)).Approval is { } approval)
         {
             _prepared[entry.ProblemId] = approval;

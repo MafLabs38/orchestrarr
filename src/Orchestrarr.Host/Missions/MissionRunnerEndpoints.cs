@@ -233,7 +233,7 @@ internal static partial class MissionRunnerEndpoints
                 {
                     return Results.Json(new { error = "files are handed over only to repair a pull request, at the commit that the maintainer saw" }, statusCode: StatusCodes.Status409Conflict);
                 }
-                var refusal = RepairPolicy.Refusal(files, staged.Frame.ForbiddenPaths);
+                var refusal = RepairPolicy.Refusal(files, staged.Frame.ForbiddenPaths, await RepairBase.ReadAsync(branches, entry.Repositories[0], baseHead, files, ct));
                 if (refusal is not null)
                 {
                     return Results.Json(new { error = refusal }, statusCode: StatusCodes.Status422UnprocessableEntity);

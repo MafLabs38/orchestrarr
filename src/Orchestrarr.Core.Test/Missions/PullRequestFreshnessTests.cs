@@ -13,7 +13,7 @@ public sealed class PullRequestFreshnessTests
         new("p", "app", "x", "x", ["o/r"], World.Release, new MissionBudget(30, 3, 50), new Validation("alice", null), T0, pullRequest, Ticked);
 
     private static PullRequestFacts Facts(string head = Ticked, string? author = "dependabot[bot]", MergeState merge = MergeState.Clean, bool merged = false, bool closed = false, int? behindBy = null, IReadOnlyList<string>? commits = null) =>
-        new(head, "base", false, ChecksState.Passing, ["package.json"], true, Merged: merged, Author: author, Merge: merge, Closed: closed, BehindBy: behindBy, CommitAuthors: commits ?? (author is null ? null : [author]));
+        new(head, "base", false, ChecksState.Passing, ["package.json"], true, Merged: merged, Author: author, Merge: merge, Closed: closed, BehindBy: behindBy, CommitAuthors: commits ?? (author is null ? null : [author]), CommitsSigned: true);
 
     private static bool IsBot(string? login) => login == "dependabot[bot]";
 
@@ -26,6 +26,15 @@ public sealed class PullRequestFreshnessTests
 
         verdict.Kind.Should().Be(Freshness.Left, "the author of a pull request stays the bot whoever pushes to its branch: only the bot's own commits are followed");
         verdict.Reason.Should().Contain("someone other than its bot");
+    }
+
+    [Fact]
+    public void A_new_head_with_commits_that_the_forge_did_not_verify_is_left_unless_the_bot_is_allowed_to_be_unsigned()
+    {
+        var unsigned = Facts(head: "new") with { CommitsSigned = false };
+
+        PullRequestFreshness.Of(Entry(), unsigned, IsBot).Kind.Should().Be(Freshness.Left, "the account of a commit is read from an e-mail that anyone who can push may write");
+        PullRequestFreshness.Of(Entry(), unsigned, IsBot, login => login == "dependabot[bot]").Kind.Should().Be(Freshness.Followed);
     }
 
     [Fact]

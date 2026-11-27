@@ -37,7 +37,7 @@ internal sealed class MachineKeeper(MachinePool pool, MissionsOptions options, I
                             logger.LogWarning("{Machine} was down: it is qualified again by itself", machine.Id);
                             if (services.GetService<Orchestrarr.Core.Missions.IMissionAudit>() is { } audit)
                             {
-                                _ = await audit.RecordAsync("machine.requalified", machine.Id, $"qualified again by itself: {machine.Reason}", CancellationToken.None);
+                                _ = await audit.RecordAsync(Orchestrarr.Core.Missions.MissionAuditEvents.MachineRequalified, machine.Id, $"qualified again by itself: {machine.Reason}", CancellationToken.None);
                             }
                         }
                     }

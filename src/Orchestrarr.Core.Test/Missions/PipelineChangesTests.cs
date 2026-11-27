@@ -49,6 +49,15 @@ public sealed class PipelineChangesTests
     [InlineData("  contents: write")]
     [InlineData("          TOKEN: ${{ secrets.DEPLOY_TOKEN }}")]
     [InlineData("  allow_failure: true")]
+    [InlineData("        continue-on-error: ${{ true }}")]
+    [InlineData("    if: ${{ false }}")]
+    [InlineData("  contents: 'write' # needed")]
+    [InlineData("    permissions: { contents: write }")]
+    [InlineData("    secrets: inherit")]
+    [InlineData("          ALL: ${{ toJSON(secrets) }}")]
+    [InlineData("          X: ${{ secrets['DEPLOY'] }}")]
+    [InlineData("          set +e")]
+    [InlineData("  issue_comment:")]
     public void A_line_that_weakens_a_pipeline_is_refused(string line) =>
         PipelineChanges.Weakening(".github/workflows/ci.yml", [line]).Should().NotBeNull().And.Contain("weakens the pipeline");
 
@@ -58,6 +67,7 @@ public sealed class PipelineChangesTests
     [InlineData("      - run: npm ci && npm test")]
     [InlineData("  contents: read")]
     [InlineData("    if: github.event_name == 'push'")]
+    [InlineData("        continue-on-error: false")]
     public void A_line_that_maintains_a_pipeline_passes(string line) =>
         PipelineChanges.Weakening(".github/workflows/ci.yml", [line]).Should().BeNull();
 
@@ -82,4 +92,24 @@ public sealed class PipelineChangesTests
     [Fact]
     public void A_repair_is_read_on_the_whole_pipeline_file_it_carries() =>
         RepairPolicy.Refusal([new PatchedFile(".github/workflows/ci.yml", "on: push\njobs:\n  test:\n    runs-on: ubuntu-latest\n    continue-on-error: true\n")]).Should().Contain("weakens the pipeline");
+
+    [Fact]
+    public void A_change_that_takes_a_step_out_of_a_pipeline_is_refused_and_one_that_replaces_a_step_is_not()
+    {
+        static BranchChange Change(string patch) => new("c0ffee", 0, 1, [new BranchFile(".github/workflows/ci.yml", "modified", 2, patch)], FilesComplete: true);
+
+        ChangePolicy.Refusal(Change("@@ -5,2 +5,1 @@\n       - run: npm ci\n-      - run: npm test")).Should().Contain("removes 1 step");
+        ChangePolicy.Refusal(Change("@@ -5,1 +5,1 @@\n-      - run: npm test\n+      - run: npm test -- --seed 1")).Should().BeNull();
+    }
+
+    [Fact]
+    public void A_repair_is_judged_on_what_it_adds_to_the_pipeline_file_of_the_repaired_head()
+    {
+        const string Head = "on: push\njobs:\n  test:\n    steps:\n      - run: npm test\n        env:\n          TOKEN: ${{ secrets.GITHUB_TOKEN }}\n";
+        var before = new Dictionary<string, string> { [".github/workflows/ci.yml"] = Head };
+
+        RepairPolicy.Refusal([new PatchedFile(".github/workflows/ci.yml", Head.Replace("npm test", "npm test -- --seed 1", StringComparison.Ordinal))], before: before).Should().BeNull("the secret was already read by the pull request that is repaired");
+        RepairPolicy.Refusal([new PatchedFile(".github/workflows/ci.yml", Head.Replace("      - run: npm test\n", string.Empty, StringComparison.Ordinal))], before: before).Should().Contain("removes 1 step");
+        RepairPolicy.Refusal([new PatchedFile(".github/workflows/ci.yml", Head + "      - run: npm audit || true\n")], before: before).Should().Contain("weakens the pipeline");
+    }
 }

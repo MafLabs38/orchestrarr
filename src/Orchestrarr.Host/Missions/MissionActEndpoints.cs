@@ -115,7 +115,7 @@ internal static class MissionActEndpoints
                     return Results.Ok(new MissionPullRequestResponse(false, 0, null, "the branch is no longer at the commit that was audited: the problem goes back to staging"));
                 }
             }
-            else if (RepairPolicy.Refusal(repair.Files, missions.Get(id)!.Frame.ForbiddenPaths) is { } forbidden)
+            else if (RepairPolicy.Refusal(repair.Files, missions.Get(id)!.Frame.ForbiddenPaths, await RepairBase.ReadAsync(branches, repository, repair.OriginalHead, repair.Files, ct)) is { } forbidden)
             {
                 return Results.Ok(new MissionPullRequestResponse(false, 0, null, forbidden));
             }

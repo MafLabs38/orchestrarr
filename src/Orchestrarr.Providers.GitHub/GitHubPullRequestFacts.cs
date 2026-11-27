@@ -73,8 +73,9 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefault
             {
                 // The forge works out the merge state of a pull request lazily, a while after the base moved; how many commits of the base the head lacks is known at once
                 var behind = baseRef is null ? null : await BehindByAsync(repositoryFullName, baseRef, head, cancellationToken);
+                var commits = await CommitAuthorsAsync(repositoryFullName, number, cancellationToken);
                 return new PullRequestFacts(head, baseSha, draft, checks, paths, complete, BaseRef: baseRef, DefaultBranch: defaultBranch, Author: author, Merge: mergeState, Closed: closed, BehindBy: behind,
-                    CommitAuthors: await CommitAuthorsAsync(repositoryFullName, number, cancellationToken));
+                    CommitAuthors: commits?.Authors, CommitsSigned: commits?.Signed ?? false);
             }
             // Once it is merged, what runs is the commit that the merge made on the base branch: its tree and the checks of its pipeline are the facts of the later worlds
             return new PullRequestFacts(head, baseSha, draft, checks, paths, complete, Merged: true, mergeCommit, await TreeOfAsync(repositoryFullName, mergeCommit, cancellationToken), await ChecksOfAsync(repositoryFullName, mergeCommit, [], cancellationToken, ownWorkflowsOnly: true), baseRef, defaultBranch);
@@ -240,6 +241,26 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefault
     {
         var flat = value.ReplaceLineEndings(" ").Replace("<", " ", StringComparison.Ordinal).Replace(">", " ", StringComparison.Ordinal).Trim();
         return flat.Length <= 300 ? flat : flat[..300];
+    }
+
+    public async Task<string?> FileAtAsync(string repositoryFullName, string sha, string path, CancellationToken cancellationToken)
+    {
+        if (!RepositoryName().IsMatch(repositoryFullName) || !Sha().IsMatch(sha) || !Orchestrarr.Core.Missions.RepairPolicy.IsPlainPath(path))
+        {
+            return null;
+        }
+        try
+        {
+            using var file = await GetAsync($"repos/{repositoryFullName}/contents/{path}?ref={sha}", cancellationToken);
+            return file is not null && file.RootElement.ValueKind == JsonValueKind.Object && file.RootElement.TryGetProperty("encoding", out var encoding) && encoding.GetString() == "base64"
+                && file.RootElement.TryGetProperty("content", out var content) && content.GetString() is { } text
+                ? System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(text.Replace("\n", string.Empty, StringComparison.Ordinal)))
+                : null;
+        }
+        catch (Exception failure) when (failure is HttpRequestException or JsonException or KeyNotFoundException or InvalidOperationException or FormatException || failure is TaskCanceledException && !cancellationToken.IsCancellationRequested)
+        {
+            return null;
+        }
     }
 
     public async Task<string?> HeadOfAsync(string repositoryFullName, string branch, CancellationToken cancellationToken)
@@ -442,15 +463,24 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefault
     }
 
     // Who wrote each commit of the pull request, as the forge links it to an account (an empty name for a commit that no account is linked to); null when they cannot all be read
-    private async Task<IReadOnlyList<string>?> CommitAuthorsAsync(string repository, int number, CancellationToken cancellationToken)
+    // The account each commit is linked to, and whether every commit is signed with a signature the forge verified and committed by its author or by the forge itself (web-flow: a commit the forge made for the bot)
+    private async Task<(IReadOnlyList<string> Authors, bool Signed)?> CommitAuthorsAsync(string repository, int number, CancellationToken cancellationToken)
     {
         using var commits = await GetAsync($"repos/{repository}/pulls/{number}/commits?per_page=100", cancellationToken);
         if (commits is null || commits.RootElement.ValueKind != JsonValueKind.Array || commits.RootElement.GetArrayLength() >= 100)
         {
             return null;
         }
-        return [.. commits.RootElement.EnumerateArray().Select(commit => commit.TryGetProperty("author", out var author) && author.ValueKind == JsonValueKind.Object && author.TryGetProperty("login", out var login) ? login.GetString() ?? string.Empty : string.Empty)];
+        var all = commits.RootElement.EnumerateArray().ToList();
+        IReadOnlyList<string> authors = [.. all.Select(commit => LoginOf(commit, "author"))];
+        var signed = all.Count > 0 && all.All(commit =>
+            commit.TryGetProperty("commit", out var detail) && detail.TryGetProperty("verification", out var verification) && verification.TryGetProperty("verified", out var verified) && verified.ValueKind == JsonValueKind.True
+            && LoginOf(commit, "committer") is { Length: > 0 } committer && (committer == "web-flow" || string.Equals(committer, LoginOf(commit, "author"), StringComparison.OrdinalIgnoreCase)));
+        return (authors, signed);
     }
+
+    private static string LoginOf(JsonElement commit, string role) =>
+        commit.TryGetProperty(role, out var account) && account.ValueKind == JsonValueKind.Object && account.TryGetProperty("login", out var login) ? login.GetString() ?? string.Empty : string.Empty;
 
     private async Task<int?> BehindByAsync(string repositoryFullName, string baseRef, string head, CancellationToken cancellationToken)
     {

@@ -21,7 +21,8 @@ public sealed record PullRequestFacts(
     MergeState Merge = MergeState.Unknown,
     bool Closed = false,
     int? BehindBy = null,
-    IReadOnlyList<string>? CommitAuthors = null)
+    IReadOnlyList<string>? CommitAuthors = null,
+    bool CommitsSigned = false)
 {
     /// <summary>Whether the pull request targets the default branch of its repository: the only base that staging proves a merge onto. Unknown counts as not.</summary>
     public bool TargetsDefaultBranch => BaseRef is not null && string.Equals(BaseRef, DefaultBranch, StringComparison.Ordinal);
@@ -39,8 +40,7 @@ public sealed class NoPullRequestFacts : IPullRequestFacts
     public Task<PullRequestFacts?> ReadAsync(string repositoryFullName, int number, CancellationToken cancellationToken) => Task.FromResult<PullRequestFacts?>(null);
 }
 
-/// <summary>What the forge answered to a merge: done, with the commit it made on the base branch, or why not.</summary>
-/// <summary>What a merge asked of the forge came to. <c>ChecksPending</c>: the forge refused only because a check that its rules require has not reported yet, a wait and not a refusal (each provider knows how its forge says it).</summary>
+/// <summary>What the forge answered to a merge: done, with the commit it made on the base branch, or why not. <c>ChecksPending</c>: the forge refused only because a check that its rules require has not reported yet, a wait and not a refusal (each provider knows how its forge says it).</summary>
 public sealed record MergeResult(bool Merged, string? Commit, string? Error, bool ChecksPending = false);
 
 /// <summary>
@@ -137,6 +137,9 @@ public interface IBranchSource
 
     /// <summary>The change that <paramref name="headSha"/> makes on top of <paramref name="baseBranch"/>.</summary>
     Task<BranchChange?> CompareAsync(string repositoryFullName, string baseBranch, string headSha, CancellationToken cancellationToken);
+
+    /// <summary>The text of a file at a commit, or null when there is no such file or it cannot be read (a repair is then judged on the whole file it carries, ADR 0055).</summary>
+    Task<string?> FileAtAsync(string repositoryFullName, string sha, string path, CancellationToken cancellationToken) => Task.FromResult<string?>(null);
 }
 
 /// <summary>Used when no forge is connected.</summary>

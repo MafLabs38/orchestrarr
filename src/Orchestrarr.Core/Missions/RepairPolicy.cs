@@ -37,7 +37,14 @@ public static partial class RepairPolicy
     private static partial Regex PlainPath();
 
     /// <summary>Why a set of files cannot be a repair, or null when it can: how many, how big, where (the policy, and the paths that the frame of the mission forbids), and whether it is text.</summary>
-    public static string? Refusal(IReadOnlyList<PatchedFile> files, IEnumerable<string>? forbidden = null)
+    /// <summary>Whether the guards read this file line by line (a pipeline, a manifest or a container file): its text at the head that is repaired is worth reading, so that only what the repair adds is judged.</summary>
+    public static bool ReadsLines(string path) => PipelineChanges.IsPipeline(path) || DependencySources.Reads(path);
+
+    /// <summary>
+    /// Why a set of files cannot be a repair, or null when it can. <paramref name="before"/> holds the text of the files at the head that is repaired, when it was read: the guards of the pipelines and of the dependencies then judge
+    /// the lines that the repair adds; a file that is new or was not read is judged whole.
+    /// </summary>
+    public static string? Refusal(IReadOnlyList<PatchedFile> files, IEnumerable<string>? forbidden = null, IReadOnlyDictionary<string, string>? before = null)
     {
         ArgumentNullException.ThrowIfNull(files);
         if (files.Count is 0 or > MaxFiles)
@@ -73,12 +80,13 @@ public static partial class RepairPolicy
             {
                 return $"the path '{file.Path}' is protected: a repair does not change the tests, the registries of the package managers or the instructions of the repository";
             }
-            // A pipeline that the frame lets this operation change is never weakened by a repair (ADR 0055); a repair carries whole files, so the whole file is read
-            if (PipelineChanges.IsPipeline(file.Path) && PipelineChanges.Weakening(file.Path, file.Content.Split('\n')) is { } weakened)
+            // A pipeline that the frame lets this operation change is never weakened by a repair (ADR 0055): read on the lines it adds to the file at the repaired head, or on the whole file
+            var added = Added(file, before);
+            if (PipelineChanges.IsPipeline(file.Path) && (PipelineChanges.Weakening(file.Path, added) ?? Removal(file, before)) is { } weakened)
             {
                 return weakened;
             }
-            if (DependencySources.Foreign(file.Path, file.Content.Split('\n')) is { } foreignDependency)
+            if (DependencySources.Foreign(file.Path, added) is { } foreignDependency)
             {
                 return foreignDependency;
             }
@@ -91,4 +99,20 @@ public static partial class RepairPolicy
         }
         return null;
     }
+
+    // The lines of the repaired file that the file at the repaired head does not hold (all of them when it is new or was not read)
+    private static string[] Added(PatchedFile file, IReadOnlyDictionary<string, string>? before)
+    {
+        var lines = file.Content.Split('\n');
+        if (before is null || !before.TryGetValue(file.Path, out var old))
+        {
+            return lines;
+        }
+        var held = old.Split('\n').Select(line => line.TrimEnd('\r')).ToHashSet(StringComparer.Ordinal);
+        return [.. lines.Where(line => !held.Contains(line.TrimEnd('\r')))];
+    }
+
+    // The steps that a repair takes out of a pipeline file, against the file at the repaired head (nothing to compare with when it was not read)
+    private static string? Removal(PatchedFile file, IReadOnlyDictionary<string, string>? before) =>
+        before is not null && before.TryGetValue(file.Path, out var old) ? PipelineChanges.Removal(file.Path, old.Split('\n'), file.Content.Split('\n')) : null;
 }
