@@ -53,7 +53,8 @@ clone() {
   git -C "$dir" remote set-url origin "https://github.com/${ORG}/${repo}.git"
   git -C "$dir" reset -q --hard
   git -C "$dir" clean -qfdx
-  git -C "$dir" fetch -q --prune --tags origin
+  # The tags are taken as the forge has them (--force): a seed that was marked again moves its tag, and the tag is checked against the pinned seed before any use
+  git -C "$dir" fetch -q --prune --tags --force origin
   echo "$dir"
 }
 
@@ -171,7 +172,7 @@ reset_one() {
   has_seed "$dir" "$repo" || { echo "$repo: no seed, nothing to restore" >&2; return 1; }
   close_pull_requests "$repo"
   delete_work_branches "$dir"
-  git -C "$dir" fetch -q --prune --tags origin
+  git -C "$dir" fetch -q --prune --tags --force origin
   if same_as_seed "$dir"; then echo "$repo: already at the seed"; run_pipelines "$repo"; return 0; fi
 
   local branch="lab/restore-$(date +%Y%m%d%H%M%S)"
@@ -200,7 +201,7 @@ reset_one() {
   done
   # A repository may delete the branch of a merged pull request by itself: one that is already gone is not an error
   delete_branch "$dir" "$branch"
-  git -C "$dir" fetch -q --prune --tags origin
+  git -C "$dir" fetch -q --prune --tags --force origin
   same_as_seed "$dir" || { echo "$repo: restored, but $BASE still differs from the seed" >&2; return 1; }
   echo "$repo: restored through #$pr"
   run_pipelines "$repo"
