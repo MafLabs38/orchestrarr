@@ -210,4 +210,15 @@ public sealed class WorkflowStructureTests
         WorkflowStructure.Weakening(Path, Push("paths: ['source/**']"), Push(many), files).Should().Contain("cannot be measured exactly");
         WorkflowStructure.Weakening(Path, Push("paths: ['source/**']"), Push($"paths: ['src/{new string('a', 200)}', 'src/**']"), files).Should().Contain("cannot be measured exactly");
     }
+
+    [Fact]
+    public void A_dormant_trigger_that_runs_with_the_base_credentials_is_never_woken_and_an_action_is_mended_only_by_another_version_of_itself()
+    {
+        string[] files = ["src/feature.js"];
+        const string Dormant = "on:\n  pull_request_target:\n    paths: ['old/**']\njobs:\n  t:\n    runs-on: x\n    steps:\n      - run: make";
+
+        WorkflowStructure.Weakening(Path, Dormant, Dormant.Replace("old/**", "src/**", StringComparison.Ordinal), files).Should().Contain("runs with the base's credentials");
+        Judge(Base.Replace("actions/checkout@v4", "actions/checkout@v5", StringComparison.Ordinal)).Should().BeNull("another version of the same action mends it");
+        Judge(Base.Replace("actions/checkout@v4", "someone/checkout@v1", StringComparison.Ordinal)).Should().Contain("replaces the action 'actions/checkout' with 'someone/checkout'");
+    }
 }

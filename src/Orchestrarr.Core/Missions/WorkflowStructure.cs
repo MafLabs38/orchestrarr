@@ -60,7 +60,7 @@ public static class WorkflowStructure
         {
             return $"the change weakens the pipeline '{path}': it cannot be told, since the workflow before the change does not read here (an alias, or a size or a depth that no workflow has)";
         }
-        var reason = NewDangerousTrigger(previous, next) ?? LostTrigger(previous, next, files) ?? NewShell(previous, next) ?? Widened(previous.Permissions, next.Permissions, "the workflow");
+        var reason = NewDangerousTrigger(previous, next) ?? LostTrigger(previous, next, files) ?? NewShell(previous, next) ?? SwappedAction(previous, next) ?? Widened(previous.Permissions, next.Permissions, "the workflow");
         foreach (var (name, job) in next.Jobs)
         {
             reason ??= previous.Jobs.TryGetValue(name, out var was) ? JobWeakening(name, was, job, previous, next) : NewJobWeakening(name, job, previous, next);
@@ -91,6 +91,11 @@ public static class WorkflowStructure
             if (!string.Equals(was.Other, becomes.Other, StringComparison.Ordinal))
             {
                 return $"changes the branches or tags that the trigger '{trigger}' runs on";
+            }
+            // A dormant trigger that runs with the base's credentials stays dormant: waking it is a person's decision, never a mend
+            if (DangerousTriggers.Contains(trigger, StringComparer.Ordinal))
+            {
+                return $"changes the path filters of the trigger '{trigger}', which runs with the base's credentials";
             }
             if (FilterChangeRefusal(was, becomes, files) is { } refusal)
             {
@@ -135,6 +140,19 @@ public static class WorkflowStructure
         {
             return "a pattern that cannot be measured";
         }
+    }
+
+    // An action is mended by another version of the same action, never replaced by another one: a change that takes an action out of the workflow and brings a new one in is refused (adding an action, or a version of one,
+    // is judged by the controller). Only for a workflow that existed: a new workflow has nothing to swap
+    private static string? SwappedAction(Workflow previous, Workflow next)
+    {
+        if (ReferenceEquals(previous, Workflow.Empty))
+        {
+            return null;
+        }
+        var gone = previous.Actions.Except(next.Actions, StringComparer.OrdinalIgnoreCase).ToList();
+        var come = next.Actions.Except(previous.Actions, StringComparer.OrdinalIgnoreCase).ToList();
+        return gone.Count > 0 && come.Count > 0 ? $"replaces the action '{gone[0]}' with '{come[0]}' (an action is mended by another version of the same action)" : null;
     }
 
     private static string? NewShell(Workflow previous, Workflow next) =>
@@ -208,9 +226,9 @@ public static class WorkflowStructure
 
     private sealed record Job(int Steps, int AlwaysRunningSteps, int CannotFailSteps, bool CannotFail, string? Condition, int MatrixValues, Dictionary<string, string>? Permissions);
 
-    private sealed record Workflow(Dictionary<string, string> Triggers, Dictionary<string, string>? Permissions, Dictionary<string, Job> Jobs, HashSet<string> CustomShells, Dictionary<string, PathFilter> PathFilters)
+    private sealed record Workflow(Dictionary<string, string> Triggers, Dictionary<string, string>? Permissions, Dictionary<string, Job> Jobs, HashSet<string> CustomShells, Dictionary<string, PathFilter> PathFilters, HashSet<string> Actions)
     {
-        public static Workflow Empty { get; } = new([], null, [], [], []);
+        public static Workflow Empty { get; } = new([], null, [], [], [], []);
     }
 
     /// <summary>The path filters of a trigger (<c>paths</c> with its <c>!</c> negations, last match wins; <c>paths-ignore</c>), and the rest of its filters in one canonical text.</summary>
@@ -298,7 +316,9 @@ public static class WorkflowStructure
             }
             var shells = new HashSet<string>(StringComparer.Ordinal);
             CollectShells(root, shells);
-            return new Workflow(TriggersOf(Child(root, "on")), PermissionsOf(Child(root, "permissions")), jobs, shells, PathFiltersOf(Child(root, "on")));
+            var actions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            CollectActions(root, actions);
+            return new Workflow(TriggersOf(Child(root, "on")), PermissionsOf(Child(root, "permissions")), jobs, shells, PathFiltersOf(Child(root, "on")), actions);
         }
         catch (Exception failure) when (failure is YamlException or ArgumentException or InvalidOperationException or InvalidCastException)
         {
@@ -363,6 +383,33 @@ public static class WorkflowStructure
         YamlMappingNode map => "{" + string.Join(",", map.Children.OrderBy(pair => (pair.Key as YamlScalarNode)?.Value, StringComparer.Ordinal).Select(pair => $"{Canonical(pair.Key)}:{Canonical(pair.Value)}")) + "}",
         _ => string.Empty,
     };
+
+    // Every action a step or a job uses, without its version: `owner/name` (and a path inside it), a local action or a container image as written
+    private static void CollectActions(YamlNode node, HashSet<string> found)
+    {
+        switch (node)
+        {
+            case YamlMappingNode map:
+                foreach (var (key, value) in map.Children)
+                {
+                    if (key is YamlScalarNode { Value: "uses" } && value is YamlScalarNode { Value: { } used })
+                    {
+                        _ = found.Add(used.Split('@')[0].Trim());
+                    }
+                    else
+                    {
+                        CollectActions(value, found);
+                    }
+                }
+                break;
+            case YamlSequenceNode list:
+                foreach (var item in list.Children)
+                {
+                    CollectActions(item, found);
+                }
+                break;
+        }
+    }
 
     // Every `shell` of the workflow (its defaults, a job's defaults, a step) that is not a shell the forge knows
     private static void CollectShells(YamlNode node, HashSet<string> found)
