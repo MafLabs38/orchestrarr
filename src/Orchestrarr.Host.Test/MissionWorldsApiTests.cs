@@ -364,7 +364,7 @@ public sealed class MissionWorldsApiTests
     }
 
     [Fact]
-    public async Task A_parked_pull_request_that_the_bot_made_again_is_followed_on_its_new_head_and_starts_when_its_lot_is_free()
+    public async Task A_parked_pull_request_that_its_bot_brought_up_to_date_starts_when_its_lot_is_free()
     {
         var forge = new FakeForge { Author = "dependabot[bot]", PullMerge = MergeState.Behind };
         using var factory = new WorldsFactory(forge);

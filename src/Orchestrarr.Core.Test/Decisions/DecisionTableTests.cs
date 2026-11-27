@@ -488,6 +488,16 @@ public sealed class DecisionTableTests
         rows.Select(row => row.Id).Should().OnlyHaveUniqueItems();
     }
 
+    [Fact]
+    public void A_red_pipeline_is_a_row_that_can_be_chosen_and_goes_as_far_as_the_chain_of_its_application_goes()
+    {
+        var row = Table(Item(pulls: [], findings: [new Finding(FindingKind.FailingCi, Severity.Warning, 1)], read: PullRequestsRead.NotNeeded), Described(promote: "\"patch\", \"minor\", \"major\""), [Everything]).Single();
+
+        row.Kind.Should().Be(ProblemKind.FailingCi);
+        row.GoesUpTo.Should().NotBe(Ceiling.NoAction, "a free agent repairs a red pipeline in staging (ADR 0055)");
+        row.Nature.Should().Be(ProblemNature.FailingPipeline);
+    }
+
     private static IReadOnlyList<Finding> Alerts => [new Finding(FindingKind.DependencyAlerts, Severity.Danger, 2, new AlertCounts(1, 1, 0, 0))];
 
     [Fact]
