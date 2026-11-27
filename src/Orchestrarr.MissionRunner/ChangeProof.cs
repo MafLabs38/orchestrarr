@@ -233,8 +233,10 @@ public sealed partial class ChangeProof(IShell shell, MissionRunnerOptions optio
                 issued.Add(next);
                 if ((await PlaceAsync(machine, next, cancellationToken)).ExitCode != 0)
                 {
-                    // The one in place still works: it is not revoked, and the next renewal tries again
+                    // The one in place still works until it expires: it is not revoked, and the next try is a minute later, not on the expiry of the one that was not placed
                     await report("The renewed push credential could not be placed on the machine");
+                    wait = TimeSpan.FromMinutes(1);
+                    continue;
                 }
                 else
                 {

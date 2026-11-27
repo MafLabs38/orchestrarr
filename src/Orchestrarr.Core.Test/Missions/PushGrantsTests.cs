@@ -46,6 +46,9 @@ public sealed class PushGrantsTests
     [InlineData(".github/*/ci.yml")]
     [InlineData(".github/work*/**")]
     [InlineData("**/*.yml")]
+    [InlineData("**/release.yml")]
+    [InlineData(".GITHUB/*/release.yml")]
+    [InlineData(".github/workflow?/release.yml")]
     public void A_frame_that_forbids_any_workflow_gets_no_permission_on_the_workflows_since_the_forge_grants_them_all(string forbidden) =>
         PushGrants.For(Entry("FailingCi"), new MissionFrame(["o/r"], [.. ForbiddenPathsDefaults.Floor, forbidden], "here")).Pipelines.Should().BeFalse();
 

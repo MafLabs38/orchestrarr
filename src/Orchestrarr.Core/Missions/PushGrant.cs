@@ -42,7 +42,13 @@ public static class PushGrants
         {
             return true;
         }
+        // The file the pattern names, put in the workflows' folder (a wildcard read as a letter): a workflow if it is one, such as `**/release.yml`
         var segments = pattern.Split('/');
-        return segments.Length >= 2 && segments[0] == ".github" && segments[1].Contains('*', StringComparison.Ordinal);
+        var named = segments[^1].Replace('*', 'x').Replace('?', 'x');
+        if ((named.EndsWith(".yml", StringComparison.OrdinalIgnoreCase) || named.EndsWith(".yaml", StringComparison.OrdinalIgnoreCase)) && PathPatterns.AnyMatches([pattern], [WorkflowFolder + named]))
+        {
+            return true;
+        }
+        return segments.Length >= 2 && string.Equals(segments[0], ".github", StringComparison.OrdinalIgnoreCase) && segments[1].IndexOfAny(['*', '?']) >= 0;
     }
 }
