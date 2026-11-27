@@ -243,6 +243,8 @@ async function followMissions(page, known, round = scenario) {
     }
     // "bot": the lab's dependency bot runs while the missions go on, every so many seconds, and answers the control plane's requests to rebase as Dependabot does (ADR 0055)
     if (scenario.bot) bot = spawn(path.join(__dirname, '..', 'demo-bot.sh'), [scenarioPath, String(scenario.bot)], { stdio: ['ignore', 'ignore', 'inherit'], detached: true });
+    // The bot never outlives the run: an interrupted run (Ctrl-C, a kill) stops it too
+    if (bot) for (const signal of ['SIGINT', 'SIGTERM', 'exit']) process.once(signal, () => { try { process.kill(-bot.pid, 'SIGTERM'); } catch { /* already gone */ } if (signal !== 'exit') process.exit(130); });
     if (await tickAndValidate(page, scenario.tick)) {
       // 4. the missions go on, and the final state is read from the forge, not from the interface
       await followMissions(page, known);

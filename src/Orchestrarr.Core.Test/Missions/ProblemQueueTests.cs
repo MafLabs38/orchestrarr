@@ -173,4 +173,38 @@ public sealed class ProblemQueueTests
 
         line.TakeReady(_ => false).Should().BeEmpty();
     }
+
+    [Fact]
+    public void A_held_problem_does_not_start_nor_hold_its_lot_and_its_hold_leaves_the_line_with_it()
+    {
+        var line = new ProblemQueue();
+        line.Enqueue(OfKind("alert", "o/one", "DependencyAlert", 0));
+        line.Enqueue(OfKind("bump", "o/one", "DependencyUpdate", 1));
+        var held = new HeldProblem("alice", T0, "read the advisory first");
+
+        line.Hold("alert", held).Should().BeTrue();
+        line.Hold("absent", held).Should().BeFalse("only a waiting problem is held");
+        line.TakeReady(_ => false).Select(problem => problem.Entry.ProblemId).Should().Equal(["bump"], "the next of the route takes the turn");
+        line.Hold("bump", held).Should().BeFalse("a problem that started is not held");
+
+        // The alert leaves the line (its approval ran out) and its row is validated again: it is not held by the earlier hold
+        line.Remove("alert").Should().BeTrue();
+        line.Enqueue(OfKind("alert", "o/one", "DependencyAlert", 5));
+        line.HeldOf("alert").Should().BeNull();
+        line.Release("alert").Should().BeFalse("nothing to release");
+        line.TakeReady(_ => false).Select(problem => problem.Entry.ProblemId).Should().Equal("alert");
+    }
+
+    [Fact]
+    public void A_released_problem_takes_its_place_again()
+    {
+        var line = new ProblemQueue();
+        line.Enqueue(OfKind("alert", "o/one", "DependencyAlert", 0));
+        line.Hold("alert", new HeldProblem("alice", T0, "wait")).Should().BeTrue();
+        line.TakeReady(_ => false).Should().BeEmpty();
+
+        line.Release("alert").Should().BeTrue();
+
+        line.TakeReady(_ => false).Select(problem => problem.Entry.ProblemId).Should().Equal("alert");
+    }
 }

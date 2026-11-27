@@ -1,7 +1,7 @@
 namespace Orchestrarr.Core.Missions;
 
 /// <summary>A problem that the maintainer validated and the lead planned, and that waits for its repository to be free (<see cref="ProblemQueue"/>).</summary>
-public sealed record QueuedProblem(string RowId, PlanEntry Entry, DateTimeOffset QueuedAt, int Priority = FlowPriority.Normal);
+public sealed record QueuedProblem(string RowId, PlanEntry Entry, DateTimeOffset QueuedAt, int Priority = FlowPriority.Normal, HeldProblem? Held = null);
 
 /// <summary>
 /// **One work site at a time on a repository** (the maintainer's Git flow rule, 2026-11-24): problems that are validated together on one repository are done one after the other, so that what is proved in staging is what is
@@ -104,13 +104,59 @@ public sealed class ProblemQueue
             {
                 var repository = RepositoryOf(problem);
                 // A problem that cannot start now (it waits for a bot to rebase its pull request) does not hold its lot: the next one of the route takes the turn (ADR 0055)
-                if (repository is not null && !Busy(repository) && !ready.Exists(other => IsOn(other, repository)) && (canStart is null || canStart(problem)))
+                // A problem that a person held does not start either, and does not hold its lot (ADR 0056); the hold is read here, under the gate of the line, so a hold and a start never cross
+                if (repository is not null && problem.Held is null && !Busy(repository) && !ready.Exists(other => IsOn(other, repository)) && (canStart is null || canStart(problem)))
                 {
                     ready.Add(problem);
                 }
             }
             _waiting.RemoveAll(ready.Contains);
             return ready;
+        }
+    }
+
+    /// <summary>A person holds a waiting problem (ADR 0056). False when it is not waiting: one that has started, or left the line, is not held. The hold is part of the line, so it leaves with the problem whatever takes it out.</summary>
+    public bool Hold(string problemId, HeldProblem held)
+    {
+        ArgumentNullException.ThrowIfNull(held);
+        return Update(problemId, waiting => waiting with { Held = held });
+    }
+
+    /// <summary>A person releases a held problem: it takes its place in the line again. False when it is not waiting or not held.</summary>
+    public bool Release(string problemId)
+    {
+        lock (_gate)
+        {
+            var index = _waiting.FindIndex(other => string.Equals(other.Entry.ProblemId, problemId, StringComparison.Ordinal));
+            if (index < 0 || _waiting[index].Held is null)
+            {
+                return false;
+            }
+            _waiting[index] = _waiting[index] with { Held = null };
+            return true;
+        }
+    }
+
+    /// <summary>Who held a waiting problem, or null when it is not waiting or not held.</summary>
+    public HeldProblem? HeldOf(string problemId)
+    {
+        lock (_gate)
+        {
+            return _waiting.Find(other => string.Equals(other.Entry.ProblemId, problemId, StringComparison.Ordinal))?.Held;
+        }
+    }
+
+    private bool Update(string problemId, Func<QueuedProblem, QueuedProblem> change)
+    {
+        lock (_gate)
+        {
+            var index = _waiting.FindIndex(other => string.Equals(other.Entry.ProblemId, problemId, StringComparison.Ordinal));
+            if (index < 0)
+            {
+                return false;
+            }
+            _waiting[index] = change(_waiting[index]);
+            return true;
         }
     }
 

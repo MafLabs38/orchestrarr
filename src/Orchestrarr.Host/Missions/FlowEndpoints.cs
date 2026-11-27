@@ -92,12 +92,12 @@ internal static class FlowEndpoints
             {
                 return Results.Json(new ErrorResponse("holdNeedsAReason"), statusCode: StatusCodes.Status422UnprocessableEntity);
             }
-            if (services.GetService<ProblemQueue>() is not { } line || services.GetService<ProblemHolds>() is not { } holds || !line.Contains(problemId))
+            var reason = request.Reason.ReplaceLineEndings(" ").Trim();
+            // Held in the same step as it is found in the line: an operation that started meanwhile is not said held
+            if (services.GetService<ProblemHolds>() is not { } holds || !holds.Hold(problemId, new HeldProblem(by, time.GetUtcNow(), reason)))
             {
                 return Results.Json(new ErrorResponse("notInTheLine"), statusCode: StatusCodes.Status409Conflict);
             }
-            var reason = request.Reason.ReplaceLineEndings(" ").Trim();
-            holds.Hold(problemId, new HeldProblem(by, time.GetUtcNow(), reason));
             _ = await audit.RecordAsync(MissionAuditEvents.ProblemHeld, problemId, $"held by {by}: {reason}", CancellationToken.None);
             live.Publish(LiveTopics.Missions);
             return Results.Ok();

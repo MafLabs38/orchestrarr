@@ -21,7 +21,7 @@ public sealed record FlowProblem(string ProblemId, string Title, string? Kind, s
 /// </summary>
 internal static class FlowView
 {
-    private const int MaxFinished = 20;
+    private const int MaxFinished = 50;
 
     internal static IReadOnlyList<FlowProblem> Build(IReadOnlyList<Mission> recent, IProblemStore problems, IReadOnlyList<QueuedProblem> waiting, IReadOnlyList<Machine> machines, bool runnerConnected, Func<string, (string? Line, DateTimeOffset? At)> lastNews, Func<Mission, DateTimeOffset?> issuedAt, Func<Mission, bool>? reworkPending = null, Func<string, int>? lanesOf = null, Func<string, string?>? parkedReason = null, Func<string, HeldProblem?>? heldOf = null, IReadOnlyList<PlannedRow>? planning = null)
     {

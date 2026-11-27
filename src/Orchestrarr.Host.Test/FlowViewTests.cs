@@ -141,13 +141,13 @@ public sealed class FlowViewTests
     [Fact]
     public void What_is_over_comes_after_what_is_going_on_and_is_kept_to_a_few()
     {
-        var finished = Enumerable.Range(1, 30).Select(index => Run($"f{index}", ProblemState.Closed, repository: $"o/r{index}")).ToArray();
+        var finished = Enumerable.Range(1, 60).Select(index => Run($"f{index}", ProblemState.Closed, repository: $"o/r{index}")).ToArray();
         var missions = finished.Select(run => Mission("m-" + run.ProblemId, run.ProblemId, World.Staging, MissionState.Accepted, MissionEnd.Done)).Append(Mission("m-live", "live", World.Staging, MissionState.Running)).ToList();
 
         var flow = Build(missions, Store([.. finished, Run("live", repository: "o/live")]));
 
         flow[0].ProblemId.Should().Be("live");
-        flow.Should().HaveCount(21);
+        flow.Should().HaveCount(51);
         flow.Skip(1).Should().OnlyContain(problem => problem.State == "closed" && problem.Activity == null);
     }
 
