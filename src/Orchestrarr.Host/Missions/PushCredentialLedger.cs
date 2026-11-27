@@ -90,32 +90,33 @@ internal sealed class PushCredentialLedger(IPushCredentials credentials, IMissio
     {
         var revoked = 0;
         var failed = new List<string>();
-        foreach (var token in tokens)
+        var done = 0;
+        try
         {
-            if (await credentials.RevokeAsync(token, cancellationToken))
+            foreach (var token in tokens)
             {
-                revoked++;
-            }
-            else
-            {
-                failed.Add(token);
-            }
-        }
-        // A revocation that the forge did not confirm is kept, and the driver's pass tries again once the mission no longer runs or the stop is engaged (a replaced one that failed is tried again at the next renewal, or then)
-        if (failed.Count > 0)
-        {
-            lock (_gate)
-            {
-                if (_live.TryGetValue(missionId, out var held))
+                if (await credentials.RevokeAsync(token, cancellationToken))
                 {
-                    held.InsertRange(0, failed);
+                    revoked++;
                 }
                 else
                 {
-                    _live[missionId] = failed;
+                    failed.Add(token);
                 }
+                done++;
             }
         }
+        finally
+        {
+            // Interrupted (the host stops, the pass is cancelled): what was not confirmed goes back, so that nothing is forgotten while it may still push
+            if (done < tokens.Count)
+            {
+                failed.AddRange(tokens.Skip(done));
+                Restore(missionId, failed);
+            }
+        }
+        // A revocation that the forge did not confirm is kept, and the driver's pass tries again once the mission no longer runs or the stop is engaged (a replaced one that failed is tried again at the next renewal, or then)
+        Restore(missionId, failed);
         bool firstTime;
         lock (_gate)
         {
@@ -138,5 +139,24 @@ internal sealed class PushCredentialLedger(IPushCredentials credentials, IMissio
         }
         _ = await conductor.RecordActPerformedAsync(missionId, GatedAct.PushBranch, said, cancellationToken);
         return revoked;
+    }
+
+    private void Restore(string missionId, List<string> failed)
+    {
+        if (failed.Count == 0)
+        {
+            return;
+        }
+        lock (_gate)
+        {
+            if (_live.TryGetValue(missionId, out var held))
+            {
+                held.InsertRange(0, failed.Where(token => !held.Contains(token, StringComparer.Ordinal)));
+            }
+            else
+            {
+                _live[missionId] = [.. failed];
+            }
+        }
     }
 }

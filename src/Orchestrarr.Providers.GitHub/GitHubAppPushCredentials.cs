@@ -86,15 +86,16 @@ public sealed partial class GitHubAppPushCredentials : IPushCredentials, IDispos
                 return null;
             }
             // What the forge granted is read back: a token that may do more than was asked (a workflow write that was not asked for, any permission beyond metadata) is not handed out
-            var permissions = granted.EnumerateObject().Where(permission => permission.Name != "metadata").ToDictionary(permission => permission.Name, permission => permission.Value.GetString() ?? string.Empty, StringComparer.Ordinal);
             // A token that may write contents may merge a pull request through the API: it is handed out only where the forge keeps it from integrating anything (the default branch is updated by bypassing actors only). From here
             // the token is live: whatever goes wrong while it is checked, it is revoked before nothing is answered
             bool handedOut;
             try
             {
+                // Read inside the guard too: a value of an unexpected kind is no permission, and the live token is revoked
+                var permissions = granted.EnumerateObject().Where(permission => permission.Name != "metadata").ToDictionary(permission => permission.Name, permission => permission.Value.ValueKind == JsonValueKind.String ? permission.Value.GetString() ?? string.Empty : string.Empty, StringComparer.Ordinal);
                 handedOut = permissions.Count == asked.Count && asked.All(pair => permissions.TryGetValue(pair.Key, out var level) && level == pair.Value) && await IntegrationIsGuardedAsync(repositoryFullName, value, cancellationToken);
             }
-            catch (Exception failure) when (failure is HttpRequestException or JsonException || failure is TaskCanceledException && !cancellationToken.IsCancellationRequested)
+            catch (Exception failure) when (failure is HttpRequestException or JsonException or InvalidOperationException or OperationCanceledException)
             {
                 handedOut = false;
             }

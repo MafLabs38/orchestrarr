@@ -3,7 +3,7 @@
 - **Status**: proposed (the architecture was described to the maintainer on 2026-11-13 and the maintainer agreed with it in broad lines; accepted when the pull request that carries it is merged)
 - **Date**: 2026-11-13
 - **Spec**: D-88 ([FUNCTIONAL.md](../FUNCTIONAL.md), [ARCHITECTURE.md](../ARCHITECTURE.md))
-- **Amended by**: [ADR 0055](0055-the-flow-is-a-fab-lots-routes-machines-and-rules-that-keep-it-moving.md): changing a pipeline is maintenance that an operation about the pipeline may do (a red pipeline, a pipeline tool, a base image), never in a way that weakens it (`PipelineChanges`); every other operation has the pipelines in its frame
+- **Amended by**: [ADR 0055](0055-the-flow-is-a-fab-lots-routes-machines-and-rules-that-keep-it-moving.md): changing a pipeline is maintenance that an operation about the pipeline may do (a red pipeline, a pipeline tool, a base image), never in a way that weakens it (`PipelineChanges`); every other operation has the pipelines in its frame; [ADR 0057](0057-the-control-plane-justifies-the-powers-on-a-pipeline.md): the push credential of the free agent is made by the control plane for each mission and carries `workflows` only when the operation and its approved frame justify it.
 
 ## Context
 
