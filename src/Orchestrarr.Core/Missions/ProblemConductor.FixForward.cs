@@ -8,6 +8,8 @@ namespace Orchestrarr.Core.Missions;
 /// </summary>
 public sealed partial class ProblemConductor
 {
+    private const string FixForwardReason = "the merge turned the integration branch red: the problem goes back to staging to fix it forward";
+
     private async Task<ConductResult> FixForwardAsync(Mission mission, ProblemRun run, IReadOnlyList<PreconditionFailure> failures)
     {
         // A fix needs a world where an agent can work: an application with no staging has none, and the work stops with the reason
@@ -20,8 +22,13 @@ public sealed partial class ProblemConductor
         {
             return await EndAsync(run, mission, MissionEvent.EndedByController, "the powers of the problem no longer reach the Git world, or the grant was withdrawn");
         }
+        // One fix forward per problem: a branch that is red again after one is a person's to look at, not a loop of agents
+        if (missions.ForProblem(run.ProblemId).Any(other => other.EndReason?.StartsWith(FixForwardReason, StringComparison.Ordinal) == true))
+        {
+            return Moved(await EscalateAsync(run, mission, "the integration branch is red again after a fix forward"), "the integration branch is red again after a fix forward: a person decides", failures);
+        }
         var merged = dossiers.Get(mission.Id)?.Commit;
-        var transition = MissionMachine.Apply(mission, MissionEvent.EndedByController, options.Loop, reason: "the merge turned the integration branch red: the problem goes back to staging to fix it forward");
+        var transition = MissionMachine.Apply(mission, MissionEvent.EndedByController, options.Loop, reason: FixForwardReason);
         if (transition.Mission is not { } ended)
         {
             return ConductResult.Fail(transition.Refusal ?? "refused");

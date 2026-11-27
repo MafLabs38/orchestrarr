@@ -150,11 +150,11 @@ public sealed class GitHubPullRequestFactsTests
             { "check_runs": [ { "name": "build", "status": "completed", "conclusion": "success", "check_suite": { "id": 1 } },
                               { "name": "update-pip-graph", "status": "completed", "conclusion": "failure", "check_suite": { "id": 2 } } ] }
             """;
-        _routes["/repos/example/app/actions/runs"] = """{ "workflow_runs": [ { "path": "dynamic/dependabot/update-graph", "check_suite_id": 2 } ] }""";
+        _routes["/repos/example/app/actions/runs"] = """{ "workflow_runs": [ { "path": ".github/workflows/ci.yml", "check_suite_id": 1, "head_repository": { "full_name": "example/app" } }, { "path": "dynamic/dependabot/update-graph", "check_suite_id": 2 } ] }""";
 
         (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!.MergeChecks.Should().Be(ChecksState.Passing, "a job that the forge runs for its own service says nothing of the commit");
 
-        _routes["/repos/example/app/actions/runs"] = """{ "workflow_runs": [ { "path": ".github/workflows/graph.yml", "check_suite_id": 2 } ] }""";
+        _routes["/repos/example/app/actions/runs"] = """{ "workflow_runs": [ { "path": ".github/workflows/ci.yml", "check_suite_id": 1, "head_repository": { "full_name": "example/app" } }, { "path": ".github/workflows/graph.yml", "check_suite_id": 2, "head_repository": { "full_name": "example/app" } } ] }""";
         (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!.MergeChecks.Should().Be(ChecksState.Failing, "a workflow of the repository is its pipeline, whatever its name");
 
         _routes.Remove("/repos/example/app/actions/runs");
@@ -248,6 +248,22 @@ public sealed class GitHubPullRequestFactsTests
 
         change.FilesComplete.Should().BeFalse("a hundred is a full page: the list may have been cut");
         change.BehindBy.Should().Be(1, "a forge that does not say how far behind it is counts as behind");
+    }
+
+    [Fact]
+    public async Task The_commit_of_a_merge_is_judged_on_the_repositorys_own_workflows_not_on_what_another_app_reports()
+    {
+        const string MergeSha = "3333333333333333333333333333333333333333";
+        Serve("""{ "check_runs": [ { "status": "completed", "conclusion": "success" } ] }""");
+        _routes["/repos/example/app/pulls/3"] = $$"""{ "draft": false, "merged": true, "merge_commit_sha": "{{MergeSha}}", "head": { "sha": "{{Head}}" }, "base": { "sha": "{{Base}}" } }""";
+        _routes[$"/repos/example/app/git/commits/{MergeSha}"] = """{ "tree": { "sha": "4444444444444444444444444444444444444444" } }""";
+        _routes[$"/repos/example/app/commits/{MergeSha}/check-runs"] = """
+            { "check_runs": [ { "name": "build", "status": "completed", "conclusion": "success", "check_suite": { "id": 1 } },
+                              { "name": "some-app", "status": "completed", "conclusion": "failure", "check_suite": { "id": 9 } } ] }
+            """;
+        _routes["/repos/example/app/actions/runs"] = """{ "workflow_runs": [ { "path": ".github/workflows/ci.yml", "check_suite_id": 1, "head_repository": { "full_name": "example/app" } } ] }""";
+
+        (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!.MergeChecks.Should().Be(ChecksState.Passing, "a red integration branch sends a problem back to fix it forward: only the repository's own pipeline says so");
     }
 
     [Fact]

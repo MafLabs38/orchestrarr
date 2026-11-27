@@ -12,8 +12,12 @@ public static partial class PipelineChanges
     /// <summary>How a red pipeline is repaired, said once for the lead's plan and for the fix of a merge that turned the integration branch red (one text, so that the two never drift).</summary>
     public const string RepairRules = "A pipeline is repaired by the fix that a good developer makes: a test that fails only some of the time is made deterministic (a seed, a fixed value, no dependence on chance or on time), never retried until it passes; a check or a smoke test is never weakened to pass (what it checked, it still checks: the application is fixed, or what it needs is given to it in the pipeline); and a step that needs a secret that is not set runs only when the secret is there.";
 
-    /// <summary>The pipeline files of the forges: GitHub, GitLab, Gitea, Forgejo, Woodpecker, Drone.</summary>
-    public static readonly IReadOnlyList<string> Paths = [".github/**", ".gitlab-ci.yml", ".gitlab/**", ".gitea/**", ".forgejo/**", ".woodpecker/**", ".woodpecker.yml", ".drone.yml"];
+    /// <summary>The pipeline files of the forges and of the CI services: GitHub, GitLab, Gitea, Forgejo, Woodpecker, Drone, CircleCI, Jenkins, Azure Pipelines, Travis, Bitbucket.</summary>
+    public static readonly IReadOnlyList<string> Paths =
+    [
+        ".github/**", "**/.github/**", ".gitlab-ci.yml", ".gitlab/**", ".gitea/**", ".forgejo/**", ".woodpecker/**", ".woodpecker.yml", ".drone.yml",
+        ".circleci/**", "**/Jenkinsfile*", "azure-pipelines*.yml", "**/.travis.yml", "**/bitbucket-pipelines.yml",
+    ];
 
     /// <summary>Whether this operation is about the pipeline itself: a red pipeline, a pull request that raises a tool of the pipeline, or the base image whose runtime the pipeline follows (ADR 0054's nature). The kind and the nature are what the control plane read of the row, never an agent's word.</summary>
     public static bool MayChange(PlanEntry entry)

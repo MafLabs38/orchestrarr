@@ -994,6 +994,52 @@ public sealed class ProblemConductorTests : IDisposable
     }
 
     [Fact]
+    public async Task A_branch_that_is_red_again_after_one_fix_forward_goes_to_the_maintainer()
+    {
+        var (conductor, git) = await MergedInGit(ciGreen: false);
+        var forward = await conductor.DecideAsync(git.Id, new ControllerDecision(ControllerDecisionKind.End, ["red"], null), Ct);
+        _facts.Merged = false;
+        _facts.CiGreen = true;
+        var again = (await Through(conductor, forward)).Mission!;
+        _facts.Merged = true;
+        _facts.CiGreen = false;
+        await conductor.StartedAsync(again.Id, Ct);
+        await conductor.HandOverAsync(again.Id, DossierFor(again.Id) with { Commit = "1123456789abcdef0123456789abcdef01234567" }, Ct);
+
+        var result = await conductor.DecideAsync(again.Id, new ControllerDecision(ControllerDecisionKind.End, ["red again"], null), Ct);
+
+        result.Mandate.Should().BeNull("a fix forward is made once: a branch red again is not a loop of agents");
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.Escalated);
+        _restarts.Problems.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task A_grant_withdrawn_before_a_red_merge_is_judged_stops_the_problem_instead_of_fixing_it_forward()
+    {
+        var (conductor, git) = await MergedInGit(ciGreen: false);
+        _grants.Withdrawn.Add("shop");
+
+        var result = await conductor.DecideAsync(git.Id, new ControllerDecision(ControllerDecisionKind.End, ["red"], null), Ct);
+
+        result.Mandate.Should().BeNull();
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.Failed);
+        _restarts.Problems.Should().BeEmpty("nothing is restarted for a problem whose power was withdrawn");
+    }
+
+    [Fact]
+    public async Task A_red_pipeline_on_a_pull_request_that_is_not_merged_is_not_fixed_forward()
+    {
+        var (conductor, git) = await MergedInGit(ciGreen: false);
+        _facts.Merged = false;
+
+        var result = await conductor.DecideAsync(git.Id, new ControllerDecision(ControllerDecisionKind.End, ["the pipeline of the pull request is red"], null), Ct);
+
+        result.Failures.Should().NotContain(PreconditionFailure.IntegrationBranchRedAfterMerge);
+        _problems.Get("problem-1")!.Entry.PullRequest.Should().Be(Entry().PullRequest, "nothing is merged: the problem keeps its pull request");
+        _restarts.Problems.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task A_pipeline_of_the_merge_that_is_not_over_is_not_a_red_branch()
     {
         var (conductor, git) = await MergedInGit(ciGreen: null);

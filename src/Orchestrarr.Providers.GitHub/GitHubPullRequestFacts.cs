@@ -76,7 +76,7 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefault
                     CommitAuthors: await CommitAuthorsAsync(repositoryFullName, number, cancellationToken));
             }
             // Once it is merged, what runs is the commit that the merge made on the base branch: its tree and the checks of its pipeline are the facts of the later worlds
-            return new PullRequestFacts(head, baseSha, draft, checks, paths, complete, Merged: true, mergeCommit, await TreeOfAsync(repositoryFullName, mergeCommit, cancellationToken), await ChecksOfAsync(repositoryFullName, mergeCommit, [], cancellationToken), baseRef, defaultBranch);
+            return new PullRequestFacts(head, baseSha, draft, checks, paths, complete, Merged: true, mergeCommit, await TreeOfAsync(repositoryFullName, mergeCommit, cancellationToken), await ChecksOfAsync(repositoryFullName, mergeCommit, [], cancellationToken, ownWorkflowsOnly: true), baseRef, defaultBranch);
             // The checks of the commit that the merge made are those that ran on it (a push), not the checks that the rules require of a pull request, which may run on pull requests only
         }
         catch (Exception failure) when (failure is HttpRequestException or JsonException or KeyNotFoundException or InvalidOperationException || failure is TaskCanceledException && !cancellationToken.IsCancellationRequested)
@@ -131,7 +131,7 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefault
             foreach (var run in list.EnumerateArray())
             {
                 // Only the runs of the repository itself on its branch (a fork's pull request from a branch of the same name is someone else's text), and only the events that run the default branch
-                if (!run.TryGetProperty("path", out var pathValue) || pathValue.GetString() is not { Length: > 0 } path || path.StartsWith("dynamic/", StringComparison.Ordinal)
+                if (!run.TryGetProperty("path", out var pathValue) || pathValue.GetString() is not { Length: > 0 } path || IsForgeServiceRun(path)
                     || !OwnRun(run, repositoryFullName) || run.GetProperty("status").GetString() != "completed" || !seen.Add(path))
                 {
                     continue;
@@ -333,7 +333,7 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefault
     // Passing: every check run of the head is over and none failed; Pending: one is not over; Failing: one failed; Unknown: none, or not all of them could be read.
     // The runs of the forge's own dependency service (GitHub runs Dependabot's updates and its dependency graph as workflows of its own, `dynamic/dependabot/...`, on the commits of the default branch) are not
     // the project's pipeline: their failure says nothing about the commit (an image of the service that could not be pulled), and they are left out of the verdict
-    private async Task<ChecksState> ChecksOfAsync(string repository, string sha, IReadOnlyList<string> required, CancellationToken cancellationToken)
+    private async Task<ChecksState> ChecksOfAsync(string repository, string sha, IReadOnlyList<string> required, CancellationToken cancellationToken, bool ownWorkflowsOnly = false)
     {
         var runs = new List<CheckRunRead>();
         var complete = false;
@@ -367,6 +367,11 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefault
         {
             judged = [.. judged.Where(run => run.Suite is not { } suite || !service.Contains(suite))];
         }
+        // The commit of a merge is judged on the pipelines of the repository itself (its workflows), not on what another app reports on it: a red integration branch is what sends the problem back to fix it forward (ADR 0055)
+        if (ownWorkflowsOnly && await OwnSuitesAsync(repository, sha, cancellationToken) is { } own)
+        {
+            judged = [.. judged.Where(run => run.Suite is { } suite && own.Contains(suite))];
+        }
         if (judged.Count == 0 && required.Count == 0)
         {
             return ChecksState.Unknown;
@@ -381,6 +386,29 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefault
     }
 
     // The check suites of a commit that the forge's dependency service made (its workflow runs under `dynamic/dependabot/`): read once, and an answer that cannot be read leaves nothing out
+    // The check suites of a commit that the repository's own workflows made (`.github/workflows/`, on the repository itself); null when they cannot be read (then nothing is left out)
+    private async Task<HashSet<long>?> OwnSuitesAsync(string repository, string sha, CancellationToken cancellationToken)
+    {
+        using var document = await GetAsync($"repos/{repository}/actions/runs?head_sha={sha}&per_page=100", cancellationToken);
+        if (document is null || !document.RootElement.TryGetProperty("workflow_runs", out var list))
+        {
+            return null;
+        }
+        var suites = new HashSet<long>();
+        foreach (var run in list.EnumerateArray())
+        {
+            if (run.TryGetProperty("path", out var path) && path.GetString() is { } file && file.StartsWith(".github/workflows/", StringComparison.Ordinal)
+                && run.TryGetProperty("head_repository", out var head) && head.ValueKind == JsonValueKind.Object && head.TryGetProperty("full_name", out var name) && string.Equals(name.GetString(), repository, StringComparison.OrdinalIgnoreCase)
+                && run.TryGetProperty("check_suite_id", out var suite) && suite.TryGetInt64(out var id))
+            {
+                _ = suites.Add(id);
+            }
+        }
+        return suites;
+    }
+
+    private static bool IsForgeServiceRun(string path) => path.StartsWith("dynamic/dependabot/", StringComparison.Ordinal);
+
     private async Task<HashSet<long>> ServiceSuitesAsync(string repository, string sha, CancellationToken cancellationToken)
     {
         var suites = new HashSet<long>();
@@ -391,7 +419,7 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefault
         }
         foreach (var run in list.EnumerateArray())
         {
-            if (run.TryGetProperty("path", out var path) && path.GetString() is { } file && file.StartsWith("dynamic/dependabot/", StringComparison.Ordinal)
+            if (run.TryGetProperty("path", out var path) && path.GetString() is { } file && IsForgeServiceRun(file)
                 && run.TryGetProperty("check_suite_id", out var suite) && suite.TryGetInt64(out var id))
             {
                 _ = suites.Add(id);
