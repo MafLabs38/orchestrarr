@@ -41,6 +41,9 @@ public sealed class MissionsOptions
 
     public int MaxHoursPerProblem { get; set; } = (int)LoopPolicy.Default.MaxTimePerProblem.TotalHours;
 
+    /// <summary>How many times a problem whose merge turned the integration branch red is fixed forward before a person decides (ADR 0055): the block above the controller's judgement of each one.</summary>
+    public int MaxFixesForwardPerProblem { get; set; } = LoopPolicy.Default.MaxFixesForwardPerProblem;
+
     /// <summary>Where the private key that signs the mandates is kept. Unset: next to the database when there is one, else a key that lives as long as the host.</summary>
     public string? SigningKeyFile { get; set; }
 
@@ -128,10 +131,11 @@ public sealed class MissionsOptions
         Positive(MaxSendBacksPerMission, nameof(MaxSendBacksPerMission));
         Positive(MaxMandatesPerProblem, nameof(MaxMandatesPerProblem));
         Positive(MaxHoursPerProblem, nameof(MaxHoursPerProblem));
+        Positive(MaxFixesForwardPerProblem, nameof(MaxFixesForwardPerProblem));
         return new ConductorOptions(
             TimeSpan.FromMinutes(MandateMinutes),
             ForbiddenPaths ?? [.. ConductorOptions.Default.ForbiddenPaths],
-            new LoopPolicy(MaxSendBacksPerMission, MaxMandatesPerProblem, TimeSpan.FromHours(MaxHoursPerProblem)));
+            new LoopPolicy(MaxSendBacksPerMission, MaxMandatesPerProblem, TimeSpan.FromHours(MaxHoursPerProblem), MaxFixesForwardPerProblem));
     }
 
     private static void Positive(int value, string name)

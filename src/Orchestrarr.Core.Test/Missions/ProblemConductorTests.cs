@@ -957,9 +957,9 @@ public sealed class ProblemConductorTests : IDisposable
     }
 
     // A Git mission that merged its change, as the source then reads it: merged, and the pipeline of the merge commit as given
-    private async Task<(ProblemConductor Conductor, Mission Git)> MergedInGit(bool? ciGreen, bool staged = true)
+    private async Task<(ProblemConductor Conductor, Mission Git)> MergedInGit(bool? ciGreen, bool staged = true, ConductorOptions? options = null)
     {
-        var conductor = Conductor();
+        var conductor = Conductor(options);
         var git = staged
             ? (await Through(conductor, await StartStaged(conductor))).Mission!
             : (await conductor.StartAsync(Entry(), StagingDeclaration.DeclaredNoStaging, StagingRequirement.BlankMachine, StagingState.NotDefined, Ct)).Mission!;
@@ -995,22 +995,44 @@ public sealed class ProblemConductorTests : IDisposable
         _restarts.Problems.Should().Equal("problem-1");
     }
 
-    [Fact]
-    public async Task A_branch_that_is_red_again_after_one_fix_forward_goes_to_the_maintainer()
+    // The merge of the fix forward that was just opened turns the branch red again: staging and Git are gone through, and the controller ends the Git mission
+    private async Task<ConductResult> RedAgain(ProblemConductor conductor, ConductResult forward, string commit)
     {
-        var (conductor, git) = await MergedInGit(ciGreen: false);
-        var forward = await conductor.DecideAsync(git.Id, new ControllerDecision(ControllerDecisionKind.End, ["red"], null), Ct);
         _facts.Merged = false;
         _facts.CiGreen = true;
         var again = (await Through(conductor, forward)).Mission!;
         _facts.Merged = true;
         _facts.CiGreen = false;
         await conductor.StartedAsync(again.Id, Ct);
-        await conductor.HandOverAsync(again.Id, DossierFor(again.Id) with { Commit = "1123456789abcdef0123456789abcdef01234567" }, Ct);
+        await conductor.HandOverAsync(again.Id, DossierFor(again.Id) with { Commit = commit }, Ct);
+        return await conductor.DecideAsync(again.Id, new ControllerDecision(ControllerDecisionKind.End, ["red again"], null), Ct);
+    }
 
-        var result = await conductor.DecideAsync(again.Id, new ControllerDecision(ControllerDecisionKind.End, ["red again"], null), Ct);
+    [Fact]
+    public async Task A_branch_that_is_red_again_after_a_fix_forward_is_fixed_forward_again_and_told_that_the_last_one_did_not_hold()
+    {
+        var (conductor, git) = await MergedInGit(ciGreen: false, options: ConductorOptions.Default with { Loop = LoopPolicy.Default with { MaxMandatesPerProblem = 20 } });
+        var forward = await conductor.DecideAsync(git.Id, new ControllerDecision(ControllerDecisionKind.End, ["red"], null), Ct);
 
-        result.Mandate.Should().BeNull("a fix forward is made once: a branch red again is not a loop of agents");
+        var second = await RedAgain(conductor, forward, "1123456789abcdef0123456789abcdef01234567");
+
+        second.Mandate.Should().NotBeNull("there is no rule of one fix forward: whether another is worth it is the controller's judgement of it");
+        var run = _problems.Get("problem-1")!;
+        run.State.Should().Be(ProblemState.InProgress);
+        run.FixesForward.Should().Be(2, "the problem counts its fixes forward itself, not from a text");
+        run.Entry.Objective.Should().Contain("fix forward 2").And.Contain("did not hold");
+        run.Entry.Plan!.InstructionFor(World.Staging).Should().Contain("do not repeat it");
+    }
+
+    [Fact]
+    public async Task A_branch_that_stays_red_after_the_most_fixes_forward_the_loop_allows_goes_to_the_maintainer()
+    {
+        var (conductor, git) = await MergedInGit(ciGreen: false, options: ConductorOptions.Default with { Loop = LoopPolicy.Default with { MaxFixesForwardPerProblem = 1 } });
+        var forward = await conductor.DecideAsync(git.Id, new ControllerDecision(ControllerDecisionKind.End, ["red"], null), Ct);
+
+        var result = await RedAgain(conductor, forward, "1123456789abcdef0123456789abcdef01234567");
+
+        result.Mandate.Should().BeNull("the bound of the loop is the block above the controller's judgement");
         _problems.Get("problem-1")!.State.Should().Be(ProblemState.Escalated);
         _restarts.Problems.Should().ContainSingle();
     }
