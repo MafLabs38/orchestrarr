@@ -156,8 +156,10 @@ async function tickAndValidate(page, ticks) {
   for (const pattern of ticks ?? []) {
     // the table fills in after the page has loaded
     await page.waitForFunction((text) => document.body.innerText.includes(text), pattern, { timeout: 60000 }).catch(() => {});
-    const row = page.locator('tbody tr', { hasText: pattern }).first();
-    const matching = await page.locator('tbody tr', { hasText: pattern }).count();
+    // Only the table of the decisions to take: the decisions taken below it list what earlier runs did
+    const toTake = page.getByRole('table', { name: 'Decisions to take' });
+    const row = toTake.locator('tbody tr', { hasText: pattern }).first();
+    const matching = await toTake.locator('tbody tr', { hasText: pattern }).count();
     expect(matching === 1, `the table lists exactly one problem with "${pattern}" (lists ${matching})`);
     // the runner may still be putting its machine back after the previous run: the row is not selectable until it asks for work again
     if (matching === 1) await row.getByRole('checkbox').first().check({ timeout: RUNNER_BACK_MS }); else selectionOk = false;
