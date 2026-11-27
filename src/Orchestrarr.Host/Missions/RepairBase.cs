@@ -27,4 +27,30 @@ internal static class RepairBase
         }
         return before;
     }
+
+    /// <summary>
+    /// The texts of the workflows that a free agent's branch touches, at the merge base and at the commit it finished at (ADR 0057), for <see cref="ChangePolicy.Refusal"/> to read them as YAML: a workflow that the base does not
+    /// hold is new (no text before), and one that could not be read is <see cref="RepairPolicy.Unread"/>, which the policy refuses.
+    /// </summary>
+    internal static async Task<(IReadOnlyDictionary<string, string> Before, IReadOnlyDictionary<string, string> After)> WorkflowsAsync(IBranchSource branches, string repository, BranchChange change, string commit, CancellationToken cancellationToken)
+    {
+        var before = new Dictionary<string, string>(StringComparer.Ordinal);
+        var after = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var path in change.Files.Select(file => file.Path).Where(path => RepairPolicy.IsPlainPath(path) && WorkflowStructure.IsWorkflow(path)).Distinct(StringComparer.Ordinal).Take(RepairPolicy.MaxFiles))
+        {
+            switch (await branches.FileAtAsync(repository, change.MergeBase, path, cancellationToken))
+            {
+                case { Exists: true, Text: { } text }:
+                    before[path] = text;
+                    break;
+                case { Exists: false }:
+                    break;
+                default:
+                    before[path] = RepairPolicy.Unread;
+                    break;
+            }
+            after[path] = await branches.FileAtAsync(repository, commit, path, cancellationToken) is { Exists: true, Text: { } now } ? now : RepairPolicy.Unread;
+        }
+        return (before, after);
+    }
 }

@@ -81,7 +81,7 @@ public static partial class RepairPolicy
             }
             // A pipeline that the frame lets this operation change is never weakened by a repair (ADR 0055): read on the lines it adds to the file at the repaired head, or on the whole file
             var added = Added(file, before);
-            if (PipelineChanges.IsPipeline(file.Path) && (PipelineChanges.Weakening(file.Path, added) ?? Removal(file, before)) is { } weakened)
+            if (PipelineChanges.IsPipeline(file.Path) && PipelineGuard(file, added, before) is { } weakened)
             {
                 return weakened;
             }
@@ -130,16 +130,24 @@ public static partial class RepairPolicy
         return [.. added];
     }
 
-    // The steps that a repair takes out of a pipeline file, against the file at the repaired head (nothing to compare with when it was not read)
-    private static string? Removal(PatchedFile file, IReadOnlyDictionary<string, string>? before)
+    // A pipeline file against the file at the repaired head: a workflow read as YAML and compared, any other one on its lines; a file at the head that could not be read fails closed, and a new file has nothing to compare with
+    private static string? PipelineGuard(PatchedFile file, string[] added, IReadOnlyDictionary<string, string>? before)
     {
-        if (before is null || !before.TryGetValue(file.Path, out var old))
+        string? old = null;
+        if (before is not null && before.TryGetValue(file.Path, out var held))
         {
-            return null;
+            if (held == Unread)
+            {
+                return $"the pipeline '{file.Path}' at the repaired head could not be read: what a repair takes out of it cannot be judged";
+            }
+            old = held;
         }
-        return old == Unread
-            ? $"the pipeline '{file.Path}' at the repaired head could not be read: what a repair takes out of it cannot be judged"
-            : PipelineChanges.Removal(file.Path, old.Split('\n'), file.Content.Split('\n'));
+        if (WorkflowStructure.IsWorkflow(file.Path))
+        {
+            return PipelineChanges.Guard(file.Path, old, file.Content, added, []);
+        }
+        // Any other pipeline file: what the repair adds, and the steps of the whole file before and after it
+        return PipelineChanges.Weakening(file.Path, added) ?? (old is null ? null : PipelineChanges.Removal(file.Path, old.Split('\n'), file.Content.Split('\n')));
     }
 
     /// <summary>The text that <see cref="Refusal"/> reads, in <c>before</c>, for a file that exists at the repaired head and could not be read: the removal guard then fails closed.</summary>

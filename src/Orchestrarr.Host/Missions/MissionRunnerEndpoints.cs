@@ -202,7 +202,7 @@ internal static partial class MissionRunnerEndpoints
                 {
                     refused = "the change cannot be read on the forge";
                 }
-                else if (ChangePolicy.Refusal(change, staged.Frame.ForbiddenPaths) is { } policy)
+                else if (await RepairBase.WorkflowsAsync(branches, repository, change, pushed, ct) is var (before, after) && ChangePolicy.Refusal(change, staged.Frame.ForbiddenPaths, before, after) is { } policy)
                 {
                     refused = policy;
                 }
