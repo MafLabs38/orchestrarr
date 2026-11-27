@@ -8,6 +8,12 @@ using Orchestrarr.Core.Tasks;
 namespace Orchestrarr.MissionRunner;
 
 /// <summary>The runner's side of the mission routes of the control plane. It only connects out: it asks, it reports, it never listens.</summary>
+/// <summary>Where a staging runner gets the push credential of its free agent (ADR 0057): the act gateway of the control plane, asked again before the credential expires.</summary>
+public interface IPushCredentialSource
+{
+    Task<PushCredentialResponse> PushCredentialAsync(string missionId, CancellationToken cancellationToken);
+}
+
 public interface IMissionControlPlane
 {
     /// <summary>The mission of the given world whose mandate names this runner, if there is one.</summary>
@@ -56,7 +62,7 @@ public interface IMissionControlPlane
     Task<bool> StopEngagedAsync(CancellationToken cancellationToken);
 }
 
-public sealed class MissionControlPlane : IMissionControlPlane
+public sealed class MissionControlPlane : IMissionControlPlane, IPushCredentialSource
 {
     private readonly HttpClient _http;
     private readonly MissionRunnerOptions _options;
@@ -164,6 +170,13 @@ public sealed class MissionControlPlane : IMissionControlPlane
         using var response = await _http.PostAsync($"/api/v1/runner/missions/{Uri.EscapeDataString(missionId)}/acts/open-pull-request", content: null, cancellationToken);
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadFromJsonAsync<MissionPullRequestResponse>(MissionWire.Json, cancellationToken) ?? new MissionPullRequestResponse(false, 0, null, "the control plane gave no answer");
+    }
+
+    public async Task<PushCredentialResponse> PushCredentialAsync(string missionId, CancellationToken cancellationToken)
+    {
+        using var response = await _http.PostAsync($"/api/v1/runner/missions/{Uri.EscapeDataString(missionId)}/acts/push-credential", content: null, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<PushCredentialResponse>(MissionWire.Json, cancellationToken) ?? new PushCredentialResponse(false, "the control plane gave no answer", null, null, []);
     }
 
     public async Task<MissionPipelineResponse> PipelineAsync(string missionId, CancellationToken cancellationToken)

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Time.Testing;
 using Orchestrarr.Core.Missions;
 
 namespace Orchestrarr.MissionRunner.Test;
@@ -21,12 +22,27 @@ public sealed class ChangeProofTests : IDisposable
     {
         var dockerfile = Path.Combine(_folder, "Dockerfile");
         var token = Path.Combine(_folder, "token");
-        var gitToken = Path.Combine(_folder, "git-token");
         File.WriteAllText(dockerfile, "FROM node");
         File.WriteAllText(token, "the-token\n");
-        File.WriteAllText(gitToken, "the-git-token\n");
-        return new MissionRunnerOptions { StagingMachine = "staging-1", Repositories = ["example/*"], Repair = free ? new RepairSettings { FreeDockerfileFile = dockerfile, TokenFile = token, FreeGitTokenFile = gitToken } : new RepairSettings() };
+        return new MissionRunnerOptions { StagingMachine = "staging-1", Repositories = ["example/*"], Repair = free ? new RepairSettings { FreeDockerfileFile = dockerfile, TokenFile = token } : new RepairSettings() };
     }
+
+    /// <summary>The act gateway of the control plane, as the runner sees it: the answers it gives, in order (the last one again once they are used up), and how many times it was asked.</summary>
+    private sealed class Credentials(params PushCredentialResponse[] answers) : IPushCredentialSource
+    {
+        public int Asked { get; private set; }
+
+        public static PushCredentialResponse Given(string token, DateTimeOffset expires, params string[] permissions) => new(true, null, token, expires, permissions.Length > 0 ? permissions : ["contents:write"]);
+
+        public Task<PushCredentialResponse> PushCredentialAsync(string missionId, CancellationToken cancellationToken)
+        {
+            var answer = answers[Math.Min(Asked, answers.Length - 1)];
+            Asked++;
+            return Task.FromResult(answer);
+        }
+    }
+
+    private static Credentials Issued() => new(Credentials.Given("the-git-token", DateTimeOffset.UtcNow.AddHours(1)));
 
     private static ClaimedMission Mission(string? instruction = "Update lodash to 4.17.21 and keep the tests green.", string? remarks = null) =>
         new("m1", "p-1a2b3c", "shop", "Staging", "Solve the problem", "example/shop", PullRequest: null, HeadSha: null, DateTimeOffset.UtcNow.AddHours(1), [], Remarks: remarks, Instruction: instruction);
@@ -43,12 +59,34 @@ public sealed class ChangeProofTests : IDisposable
         public string? AgentInput { get; private set; }
         public List<string> Scripts { get; } = [];
 
+        /// <summary>What the agent wrote in /out/pipeline-changes.md (null: no such file).</summary>
+        public string? Justification { get; init; }
+
+        /// <summary>The credentials placed on the machine for git's helper, in order.</summary>
+        public List<string> Placed { get; } = [];
+
+        /// <summary>When set, the agent works until it is completed: the test moves the clock meanwhile.</summary>
+        public TaskCompletionSource? AgentWorks { get; init; }
+
         public IShell Shell()
         {
             var shell = Substitute.For<IShell>();
-            shell.RunAsync("ssh", Arg.Any<IReadOnlyList<string>>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>()).Returns(call => Answer(call.Arg<IReadOnlyList<string>>()[^1], null));
-            shell.RunAsync("ssh", Arg.Any<IReadOnlyList<string>>(), Arg.Any<string>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>()).Returns(call => Answer(call.Arg<IReadOnlyList<string>>()[^1], (string)call.Args()[2]));
+            shell.RunAsync("ssh", Arg.Any<IReadOnlyList<string>>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>()).Returns(call => AnswerAsync(call.Arg<IReadOnlyList<string>>()[^1], null));
+            shell.RunAsync("ssh", Arg.Any<IReadOnlyList<string>>(), Arg.Any<string>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>()).Returns(call => AnswerAsync(call.Arg<IReadOnlyList<string>>()[^1], (string)call.Args()[2]));
             return shell;
+        }
+
+        private async Task<ShellResult> AnswerAsync(string script, string? input)
+        {
+            if (script.Contains("claude -p", StringComparison.Ordinal) && AgentWorks is { } works)
+            {
+                AgentInput = input;
+                await works.Task;
+            }
+            lock (Scripts)
+            {
+                return Answer(script, input);
+            }
         }
 
         private ShellResult Answer(string script, string? input)
@@ -63,6 +101,15 @@ public sealed class ChangeProofTests : IDisposable
                 Prompt = input;
                 return new ShellResult(0, string.Empty, false);
             }
+            if (script.Contains("~/agentout/pipeline-changes.md", StringComparison.Ordinal))
+            {
+                return new ShellResult(0, Justification ?? string.Empty, false);
+            }
+            if (script.Contains("cat > ~/agentin/git-token.next", StringComparison.Ordinal))
+            {
+                Placed.Add(input ?? string.Empty);
+                return new ShellResult(0, string.Empty, false);
+            }
             if (script.Contains("cat > ~/agentin/setup.sh", StringComparison.Ordinal))
             {
                 Setup = input;
@@ -71,7 +118,7 @@ public sealed class ChangeProofTests : IDisposable
             if (script.Contains("claude -p", StringComparison.Ordinal))
             {
                 AgentInput = input;
-                return new ShellResult(AgentExit, LeakTokens ? "pushed with the-git-token and the-token" : "I updated lodash, ran the tests and pushed.", false);
+                return new ShellResult(AgentExit, LeakTokens ? "pushed with the-git-token, renewed-token and the-token" : "I updated lodash, ran the tests and pushed.", false);
             }
             if (script.Contains("git ls-remote", StringComparison.Ordinal))
             {
@@ -95,10 +142,10 @@ public sealed class ChangeProofTests : IDisposable
 
     }
 
-    private async Task<(MissionHandOver Dossier, Machine Machine, List<string> Lines)> Run(Machine machine, ClaimedMission? mission = null, bool free = true)
+    private async Task<(MissionHandOver Dossier, Machine Machine, List<string> Lines)> Run(Machine machine, ClaimedMission? mission = null, bool free = true, IPushCredentialSource? credentials = null, TimeProvider? time = null)
     {
         var lines = new List<string>();
-        var dossier = await new ChangeProof(machine.Shell(), Options(free)).RunAsync(mission ?? Mission(), line => { lines.Add(line); return Task.CompletedTask; }, Ct);
+        var dossier = await new ChangeProof(machine.Shell(), Options(free), credentials ?? Issued(), time).RunAsync(mission ?? Mission(), line => { lock (lines) { lines.Add(line); } return Task.CompletedTask; }, Ct);
         return (dossier, machine, lines);
     }
 
@@ -142,10 +189,11 @@ public sealed class ChangeProofTests : IDisposable
             .And.Contain("git push origin HEAD:agent/").And.Contain("pushing does not finish anything").And.Contain("do not open or merge a pull request").And.Contain(".npmrc")
             .And.Contain("the python-version or node-version of its workflow", "the pipeline may run an older runtime than staging: the change must install there too").And.Contain("Stay within the task");
         machine.Prompt.Should().NotContain("the-token").And.NotContain("the-git-token");
-        machine.Setup.Should().Contain("credential.https://github.com.helper", "only the forge's host receives the token").And.Contain("$AGENT_GIT_TOKEN").And.NotContain("the-git-token", "git is given the token by a helper that reads the environment, in no file");
-        machine.AgentInput.Should().Be("the-token\nthe-git-token\n", "both tokens go by the standard input of the connection, never in an argument");
-        machine.Scripts.Where(script => !script.Contains("read -r", StringComparison.Ordinal)).Should().OnlyContain(script => !script.Contains("the-token", StringComparison.Ordinal) && !script.Contains("the-git-token", StringComparison.Ordinal));
-        machine.Scripts.Single(script => script.Contains("claude -p", StringComparison.Ordinal)).Should().Contain("-e AGENT_GIT_TOKEN").And.Contain("--dangerously-skip-permissions")
+        machine.Setup.Should().Contain("credential.https://github.com.helper", "only the forge's host receives the credential").And.Contain("cat /in/git-token").And.NotContain("the-git-token", "git's helper reads the file that the runner keeps up to date");
+        machine.AgentInput.Should().Be("the-token\n", "the subscription's token goes by the standard input of the connection, never in an argument");
+        machine.Placed.Should().Equal(["the-git-token"], "the credential the control plane made is placed by the standard input of the connection");
+        machine.Scripts.Should().OnlyContain(script => !script.Contains("the-token", StringComparison.Ordinal) && !script.Contains("the-git-token", StringComparison.Ordinal));
+        machine.Scripts.Single(script => script.Contains("claude -p", StringComparison.Ordinal)).Should().NotContain("GIT_TOKEN").And.Contain("--dangerously-skip-permissions")
             .And.Contain("--name orchestrarr-agent", "the agent's own container has a name that it is told never to remove");
         machine.Prompt.Should().Contain("orchestrarr-agent").And.Contain("never stop, kill or remove it");
     }
@@ -172,7 +220,7 @@ public sealed class ChangeProofTests : IDisposable
         _ = await Run(again);
         var changed = Options();
         await File.WriteAllTextAsync(Path.Combine(_folder, "Dockerfile"), "FROM node:24", Ct);
-        _ = await new ChangeProof(other.Shell(), changed).RunAsync(Mission(), _ => Task.CompletedTask, Ct);
+        _ = await new ChangeProof(other.Shell(), changed, Issued()).RunAsync(Mission(), _ => Task.CompletedTask, Ct);
 
         Tag(first).Should().Be(Tag(again), "the same Dockerfile is the same image");
         Tag(other).Should().NotBe(Tag(first), "another Dockerfile is another image");
@@ -217,10 +265,80 @@ public sealed class ChangeProofTests : IDisposable
     {
         var machine = new Machine();
         var options = Options();
-        var routed = await new StagingProof(machine.Shell(), options, null, new ChangeProof(machine.Shell(), options)).RunAsync(Mission(), _ => Task.CompletedTask, Ct);
+        var routed = await new StagingProof(machine.Shell(), options, null, new ChangeProof(machine.Shell(), options, Issued())).RunAsync(Mission(), _ => Task.CompletedTask, Ct);
         var refused = await new StagingProof(new Machine().Shell(), options).RunAsync(Mission(), _ => Task.CompletedTask, Ct);
 
         routed.Branch.Should().NotBeNullOrEmpty();
         refused.Claim.Should().StartWith("Nothing was proven");
+    }
+
+    [Fact]
+    public async Task Without_a_credential_from_the_control_plane_the_agent_never_starts_and_the_refusal_is_said()
+    {
+        var refused = new Credentials(new PushCredentialResponse(false, "the global stop is engaged", null, null, []));
+
+        var (dossier, machine, _) = await Run(new Machine(), credentials: refused);
+
+        dossier.Claim.Should().StartWith("Nothing was done").And.Contain("gave no credential").And.Contain("the global stop is engaged");
+        machine.Scripts.Should().NotContain(script => script.Contains("claude -p", StringComparison.Ordinal), "an agent that cannot push is not started");
+        machine.Placed.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task While_the_agent_works_its_credential_is_renewed_before_it_expires_and_taken_away_when_the_control_plane_refuses()
+    {
+        var time = new FakeTimeProvider(new DateTimeOffset(2026, 11, 27, 9, 0, 0, TimeSpan.Zero));
+        var credentials = new Credentials(
+            Credentials.Given("the-git-token", time.GetUtcNow().AddHours(1), "contents:write", "workflows:write"),
+            Credentials.Given("renewed-token", time.GetUtcNow().AddHours(2)),
+            new PushCredentialResponse(false, "the approval was withdrawn", null, null, []));
+        var machine = new Machine { AgentWorks = new TaskCompletionSource(), LeakTokens = true };
+
+        var running = Run(machine, credentials: credentials, time: time);
+        await Until(() => machine.AgentInput is not null);
+        time.Advance(TimeSpan.FromMinutes(40));
+        await Until(() => machine.Placed.Count == 2);
+        time.Advance(TimeSpan.FromMinutes(40));
+        await Until(() => { lock (machine.Scripts) { return machine.Scripts.Exists(script => script.EndsWith("rm -f ~/agentin/git-token", StringComparison.Ordinal)); } });
+        machine.AgentWorks.SetResult();
+        var (dossier, _, lines) = await running;
+
+        machine.Placed.Should().Equal(["the-git-token", "renewed-token"], "the credential is asked for again before it expires, and the new one replaces the old");
+        credentials.Asked.Should().Be(3);
+        lines.Should().Contain(line => line.Contains("took the push credential back", StringComparison.Ordinal) && line.Contains("withdrawn", StringComparison.Ordinal));
+        lines.Should().Contain(line => line.Contains("contents:write, workflows:write", StringComparison.Ordinal), "what the credential may do is said");
+        string.Join(" ", dossier.Claim, dossier.WhatChangedAndWhy, string.Join(" ", lines)).Should().NotContain("the-git-token").And.NotContain("renewed-token");
+    }
+
+    [Theory]
+    [InlineData(60, 40, 40)]
+    [InlineData(30, 40, 25)]
+    [InlineData(4, 40, 0.5)]
+    public void The_credential_is_asked_for_again_every_so_often_and_at_the_latest_five_minutes_before_it_expires(int expiresInMinutes, int everyMinutes, double expectedMinutes)
+    {
+        var now = new DateTimeOffset(2026, 11, 27, 9, 0, 0, TimeSpan.Zero);
+
+        ChangeProof.RenewalDelay(now.AddMinutes(expiresInMinutes), now, everyMinutes).Should().Be(TimeSpan.FromMinutes(expectedMinutes));
+    }
+
+    [Fact]
+    public async Task What_the_agent_wrote_of_its_pipeline_changes_is_handed_over_for_the_control_plane_to_check_and_never_carries_a_token()
+    {
+        var (dossier, machine, _) = await Run(new Machine { Justification = "p1 used the removed set-output command; pushed with the-git-token" });
+        var (silent, _, _) = await Run(new Machine());
+
+        dossier.PipelineJustification.Should().Contain("removed set-output command").And.NotContain("the-git-token");
+        silent.PipelineJustification.Should().BeNull("no file, nothing said");
+        machine.Prompt.Should().Contain("/out/pipeline-changes.md").And.Contain("checked against your lines");
+        machine.Scripts.Single(script => script.Contains("claude -p", StringComparison.Ordinal)).Should().Contain("-v ~/agentout:/out", "the only place the agent writes outside its clone");
+    }
+
+    private static async Task Until(Func<bool> condition)
+    {
+        for (var i = 0; i < 500 && !condition(); i++)
+        {
+            await Task.Delay(10, Ct);
+        }
+        condition().Should().BeTrue("the runner should have got there");
     }
 }

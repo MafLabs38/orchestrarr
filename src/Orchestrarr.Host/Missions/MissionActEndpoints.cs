@@ -69,6 +69,40 @@ internal static class MissionActEndpoints
             return Results.Ok(new MissionActResponse(merged.Merged, merged.Merged ? null : merged.Error, [], Retry: !merged.Merged && merged.ChecksPending, merged.Commit));
         });
 
+        // The credential with which a free agent pushes its own branch (ADR 0048, ADR 0057): made by the control plane for this mission only, for its one repository and for an hour at most, after the conductor authorised the act
+        // with the power read now; it may change the pipeline files only when the operation is about them and the approved frame leaves them open. The runner asks again before it expires: the stop, a withdrawn approval or
+        // an expired mandate then refuse, and the agent can no longer push. The token goes to the runner and nowhere else: not to the audit trail, the progress or the logs
+        group.MapPost("/missions/{id}/acts/push-credential", async (string id, HttpContext context, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, ProblemConductor conductor, IPushCredentials? credentials,
+            MissionProgress progress, ILiveNotifier live, CancellationToken ct) =>
+        {
+            if (!Gate(id, runnerName(context), missions, mandates, problems, out var entry) || missions.Get(id) is not { World: World.Staging } mission || entry.PullRequest is not null)
+            {
+                return Results.NotFound();
+            }
+            var repository = entry.Repositories[0];
+            var authorisation = await conductor.AuthoriseActAsync(id, GatedAct.PushBranch, null, ct, repository);
+            if (!authorisation.Allowed)
+            {
+                progress.Add(id, $"no push credential: {Describe(authorisation)}");
+                live.Publish(LiveTopics.Missions, id);
+                return Results.Ok(new PushCredentialResponse(false, authorisation.Refusal ?? Describe(authorisation), null, null, []));
+            }
+            var grant = PushGrants.For(entry, mission.Frame);
+            if (credentials is null || await credentials.IssueAsync(repository, grant.Pipelines, ct) is not { } issued)
+            {
+                return Results.Ok(new PushCredentialResponse(false, "the forge made no push credential (Missions:SandboxAgentApp)", null, null, []));
+            }
+            var said = $"push credential for {repository} ({string.Join(", ", issued.Permissions)}) until {issued.ExpiresAt:u}: {grant.Justification}";
+            if (!await conductor.RecordActPerformedAsync(id, GatedAct.PushBranch, said, ct))
+            {
+                // A credential whose making cannot be written down is not handed out: it expires unused
+                return Results.Ok(new PushCredentialResponse(false, "the audit trail cannot be written: no power is granted", null, null, []));
+            }
+            progress.Add(id, said);
+            live.Publish(LiveTopics.Missions, id);
+            return Results.Ok(new PushCredentialResponse(true, null, issued.Token, issued.ExpiresAt, issued.Permissions));
+        });
+
         // The pull request that carries the repair of a staging runner: the gateway makes the branch and the commit itself from the files that it checked, so that the runner never holds a credential that writes to a repository
         group.MapPost("/missions/{id}/acts/open-pull-request", async (string id, HttpContext context, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, IPullRequestFacts pulls, IDefaultBranchSource defaults, IBranchSource branches, IForgeActs forge,
             ProblemConductor conductor, MissionProgress progress, RepairRegistry? repairs, IDossierStore dossiers, ILiveNotifier live, CancellationToken ct) =>

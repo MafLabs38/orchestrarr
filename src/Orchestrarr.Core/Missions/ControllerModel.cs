@@ -9,7 +9,8 @@ public sealed record Dossier(
     IReadOnlyList<string> OpenPoints,
     bool Complex,
     string? ComplexReason,
-    string? Commit = null);
+    string? Commit = null,
+    string? PipelineJustification = null);
 
 public enum ControllerDecisionKind
 {

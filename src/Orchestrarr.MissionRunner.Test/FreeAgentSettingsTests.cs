@@ -11,11 +11,9 @@ public sealed class FreeAgentSettingsTests : IDisposable
     {
         var dockerfile = Path.Combine(_folder, "Dockerfile");
         var token = Path.Combine(_folder, "token");
-        var gitToken = Path.Combine(_folder, "git-token");
         File.WriteAllText(dockerfile, "FROM scratch");
         File.WriteAllText(token, "t");
-        File.WriteAllText(gitToken, "g");
-        var settings = new RepairSettings { FreeDockerfileFile = dockerfile, TokenFile = token, FreeGitTokenFile = gitToken };
+        var settings = new RepairSettings { FreeDockerfileFile = dockerfile, TokenFile = token };
         change?.Invoke(settings);
         return settings;
     }
@@ -56,9 +54,8 @@ public sealed class FreeAgentSettingsTests : IDisposable
         var missing = Settings();
         File.Delete(missing.FreeDockerfileFile!);
         missing.Invoking(configured => configured.Validate()).Should().Throw<InvalidOperationException>();
-        var noGitToken = Settings();
-        File.Delete(noGitToken.FreeGitTokenFile!);
-        noGitToken.Invoking(configured => configured.Validate()).Should().Throw<InvalidOperationException>("the free agent cannot push without its token");
-        Settings(change => change.FreeGitTokenFile = null).IsFreeConfigured.Should().BeFalse();
+        Settings(change => change.FreeCredentialRenewMinutes = 4).Invoking(configured => configured.Validate()).Should().Throw<InvalidOperationException>();
+        Settings(change => change.FreeCredentialRenewMinutes = 51).Invoking(configured => configured.Validate()).Should().Throw<InvalidOperationException>("a credential of the forge lasts an hour: it is renewed before it expires");
+        Settings(change => change.FreeDockerfileFile = null).IsFreeConfigured.Should().BeFalse();
     }
 }

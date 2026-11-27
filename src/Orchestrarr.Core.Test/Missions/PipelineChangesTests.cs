@@ -133,4 +133,13 @@ public sealed class PipelineChangesTests
     [Fact]
     public void A_repair_of_a_pipeline_that_the_forge_could_not_read_at_the_repaired_head_is_not_passed() =>
         RepairPolicy.Refusal([new PatchedFile(".github/workflows/ci.yml", "on: push\n")], before: new Dictionary<string, string> { [".github/workflows/ci.yml"] = RepairPolicy.Unread }).Should().Contain("could not be read");
+
+    [Fact]
+    public void A_change_to_a_pipeline_file_that_does_not_say_why_is_not_kept()
+    {
+        PipelineChanges.Unjustified(["package.json", ".github/workflows/ci.yml"], null).Should().Contain(".github/workflows/ci.yml").And.Contain("does not say why");
+        PipelineChanges.Unjustified([".github/workflows/ci.yml"], "  ").Should().NotBeNull("a blank justification says nothing");
+        PipelineChanges.Unjustified([".github/workflows/ci.yml"], "p1 failed on the removed set-output command; the step now writes to GITHUB_OUTPUT").Should().BeNull("then the controller checks what it says");
+        PipelineChanges.Unjustified(["package.json"], null).Should().BeNull("a change that touches no pipeline needs no justification");
+    }
 }

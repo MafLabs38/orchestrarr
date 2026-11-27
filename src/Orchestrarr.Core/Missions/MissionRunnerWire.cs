@@ -74,4 +74,11 @@ public sealed record PatchedFile(string Path, string Content);
 public sealed record MissionPullRequestResponse(bool Opened, int Number, string? Commit, string? Refusal, string? From = null);
 
 /// <summary>What a runner hands over. A value that is missing is a refusal on the control plane's side, whatever the runner sends.</summary>
-public sealed record MissionHandOver(string? Claim, string? WhatChangedAndWhy, IReadOnlyList<string>? EvidenceDigests, IReadOnlyList<string>? OpenPoints, bool Complex, string? ComplexReason, string? Commit, IReadOnlyList<PatchedFile>? Files = null, string? Branch = null);
+public sealed record MissionHandOver(string? Claim, string? WhatChangedAndWhy, IReadOnlyList<string>? EvidenceDigests, IReadOnlyList<string>? OpenPoints, bool Complex, string? ComplexReason, string? Commit, IReadOnlyList<PatchedFile>? Files = null, string? Branch = null,
+    string? PipelineJustification = null);
+
+/// <summary>
+/// What the act gateway answers to a staging runner that asks for the credential of its free agent (ADR 0057): the token, until when it is valid and what it may do, or why none is given. The runner asks again before it expires; a
+/// refusal then (the stop, a withdrawn approval, an expired mandate) takes the credential away from the agent.
+/// </summary>
+public sealed record PushCredentialResponse(bool Allowed, string? Refusal, string? Token, DateTimeOffset? ExpiresAt, IReadOnlyList<string> Permissions);

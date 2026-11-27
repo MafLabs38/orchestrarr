@@ -70,8 +70,8 @@ public sealed partial class ProblemConductor
         // The acts that change what runs (a merge, a deployment) need the facts of this moment **on a named commit**: the gateway performs the act on that commit and no other
         public bool Changes => Act is GatedAct.MergePullRequest or GatedAct.Deploy;
 
-        // Every act on a repository is on a named repository of the frame, opening a pull request included
-        public bool OnARepository => Act is GatedAct.OpenPullRequest || Changes;
+        // Every act on a repository is on a named repository of the frame, opening a pull request and pushing a branch included
+        public bool OnARepository => Act is GatedAct.OpenPullRequest or GatedAct.PushBranch || Changes;
     }
 
     // The mission has a mandate in force, the mandate lists the act and has not expired, no stop is engaged, the powers of the problem still reach this world, and what was stored verifies again (it is not trusted:

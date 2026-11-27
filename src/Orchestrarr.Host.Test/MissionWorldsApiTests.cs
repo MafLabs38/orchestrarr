@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -26,8 +27,19 @@ public sealed class MissionWorldsApiTests
     private static readonly object Hello = new { hello = new { name = "runner-staging", version = "1", kinds = new[] { "validatePullRequest" }, repositories = new[] { "example/*" }, delegations = Array.Empty<object>(), secondFactorRequired = false } };
 
     /// <summary>A forge in memory: a pull request that is green at its head, merged on demand, whose merge result has a tree and a pipeline of its own.</summary>
-    private sealed class FakeForge : IPullRequestFacts, IForgeActs, IDefaultBranchSource, IBranchSource
+    private sealed class FakeForge : IPullRequestFacts, IForgeActs, IDefaultBranchSource, IBranchSource, IPushCredentials
     {
+        /// <summary>The push credentials that the control plane asked the forge to make: for which repository, and whether with the permission on the pipelines.</summary>
+        public List<(string Repository, bool Pipelines)> CredentialsMade { get; } = [];
+
+        public const string PushToken = "push-token-of-the-forge";
+
+        public Task<PushCredential?> IssueAsync(string repositoryFullName, bool pipelines, CancellationToken cancellationToken)
+        {
+            CredentialsMade.Add((repositoryFullName, pipelines));
+            return Task.FromResult<PushCredential?>(new PushCredential(PushToken, DateTimeOffset.UtcNow.AddHours(1), pipelines ? ["contents:write", "workflows:write"] : ["contents:write"]));
+        }
+
         /// <summary>Where the branch of the agent is on the forge now (null: there is none).</summary>
         public string? BranchHead { get; set; } = AgentSha;
 
@@ -159,6 +171,7 @@ public sealed class MissionWorldsApiTests
                 services.AddSingleton<IForgeActs>(forge);
                 services.AddSingleton<IDefaultBranchSource>(forge);
                 services.AddSingleton<IBranchSource>(forge);
+                services.AddSingleton<IPushCredentials>(forge);
             });
             builder.UseEnvironment("Development");
             builder.UseSetting("Missions:Sandbox", "true");
@@ -1231,5 +1244,52 @@ public sealed class MissionWorldsApiTests
 
         merge.GetProperty("allowed").GetBoolean().Should().BeFalse("a staging mandate lists no act");
         forge.Merged.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_free_agent_gets_a_push_credential_for_its_one_repository_and_the_token_is_never_in_the_audit_trail()
+    {
+        var forge = new FakeForge();
+        using var factory = new WorldsFactory(forge);
+        _ = await StartChangeProblemAsync(factory);
+        using var runner = Runner(factory);
+        var staging = (await ClaimAsync(runner, "Staging")).GetProperty("missionId").GetString()!;
+        (await runner.PostAsync($"/api/v1/runner/missions/{staging}/started", null, Ct)).EnsureSuccessStatusCode();
+
+        var credential = await (await runner.PostAsync($"/api/v1/runner/missions/{staging}/acts/push-credential", null, Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct);
+
+        credential.GetProperty("allowed").GetBoolean().Should().BeTrue(credential.ToString());
+        credential.GetProperty("token").GetString().Should().Be(FakeForge.PushToken);
+        forge.CredentialsMade.Should().Equal([("example/shop", false)], "an operation that is not about its pipeline gets a credential that cannot change a workflow");
+        var trail = factory.Services.GetRequiredService<Orchestrarr.Core.Approvals.IAuditLog>().Page(100).Select(row => $"{row.Entry.Event} {row.Entry.Detail}").ToList();
+        trail.Should().Contain(line => line.Contains("PushBranch", StringComparison.Ordinal) && line.Contains("not about its pipeline", StringComparison.Ordinal), "the credential and why it may or may not change a workflow are written down");
+        trail.Should().NotContain(line => line.Contains(FakeForge.PushToken, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task No_push_credential_is_made_for_the_staging_of_a_pull_request_or_while_the_global_stop_is_engaged()
+    {
+        var forge = new FakeForge();
+        using var factory = new WorldsFactory(forge);
+        _ = await StartProblemAsync(factory);
+        using var runner = Runner(factory);
+        var pullRequest = (await ClaimAsync(runner, "Staging")).GetProperty("missionId").GetString()!;
+        (await runner.PostAsync($"/api/v1/runner/missions/{pullRequest}/started", null, Ct)).EnsureSuccessStatusCode();
+
+        (await runner.PostAsync($"/api/v1/runner/missions/{pullRequest}/acts/push-credential", null, Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound, "the staging of a pull request pushes nothing");
+
+        using var other = new WorldsFactory(forge);
+        _ = await StartChangeProblemAsync(other, "p-change");
+        using var changeRunner = Runner(other);
+        var change = (await ClaimAsync(changeRunner, "Staging")).GetProperty("missionId").GetString()!;
+        (await changeRunner.PostAsync($"/api/v1/runner/missions/{change}/started", null, Ct)).EnsureSuccessStatusCode();
+        _ = await other.Services.GetRequiredService<IKillSwitchControl>().ChangeAsync(true, new AuditEntry(DateTimeOffset.UtcNow, AuditEvents.KillSwitchEngaged, "alice", null, null), Ct);
+
+        var stopped = await (await changeRunner.PostAsync($"/api/v1/runner/missions/{change}/acts/push-credential", null, Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct);
+
+        stopped.GetProperty("allowed").GetBoolean().Should().BeFalse();
+        stopped.GetProperty("refusal").GetString().Should().Contain("stop");
+        stopped.GetProperty("token").ValueKind.Should().Be(JsonValueKind.Null);
+        forge.CredentialsMade.Should().BeEmpty("nothing is made when the act is not authorised");
     }
 }

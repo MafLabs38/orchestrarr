@@ -206,6 +206,11 @@ internal static partial class MissionRunnerEndpoints
                 {
                     refused = policy;
                 }
+                // A change to a pipeline file is justified by the agent, then checked by the controller against the lines and the problem (ADR 0057): one that does not say why is not kept
+                else if (PipelineChanges.Unjustified(change.Files.Select(file => file.Path), request.PipelineJustification) is { } unjustified)
+                {
+                    refused = unjustified;
+                }
                 else
                 {
                     // What is shown to the controller is what the forge says, not what the agent or the runner wrote about it
@@ -246,7 +251,7 @@ internal static partial class MissionRunnerEndpoints
                 repairs.Forget(staged.ProblemId);
             }
             var dossier = new Dossier(id, Cut(request.Claim), Cut(request.WhatChangedAndWhy), Bounded(request.EvidenceDigests), Bounded(request.OpenPoints), request.Complex, request.ComplexReason is null ? null : Cut(request.ComplexReason),
-                request.Commit is { } commit && CommitShape().IsMatch(commit) ? commit : null);
+                request.Commit is { } commit && CommitShape().IsMatch(commit) ? commit : null, string.IsNullOrWhiteSpace(request.PipelineJustification) ? null : Cut(request.PipelineJustification));
             var result = await conductor.HandOverAsync(id, dossier, ct);
             live.Publish(LiveTopics.Missions, id);
             return result.Ok ? Results.Ok() : Results.Conflict(new { error = result.Refusal });

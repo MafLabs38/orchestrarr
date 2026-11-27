@@ -477,7 +477,7 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
         var now = time.GetUtcNow();
         // A mandate never outlives the approval it falls inside
         var expires = now + options.MandateLifetime < run.Approval.Certificate.ExpiresAt ? now + options.MandateLifetime : run.Approval.Certificate.ExpiresAt;
-        var mandate = new Mandate(newId(), mission.Id, run.ProblemId, world, runners.RunnerFor(world, run.ApplicationId), ActsOf(world), frame, entry.Budget, now, expires, source, newId(), run.Approval.Certificate.Id, entry.ApplicationId, entry.ProblemClass);
+        var mandate = new Mandate(newId(), mission.Id, run.ProblemId, world, runners.RunnerFor(world, run.ApplicationId), WorldActs.Of(world, entry), frame, entry.Budget, now, expires, source, newId(), run.Approval.Certificate.Id, entry.ApplicationId, entry.ProblemClass);
         var covered = approvalVerifier.Check(run.Approval, mandate);
         if (covered != ApprovalRefusal.None)
         {

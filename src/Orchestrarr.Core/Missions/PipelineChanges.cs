@@ -30,6 +30,19 @@ public static partial class PipelineChanges
     /// <summary>The paths that the frame of this operation's missions forbids beyond the floor: the pipelines, unless the operation is about them.</summary>
     public static IReadOnlyList<string> ForbiddenFor(PlanEntry entry) => MayChange(entry) ? [] : Paths;
 
+    /// <summary>
+    /// Why a change that touches pipeline files is not kept when the agent did not say why each change to them is needed (ADR 0057); null when it touches none, or says why. Saying why is not enough: the controller checks what is
+    /// said against the lines and the problem, as the second control of a pipeline change.
+    /// </summary>
+    public static string? Unjustified(IEnumerable<string> paths, string? justification)
+    {
+        ArgumentNullException.ThrowIfNull(paths);
+        var pipelines = paths.Where(IsPipeline).ToList();
+        return pipelines.Count == 0 || !string.IsNullOrWhiteSpace(justification)
+            ? null
+            : $"the change touches the pipeline files ({string.Join(", ", pipelines)}) and does not say why each change to them is needed: a pipeline change is justified by the agent, then checked";
+    }
+
     /// <summary>Whether a path is a pipeline file.</summary>
     public static bool IsPipeline(string path) => PathPatterns.AnyMatches(Paths, [path]);
 

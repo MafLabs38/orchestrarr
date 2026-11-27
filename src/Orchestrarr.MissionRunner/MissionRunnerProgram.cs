@@ -33,7 +33,9 @@ public static class MissionRunnerProgram
         builder.Services.AddSingleton<IWorldWork, StagingProof>();
         builder.Services.AddSingleton<IWorldWork, GitWorld>();
         builder.Services.AddSingleton<IWorldWork, ReleaseWorld>();
-        builder.Services.AddSingleton<IMissionControlPlane>(_ => new MissionControlPlane(new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }), options));
+        builder.Services.AddSingleton(_ => new MissionControlPlane(new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }), options));
+        builder.Services.AddSingleton<IMissionControlPlane>(provider => provider.GetRequiredService<MissionControlPlane>());
+        builder.Services.AddSingleton<IPushCredentialSource>(provider => provider.GetRequiredService<MissionControlPlane>());
         builder.Services.AddHostedService<MissionRunnerWorker>();
         await builder.Build().RunAsync();
         return 0;

@@ -67,6 +67,15 @@ public sealed class MissionsOptions
 
     public string[] SandboxMergeRepositories { get; set; } = [];
 
+    /// <summary>
+    /// With <see cref="Sandbox"/>: the GitHub App with which the control plane makes the push credential of a free agent (ADR 0057): its client id and a file that holds its private key (PEM). The App is installed on the repositories
+    /// of the test bed with <c>Contents: write</c> and <c>Workflows: write</c>; each credential is for one repository of <see cref="SandboxMergeRepositories"/>, an hour at most, and carries <c>workflows</c> only when the operation and its
+    /// approved frame justify it. Without both, a free agent cannot push and its problem is refused by the runner.
+    /// </summary>
+    public string? SandboxAgentAppClientId { get; set; }
+
+    public string? SandboxAgentAppKeyFile { get; set; }
+
     /// <summary>The first port of the deployed applications. It must be the same value as <c>MissionRunner:DeployPortBase</c>, or the control plane probes another port than the one deployed to.</summary>
     public int SandboxDeployPortBase { get; set; } = DeploymentPort.DefaultBase;
 

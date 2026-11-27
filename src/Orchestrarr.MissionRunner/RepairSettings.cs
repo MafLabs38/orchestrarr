@@ -33,10 +33,13 @@ public sealed class RepairSettings
     /// <summary>How long the free agent may work. Generous: a long troubleshooting is normal, and the machine is its own.</summary>
     public int FreeTimeoutMinutes { get; set; } = 60;
 
-    /// <summary>A file that holds the token that lets the free agent push branches to the forge (and nothing else: no pull request, no workflow, no administration; the default branch refuses direct pushes by its own rules).</summary>
-    public string? FreeGitTokenFile { get; set; }
+    /// <summary>
+    /// How often the push credential of the free agent is asked for again while it works (ADR 0057; at the latest five minutes before it expires). The runner holds no credential that pushes: the control plane makes one for each
+    /// mission, for its repository only.
+    /// </summary>
+    public int FreeCredentialRenewMinutes { get; set; } = 40;
 
-    public bool IsFreeConfigured => !string.IsNullOrWhiteSpace(FreeDockerfileFile) && !string.IsNullOrWhiteSpace(TokenFile) && !string.IsNullOrWhiteSpace(FreeGitTokenFile);
+    public bool IsFreeConfigured => !string.IsNullOrWhiteSpace(FreeDockerfileFile) && !string.IsNullOrWhiteSpace(TokenFile);
 
     public bool IsConfigured => !string.IsNullOrWhiteSpace(DockerfileFile) && !string.IsNullOrWhiteSpace(TokenFile);
 
@@ -75,9 +78,9 @@ public sealed class RepairSettings
         {
             throw new InvalidOperationException("MissionRunner:Repair:FreeRepositoryUrl must be a plain https address with {0} for the repository and no credential.");
         }
-        if (FreeMaxTurns is < 1 or > 1000 || FreeTimeoutMinutes is < 1 or > 600 || !File.Exists(FreeDockerfileFile) || !File.Exists(TokenFile) || !File.Exists(FreeGitTokenFile))
+        if (FreeMaxTurns is < 1 or > 1000 || FreeTimeoutMinutes is < 1 or > 600 || FreeCredentialRenewMinutes is < 5 or > 50 || !File.Exists(FreeDockerfileFile) || !File.Exists(TokenFile))
         {
-            throw new InvalidOperationException("MissionRunner:Repair: the free agent's turns (1 to 1000) and time (1 to 600 minutes) must be in range, and its Dockerfile, the token file and the file of the git token must exist.");
+            throw new InvalidOperationException("MissionRunner:Repair: the free agent's turns (1 to 1000), time (1 to 600 minutes) and renewal of its credential (5 to 50 minutes) must be in range, and its Dockerfile and the token file must exist.");
         }
     }
 }
