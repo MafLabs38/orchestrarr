@@ -243,6 +243,10 @@ async function followMissions(page, known, round = scenario) {
   try {
     // 1 and 2. the sandbox goes back to its seed, and the faults of the scenario are planted
     let planted = [];
+    // "secrets": what the maintainer sets in the scenario (an agent never sets nor invents one): a placeholder value, taken away at the end of the run
+    for (const [repo, names] of Object.entries(scenario.secrets ?? {})) {
+      for (const name of names) execFileSync('gh', ['secret', 'set', name, '-R', `${org}/${repo}`, '--body', 'lab-placeholder'], { stdio: ['ignore', 'ignore', 'inherit'] });
+    }
     if (setup) {
       if (scenario.findings) fs.writeFileSync(findingsFile, JSON.stringify(Object.fromEntries(Object.entries(scenario.findings).map(([repo, list]) => [`${org}/${repo}`, list]))));
       console.log(sandbox('reset', ...repos));
@@ -310,6 +314,9 @@ async function followMissions(page, known, round = scenario) {
     expect(false, `the run failed: ${String(error.message).split('\n')[0]}`);
   } finally {
     if (bot) try { process.kill(-bot.pid, 'SIGTERM'); } catch { /* already gone */ }
+    for (const [repo, names] of Object.entries(scenario.secrets ?? {})) {
+      for (const name of names) try { execFileSync('gh', ['secret', 'delete', name, '-R', `${org}/${repo}`], { stdio: 'ignore' }); } catch { /* already gone */ }
+    }
     if (browser) await browser.close().catch(() => {});
     // the advisories go away with the scenario
     if (scenario.findings && !keep) fs.writeFileSync(findingsFile, '{}');

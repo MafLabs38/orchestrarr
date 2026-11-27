@@ -55,6 +55,21 @@ internal sealed class MissionDriver(IMissionStore missions, IProblemStore proble
         }
     }
 
+    // The worker of the staging world made the change and justified each change to a pipeline file (ADR 0057); the worlds after it merge and release that same change, so their controller reads the same justification. Read
+    // from the staging dossier the controller accepted, never written into this world's dossier
+    internal static Dossier WithStagingJustification(IMissionStore missions, IDossierStore dossiers, Mission mission, Dossier dossier)
+    {
+        if (mission.World == World.Staging || dossier.PipelineJustification is not null)
+        {
+            return dossier;
+        }
+        // The latest staging mission that was accepted is the one whose change this world carries (a fix forward makes a newer one)
+        var staged = missions.ForProblem(mission.ProblemId).Where(other => other.World == World.Staging && other.State == MissionState.Accepted).Select(other => other.Id).ToList();
+        var read = dossiers.GetMany(staged);
+        var justification = staged.Select(id => read.GetValueOrDefault(id)?.PipelineJustification).LastOrDefault(text => text is not null);
+        return justification is null ? dossier : dossier with { PipelineJustification = justification };
+    }
+
     private async Task DecideAsync(Mission mission, CancellationToken cancellationToken)
     {
         if (dossiers.Get(mission.Id) is not { } dossier)
@@ -71,7 +86,7 @@ internal sealed class MissionDriver(IMissionStore missions, IProblemStore proble
         progress.Add(mission.Id, "the controller reads the dossier and the facts");
         var observed = await facts.FactsAsync(new FactsQuery(mission.ProblemId, mission.Id, mission.World, mission.Frame, dossier, dossier.Commit), cancellationToken);
         var view = new FactsView(observed.ChangedPaths ?? [], $"checks of the head commit: {observed.CiGreenOnExactCommit?.ToString() ?? "not known"}", mission.World == World.Staging ? "not applicable in the staging world" : observed.Health ?? "not read", [], observed.ChangeReading);
-        var outcome = await controller.DecideAsync(new ControllerInput(mission, dossier, view, problems.Get(mission.ProblemId)?.Entry.Brief), cancellationToken);
+        var outcome = await controller.DecideAsync(new ControllerInput(mission, WithStagingJustification(missions, dossiers, mission, dossier), view, problems.Get(mission.ProblemId)?.Entry.Brief), cancellationToken);
         if (outcome.Decision is not { } decision)
         {
             progress.Add(mission.Id, $"the controller gave no decision ({outcome.Failure}); it will be asked again");

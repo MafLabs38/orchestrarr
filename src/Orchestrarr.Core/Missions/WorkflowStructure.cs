@@ -35,7 +35,11 @@ public static class WorkflowStructure
     }
 
     /// <summary>Why the workflow after the change checks less, or runs with more rights, than before it; null when it does not. <paramref name="before"/> is null for a new file (or one that did not read as a workflow).</summary>
-    public static string? Weakening(string path, string? before, string after)
+    /// <param name="path">The path of the workflow in the repository.</param>
+    /// <param name="before">The workflow at the merge base, or null for a new file.</param>
+    /// <param name="after">The workflow at the commit of the change.</param>
+    /// <param name="files">The files of the repository at the commit, when the forge listed them: a change of a trigger's path filters is then measured on them (it may cover more files, never fewer); without them it is refused.</param>
+    public static string? Weakening(string path, string? before, string after, IReadOnlyCollection<string>? files = null)
     {
         ArgumentNullException.ThrowIfNull(after);
         if (Read(after) is not { } next)
@@ -56,7 +60,7 @@ public static class WorkflowStructure
         {
             return $"the change weakens the pipeline '{path}': it cannot be told, since the workflow before the change does not read here (an alias, or a size or a depth that no workflow has)";
         }
-        var reason = NewDangerousTrigger(previous, next) ?? LostTrigger(previous, next) ?? NewShell(previous, next) ?? Widened(previous.Permissions, next.Permissions, "the workflow");
+        var reason = NewDangerousTrigger(previous, next) ?? LostTrigger(previous, next, files) ?? NewShell(previous, next) ?? Widened(previous.Permissions, next.Permissions, "the workflow");
         foreach (var (name, job) in next.Jobs)
         {
             reason ??= previous.Jobs.TryGetValue(name, out var was) ? JobWeakening(name, was, job, previous, next) : NewJobWeakening(name, job, previous, next);
@@ -68,8 +72,10 @@ public static class WorkflowStructure
     private static string? NewDangerousTrigger(Workflow previous, Workflow next) =>
         next.Triggers.Keys.Where(trigger => DangerousTriggers.Contains(trigger, StringComparer.Ordinal) && !previous.Triggers.ContainsKey(trigger)).Select(trigger => $"adds the trigger '{trigger}', which runs with the base's credentials").FirstOrDefault();
 
-    // A workflow that no longer runs where it ran checks nothing there: a trigger removed, or its filters (branches, paths, tags) changed
-    private static string? LostTrigger(Workflow previous, Workflow next)
+    // A workflow that no longer runs where it ran checks nothing there: a trigger removed, or its filters changed so that it runs less. A path filter is a control like any other: a change that makes it cover at least the
+    // files it covered (a filter that pointed at a folder that does not exist, made to point at the code) mends the control, and is measured on the files of the repository; a change of its branches or tags, or one that cannot be
+    // measured, is refused
+    private static string? LostTrigger(Workflow previous, Workflow next, IReadOnlyCollection<string>? files)
     {
         foreach (var (trigger, filters) in previous.Triggers)
         {
@@ -77,12 +83,39 @@ public static class WorkflowStructure
             {
                 return $"stops the workflow from running on '{trigger}'";
             }
-            if (!string.Equals(filters, now, StringComparison.Ordinal))
+            if (string.Equals(filters, now, StringComparison.Ordinal))
             {
-                return $"changes the filters of the trigger '{trigger}'";
+                continue;
+            }
+            var was = previous.PathFilters.GetValueOrDefault(trigger, PathFilter.None);
+            var becomes = next.PathFilters.GetValueOrDefault(trigger, PathFilter.None);
+            if (!string.Equals(was.Other, becomes.Other, StringComparison.Ordinal))
+            {
+                return $"changes the branches or tags that the trigger '{trigger}' runs on";
+            }
+            if (files is null)
+            {
+                return $"changes the path filters of the trigger '{trigger}', and what they cover cannot be measured here";
+            }
+            if (Uncovered(was, becomes, files) is { } lost)
+            {
+                return $"changes the path filters of the trigger '{trigger}' so that it no longer runs when '{lost}' changes";
             }
         }
         return null;
+    }
+
+    // A file that the filters covered before the change and no longer cover, or null when they cover at least as much
+    private static string? Uncovered(PathFilter was, PathFilter becomes, IReadOnlyCollection<string> files)
+    {
+        try
+        {
+            return files.FirstOrDefault(file => was.Covers(file) && !becomes.Covers(file));
+        }
+        catch (System.Text.RegularExpressions.RegexMatchTimeoutException)
+        {
+            return "(a pattern that cannot be measured)";
+        }
     }
 
     private static string? NewShell(Workflow previous, Workflow next) =>
@@ -156,9 +189,34 @@ public static class WorkflowStructure
 
     private sealed record Job(int Steps, int AlwaysRunningSteps, int CannotFailSteps, bool CannotFail, string? Condition, int MatrixValues, Dictionary<string, string>? Permissions);
 
-    private sealed record Workflow(Dictionary<string, string> Triggers, Dictionary<string, string>? Permissions, Dictionary<string, Job> Jobs, HashSet<string> CustomShells)
+    private sealed record Workflow(Dictionary<string, string> Triggers, Dictionary<string, string>? Permissions, Dictionary<string, Job> Jobs, HashSet<string> CustomShells, Dictionary<string, PathFilter> PathFilters)
     {
-        public static Workflow Empty { get; } = new([], null, [], []);
+        public static Workflow Empty { get; } = new([], null, [], [], []);
+    }
+
+    /// <summary>The path filters of a trigger (<c>paths</c> with its <c>!</c> negations, last match wins; <c>paths-ignore</c>), and the rest of its filters in one canonical text.</summary>
+    private sealed record PathFilter(IReadOnlyList<string>? Paths, IReadOnlyList<string>? Ignore, string Other)
+    {
+        public static PathFilter None { get; } = new(null, null, string.Empty);
+
+        /// <summary>Whether a change of this file makes the trigger run.</summary>
+        public bool Covers(string file)
+        {
+            if (Paths is { } paths)
+            {
+                var covered = false;
+                foreach (var pattern in paths)
+                {
+                    var negated = pattern.StartsWith('!');
+                    if (Orchestrarr.Core.Infrastructure.PathGlob.IsMatch(negated ? pattern[1..] : pattern, file))
+                    {
+                        covered = !negated;
+                    }
+                }
+                return covered;
+            }
+            return Ignore is not { } ignore || !ignore.Any(pattern => Orchestrarr.Core.Infrastructure.PathGlob.IsMatch(pattern, file));
+        }
     }
 
     private static Workflow? Read(string text)
@@ -202,7 +260,7 @@ public static class WorkflowStructure
             }
             var shells = new HashSet<string>(StringComparer.Ordinal);
             CollectShells(root, shells);
-            return new Workflow(TriggersOf(Child(root, "on")), PermissionsOf(Child(root, "permissions")), jobs, shells);
+            return new Workflow(TriggersOf(Child(root, "on")), PermissionsOf(Child(root, "permissions")), jobs, shells, PathFiltersOf(Child(root, "on")));
         }
         catch (Exception failure) when (failure is YamlException or ArgumentException or InvalidOperationException or InvalidCastException)
         {
@@ -230,6 +288,33 @@ public static class WorkflowStructure
             .ToDictionary(pair => ((YamlScalarNode)pair.Key).Value!, pair => Canonical(pair.Value), StringComparer.Ordinal),
         _ => new(StringComparer.Ordinal),
     };
+
+    // The path filters of each trigger written as a mapping (a trigger written as a name or in a list has none)
+    private static Dictionary<string, PathFilter> PathFiltersOf(YamlNode? node)
+    {
+        var found = new Dictionary<string, PathFilter>(StringComparer.Ordinal);
+        if (node is not YamlMappingNode map)
+        {
+            return found;
+        }
+        foreach (var (key, value) in map.Children)
+        {
+            if (key is not YamlScalarNode { Value: { } trigger } || value is not YamlMappingNode filters)
+            {
+                continue;
+            }
+            IReadOnlyList<string>? List(string name) => Child(filters, name) switch
+            {
+                YamlSequenceNode items => [.. items.Children.OfType<YamlScalarNode>().Select(item => item.Value ?? string.Empty)],
+                YamlScalarNode { Value: { } one } => [one],
+                _ => null,
+            };
+            var other = new YamlMappingNode(filters.Children.Where(pair => pair.Key is not YamlScalarNode { Value: "paths" or "paths-ignore" }));
+            // A trigger with no other filter compares equal to one written as a bare name
+            found[trigger] = new PathFilter(List("paths"), List("paths-ignore"), other.Children.Count == 0 ? string.Empty : Canonical(other));
+        }
+        return found;
+    }
 
     private static string Canonical(YamlNode node) => node switch
     {

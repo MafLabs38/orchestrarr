@@ -223,6 +223,20 @@ public sealed class GitHubPullRequestFactsTests
     }
 
     [Fact]
+    public async Task The_files_of_a_commit_are_listed_whole_or_not_at_all()
+    {
+        var token = TestContext.Current.CancellationToken;
+        _routes[$"/repos/example/app/git/trees/{Head}"] = """
+            { "truncated": false, "tree": [ { "path": "src", "type": "tree" }, { "path": "src/feature.js", "type": "blob" }, { "path": "README.md", "type": "blob" } ] }
+            """;
+        _routes[$"/repos/example/app/git/trees/{Base}"] = """{ "truncated": true, "tree": [ { "path": "README.md", "type": "blob" } ] }""";
+
+        (await Facts().FilesAtAsync("example/app", Head, token)).Should().Equal("src/feature.js", "README.md");
+        (await Facts().FilesAtAsync("example/app", Base, token)).Should().BeNull("a tree the forge cut short is not the list of the files");
+        (await Facts().FilesAtAsync("example/app", "not-a-sha", token)).Should().BeNull();
+    }
+
+    [Fact]
     public async Task What_cannot_be_read_or_is_not_well_formed_is_null_never_a_guess()
     {
         var token = TestContext.Current.CancellationToken;
