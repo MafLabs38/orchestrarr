@@ -171,12 +171,8 @@ internal sealed class ProblemStarter(IServiceProvider services, MissionsOptions 
         string? refusal;
         try
         {
-            refusal = (await StartAsync(new PreparedProblem(ready.RowId, ready.Entry, null), cancellationToken)).Refusal;
-            // The priority that a person gave it in the line goes with it (ADR 0056)
-            if (refusal is null && ready.Priority != FlowPriority.Normal)
-            {
-                _ = await conductor.SetPriorityAsync(ready.Entry.ProblemId, ready.Priority, "its priority in the line", cancellationToken);
-            }
+            // The priority that a person gave it in the line goes with it, from its first mission (ADR 0056)
+            refusal = (await StartAsync(new PreparedProblem(ready.RowId, ready.Entry, null), cancellationToken, ready.Priority)).Refusal;
         }
         catch (Exception failure) when (failure is not OperationCanceledException)
         {
@@ -188,7 +184,7 @@ internal sealed class ProblemStarter(IServiceProvider services, MissionsOptions 
         }
     }
 
-    internal async Task<ValidatedProblem> StartAsync(PreparedProblem one, CancellationToken cancellationToken)
+    internal async Task<ValidatedProblem> StartAsync(PreparedProblem one, CancellationToken cancellationToken, int priority = FlowPriority.Normal)
     {
         if (one.Entry is not { } entry)
         {
@@ -200,7 +196,7 @@ internal sealed class ProblemStarter(IServiceProvider services, MissionsOptions 
             return new ValidatedProblem(id, entry.ProblemId, null, null, "noApproval");
         }
         // The staging of the test bed is declared, and its baseline is the snapshot of the lab VMs (a reset brings them back to it)
-        var result = await conductor.StartAsync(entry, StagingDeclaration.DeclaredStaging, StagingRequirement.Dependencies, StagingState.BaselineProven, cancellationToken);
+        var result = await conductor.StartAsync(entry, StagingDeclaration.DeclaredStaging, StagingRequirement.Dependencies, StagingState.BaselineProven, cancellationToken, priority);
         if (result.Ok)
         {
             // The same row is the same problem: what a run of it made (a repair, the pull request that carried it) is not the business of the run that starts now

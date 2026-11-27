@@ -82,9 +82,12 @@ public sealed record ImageState(
 /// <summary>An application of the fleet as the source names it: what a person calls it, and the name of its icon (the source serves the picture).</summary>
 public sealed record ApplicationInfo(string Id, string Name, string? Icon);
 
-/// <summary>What a source says about the fleet at one moment, whatever the source (Portarr, an environment file…).</summary>
+/// <summary>
+/// What a source says about the fleet at one moment, whatever the source (Portarr, an environment file…): <c>ReadAt</c> is when Orchestrarr read it, <c>ObservedAt</c> when the source itself last looked at the code of the fleet
+/// (Portarr reads on its own beat, so a fresh read can carry an older observation); null when the source does not say.
+/// </summary>
 public sealed record FleetSnapshot(
-    DateTimeOffset ReadAt, IReadOnlyList<RepositoryState> Repositories, IReadOnlyList<ImageState> Images, IReadOnlyList<ApplicationInfo>? Applications = null);
+    DateTimeOffset ReadAt, IReadOnlyList<RepositoryState> Repositories, IReadOnlyList<ImageState> Images, IReadOnlyList<ApplicationInfo>? Applications = null, DateTimeOffset? ObservedAt = null);
 
 /// <summary>A picture of an application and its media type.</summary>
 public sealed record IconImage(byte[] Content, string ContentType);

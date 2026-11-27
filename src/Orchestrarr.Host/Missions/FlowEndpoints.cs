@@ -1,3 +1,4 @@
+using System.Globalization;
 using Orchestrarr.Core.Missions;
 using Orchestrarr.Host.Approvals;
 using Orchestrarr.Core.Accounts;
@@ -86,21 +87,28 @@ internal static class FlowEndpoints
                 return refusal ?? Results.Forbid();
             }
             var by = WhoIs(context, approver);
-            if (string.IsNullOrWhiteSpace(request.Reason) || request.Reason.Length > ProblemHolds.MaxReason)
+            // The reason goes into the append-only trail: no line break, no control character and no format character (a bidi override would make the line read otherwise)
+            var reason = request.Reason is { } said
+                ? new string([.. said.ReplaceLineEndings(" ").Where(character => !char.IsControl(character) && CharUnicodeInfo.GetUnicodeCategory(character) != UnicodeCategory.Format)]).Trim()
+                : string.Empty;
+            if (reason.Length == 0 || request.Reason is { Length: > ProblemHolds.MaxReason })
             {
                 return Results.Json(new ErrorResponse("holdNeedsAReason"), statusCode: StatusCodes.Status422UnprocessableEntity);
             }
-            var reason = request.Reason.ReplaceLineEndings(" ").Trim();
-            // Held in the same step as it is found in the line: an operation that started meanwhile is not said held
-            if (services.GetService<ProblemHolds>() is not { } holds || !holds.Hold(problemId, new HeldProblem(by, time.GetUtcNow(), reason)))
+            if (services.GetService<ProblemQueue>() is not { } line || services.GetService<ProblemHolds>() is not { } holds || !line.Contains(problemId))
             {
                 return Results.Json(new ErrorResponse("notInTheLine"), statusCode: StatusCodes.Status409Conflict);
             }
-            // An act that the trail cannot take is not done (a full audit trail of every act)
+            // Every act of a person is written before it is made (a full audit trail of every act): a hold the trail did not take is never made
             if (!await audit.RecordAsync(MissionAuditEvents.ProblemHeld, problemId, $"held by {by}: {reason}", CancellationToken.None))
             {
-                _ = holds.Release(problemId);
                 return Unrecorded();
+            }
+            // Held in the same step as it is found in the line: an operation that started since it was written is not held, and the trail says so
+            if (!holds.Hold(problemId, new HeldProblem(by, time.GetUtcNow(), reason)))
+            {
+                _ = await audit.RecordAsync(MissionAuditEvents.ProblemReleased, problemId, "the hold was not made: the operation had left the line", CancellationToken.None);
+                return Results.Json(new ErrorResponse("notInTheLine"), statusCode: StatusCodes.Status409Conflict);
             }
             live.Publish(LiveTopics.Missions);
             return Results.Ok();
@@ -141,22 +149,23 @@ internal static class FlowEndpoints
             }
             var by = WhoIs(context, approver);
             var line = services.GetService<ProblemQueue>();
-            var before = line?.Ordered().FirstOrDefault(waiting => string.Equals(waiting.Entry.ProblemId, problemId, StringComparison.Ordinal))?.Priority;
-            if (line is not null && before is { } previous && line.SetPriority(problemId, priority))
+            // Written before it is made, as every act of a person: a priority the trail did not take is never set
+            if (line is not null && line.Contains(problemId))
             {
                 if (!await audit.RecordAsync(MissionAuditEvents.PrioritySet, problemId, $"priority in the line set to {priority}, by {by}", CancellationToken.None))
                 {
-                    _ = line.SetPriority(problemId, previous);
                     return Unrecorded();
                 }
-            }
-            else if (await conductor.SetPriorityAsync(problemId, priority, by, ct) is { Ok: false } refused)
-            {
-                if (refused.Refusal == ProblemConductor.Unrecorded)
+                if (line.SetPriority(problemId, priority))
                 {
-                    return Unrecorded();
+                    live.Publish(LiveTopics.Missions);
+                    return Results.Ok();
                 }
-                return Results.Json(new ErrorResponse("notInTheFlow"), statusCode: StatusCodes.Status409Conflict);
+                // it started since it was written: the priority goes to the problem in progress, which writes its own line
+            }
+            if (await conductor.SetPriorityAsync(problemId, priority, by, ct) is { Ok: false } refused)
+            {
+                return refused.Refusal == ProblemConductor.Unrecorded ? Unrecorded() : Results.Json(new ErrorResponse("notInTheFlow"), statusCode: StatusCodes.Status409Conflict);
             }
             live.Publish(LiveTopics.Missions);
             return Results.Ok();

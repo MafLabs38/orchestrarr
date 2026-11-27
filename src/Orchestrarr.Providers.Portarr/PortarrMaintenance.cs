@@ -36,6 +36,10 @@ internal sealed record PortarrImage(
     IReadOnlyList<PortarrImageUser>? Users = null,
     string? RepositoryFullName = null);
 
+/// <summary>When Portarr last scanned the code of the fleet (its repositories, their pull requests and alerts).</summary>
+internal sealed record PortarrCodeSource(DateTimeOffset? ScannedAt = null);
+
 internal sealed record PortarrMaintenance(
     IReadOnlyList<PortarrRepository>? Repositories = null,
-    IReadOnlyList<PortarrImage>? Images = null);
+    IReadOnlyList<PortarrImage>? Images = null,
+    PortarrCodeSource? CodeSource = null);

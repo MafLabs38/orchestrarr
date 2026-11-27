@@ -46,7 +46,8 @@ internal static class ProblemsEndpoints
             var report = await catalog.GetAsync(refresh ?? false, ct);
             var code = await infrastructure.GetAsync(refresh ?? false, ct);
             var all = FullTable(new TableInputs(report, code.Index, infrastructure.Scope), applications, runners, queue, time, policy);
-            var rows = MarkWorkedOn(Visible(all, history, approvals), services, report.ReadAt);
+            // A decision done is judged against when the source observed the fleet, not when it was read: Portarr reads on its own beat (ADR 0056)
+            var rows = MarkWorkedOn(Visible(all, history, approvals), services, report.ObservedAt ?? report.ReadAt);
             return Results.Ok(new ProblemsReport(report.ReadAt, report.SourceKind, report.Stale, report.Error, applications.Version, rows, all.Count - rows.Count,
                 new CodeScopeStatus(code.Index.InScope, infrastructure.Scope.Repositories.Count, code.Index.FileCount, code.ReadAt, code.Stale, code.Index.Problems, code.Error)));
         }).RequireAuthorization(Permissions.FleetRead);

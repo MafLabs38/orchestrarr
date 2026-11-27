@@ -207,4 +207,17 @@ public sealed class ProblemQueueTests
 
         line.TakeReady(_ => false).Select(problem => problem.Entry.ProblemId).Should().Equal("alert");
     }
+
+    [Fact]
+    public void The_global_stop_empties_the_line_with_its_holds()
+    {
+        var line = new ProblemQueue();
+        line.Enqueue(OfKind("alert", "o/one", "DependencyAlert", 0));
+        line.Hold("alert", new HeldProblem("alice", T0, "wait")).Should().BeTrue();
+
+        line.Clear().Should().ContainSingle();
+        line.Enqueue(OfKind("alert", "o/one", "DependencyAlert", 5));
+
+        line.HeldOf("alert").Should().BeNull("the row validated again is not held by the hold of before the stop");
+    }
 }

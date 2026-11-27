@@ -64,19 +64,8 @@ public sealed class ProblemQueue
     }
 
     /// <summary>A person sets the priority of a waiting problem (0 to 100, ADR 0056): it orders the line and grants no power. False when it was not waiting.</summary>
-    public bool SetPriority(string problemId, int priority)
-    {
-        lock (_gate)
-        {
-            var index = _waiting.FindIndex(other => string.Equals(other.Entry.ProblemId, problemId, StringComparison.Ordinal));
-            if (index < 0)
-            {
-                return false;
-            }
-            _waiting[index] = _waiting[index] with { Priority = Math.Clamp(priority, FlowPriority.Lowest, FlowPriority.Highest) };
-            return true;
-        }
-    }
+    public bool SetPriority(string problemId, int priority) =>
+        Update(problemId, waiting => waiting with { Priority = Math.Clamp(priority, FlowPriority.Lowest, FlowPriority.Highest) });
 
     /// <summary>The order in which the line goes (ADR 0055, ADR 0056): the priority, then the rank in the route, then arrival. The screens show the line in this order, the one <see cref="TakeReady"/> follows.</summary>
     public static IOrderedEnumerable<QueuedProblem> InOrder(IEnumerable<QueuedProblem> waiting) =>

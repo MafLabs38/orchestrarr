@@ -14,7 +14,8 @@ internal static class PortarrFleetMapper
         var images = (report.Images ?? []).Select(MapImage).ToList();
         var applications = (apps ?? []).Where(app => !string.IsNullOrWhiteSpace(app.Id))
             .Select(app => new ApplicationInfo(app.Id, string.IsNullOrWhiteSpace(app.Name) ? app.Id : app.Name, string.IsNullOrWhiteSpace(app.Icon) ? null : app.Icon)).ToList();
-        return new FleetSnapshot(readAt, repositories, images, applications);
+        // What Portarr observed is as old as its last scan of the code, whatever the time it is read at
+        return new FleetSnapshot(readAt, repositories, images, applications, report.CodeSource?.ScannedAt);
     }
 
     private static RepositoryState MapRepository(PortarrRepository repository)

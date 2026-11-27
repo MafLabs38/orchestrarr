@@ -131,7 +131,7 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
         && entry.Budget.MaxMinutes <= approval.Certificate.Budget.MaxMinutes && entry.Budget.MaxAttempts <= approval.Certificate.Budget.MaxAttempts && entry.Budget.MaxTurns <= approval.Certificate.Budget.MaxTurns;
 
     /// <summary>Starts a problem that is in the plan: the stop, the proved approval, the staging gate, the powers, then the first mandate in the first world.</summary>
-    public async Task<ConductResult> StartAsync(PlanEntry entry, StagingDeclaration declaration, StagingRequirement requirement, StagingState state, CancellationToken cancellationToken)
+    public async Task<ConductResult> StartAsync(PlanEntry entry, StagingDeclaration declaration, StagingRequirement requirement, StagingState state, CancellationToken cancellationToken, int priority = FlowPriority.Normal)
     {
         ArgumentNullException.ThrowIfNull(entry);
         return await LockedAsync(entry.ProblemId, async () =>
@@ -187,7 +187,8 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
             }
             await RecordLeadAsync(entry);
             // The run is kept by Open once the first mandate exists: a start that fails leaves nothing in progress
-            var run = new ProblemRun(entry.ProblemId, entry.ApplicationId, ProblemState.InProgress, time.GetUtcNow(), entry, highest, usesStaging, approval, first);
+            // The priority a person gave it in the line goes with it from its first mission (ADR 0056)
+            var run = new ProblemRun(entry.ProblemId, entry.ApplicationId, ProblemState.InProgress, time.GetUtcNow(), entry, highest, usesStaging, approval, first, Priority: Math.Clamp(priority, FlowPriority.Lowest, FlowPriority.Highest));
             if (first == World.Git)
             {
                 // An application with no staging starts in the Git world: the frame of the merge is checked here too, since no crossing will do it (the diff, the CI and the executed files are checked at the merge itself)

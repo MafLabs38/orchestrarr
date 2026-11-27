@@ -381,6 +381,8 @@ public sealed class MissionWorldsApiTests
         var before = (await person.GetFromJsonAsync<JsonElement>("/api/v1/flow/queue", Ct)).GetProperty("line").EnumerateArray().ToList();
         before.Select(entry => (entry.GetProperty("problemId").GetString(), entry.GetProperty("next").GetBoolean())).Should().Equal(("p-held", true), ("p-next", false));
         (await person.PostAsJsonAsync("/api/v1/flow/p-held/hold", new { reason = "" }, Ct)).StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity, "a hold says why");
+        (await person.PostAsJsonAsync("/api/v1/flow/p-held/hold", new { reason = "   \u202e" }, Ct)).StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity, "spaces and format characters are no reason");
+        (await person.PostAsJsonAsync("/api/v1/flow/p-held/hold", new { reason = new string('x', ProblemHolds.MaxReason + 1) }, Ct)).StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity, "a reason is bounded");
         (await person.PostAsJsonAsync("/api/v1/flow/p-unknown/hold", new { reason = "look first" }, Ct)).StatusCode.Should().Be(HttpStatusCode.Conflict, "only an operation of the line is held");
         (await person.PostAsJsonAsync("/api/v1/flow/p-held/hold", new { reason = "an analysis first" }, Ct)).EnsureSuccessStatusCode();
         var line = await person.GetFromJsonAsync<JsonElement>("/api/v1/flow/queue", Ct);
@@ -1514,7 +1516,7 @@ public sealed class MissionWorldsApiTests
         var holds = factory.Services.GetRequiredService<ProblemHolds>();
         using var person = await Operator(factory);
         var old = Prepared("p-old", 8, "example/shop").Entry ?? throw new InvalidOperationException("prepared");
-        line.Enqueue(new QueuedProblem("row-p-old", old, DateTimeOffset.UtcNow - ProblemStarter.QueuedLifetime - TimeSpan.FromMinutes(1), Held: new HeldProblem("alice", DateTimeOffset.UtcNow, "an analysis")));
+        line.Enqueue(new QueuedProblem("row-p-old", old, factory.Services.GetRequiredService<TimeProvider>().GetUtcNow() - ProblemStarter.QueuedLifetime - TimeSpan.FromMinutes(1), Held: new HeldProblem("alice", DateTimeOffset.UtcNow, "an analysis")));
 
         await starter.StartReadyAsync(Ct);
 
@@ -1534,7 +1536,7 @@ public sealed class MissionWorldsApiTests
         _ = await starter.StartOrQueueAsync(NoPullRequest("p-old", "example/shop"), Ct);
         var run = problems.Get("p-old")!;
         // its missions are not among the recent ones the flow reads: only the store and the trail know it
-        foreach (var mission in factory.Services.GetRequiredService<IMissionStore>().ForProblem("p-old"))
+        foreach (var mission in factory.Services.GetRequiredService<IMissionStore>().ForProblem("p-old").ToList())
         {
             factory.Services.GetRequiredService<IMissionStore>().Save(mission with { ProblemId = "p-other" });
         }
