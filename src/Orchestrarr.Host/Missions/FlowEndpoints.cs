@@ -91,7 +91,7 @@ internal static class FlowEndpoints
             var reason = request.Reason is { } said
                 ? new string([.. said.ReplaceLineEndings(" ").Where(character => !char.IsControl(character) && CharUnicodeInfo.GetUnicodeCategory(character) != UnicodeCategory.Format)]).Trim()
                 : string.Empty;
-            if (reason.Length == 0 || request.Reason is { Length: > ProblemHolds.MaxReason })
+            if (reason.Length is 0 or > ProblemHolds.MaxReason)
             {
                 return Results.Json(new ErrorResponse("holdNeedsAReason"), statusCode: StatusCodes.Status422UnprocessableEntity);
             }
@@ -107,7 +107,7 @@ internal static class FlowEndpoints
             // Held in the same step as it is found in the line: an operation that started since it was written is not held, and the trail says so
             if (!holds.Hold(problemId, new HeldProblem(by, time.GetUtcNow(), reason)))
             {
-                _ = await audit.RecordAsync(MissionAuditEvents.ProblemReleased, problemId, "the hold was not made: the operation had left the line", CancellationToken.None);
+                _ = await audit.RecordAsync(MissionAuditEvents.ActNotMade, problemId, "the hold was not made: the operation had left the line", CancellationToken.None);
                 return Results.Json(new ErrorResponse("notInTheLine"), statusCode: StatusCodes.Status409Conflict);
             }
             live.Publish(LiveTopics.Missions);
@@ -161,7 +161,8 @@ internal static class FlowEndpoints
                     live.Publish(LiveTopics.Missions);
                     return Results.Ok();
                 }
-                // it started since it was written: the priority goes to the problem in progress, which writes its own line
+                // it left the line since it was written: the trail says so, and the priority goes to the problem in progress, which writes its own line
+                _ = await audit.RecordAsync(MissionAuditEvents.ActNotMade, problemId, "the priority was not set in the line: the operation had left it", CancellationToken.None);
             }
             if (await conductor.SetPriorityAsync(problemId, priority, by, ct) is { Ok: false } refused)
             {

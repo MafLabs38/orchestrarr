@@ -1516,7 +1516,7 @@ public sealed class MissionWorldsApiTests
         var holds = factory.Services.GetRequiredService<ProblemHolds>();
         using var person = await Operator(factory);
         var old = Prepared("p-old", 8, "example/shop").Entry ?? throw new InvalidOperationException("prepared");
-        line.Enqueue(new QueuedProblem("row-p-old", old, factory.Services.GetRequiredService<TimeProvider>().GetUtcNow() - ProblemStarter.QueuedLifetime - TimeSpan.FromMinutes(1), Held: new HeldProblem("alice", DateTimeOffset.UtcNow, "an analysis")));
+        line.Enqueue(new QueuedProblem("row-p-old", old, factory.Services.GetRequiredService<TimeProvider>().GetUtcNow() - ProblemStarter.QueuedLifetime - TimeSpan.FromMinutes(1), Held: new HeldProblem("alice", factory.Services.GetRequiredService<TimeProvider>().GetUtcNow(), "an analysis")));
 
         await starter.StartReadyAsync(Ct);
 
@@ -1540,7 +1540,7 @@ public sealed class MissionWorldsApiTests
         {
             factory.Services.GetRequiredService<IMissionStore>().Save(mission with { ProblemId = "p-other" });
         }
-        problems.Save(run with { State = ProblemState.Closed, EndedAt = DateTimeOffset.UtcNow });
+        problems.Save(run with { State = ProblemState.Closed, EndedAt = factory.Services.GetRequiredService<TimeProvider>().GetUtcNow() });
 
         var traveler = await person.GetFromJsonAsync<JsonElement>("/api/v1/problems/p-old/traveler", Ct);
 

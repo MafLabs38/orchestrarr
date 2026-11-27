@@ -17,25 +17,29 @@ public sealed class ProblemPlanning
 
     public void Remove(string problemId) => _planning.TryRemove(problemId, out _);
 
+    /// <summary>Removes this marker only: a validation of the same row that started later keeps its own.</summary>
+    public void Remove(PlannedRow row) => _planning.TryRemove(KeyValuePair.Create(row.ProblemId, row));
+
     /// <summary>The rows of one validation, shown as being planned until the returned scope ends, however the validation ends (placed, refused, failed or cancelled).</summary>
     public IDisposable Track(IEnumerable<PlannedRow> rows)
     {
-        var ids = new List<string>();
+        var added = new List<PlannedRow>();
         foreach (var row in rows)
         {
             Add(row);
-            ids.Add(row.ProblemId);
+            added.Add(row);
         }
-        return new Scope(this, ids);
+        return new Scope(this, added);
     }
 
-    private sealed class Scope(ProblemPlanning planning, List<string> ids) : IDisposable
+    // Removes only the markers this validation put: a validation of the same row that started after it keeps its own
+    private sealed class Scope(ProblemPlanning planning, List<PlannedRow> added) : IDisposable
     {
         public void Dispose()
         {
-            foreach (var id in ids)
+            foreach (var row in added)
             {
-                planning.Remove(id);
+                planning.Remove(row);
             }
         }
     }

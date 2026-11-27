@@ -106,9 +106,9 @@ internal static class PlanEndpoints
                         }
                         finally
                         {
-                            if (problemIds[index] is { } id)
+                            if (problemIds[index] is { } id && plannedRows.Find(row => row.ProblemId == id) is { } mine)
                             {
-                                planned?.Remove(id);
+                                planned?.Remove(mine);
                             }
                             live.Publish(LiveTopics.Missions);
                         }

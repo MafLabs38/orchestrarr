@@ -23,6 +23,7 @@ const events: Record<string, { key: Parameters<typeof translate>[0]; kind: Kind 
   'problem.followed-bot': { key: 'StepFollowedBot', kind: kinds.PINK },
   'problem.held': { key: 'StepHeld', kind: kinds.WARNING },
   'problem.released': { key: 'StepReleased', kind: kinds.INFO },
+  'problem.act-not-made': { key: 'StepActNotMade', kind: kinds.WARNING },
   'problem.priority-set': { key: 'StepPrioritySet', kind: kinds.DEFAULT },
   'problem.priority-raised': { key: 'StepPriorityRaised', kind: kinds.WARNING },
   'problem.queue-refused': { key: 'StepLeftLine', kind: kinds.DANGER },

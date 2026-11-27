@@ -145,4 +145,17 @@ describe('QueuePage', () => {
     expect(await within(held).findByRole('alert')).toHaveTextContent('Not done: the audit trail could not record it.');
     expect(calls).toContainEqual({ path: '/api/v1/flow/p-held/release', body: {} });
   });
+
+  it('sends no priority from an empty field', async () => {
+    const calls = stubQueue(operator);
+
+    renderWithProviders(<QueuePage />);
+
+    const first = within((await screen.findAllByRole('table'))[0]).getAllByRole('row')[1];
+    fireEvent.change(within(first).getByLabelText('Priority of p-image'), { target: { value: '' } });
+
+    expect(within(first).getByRole('button', { name: 'Set' })).toBeDisabled();
+    fireEvent.submit(within(first).getByLabelText('Priority of p-image'));
+    expect(calls).toHaveLength(0);
+  });
 });

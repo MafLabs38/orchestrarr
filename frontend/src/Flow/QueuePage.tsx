@@ -37,10 +37,6 @@ function rankName(rank: number): string {
   }
 }
 
-function lotOf(repository: string): string {
-  return lotName(repository);
-}
-
 const refusals: Record<string, Parameters<typeof translate>[0]> = {
   notInTheLine: 'FlowActRefused_notInTheLine',
   notHeld: 'FlowActRefused_notHeld',
@@ -74,7 +70,7 @@ function Priority({ problemId, priority, canAct }: Readonly<{ problemId: string;
   }
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    const number = Number(value);
+    const number = value.trim() === '' ? Number.NaN : Number(value);
     if (Number.isInteger(number) && number >= 0 && number <= 100 && number !== priority) {
       set.mutate({ problemId, priority: number });
     }
@@ -90,7 +86,7 @@ function Priority({ problemId, priority, canAct }: Readonly<{ problemId: string;
         aria-label={translate('PriorityOf', { problem: problemId })}
         onChange={(event) => setValue(event.target.value)}
       />
-      <Button type="submit" disabled={set.isPending || value === String(priority)}>
+      <Button type="submit" disabled={set.isPending || value.trim() === '' || value === String(priority)}>
         {translate('SetPriority')}
       </Button>
       <Refused error={set.error} />
@@ -156,7 +152,7 @@ function LineRow({ entry, now, canAct }: Readonly<{ entry: DispatchEntry; now: n
         {entry.title}
         {entry.next ? <Label kind={kinds.INFO}>{translate('NextOfItsLot')}</Label> : null}
       </td>
-      <td>{lotOf(entry.repository)}</td>
+      <td>{lotName(entry.repository)}</td>
       <td>{rankName(entry.rank)}</td>
       <td>
         <Priority
@@ -183,7 +179,7 @@ function InProcessRow({ entry, canAct }: Readonly<{ entry: InProcessEntry; canAc
   return (
     <tr>
       <td className={styles.operation}>{entry.title}</td>
-      <td>{lotOf(entry.repository)}</td>
+      <td>{lotName(entry.repository)}</td>
       <td>{placeName(entry.place)}</td>
       <td>
         <Priority

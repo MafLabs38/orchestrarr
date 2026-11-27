@@ -40,7 +40,7 @@ internal static class Traveler
         var steps = new List<TravelerStep>();
         foreach (var entry in rows.Skip(start).Select(row => row.Entry))
         {
-            var text = entry.Detail is { Length: > MaxText } detail ? detail[..MaxText] : entry.Detail;
+            var text = Cut(entry.Detail);
             var world = worldOf.GetValueOrDefault(entry.Subject);
             if (steps.Count > 0 && steps[^1] is { } last && last.Event == entry.Event && last.World == world && last.Text == text)
             {
@@ -50,5 +50,16 @@ internal static class Traveler
             steps.Add(new TravelerStep(entry.At, entry.Event, world, text));
         }
         return new TravelerView(shown.ProblemId, shown.Title, shown.Kind, shown.Repository, shown.State, shown.Priority, shown.Note, steps);
+    }
+
+    // What was said, at most MaxText characters, never cutting a character that takes two
+    private static string? Cut(string? detail)
+    {
+        if (detail is not { Length: > MaxText })
+        {
+            return detail;
+        }
+        var end = char.IsHighSurrogate(detail[MaxText - 1]) ? MaxText - 1 : MaxText;
+        return detail[..end];
     }
 }

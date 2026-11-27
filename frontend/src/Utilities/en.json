@@ -691,5 +691,6 @@
   "FlowActRefused_priorityOutOfRange": "Refused: a priority goes from 0 to 100.",
   "FlowActRefused_holdNeedsAReason": "Refused: a hold needs a reason (300 characters at most).",
   "FlowActRefused_storageUnavailable": "Not done: the audit trail could not record it.",
-  "FlowActRefused": "Refused ({code})."
+  "FlowActRefused": "Refused ({code}).",
+  "StepActNotMade": "an act written and not made"
 }

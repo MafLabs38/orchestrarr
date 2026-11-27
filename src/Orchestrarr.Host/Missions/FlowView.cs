@@ -112,8 +112,8 @@ internal static class FlowView
     /// <summary>The one rule that names an operation for every screen: a row of alerts or of a red pipeline is read as a number (how many), and is said as what it is.</summary>
     internal static string TitleOf(string? kind, string? description, string otherwise) => (kind, description) switch
     {
-        ("DependencyAlert", { } count) when int.TryParse(count, out _) => $"{count} dependency alerts",
-        ("FailingCi", { } count) when int.TryParse(count, out _) => "the pipeline is red",
+        (nameof(Core.Decisions.ProblemKind.DependencyAlert), { } count) when int.TryParse(count, out _) => $"{count} dependency alerts",
+        (nameof(Core.Decisions.ProblemKind.FailingCi), { } count) when int.TryParse(count, out _) => "the pipeline is red",
         (_, { Length: > 0 }) => description,
         _ => otherwise,
     };
