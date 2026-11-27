@@ -133,6 +133,8 @@ public sealed class WorkItemsApiTests : IClassFixture<SampleApiFactory>
     [Fact]
     public async Task The_status_names_the_source_and_its_last_read()
     {
+        // The source is read once before (whatever ran first): the status says when it was last read
+        _ = await GetAsync("/api/v1/work-items");
         var status = await GetAsync("/api/v1/system/status");
 
         status.GetProperty("name").GetString().Should().Be("Orchestrarr");
