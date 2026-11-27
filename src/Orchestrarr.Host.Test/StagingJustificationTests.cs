@@ -25,6 +25,10 @@ public sealed class StagingJustificationTests
         var git = Mission("m-git", World.Git, MissionState.Running);
 
         MissionDriver.WithStagingJustification(missions, dossiers, git, Dossier("m-git")).PipelineJustification.Should().Be("p7: the filter left out src/");
+        MissionDriver.WithStagingJustification(missions, dossiers, git, Dossier("m-git", "the git worker's own words")).PipelineJustification.Should().Be("p7: the filter left out src/", "the later worlds read the staging worker's text, as the controller is told");
+        missions.Save(Mission("m-other", World.Staging, MissionState.Accepted) with { ProblemId = "p-2" });
+        dossiers.Save(Dossier("m-other", "another problem's change"));
+        MissionDriver.WithStagingJustification(missions, dossiers, git, Dossier("m-git")).PipelineJustification.Should().Be("p7: the filter left out src/", "another problem's change is never read");
         MissionDriver.WithStagingJustification(missions, dossiers, Mission("m-new", World.Staging, MissionState.Running), Dossier("m-new")).PipelineJustification.Should().BeNull("staging is judged on what its own worker said");
 
         // a fix forward: a newer staging change with no pipeline change is accepted; the older justification describes another change

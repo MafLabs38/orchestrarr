@@ -59,7 +59,8 @@ internal sealed class MissionDriver(IMissionStore missions, IProblemStore proble
     // from the staging dossier the controller accepted, never written into this world's dossier
     internal static Dossier WithStagingJustification(IMissionStore missions, IDossierStore dossiers, Mission mission, Dossier dossier)
     {
-        if (mission.World == World.Staging || dossier.PipelineJustification is not null)
+        // In the worlds after staging it is always staging's text: the controller reads it as the staging worker's
+        if (mission.World == World.Staging)
         {
             return dossier;
         }
@@ -67,7 +68,7 @@ internal sealed class MissionDriver(IMissionStore missions, IProblemStore proble
         var staged = missions.ForProblem(mission.ProblemId).Where(other => other.World == World.Staging && other.State == MissionState.Accepted).Select(other => other.Id).ToList();
         // Its own justification, or none: an older staging change is another change, and its text never describes this one
         var justification = staged.Count == 0 ? null : dossiers.Get(staged[^1])?.PipelineJustification;
-        return justification is null ? dossier : dossier with { PipelineJustification = justification };
+        return dossier with { PipelineJustification = justification };
     }
 
     private async Task DecideAsync(Mission mission, CancellationToken cancellationToken)

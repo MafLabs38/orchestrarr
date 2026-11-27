@@ -169,4 +169,43 @@ public sealed class WorkflowStructureTests
 
         WorkflowStructure.Weakening(Path, Dead, Dead.Replace("    paths: ['source/**']", "    paths: ['src/**']\n    paths-ignore: ['src/x/**']", StringComparison.Ordinal), ["src/feature.js"]).Should().Contain("cannot be measured exactly");
     }
+
+    private static string Push(string filters) => $"on:\n  push:\n    {filters}\njobs:\n  t:\n    runs-on: x\n    steps:\n      - run: make";
+
+    [Theory]
+    [InlineData("paths: ['sr?/**']", "paths: ['src/feature.js']", "cannot be measured exactly")]
+    [InlineData("paths-ignore: ['**']", "paths-ignore: ['docs/**']", null)]
+    [InlineData("paths-ignore: ['docs/**']", "paths-ignore: ['src/**']", "was running on files")]
+    [InlineData("paths: ['src/**', '!src/**']", "paths: ['src/**']", null)]
+    [InlineData("paths: ['!src/**', 'src/**']", "paths: ['src/feature.js']", "was running on files")]
+    [InlineData("paths: []", "paths: ['src/**']", null)]
+    [InlineData("paths: ['./src/**']", "paths: ['src/**']", null)]
+    [InlineData("paths-ignore: ['!src/**']", "paths-ignore: ['docs/**']", "cannot be measured exactly")]
+    public void A_change_of_a_path_filter_is_judged_on_what_it_covered_and_what_it_covers(string before, string after, string? refusal)
+    {
+        string[] files = ["src/feature.js", "docs/a.md"];
+
+        var judged = WorkflowStructure.Weakening(Path, Push(before), Push(after), files);
+
+        if (refusal is null)
+        {
+            judged.Should().BeNull();
+        }
+        else
+        {
+            judged.Should().Contain(refusal);
+        }
+    }
+
+    [Fact]
+    public void A_filter_added_to_a_trigger_that_had_none_narrows_it_and_a_filter_past_its_bounds_is_not_measured()
+    {
+        string[] files = ["src/feature.js"];
+        const string Bare = "on: [push]\njobs:\n  t:\n    runs-on: x\n    steps:\n      - run: make";
+
+        WorkflowStructure.Weakening(Path, Bare, Push("paths: ['src/**']"), files).Should().Contain("was running on files", "a trigger with no filter runs for every file");
+        var many = "paths: [" + string.Join(", ", Enumerable.Range(0, 51).Select(index => $"'src/a{index}'")) + ", 'src/**']";
+        WorkflowStructure.Weakening(Path, Push("paths: ['source/**']"), Push(many), files).Should().Contain("cannot be measured exactly");
+        WorkflowStructure.Weakening(Path, Push("paths: ['source/**']"), Push($"paths: ['src/{new string('a', 200)}', 'src/**']"), files).Should().Contain("cannot be measured exactly");
+    }
 }

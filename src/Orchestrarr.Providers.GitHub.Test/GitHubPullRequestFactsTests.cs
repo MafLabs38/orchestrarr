@@ -234,6 +234,7 @@ public sealed class GitHubPullRequestFactsTests
         (await Facts().FilesAtAsync("example/app", Head, token)).Should().Equal("src/feature.js", "README.md");
         (await Facts().FilesAtAsync("example/app", Base, token)).Should().BeNull("a tree the forge cut short is not the list of the files");
         (await Facts().FilesAtAsync("example/app", "not-a-sha", token)).Should().BeNull();
+        (await Facts().FilesAtAsync("other/app", Head, token)).Should().BeNull("the forge does not answer");
     }
 
     [Fact]
