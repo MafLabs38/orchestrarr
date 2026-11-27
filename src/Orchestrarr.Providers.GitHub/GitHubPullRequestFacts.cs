@@ -152,7 +152,9 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefault
                 if (conclusion is "failure" or "timed_out" or "startup_failure" or "cancelled" or "action_required")
                 {
                     var name = run.TryGetProperty("name", out var runName) ? runName.GetString() : null;
-                    failing.Add(Plain($"pipeline {path}{(name is { Length: > 0 } ? $" ({name})" : "")}: its last run on {head.Branch} ended {conclusion}"));
+                    // Why it failed, as the forge recorded it (the failed step and the first error it annotated), for the first few: the worker repairs what failed, and the controller checks a repair against it (ADR 0057)
+                    var why = failing.Count < MaxExplainedFailures && run.TryGetProperty("id", out var runId) && runId.TryGetInt64(out var id) ? await WhyItFailedAsync(repositoryFullName, id, cancellationToken) : null;
+                    failing.Add(Plain($"pipeline {path}{(name is { Length: > 0 } ? $" ({name})" : "")}: its last run on {head.Branch} ended {conclusion}{(why is null ? "" : $"; {why}")}"));
                 }
             }
             return failing;
@@ -161,6 +163,49 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefault
         {
             return [];
         }
+    }
+
+    // The job a failure is in, which names the version of a matrix ("test (16)")
+    private static string InJob(string? jobName) => jobName is { Length: > 0 } ? $"in the job '{jobName}', " : string.Empty;
+
+    // At most this many red pipelines are read for why they failed (two reads each)
+    private const int MaxExplainedFailures = 10;
+
+    // At most this much of the error the forge annotated is told
+    private const int MaxErrorLength = 300;
+
+    // The step of the first failed job, and the first error the forge annotated on that job: the text is the run's own output (the repository's text), told as data
+    private async Task<string?> WhyItFailedAsync(string repositoryFullName, long runId, CancellationToken cancellationToken)
+    {
+        using var jobs = await GetAsync($"repos/{repositoryFullName}/actions/runs/{runId}/jobs?per_page=50", cancellationToken);
+        if (jobs is null || !jobs.RootElement.TryGetProperty("jobs", out var list) || list.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+        foreach (var job in list.EnumerateArray())
+        {
+            if (!job.TryGetProperty("conclusion", out var ended) || ended.GetString() is not ("failure" or "timed_out" or "cancelled") || !job.TryGetProperty("id", out var jobId) || !jobId.TryGetInt64(out var id))
+            {
+                continue;
+            }
+            var jobName = job.TryGetProperty("name", out var named) ? named.GetString() : null;
+            var step = job.TryGetProperty("steps", out var steps) && steps.ValueKind == JsonValueKind.Array
+                ? steps.EnumerateArray().Where(candidate => candidate.TryGetProperty("conclusion", out var stepEnded) && stepEnded.GetString() is "failure" or "timed_out" or "cancelled")
+                    .Select(candidate => candidate.TryGetProperty("name", out var stepName) ? stepName.GetString() : null).FirstOrDefault()
+                : null;
+            using var annotations = await GetAsync($"repos/{repositoryFullName}/check-runs/{id}/annotations?per_page=20", cancellationToken);
+            var error = annotations is { RootElement.ValueKind: JsonValueKind.Array }
+                ? annotations.RootElement.EnumerateArray().Where(note => note.TryGetProperty("annotation_level", out var level) && level.GetString() == "failure")
+                    .Select(note => note.TryGetProperty("message", out var message) ? message.GetString() : null).FirstOrDefault(message => message is { Length: > 0 })
+                : null;
+            if (error is null)
+            {
+                return step is null ? null : $"{InJob(jobName)}the step '{step}' failed";
+            }
+            var flat = error.ReplaceLineEndings(" ");
+            return $"{InJob(jobName)}the step '{step ?? "unknown"}' failed: {flat[..Math.Min(flat.Length, MaxErrorLength)]}";
+        }
+        return null;
     }
 
     // The open security alerts of the forge on the dependencies of the repository (Dependabot's), one finding per package: the version that fixes every alert of the package (the highest of their first patched versions), the

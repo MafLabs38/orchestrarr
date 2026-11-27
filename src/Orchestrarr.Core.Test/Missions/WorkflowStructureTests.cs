@@ -178,7 +178,9 @@ public sealed class WorkflowStructureTests
     [InlineData("paths-ignore: ['docs/**']", "paths-ignore: ['src/**']", "was running on files")]
     [InlineData("paths: ['src/**', '!src/**']", "paths: ['src/**']", null)]
     [InlineData("paths: ['!src/**', 'src/**']", "paths: ['src/feature.js']", "was running on files")]
-    [InlineData("paths: []", "paths: ['src/**']", null)]
+    [InlineData("paths: []", "paths: ['src/**']", "cannot be measured exactly")]
+    [InlineData("paths: ['!docs/**']", "paths: ['README.md']", "cannot be measured exactly")]
+    [InlineData("paths-ignore: []", "paths-ignore: ['docs/**']", "cannot be measured exactly")]
     [InlineData("paths: ['./src/**']", "paths: ['src/**']", null)]
     [InlineData("paths-ignore: ['!src/**']", "paths-ignore: ['docs/**']", "cannot be measured exactly")]
     public void A_change_of_a_path_filter_is_judged_on_what_it_covered_and_what_it_covers(string before, string after, string? refusal)

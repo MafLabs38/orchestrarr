@@ -228,6 +228,11 @@ public static class WorkflowStructure
                     return false;
                 }
                 var patterns = Paths ?? Ignore ?? [];
+                // An empty list, or a list of negations only, is a shape whose reading by the forge is not certain: it is not measured
+                if ((Paths ?? Ignore) is { Count: 0 } || Paths is not null && Paths.All(pattern => pattern.StartsWith('!')))
+                {
+                    return false;
+                }
                 return patterns.Count <= MaxPatterns && patterns.All(pattern => pattern.Length <= MaxPatternLength && PlainPattern.IsMatch(pattern) && (Paths is not null || !pattern.StartsWith('!')));
             }
         }
