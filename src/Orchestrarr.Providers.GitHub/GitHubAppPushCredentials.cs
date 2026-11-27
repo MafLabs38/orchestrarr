@@ -23,12 +23,16 @@ public sealed partial class GitHubAppPushCredentials : IPushCredentials, IDispos
 
     private readonly TimeProvider _time;
 
-    private GitHubAppPushCredentials(HttpClient http, string clientId, RSA key, TimeProvider time)
+    // Why no credential was handed out, for the operator (never the token): a ruleset that is missing is not a forge that did not answer
+    private readonly Action<string>? _said;
+
+    private GitHubAppPushCredentials(HttpClient http, string clientId, RSA key, TimeProvider time, Action<string>? said)
     {
         _http = http;
         _clientId = clientId;
         _key = key;
         _time = time;
+        _said = said;
     }
 
     [GeneratedRegex(@"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9._-]{1,100}$", RegexOptions.None, 250)]
@@ -38,7 +42,7 @@ public sealed partial class GitHubAppPushCredentials : IPushCredentials, IDispos
     private static partial Regex ClientId();
 
     /// <summary>The App is named by its client id (or its numeric id) and its private key in PEM; the key is read once, here.</summary>
-    public static GitHubAppPushCredentials Create(GitHubOptions options, string clientId, string privateKeyPem, HttpMessageHandler? handler = null, TimeProvider? time = null)
+    public static GitHubAppPushCredentials Create(GitHubOptions options, string clientId, string privateKeyPem, HttpMessageHandler? handler = null, TimeProvider? time = null, Action<string>? said = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         if (string.IsNullOrWhiteSpace(clientId) || !ClientId().IsMatch(clientId))
@@ -59,14 +63,14 @@ public sealed partial class GitHubAppPushCredentials : IPushCredentials, IDispos
         http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
         http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("orchestrarr", "1"));
         http.DefaultRequestHeaders.Add("X-GitHub-Api-Version", "2022-11-28");
-        return new GitHubAppPushCredentials(http, clientId, key, time ?? TimeProvider.System);
+        return new GitHubAppPushCredentials(http, clientId, key, time ?? TimeProvider.System, said);
     }
 
     public async Task<PushCredential?> IssueAsync(string repositoryFullName, bool pipelines, CancellationToken cancellationToken)
     {
         if (!RepositoryName().IsMatch(repositoryFullName))
         {
-            return null;
+            return Refused(repositoryFullName, "the repository's name is not one");
         }
         try
         {
@@ -74,7 +78,7 @@ public sealed partial class GitHubAppPushCredentials : IPushCredentials, IDispos
             using var installation = await SendAsync(HttpMethod.Get, $"repos/{repositoryFullName}/installation", assertion, null, cancellationToken);
             if (installation?.RootElement.TryGetProperty("id", out var id) != true || !id.TryGetInt64(out var installationId))
             {
-                return null;
+                return Refused(repositoryFullName, "the App is not installed on it, or the forge did not answer");
             }
             Dictionary<string, string> asked = pipelines ? new() { ["contents"] = "write", ["workflows"] = "write" } : new() { ["contents"] = "write" };
             var name = repositoryFullName[(repositoryFullName.IndexOf('/', StringComparison.Ordinal) + 1)..];
@@ -83,12 +87,13 @@ public sealed partial class GitHubAppPushCredentials : IPushCredentials, IDispos
                 || !issued.RootElement.TryGetProperty("expires_at", out var expires) || !expires.TryGetDateTimeOffset(out var expiresAt)
                 || !issued.RootElement.TryGetProperty("permissions", out var granted) || granted.ValueKind != JsonValueKind.Object)
             {
-                return null;
+                return Refused(repositoryFullName, "the forge made no token, or its answer is not one");
             }
             // What the forge granted is read back: a token that may do more than was asked (a workflow write that was not asked for, any permission beyond metadata) is not handed out
             // A token that may write contents may merge a pull request through the API: it is handed out only where the forge keeps it from integrating anything (the default branch is updated by bypassing actors only). From here
             // the token is live: whatever goes wrong while it is checked, it is revoked before nothing is answered
             bool handedOut;
+            var why = "the token's permissions are not the ones asked for, or the default branch or main has no rules `update` and `deletion` (it could merge or delete)";
             try
             {
                 // Read inside the guard too: a value of an unexpected kind is no permission, and the live token is revoked
@@ -98,18 +103,25 @@ public sealed partial class GitHubAppPushCredentials : IPushCredentials, IDispos
             catch (Exception failure) when (failure is HttpRequestException or JsonException or InvalidOperationException or OperationCanceledException)
             {
                 handedOut = false;
+                why = $"the token could not be checked ({failure.GetType().Name})";
             }
             if (!handedOut)
             {
                 _ = await RevokeAsync(value, CancellationToken.None);
-                return null;
+                return Refused(repositoryFullName, $"{why}; the token made was revoked");
             }
             return new PushCredential(value, expiresAt, [.. asked.Select(pair => $"{pair.Key}:{pair.Value}")]);
         }
         catch (Exception failure) when (failure is HttpRequestException or JsonException or InvalidOperationException || failure is TaskCanceledException && !cancellationToken.IsCancellationRequested)
         {
-            return null;
+            return Refused(repositoryFullName, $"the forge did not answer ({failure.GetType().Name})");
         }
+    }
+
+    private PushCredential? Refused(string repository, string why)
+    {
+        _said?.Invoke($"No push credential for {repository}: {why}.");
+        return null;
     }
 
     // The rules in force on the default branch, read with the credential itself: an `update` rule (only the actors that may bypass it update the branch) keeps it from merging

@@ -311,9 +311,10 @@ internal static class SandboxMissionsExtensions
             .AddSingleton<IBranchSource>(_ => githubFacts.Value is { } facts ? facts : new NoBranchSource())
             .AddSingleton<IPipelineFailures>(_ => githubFacts.Value is { } facts ? facts : new NoPipelineFailures())
             .AddSingleton<IForgeActs>(_ => string.IsNullOrWhiteSpace(missions.SandboxMergeToken) ? new NoForgeActs() : new GuardedForgeActs(GitHubForgeActs.Create(github.WithToken(missions.SandboxMergeToken)), missions.SandboxMergeRepositories))
-            .AddSingleton<IPushCredentials>(_ => string.IsNullOrWhiteSpace(missions.SandboxAgentAppClientId) || string.IsNullOrWhiteSpace(missions.SandboxAgentAppKeyFile)
+            .AddSingleton<IPushCredentials>(provider => string.IsNullOrWhiteSpace(missions.SandboxAgentAppClientId) || string.IsNullOrWhiteSpace(missions.SandboxAgentAppKeyFile)
                 ? new NoPushCredentials()
-                : new GuardedPushCredentials(GitHubAppPushCredentials.Create(github, missions.SandboxAgentAppClientId, File.ReadAllText(missions.SandboxAgentAppKeyFile)), missions.SandboxMergeRepositories))
+                : new GuardedPushCredentials(GitHubAppPushCredentials.Create(github, missions.SandboxAgentAppClientId, File.ReadAllText(missions.SandboxAgentAppKeyFile),
+                    said: refusal => provider.GetRequiredService<ILoggerFactory>().CreateLogger("Orchestrarr.Missions.PushCredentials").LogWarning("{Refusal}", refusal)), missions.SandboxMergeRepositories))
             .AddSingleton<PushCredentialLedger>()
             .AddSingleton<IFactsSource, SandboxFacts>()
             // What the lab planted for a repository wins (its fake advisories, the grain of sand); else what the forge says of the alerts of the repository

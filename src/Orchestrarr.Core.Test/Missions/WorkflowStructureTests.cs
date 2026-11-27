@@ -117,4 +117,14 @@ public sealed class WorkflowStructureTests
 
         Judge(bomb).Should().Contain("does not read as a workflow", "an alias is refused before its graph is walked");
     }
+
+    [Fact]
+    public void A_workflow_nested_deeper_than_any_workflow_is_not_read_and_a_huge_matrix_is_not_read_as_a_small_one()
+    {
+        Judge("on: push\nx: " + new string('[', 500) + new string(']', 500) + "\njobs: {}").Should().Contain("does not read as a workflow");
+
+        var axes = string.Join("\n", Enumerable.Range(0, 12).Select(axis => $"        a{axis}: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]"));
+        var huge = $"on: push\njobs:\n  t:\n    runs-on: x\n    strategy:\n      matrix:\n{axes}\n    steps:\n      - run: make";
+        Judge(huge, huge).Should().BeNull("the same matrix, whatever its size, is not a narrowing");
+    }
 }

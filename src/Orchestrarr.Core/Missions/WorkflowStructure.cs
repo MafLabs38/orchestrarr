@@ -19,6 +19,8 @@ public static class WorkflowStructure
     // A workflow is a few hundred lines: far more than that is not read
     private const int MaxEvents = 20_000;
 
+    private const int MaxDepth = 64;
+
     private static readonly string[] NeverRuns = ["false", "0", "''", "\"\"", "null"];
 
     // The shells the forge knows: any other value is a template of its own, which can make every step pass
@@ -153,9 +155,17 @@ public static class WorkflowStructure
             // An alias makes the graph share nodes, and a few lines of them can make a walk of it explode: a workflow that uses one is not read here (a person reads it)
             var events = new YamlDotNet.Core.Parser(new StringReader(text));
             var count = 0;
+            var depth = 0;
             while (events.MoveNext())
             {
-                if (events.Current is YamlDotNet.Core.Events.AnchorAlias || ++count > MaxEvents)
+                depth += events.Current switch
+                {
+                    YamlDotNet.Core.Events.MappingStart or YamlDotNet.Core.Events.SequenceStart => 1,
+                    YamlDotNet.Core.Events.MappingEnd or YamlDotNet.Core.Events.SequenceEnd => -1,
+                    _ => 0,
+                };
+                // Nor is one nested deeper than any workflow, which a recursive reading could not walk
+                if (events.Current is YamlDotNet.Core.Events.AnchorAlias || ++count > MaxEvents || depth > MaxDepth)
                 {
                     return null;
                 }
@@ -257,7 +267,7 @@ public static class WorkflowStructure
         {
             return 0;
         }
-        var product = 1;
+        long product = 1;
         var included = 0;
         var excluded = 0;
         foreach (var (key, value) in matrix.Children)
@@ -272,11 +282,12 @@ public static class WorkflowStructure
                     excluded += size;
                     break;
                 default:
-                    product *= size;
+                    // Saturated, never wrapped: a guard that compares sizes must not read a huge matrix as a small one
+                    product = Math.Min(product * size, int.MaxValue);
                     break;
             }
         }
-        return product + included - excluded;
+        return (int)Math.Clamp(product + included - excluded, int.MinValue, int.MaxValue);
     }
 
     private static bool MayPassAnyway(YamlNode? node) => node is not null && !string.Equals(Normalised(Scalar(node)), "false", StringComparison.Ordinal);

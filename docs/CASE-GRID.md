@@ -40,7 +40,7 @@ A demonstration played once by hand proves that a path exists, not that the case
 | 20 Staging proved healthy first | not verified | none | no | open, not verified |
 | 21 GitOps and write credentials | a workflow change is refused by the code (the frame, `PipelineChanges`) unless the operation is about the pipeline, and a weakening of a pipeline always | none | no | **manual**, in part |
 
-**Ticked: 8 of 21** (01, 02, 03, 04, 05, 07, 09, 16): CASE-03, CASE-03b and CASE-16 passed three times in a row on the code of 2026-11-23 (the replays were played again after each change of the lead's bounds and of the controller's rules), CASE-07 three times in a row on the code of 2026-11-24, and CASE-04, CASE-05 and CASE-09 three times in a row on the code of 2026-11-24 (the images, ADR 0051). Played by hand in whole or in part: 06, 14, 15, 21.
+**Ticked: 8 of 21** (01, 02, 03, 04, 05, 07, 09, 16): CASE-03, CASE-03b and CASE-16 passed three times in a row on the code of 2026-11-23 (the replays were played again after each change of the lead's bounds and of the controller's rules), CASE-07 three times in a row on the code of 2026-11-24, and CASE-04, CASE-05 and CASE-09 three times in a row on the code of 2026-11-24 (the images, ADR 0051). Played by hand in whole or in part: 06, 14, 15, 21. *(2026-11-27: the flow that 04, 05, 07 and 09 run through changed with ADR 0055 and ADR 0057, the route, the parking of a bot's pull request and the free agent's credential; their ticks are replayed on the merged code before they count again, and the expected outcome of 07 is now the parking of the bot's pull request that conflicts.)*
 
 ## What the grid shows about the structure
 
