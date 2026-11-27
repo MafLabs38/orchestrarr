@@ -40,10 +40,10 @@ public static partial class RepairPolicy
     public static bool ReadsLines(string path) => PipelineChanges.IsPipeline(path) || DependencySources.Reads(path) || ChangePolicy.IsGenerated(path);
 
     /// <summary>
-    /// Why a set of files cannot be a repair, or null when it can. <paramref name="before"/> holds the text of the files at the head that is repaired, when it was read: the guards of the pipelines and of the dependencies then judge
-    /// the lines that the repair adds; a file that is new or was not read is judged whole.
+    /// Why a set of files cannot be a repair, or null when it can. <paramref name="before"/> holds the text of the files at the head that is repaired: no entry for a file that the head does not hold (it is new and judged whole), null for one
+    /// that could not be read (a pipeline is then refused, and the other guards judge the file whole), and its text otherwise (the guards then judge the lines that the repair adds).
     /// </summary>
-    public static string? Refusal(IReadOnlyList<PatchedFile> files, IEnumerable<string>? forbidden = null, IReadOnlyDictionary<string, string>? before = null)
+    public static string? Refusal(IReadOnlyList<PatchedFile> files, IEnumerable<string>? forbidden = null, IReadOnlyDictionary<string, string?>? before = null)
     {
         ArgumentNullException.ThrowIfNull(files);
         if (files.Count is 0 or > MaxFiles)
@@ -105,10 +105,10 @@ public static partial class RepairPolicy
     }
 
     // The lines of the repaired file that the file at the repaired head does not hold (all of them when it is new or was not read)
-    private static string[] Added(PatchedFile file, IReadOnlyDictionary<string, string>? before)
+    private static string[] Added(PatchedFile file, IReadOnlyDictionary<string, string?>? before)
     {
         var lines = file.Content.Split('\n');
-        if (before is null || !before.TryGetValue(file.Path, out var old) || old == Unread)
+        if (before is null || !before.TryGetValue(file.Path, out var old) || old is null)
         {
             return lines;
         }
@@ -131,12 +131,12 @@ public static partial class RepairPolicy
     }
 
     // A pipeline file against the file at the repaired head: a workflow read as YAML and compared, any other one on its lines; a file at the head that could not be read fails closed, and a new file has nothing to compare with
-    private static string? PipelineGuard(PatchedFile file, string[] added, IReadOnlyDictionary<string, string>? before)
+    private static string? PipelineGuard(PatchedFile file, string[] added, IReadOnlyDictionary<string, string?>? before)
     {
         string? old = null;
         if (before is not null && before.TryGetValue(file.Path, out var held))
         {
-            if (held == Unread)
+            if (held is null)
             {
                 return $"the pipeline '{file.Path}' at the repaired head could not be read: what a repair takes out of it cannot be judged";
             }
@@ -149,7 +149,4 @@ public static partial class RepairPolicy
         // Any other pipeline file: what the repair adds, and the steps of the whole file before and after it
         return PipelineChanges.Weakening(file.Path, added) ?? (old is null ? null : PipelineChanges.Removal(file.Path, old.Split('\n'), file.Content.Split('\n')));
     }
-
-    /// <summary>The text that <see cref="Refusal"/> reads, in <c>before</c>, for a file that exists at the repaired head and could not be read: the removal guard then fails closed.</summary>
-    public const string Unread = "\0unread";
 }

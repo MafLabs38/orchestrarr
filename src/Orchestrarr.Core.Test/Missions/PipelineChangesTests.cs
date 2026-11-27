@@ -106,7 +106,7 @@ public sealed class PipelineChangesTests
     public void A_repair_is_judged_on_what_it_adds_to_the_pipeline_file_of_the_repaired_head()
     {
         const string Head = "on: push\njobs:\n  test:\n    steps:\n      - run: npm test\n        env:\n          TOKEN: ${{ secrets.GITHUB_TOKEN }}\n";
-        var before = new Dictionary<string, string> { [".github/workflows/ci.yml"] = Head };
+        var before = new Dictionary<string, string?> { [".github/workflows/ci.yml"] = Head };
 
         RepairPolicy.Refusal([new PatchedFile(".github/workflows/ci.yml", Head.Replace("npm test", "npm test -- --seed 1", StringComparison.Ordinal))], before: before).Should().BeNull("the secret was already read by the pull request that is repaired");
         RepairPolicy.Refusal([new PatchedFile(".github/workflows/ci.yml", Head.Replace("      - run: npm test\n", string.Empty, StringComparison.Ordinal))], before: before).Should().Contain("removes 1 step");
@@ -127,12 +127,12 @@ public sealed class PipelineChangesTests
         const string Head = "jobs:\n  lint:\n    continue-on-error: true\n    steps:\n      - run: npm run lint\n  test:\n    steps:\n      - run: npm test\n";
         var copied = Head.Replace("  test:\n", "  test:\n    continue-on-error: true\n", StringComparison.Ordinal);
 
-        RepairPolicy.Refusal([new PatchedFile(".github/workflows/ci.yml", copied)], before: new Dictionary<string, string> { [".github/workflows/ci.yml"] = Head }).Should().Contain("weakens the pipeline");
+        RepairPolicy.Refusal([new PatchedFile(".github/workflows/ci.yml", copied)], before: new Dictionary<string, string?> { [".github/workflows/ci.yml"] = Head }).Should().Contain("weakens the pipeline");
     }
 
     [Fact]
     public void A_repair_of_a_pipeline_that_the_forge_could_not_read_at_the_repaired_head_is_not_passed() =>
-        RepairPolicy.Refusal([new PatchedFile(".github/workflows/ci.yml", "on: push\n")], before: new Dictionary<string, string> { [".github/workflows/ci.yml"] = RepairPolicy.Unread }).Should().Contain("could not be read");
+        RepairPolicy.Refusal([new PatchedFile(".github/workflows/ci.yml", "on: push\n")], before: new Dictionary<string, string?> { [".github/workflows/ci.yml"] = null }).Should().Contain("could not be read");
 
     [Fact]
     public void A_change_to_a_pipeline_file_that_does_not_say_why_is_not_kept()

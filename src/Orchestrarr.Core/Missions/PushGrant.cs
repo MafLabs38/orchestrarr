@@ -12,8 +12,8 @@ public sealed record PushGrant(bool Pipelines, string Justification);
 /// </summary>
 public static class PushGrants
 {
-    // Paths that stand for the workflows of the forge: a credential that may write one may write them all, so a frame that forbids any of them, or names any file of that folder, gets none
-    private static readonly string[] Workflows = [".github/workflows/ci.yml", ".github/workflows/release.yml", ".github/workflows/deploy.yaml"];
+    // The folder of the forge's workflows: a credential that may write one may write them all
+    private const string WorkflowFolder = ".github/workflows/";
 
     public static PushGrant For(PlanEntry entry, MissionFrame frame)
     {
@@ -23,11 +23,26 @@ public static class PushGrants
         {
             return new PushGrant(false, "the operation is not about its pipeline: the credential cannot change a workflow");
         }
-        if (PathPatterns.AnyMatches(frame.ForbiddenPaths, Workflows) || frame.ForbiddenPaths.Any(pattern => pattern.Contains(".github/workflows", StringComparison.OrdinalIgnoreCase)))
+        if (frame.ForbiddenPaths.Any(ForbidsAWorkflow))
         {
             return new PushGrant(false, "the frame of the mission forbids the pipeline files: the credential cannot change a workflow");
         }
         var about = entry.Brief?.Kind == nameof(ProblemKind.FailingCi) ? "a red pipeline" : $"a {entry.Brief?.Nature ?? "change"} that the pipeline follows";
         return new PushGrant(true, $"the operation is about its pipeline ({about}) and the approved frame of the mission leaves the pipeline files open");
+    }
+
+    /// <summary>
+    /// Whether a forbidden pattern can match a workflow, so that a frame with it gets no permission on the workflows (one rule, decided on the pattern): it names the folder of the workflows; or it matches a workflow whatever its name
+    /// (<c>**</c>, <c>**/*.yml</c>, <c>.github/**</c>); or it reaches into the forge's folder through a wildcard (<c>.github/*/ci.yml</c>, <c>.github/work*/**</c>), which may be that folder.
+    /// </summary>
+    internal static bool ForbidsAWorkflow(string pattern)
+    {
+        ArgumentNullException.ThrowIfNull(pattern);
+        if (pattern.Contains(WorkflowFolder.TrimEnd('/'), StringComparison.OrdinalIgnoreCase) || PathPatterns.AnyMatches([pattern], [$"{WorkflowFolder}any.yml", $"{WorkflowFolder}any.yaml"]))
+        {
+            return true;
+        }
+        var segments = pattern.Split('/');
+        return segments.Length >= 2 && segments[0] == ".github" && segments[1].Contains('*', StringComparison.Ordinal);
     }
 }

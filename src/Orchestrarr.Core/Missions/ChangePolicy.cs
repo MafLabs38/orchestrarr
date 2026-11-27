@@ -34,10 +34,10 @@ public static partial class ChangePolicy
     /// <summary>
     /// Why what a branch holds cannot become a pull request, or null when it can. **The forge's own reading**, never a runner's: how many files, where (this policy and the paths that the frame of the mission forbids), what happened to each,
     /// how big, and whether it is text (the forge gives no patch for a binary file or a very large one: a generated file may have none, anything else without a patch is refused). <paramref name="before"/> and <paramref name="after"/> are the
-    /// texts of the workflows that the change touches, at the merge base and at the commit (ADR 0057): a workflow is then read as YAML and compared; a text that could not be read is <see cref="RepairPolicy.Unread"/>, and a workflow
+    /// texts of the workflows that the change touches, at the merge base and at the commit (ADR 0057): a workflow is then read as YAML and compared; a text that could not be read is null, and a workflow
     /// that is new has no text before.
     /// </summary>
-    public static string? Refusal(BranchChange change, IEnumerable<string>? forbidden = null, IReadOnlyDictionary<string, string>? before = null, IReadOnlyDictionary<string, string>? after = null)
+    public static string? Refusal(BranchChange change, IEnumerable<string>? forbidden = null, IReadOnlyDictionary<string, string?>? before = null, IReadOnlyDictionary<string, string?>? after = null)
     {
         ArgumentNullException.ThrowIfNull(change);
         if (change.Files.Count is 0 or > MaxFiles || !change.FilesComplete)
@@ -138,7 +138,7 @@ public static partial class ChangePolicy
     }
 
     // The lines that a patch adds
-    private static string? PipelineGuard(BranchFile file, IReadOnlyDictionary<string, string>? before, IReadOnlyDictionary<string, string>? after)
+    private static string? PipelineGuard(BranchFile file, IReadOnlyDictionary<string, string?>? before, IReadOnlyDictionary<string, string?>? after)
     {
         var added = AddedLines(file.Patch).ToList();
         var removed = RemovedLines(file.Patch).ToList();
@@ -147,14 +147,14 @@ public static partial class ChangePolicy
             return PipelineChanges.Guard(file.Path, null, null, added, removed);
         }
         // What could not be read is not judged as if it were fine
-        if (!after.TryGetValue(file.Path, out var now) || now == RepairPolicy.Unread)
+        if (!after.TryGetValue(file.Path, out var now) || now is null)
         {
             return $"the pipeline '{file.Path}' could not be read at the commit of the change: it cannot be judged";
         }
         string? was = null;
         if (before is not null && before.TryGetValue(file.Path, out var old))
         {
-            if (old == RepairPolicy.Unread)
+            if (old is null)
             {
                 return $"the pipeline '{file.Path}' could not be read before the change: what the change takes out of it cannot be judged";
             }
