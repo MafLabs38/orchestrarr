@@ -10,10 +10,15 @@ public sealed record PushCredential(string Token, DateTimeOffset ExpiresAt, IRea
 public interface IPushCredentials
 {
     Task<PushCredential?> IssueAsync(string repositoryFullName, bool pipelines, CancellationToken cancellationToken);
+
+    /// <summary>Makes a credential unusable on the forge at once, before it expires (the agent finished, the control plane refused, the stop is engaged). True when the forge says it is revoked, or that it was no longer valid.</summary>
+    Task<bool> RevokeAsync(string token, CancellationToken cancellationToken);
 }
 
 /// <summary>Used when nothing makes push credentials: a free agent cannot push, and its problem is refused by the runner.</summary>
 public sealed class NoPushCredentials : IPushCredentials
 {
     public Task<PushCredential?> IssueAsync(string repositoryFullName, bool pipelines, CancellationToken cancellationToken) => Task.FromResult<PushCredential?>(null);
+
+    public Task<bool> RevokeAsync(string token, CancellationToken cancellationToken) => Task.FromResult(true);
 }

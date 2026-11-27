@@ -176,14 +176,16 @@ internal sealed class SandboxFacts(IProblemStore problems, IPullRequestFacts pul
     }
 }
 
-/// <summary>What the gateway writes (a merge, a branch and a pull request, the closing of a pull request) is done on the repositories that the settings name and no other: the gateway does not write where it was not told it may, whatever a row says.</summary>
 /// <summary>The push credentials of the test bed are made for its repositories only (<c>Missions:SandboxMergeRepositories</c>), whatever the App is installed on.</summary>
 internal sealed class GuardedPushCredentials(IPushCredentials inner, IReadOnlyList<string> allowed) : IPushCredentials
 {
     public Task<PushCredential?> IssueAsync(string repositoryFullName, bool pipelines, CancellationToken cancellationToken) =>
         allowed.Any(pattern => Orchestrarr.Core.Tasks.RepositoryPattern.Matches(pattern, repositoryFullName)) ? inner.IssueAsync(repositoryFullName, pipelines, cancellationToken) : Task.FromResult<PushCredential?>(null);
+
+    public Task<bool> RevokeAsync(string token, CancellationToken cancellationToken) => inner.RevokeAsync(token, cancellationToken);
 }
 
+/// <summary>What the gateway writes (a merge, a branch and a pull request, the closing of a pull request) is done on the repositories that the settings name and no other: the gateway does not write where it was not told it may, whatever a row says.</summary>
 internal sealed class GuardedForgeActs(IForgeActs inner, IReadOnlyList<string> allowed) : IForgeActs
 {
     public Task<MergeResult> MergePullRequestAsync(string repositoryFullName, int number, string expectedHeadSha, CancellationToken cancellationToken) =>
@@ -312,6 +314,7 @@ internal static class SandboxMissionsExtensions
             .AddSingleton<IPushCredentials>(_ => string.IsNullOrWhiteSpace(missions.SandboxAgentAppClientId) || string.IsNullOrWhiteSpace(missions.SandboxAgentAppKeyFile)
                 ? new NoPushCredentials()
                 : new GuardedPushCredentials(GitHubAppPushCredentials.Create(github, missions.SandboxAgentAppClientId, File.ReadAllText(missions.SandboxAgentAppKeyFile)), missions.SandboxMergeRepositories))
+            .AddSingleton<PushCredentialLedger>()
             .AddSingleton<IFactsSource, SandboxFacts>()
             // What the lab planted for a repository wins (its fake advisories, the grain of sand); else what the forge says of the alerts of the repository
             .AddSingleton<IDependencyFindings>(_ => new FirstDependencyFindings([

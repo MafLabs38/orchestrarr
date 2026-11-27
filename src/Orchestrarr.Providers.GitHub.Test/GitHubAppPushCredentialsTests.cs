@@ -96,6 +96,19 @@ public sealed class GitHubAppPushCredentialsTests : IDisposable
     }
 
     [Fact]
+    public async Task A_credential_is_revoked_with_itself_and_one_that_is_no_longer_valid_counts_as_revoked()
+    {
+        var forge = new Forge("""{ "contents": "write" }""");
+        using var credentials = Credentials(forge);
+
+        (await credentials.RevokeAsync("ghs_the_token", Ct)).Should().BeFalse("the fake forge answers 404 to anything it does not know");
+        var request = forge.Requests.Should().ContainSingle().Subject;
+        request.Method.Should().Be(HttpMethod.Delete);
+        request.Path.Should().Be("/installation/token");
+        request.Authorization.Should().Be("ghs_the_token", "the token revokes itself; the App's key is not needed");
+    }
+
+    [Fact]
     public void A_key_that_is_not_a_pem_rsa_key_is_refused_at_start() =>
         FluentActions.Invoking(() => GitHubAppPushCredentials.Create(new GitHubOptions(), "Iv23example", "not a key")).Should().Throw<InvalidOperationException>();
 

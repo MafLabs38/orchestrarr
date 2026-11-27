@@ -97,6 +97,22 @@ public sealed partial class GitHubAppPushCredentials : IPushCredentials, IDispos
         }
     }
 
+    public async Task<bool> RevokeAsync(string token, CancellationToken cancellationToken)
+    {
+        // The token revokes itself: the forge needs nothing else, and an answer that it is no longer valid is as good
+        using var request = new HttpRequestMessage(HttpMethod.Delete, new Uri("installation/token", UriKind.Relative));
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        try
+        {
+            using var response = await _http.SendAsync(request, cancellationToken);
+            return response.IsSuccessStatusCode || response.StatusCode == System.Net.HttpStatusCode.Unauthorized;
+        }
+        catch (Exception failure) when (failure is HttpRequestException || failure is TaskCanceledException && !cancellationToken.IsCancellationRequested)
+        {
+            return false;
+        }
+    }
+
     public void Dispose()
     {
         _http.Dispose();

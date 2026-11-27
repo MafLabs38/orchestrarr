@@ -34,10 +34,22 @@ public sealed class MissionWorldsApiTests
 
         public const string PushToken = "push-token-of-the-forge";
 
+        /// <summary>The credentials revoked on the forge, in order.</summary>
+        public List<string> Revoked { get; } = [];
+
         public Task<PushCredential?> IssueAsync(string repositoryFullName, bool pipelines, CancellationToken cancellationToken)
         {
             CredentialsMade.Add((repositoryFullName, pipelines));
-            return Task.FromResult<PushCredential?>(new PushCredential(PushToken, DateTimeOffset.UtcNow.AddHours(1), pipelines ? ["contents:write", "workflows:write"] : ["contents:write"]));
+            return Task.FromResult<PushCredential?>(new PushCredential($"{PushToken}-{CredentialsMade.Count}", DateTimeOffset.UtcNow.AddHours(1), pipelines ? ["contents:write", "workflows:write"] : ["contents:write"]));
+        }
+
+        public Task<bool> RevokeAsync(string token, CancellationToken cancellationToken)
+        {
+            lock (Revoked)
+            {
+                Revoked.Add(token);
+            }
+            return Task.FromResult(true);
         }
 
         /// <summary>Where the branch of the agent is on the forge now (null: there is none).</summary>
@@ -1259,11 +1271,35 @@ public sealed class MissionWorldsApiTests
         var credential = await (await runner.PostAsync($"/api/v1/runner/missions/{staging}/acts/push-credential", null, Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct);
 
         credential.GetProperty("allowed").GetBoolean().Should().BeTrue(credential.ToString());
-        credential.GetProperty("token").GetString().Should().Be(FakeForge.PushToken);
+        credential.GetProperty("token").GetString().Should().Be($"{FakeForge.PushToken}-1");
         forge.CredentialsMade.Should().Equal([("example/shop", false)], "an operation that is not about its pipeline gets a credential that cannot change a workflow");
         var trail = factory.Services.GetRequiredService<Orchestrarr.Core.Approvals.IAuditLog>().Page(100).Select(row => $"{row.Entry.Event} {row.Entry.Detail}").ToList();
         trail.Should().Contain(line => line.Contains("PushBranch", StringComparison.Ordinal) && line.Contains("not about its pipeline", StringComparison.Ordinal), "the credential and why it may or may not change a workflow are written down");
         trail.Should().NotContain(line => line.Contains(FakeForge.PushToken, StringComparison.Ordinal));
+
+        // A renewal revokes the credential it replaces, and the end of the agent revokes the last one, on the forge itself
+        _ = await runner.PostAsync($"/api/v1/runner/missions/{staging}/acts/push-credential", null, Ct);
+        forge.Revoked.Should().Equal($"{FakeForge.PushToken}-1");
+        (await runner.PostAsync($"/api/v1/runner/missions/{staging}/acts/push-credential/release", null, Ct)).EnsureSuccessStatusCode();
+        forge.Revoked.Should().Equal($"{FakeForge.PushToken}-1", $"{FakeForge.PushToken}-2");
+    }
+
+    [Fact]
+    public async Task Engaging_the_global_stop_revokes_on_the_forge_the_push_credentials_that_are_still_valid()
+    {
+        var forge = new FakeForge();
+        using var factory = new WorldsFactory(forge);
+        _ = await StartChangeProblemAsync(factory);
+        using var runner = Runner(factory);
+        var staging = (await ClaimAsync(runner, "Staging")).GetProperty("missionId").GetString()!;
+        (await runner.PostAsync($"/api/v1/runner/missions/{staging}/started", null, Ct)).EnsureSuccessStatusCode();
+        _ = await runner.PostAsync($"/api/v1/runner/missions/{staging}/acts/push-credential", null, Ct);
+
+        _ = await factory.Services.GetRequiredService<IKillSwitchControl>().ChangeAsync(true, new AuditEntry(DateTimeOffset.UtcNow, AuditEvents.KillSwitchEngaged, "alice", null, null), Ct);
+        await factory.Services.GetServices<IHostedService>().OfType<MissionDriver>().Single().PassAsync(Ct);
+
+        forge.Revoked.Should().Equal([$"{FakeForge.PushToken}-1"], "deleting the file on the machine is not enough: an agent that copied it could push until it expires");
+        factory.Services.GetRequiredService<Orchestrarr.Core.Approvals.IAuditLog>().Page(100).Select(row => row.Entry.Detail ?? string.Empty).Should().Contain(detail => detail.Contains("revoked on the forge", StringComparison.Ordinal));
     }
 
     [Fact]

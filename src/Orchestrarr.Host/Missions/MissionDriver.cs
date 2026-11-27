@@ -39,6 +39,11 @@ internal sealed class MissionDriver(IMissionStore missions, IProblemStore proble
 
     internal async Task PassAsync(CancellationToken cancellationToken)
     {
+        // A push credential outlives neither its mission nor the stop (ADR 0057)
+        if (services.GetService<PushCredentialLedger>() is { } ledger)
+        {
+            await ledger.SweepAsync(cancellationToken);
+        }
         foreach (var mission in missions.Recent(100).Where(candidate => candidate.State == MissionState.HandingOver))
         {
             if (_askedAt.TryGetValue(mission.Id, out var at) && time.GetUtcNow() - at < Retry)

@@ -91,8 +91,16 @@ public sealed partial class ChangeProof(IShell shell, MissionRunnerOptions optio
             await renewal.CancelAsync();
             await renewing;
         }
-        // The credential leaves the machine with the agent: what follows reads the forge without one
+        // The credential leaves the machine with the agent, and is revoked on the forge: what follows reads the forge without one
         _ = await OnMachineAsync(machine, "rm -f ~/agentin/git-token", quick, cancellationToken);
+        try
+        {
+            await credentials.ReleasePushCredentialAsync(mission.MissionId, cancellationToken);
+        }
+        catch (Exception failure) when (failure is HttpRequestException || failure is TaskCanceledException && !cancellationToken.IsCancellationRequested)
+        {
+            await report("The control plane could not be told that the agent is done: its credential is revoked when the mission ends, or expires within the hour");
+        }
         // What the agent said is its own words, kept short; the tokens are never in what comes back
         string Scrubbed(string text) => issued.Aggregate(text.Replace(token, "***", StringComparison.Ordinal), (output, secret) => output.Replace(secret, "***", StringComparison.Ordinal));
         var said = Last(Scrubbed(run.Output));
@@ -204,8 +212,9 @@ public sealed partial class ChangeProof(IShell shell, MissionRunnerOptions optio
                 {
                     renewed = await credentials.PushCredentialAsync(mission.MissionId, cancellationToken);
                 }
-                catch (HttpRequestException)
+                catch (Exception failure) when (failure is HttpRequestException or System.Text.Json.JsonException || failure is TaskCanceledException && !cancellationToken.IsCancellationRequested)
                 {
+                    // A control plane that did not answer, or answered something that is not an answer, is asked again: the credential in place expires by itself
                     wait = TimeSpan.FromMinutes(1);
                     continue;
                 }

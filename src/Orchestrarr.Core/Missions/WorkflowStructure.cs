@@ -134,8 +134,9 @@ public static class WorkflowStructure
             }
             return new Workflow(TriggersOf(Child(root, "on")), PermissionsOf(Child(root, "permissions")), jobs);
         }
-        catch (YamlException)
+        catch (Exception failure) when (failure is YamlException or ArgumentException or InvalidOperationException or InvalidCastException)
         {
+            // A duplicate key, an alias that points nowhere, a node of an unexpected kind: what does not read is not a workflow, and the change is refused, never let through by an exception
             return null;
         }
     }

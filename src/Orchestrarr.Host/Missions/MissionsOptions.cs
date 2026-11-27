@@ -132,10 +132,26 @@ public sealed class MissionsOptions
         Positive(MaxMandatesPerProblem, nameof(MaxMandatesPerProblem));
         Positive(MaxHoursPerProblem, nameof(MaxHoursPerProblem));
         Positive(MaxFixesForwardPerProblem, nameof(MaxFixesForwardPerProblem));
+        // The bounds of the bots' parking and of a machine's requalification are refused at start too, not read as something else at each use
+        Positive(BotRebaseWaitMinutes, nameof(BotRebaseWaitMinutes));
+        Positive(BotRebaseRequests, nameof(BotRebaseRequests));
+        Positive(BotRebaseRequestsInAll, nameof(BotRebaseRequestsInAll));
+        Positive(MachineRequalifyMinutes, nameof(MachineRequalifyMinutes));
+        NotNegative(BotRebaseUnknownWaitSeconds, nameof(BotRebaseUnknownWaitSeconds));
+        NotNegative(BotRebaseRecheckSeconds, nameof(BotRebaseRecheckSeconds));
+        NotNegative(MachineRequalifyPerHour, nameof(MachineRequalifyPerHour));
         return new ConductorOptions(
             TimeSpan.FromMinutes(MandateMinutes),
             ForbiddenPaths ?? [.. ConductorOptions.Default.ForbiddenPaths],
             new LoopPolicy(MaxSendBacksPerMission, MaxMandatesPerProblem, TimeSpan.FromHours(MaxHoursPerProblem), MaxFixesForwardPerProblem));
+    }
+
+    private static void NotNegative(int value, string name)
+    {
+        if (value < 0)
+        {
+            throw new InvalidOperationException($"{SectionName}:{name} must be zero or more, not {value}.");
+        }
     }
 
     private static void Positive(int value, string name)

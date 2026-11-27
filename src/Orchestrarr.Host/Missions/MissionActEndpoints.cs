@@ -73,7 +73,7 @@ internal static class MissionActEndpoints
         // with the power read now; it may change the pipeline files only when the operation is about them and the approved frame leaves them open. The runner asks again before it expires: the stop, a withdrawn approval or
         // an expired mandate then refuse, and the agent can no longer push. The token goes to the runner and nowhere else: not to the audit trail, the progress or the logs
         group.MapPost("/missions/{id}/acts/push-credential", async (string id, HttpContext context, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, ProblemConductor conductor, IPushCredentials? credentials,
-            MissionProgress progress, ILiveNotifier live, CancellationToken ct) =>
+            PushCredentialLedger? ledger, MissionProgress progress, ILiveNotifier live, CancellationToken ct) =>
         {
             if (!Gate(id, runnerName(context), missions, mandates, problems, out var entry) || missions.Get(id) is not { World: World.Staging } mission || entry.PullRequest is not null)
             {
@@ -83,6 +83,11 @@ internal static class MissionActEndpoints
             var authorisation = await conductor.AuthoriseActAsync(id, GatedAct.PushBranch, null, ct, repository);
             if (!authorisation.Allowed)
             {
+                // What was given before is taken back on the forge, not only on the machine
+                if (ledger is not null)
+                {
+                    _ = await ledger.RevokeAsync(id, $"the control plane refused to renew it ({Describe(authorisation)})", ct);
+                }
                 progress.Add(id, $"no push credential: {Describe(authorisation)}");
                 live.Publish(LiveTopics.Missions, id);
                 return Results.Ok(new PushCredentialResponse(false, authorisation.Refusal ?? Describe(authorisation), null, null, []));
@@ -95,12 +100,28 @@ internal static class MissionActEndpoints
             var said = $"push credential for {repository} ({string.Join(", ", issued.Permissions)}) until {issued.ExpiresAt:u}: {grant.Justification}";
             if (!await conductor.RecordActPerformedAsync(id, GatedAct.PushBranch, said, ct))
             {
-                // A credential whose making cannot be written down is not handed out: it expires unused
+                // A credential whose making cannot be written down is not handed out, and is revoked at once
+                _ = await credentials.RevokeAsync(issued.Token, ct);
                 return Results.Ok(new PushCredentialResponse(false, "the audit trail cannot be written: no power is granted", null, null, []));
+            }
+            if (ledger is not null)
+            {
+                await ledger.IssuedAsync(id, issued.Token, ct);
             }
             progress.Add(id, said);
             live.Publish(LiveTopics.Missions, id);
             return Results.Ok(new PushCredentialResponse(true, null, issued.Token, issued.ExpiresAt, issued.Permissions));
+        });
+
+        // The agent is done: what was made for it is revoked on the forge at once (the driver's pass revokes it too once the mission no longer runs)
+        group.MapPost("/missions/{id}/acts/push-credential/release", async (string id, HttpContext context, IMissionStore missions, IMandateLedger mandates, PushCredentialLedger? ledger, CancellationToken ct) =>
+        {
+            if (!MissionRunnerEndpoints.Owns(id, runnerName(context), missions, mandates))
+            {
+                return Results.NotFound();
+            }
+            var revoked = ledger is null ? 0 : await ledger.RevokeAsync(id, "the agent is done", ct);
+            return Results.Ok(new { revoked });
         });
 
         // The pull request that carries the repair of a staging runner: the gateway makes the branch and the commit itself from the files that it checked, so that the runner never holds a credential that writes to a repository
