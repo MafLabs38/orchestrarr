@@ -133,15 +133,40 @@ public sealed class WorkflowStructureTests
         Judge(Base, "on: push\na: &a [x]\nb: *a\njobs: {}").Should().Contain("cannot be told");
 
     [Fact]
-    public void A_path_filter_that_is_mended_to_cover_the_code_is_a_fix_and_one_that_covers_less_is_refused()
+    public void A_dead_path_filter_mended_to_cover_the_code_is_a_fix_and_any_other_filter_change_is_refused()
     {
         string[] files = ["src/feature.js", "src/feature.test.js", "README.md"];
         const string Dead = "on:\n  push:\n    paths: ['source/**']\njobs:\n  t:\n    runs-on: x\n    steps:\n      - run: make";
+        var live = Dead.Replace("source/**", "src/**", StringComparison.Ordinal);
 
-        WorkflowStructure.Weakening(Path, Dead, Dead.Replace("source/**", "src/**", StringComparison.Ordinal), files).Should().BeNull("the filter covered no file; it now covers the code: the control is mended, not weakened");
-        WorkflowStructure.Weakening(Path, Dead.Replace("source/**", "src/**", StringComparison.Ordinal), Dead.Replace("source/**", "src/*.test.js", StringComparison.Ordinal), files).Should().Contain("no longer runs when 'src/feature.js' changes");
-        WorkflowStructure.Weakening(Path, Dead, Dead.Replace("source/**", "src/**", StringComparison.Ordinal)).Should().Contain("cannot be measured", "without the files of the repository a filter change is not judged");
+        WorkflowStructure.Weakening(Path, Dead, live, files).Should().BeNull("the filter covered no file; it now covers the code: the control is mended, not weakened");
+        WorkflowStructure.Weakening(Path, live, Dead.Replace("source/**", "src/*.test.js", StringComparison.Ordinal), files).Should().Contain("was running on files", "a filter that ran is never narrowed");
+        WorkflowStructure.Weakening(Path, live, Dead.Replace("['source/**']", "['src/**', 'lib/**']", StringComparison.Ordinal), files).Should().Contain("was running on files", "only a dead filter may change");
+        WorkflowStructure.Weakening(Path, Dead, Dead.Replace("source/**", "lib/**", StringComparison.Ordinal), files).Should().Contain("still covers no file");
+        WorkflowStructure.Weakening(Path, Dead, live).Should().Contain("cannot be measured", "without the files of the repository a filter change is not judged");
         WorkflowStructure.Weakening(Path, Dead, Dead.Replace("    paths: ['source/**']", "    branches: [main]\n    paths: ['source/**']", StringComparison.Ordinal), files).Should().Contain("branches or tags");
-        WorkflowStructure.Weakening(Path, Dead.Replace("source/**", "src/**", StringComparison.Ordinal), Dead.Replace("['source/**']", "['src/**', '!src/feature.js']", StringComparison.Ordinal), files).Should().Contain("src/feature.js", "a negation that takes a file out covers less");
+    }
+
+    [Theory]
+    [InlineData("['sr?/**']")]
+    [InlineData("['src/**', '!src/[a-z]*.js']")]
+    [InlineData("['src/fea+ture.js']")]
+    [InlineData("[\"\\x02\"]")]
+    [InlineData("{ src: yes }")]
+    [InlineData("[[src/**]]")]
+    public void A_path_filter_the_forge_reads_otherwise_is_not_measured(string patterns)
+    {
+        string[] files = ["src/feature.js"];
+        const string Dead = "on:\n  push:\n    paths: ['source/**']\njobs:\n  t:\n    runs-on: x\n    steps:\n      - run: make";
+
+        WorkflowStructure.Weakening(Path, Dead, Dead.Replace("['source/**']", patterns, StringComparison.Ordinal), files).Should().Contain("cannot be measured exactly");
+    }
+
+    [Fact]
+    public void A_trigger_with_both_kinds_of_path_filter_is_not_measured()
+    {
+        const string Dead = "on:\n  push:\n    paths: ['source/**']\njobs:\n  t:\n    runs-on: x\n    steps:\n      - run: make";
+
+        WorkflowStructure.Weakening(Path, Dead, Dead.Replace("    paths: ['source/**']", "    paths: ['src/**']\n    paths-ignore: ['src/x/**']", StringComparison.Ordinal), ["src/feature.js"]).Should().Contain("cannot be measured exactly");
     }
 }

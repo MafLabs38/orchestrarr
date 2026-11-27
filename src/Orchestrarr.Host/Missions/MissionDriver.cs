@@ -65,8 +65,8 @@ internal sealed class MissionDriver(IMissionStore missions, IProblemStore proble
         }
         // The latest staging mission that was accepted is the one whose change this world carries (a fix forward makes a newer one)
         var staged = missions.ForProblem(mission.ProblemId).Where(other => other.World == World.Staging && other.State == MissionState.Accepted).Select(other => other.Id).ToList();
-        var read = dossiers.GetMany(staged);
-        var justification = staged.Select(id => read.GetValueOrDefault(id)?.PipelineJustification).LastOrDefault(text => text is not null);
+        // Its own justification, or none: an older staging change is another change, and its text never describes this one
+        var justification = staged.Count == 0 ? null : dossiers.Get(staged[^1])?.PipelineJustification;
         return justification is null ? dossier : dossier with { PipelineJustification = justification };
     }
 

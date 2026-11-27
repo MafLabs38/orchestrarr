@@ -38,7 +38,7 @@ public static class WorkflowStructure
     /// <param name="path">The path of the workflow in the repository.</param>
     /// <param name="before">The workflow at the merge base, or null for a new file.</param>
     /// <param name="after">The workflow at the commit of the change.</param>
-    /// <param name="files">The files of the repository at the commit, when the forge listed them: a change of a trigger's path filters is then measured on them (it may cover more files, never fewer); without them it is refused.</param>
+    /// <param name="files">The files of the repository that the change did not add, when the forge listed them: a change of a trigger's path filters is then measured on them, and only a filter that covered none of them, made to cover some, passes (ADR 0057); without them it is refused.</param>
     public static string? Weakening(string path, string? before, string after, IReadOnlyCollection<string>? files = null)
     {
         ArgumentNullException.ThrowIfNull(after);
@@ -72,9 +72,8 @@ public static class WorkflowStructure
     private static string? NewDangerousTrigger(Workflow previous, Workflow next) =>
         next.Triggers.Keys.Where(trigger => DangerousTriggers.Contains(trigger, StringComparer.Ordinal) && !previous.Triggers.ContainsKey(trigger)).Select(trigger => $"adds the trigger '{trigger}', which runs with the base's credentials").FirstOrDefault();
 
-    // A workflow that no longer runs where it ran checks nothing there: a trigger removed, or its filters changed so that it runs less. A path filter is a control like any other: a change that makes it cover at least the
-    // files it covered (a filter that pointed at a folder that does not exist, made to point at the code) mends the control, and is measured on the files of the repository; a change of its branches or tags, or one that cannot be
-    // measured, is refused
+    // A workflow that no longer runs where it ran checks nothing there: a trigger removed, or its filters changed. A path filter that covered no file of the repository (a dead control) may be made to cover some, measured on the
+    // files of the repository; any other change of the path filters, a change of its branches or tags, or one that cannot be measured, is refused
     private static string? LostTrigger(Workflow previous, Workflow next, IReadOnlyCollection<string>? files)
     {
         foreach (var (trigger, filters) in previous.Triggers)
@@ -93,28 +92,48 @@ public static class WorkflowStructure
             {
                 return $"changes the branches or tags that the trigger '{trigger}' runs on";
             }
-            if (files is null)
+            if (FilterChangeRefusal(was, becomes, files) is { } refusal)
             {
-                return $"changes the path filters of the trigger '{trigger}', and what they cover cannot be measured here";
-            }
-            if (Uncovered(was, becomes, files) is { } lost)
-            {
-                return $"changes the path filters of the trigger '{trigger}' so that it no longer runs when '{lost}' changes";
+                return $"changes the path filters of the trigger '{trigger}' ({refusal})";
             }
         }
         return null;
     }
 
-    // A file that the filters covered before the change and no longer cover, or null when they cover at least as much
-    private static string? Uncovered(PathFilter was, PathFilter becomes, IReadOnlyCollection<string> files)
+    // A pattern that stands for a filter that does not read as a list of names: no plain pattern contains a line break
+    private const string Unreadable = "\n";
+
+    // At most this many patterns, this long, on one trigger: more than any workflow writes
+    private const int MaxPatterns = 50;
+    private const int MaxPatternLength = 200;
+
+    // The characters whose meaning in a path filter is the same for the forge and for PathGlob: letters, digits, '.', '_', '/', '-' and the '*' of '*' and '**' (a leading '!' negates). '?', '+', '[ ]' and '\' mean other things to the
+    // forge, and a filter that uses them is not measured
+    private static readonly System.Text.RegularExpressions.Regex PlainPattern = new("^!?[A-Za-z0-9._/*-]+$", System.Text.RegularExpressions.RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
+
+    // The one change of a path filter that mends a control (the maintainer, 2026-11-27): a filter that covered no file of the repository (a dead control) made to cover some. Any other change of the path filters is refused, and so is one
+    // that cannot be measured exactly (no list of the files, a pattern the forge reads otherwise, both kinds of filter at once). Null when it is that mend
+    private static string? FilterChangeRefusal(PathFilter was, PathFilter becomes, IReadOnlyCollection<string>? files)
     {
+        if (files is null)
+        {
+            return "what they cover cannot be measured here";
+        }
+        if (!was.IsPlain || !becomes.IsPlain)
+        {
+            return "a pattern that cannot be measured exactly, or both paths and paths-ignore";
+        }
         try
         {
-            return files.FirstOrDefault(file => was.Covers(file) && !becomes.Covers(file));
+            if (files.Any(was.Covers))
+            {
+                return "the filter was running on files of the repository: only a filter that covered none may be mended";
+            }
+            return files.Any(becomes.Covers) ? null : "the filter still covers no file of the repository";
         }
         catch (System.Text.RegularExpressions.RegexMatchTimeoutException)
         {
-            return "(a pattern that cannot be measured)";
+            return "a pattern that cannot be measured";
         }
     }
 
@@ -198,6 +217,20 @@ public static class WorkflowStructure
     private sealed record PathFilter(IReadOnlyList<string>? Paths, IReadOnlyList<string>? Ignore, string Other)
     {
         public static PathFilter None { get; } = new(null, null, string.Empty);
+
+        /// <summary>Whether the filter can be measured exactly: one kind of filter, a bounded number of patterns, each of the plain characters only.</summary>
+        public bool IsPlain
+        {
+            get
+            {
+                if (Paths is not null && Ignore is not null)
+                {
+                    return false;
+                }
+                var patterns = Paths ?? Ignore ?? [];
+                return patterns.Count <= MaxPatterns && patterns.All(pattern => pattern.Length <= MaxPatternLength && PlainPattern.IsMatch(pattern) && (Paths is not null || !pattern.StartsWith('!')));
+            }
+        }
 
         /// <summary>Whether a change of this file makes the trigger run.</summary>
         public bool Covers(string file)
@@ -303,11 +336,13 @@ public static class WorkflowStructure
             {
                 continue;
             }
+            // A filter written in a shape the forge reads otherwise (a mapping, a list of lists) is kept as a pattern that is never plain: it is not measured
             IReadOnlyList<string>? List(string name) => Child(filters, name) switch
             {
-                YamlSequenceNode items => [.. items.Children.OfType<YamlScalarNode>().Select(item => item.Value ?? string.Empty)],
+                null => null,
+                YamlSequenceNode items when items.Children.All(item => item is YamlScalarNode { Value: not null }) => [.. items.Children.Cast<YamlScalarNode>().Select(item => item.Value ?? string.Empty)],
                 YamlScalarNode { Value: { } one } => [one],
-                _ => null,
+                _ => [Unreadable],
             };
             var other = new YamlMappingNode(filters.Children.Where(pair => pair.Key is not YamlScalarNode { Value: "paths" or "paths-ignore" }));
             // A trigger with no other filter compares equal to one written as a bare name
