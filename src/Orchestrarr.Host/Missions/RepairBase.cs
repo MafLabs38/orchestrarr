@@ -11,9 +11,18 @@ internal static class RepairBase
         var before = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var path in files.Select(file => file?.Path).OfType<string>().Where(path => RepairPolicy.IsPlainPath(path) && RepairPolicy.ReadsLines(path)).Distinct(StringComparer.Ordinal).Take(RepairPolicy.MaxFiles))
         {
-            if (await branches.FileAtAsync(repository, sha, path, cancellationToken) is { } text)
+            switch (await branches.FileAtAsync(repository, sha, path, cancellationToken))
             {
-                before[path] = text;
+                case { Exists: true, Text: { } text }:
+                    before[path] = text;
+                    break;
+                case { Exists: false }:
+                    // A file the repair creates: nothing to compare with, it is judged whole
+                    break;
+                default:
+                    // An existing file, or one that could not be told: what the repair removes from it cannot be judged, so it is not passed
+                    before[path] = RepairPolicy.Unread;
+                    break;
             }
         }
         return before;

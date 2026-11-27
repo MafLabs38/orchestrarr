@@ -129,4 +129,8 @@ public sealed class PipelineChangesTests
 
         RepairPolicy.Refusal([new PatchedFile(".github/workflows/ci.yml", copied)], before: new Dictionary<string, string> { [".github/workflows/ci.yml"] = Head }).Should().Contain("weakens the pipeline");
     }
+
+    [Fact]
+    public void A_repair_of_a_pipeline_that_the_forge_could_not_read_at_the_repaired_head_is_not_passed() =>
+        RepairPolicy.Refusal([new PatchedFile(".github/workflows/ci.yml", "on: push\n")], before: new Dictionary<string, string> { [".github/workflows/ci.yml"] = RepairPolicy.Unread }).Should().Contain("could not be read");
 }

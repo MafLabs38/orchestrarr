@@ -338,8 +338,9 @@ public sealed class MissionWorldsApiTests
         using var factory = new WorldsFactory(forge);
         var starter = factory.Services.GetRequiredService<ProblemStarter>();
 
-        _ = await starter.StartOrQueueAsync(Prepared("p-bot", 7, "example/shop"), Ct);
+        var answer = await starter.StartOrQueueAsync(Prepared("p-bot", 7, "example/shop"), Ct);
 
+        answer.Refusal.Should().Be("putAside", "the answer says what the flow did, not that it waits");
         forge.RebaseAsked.Should().BeEmpty("nothing is written on a pull request in a language its bot does not speak");
         factory.Services.GetRequiredService<ProblemParking>().IsParked("p-bot").Should().BeFalse();
         var run = factory.Services.GetRequiredService<IProblemStore>().Get("p-bot")!;

@@ -138,9 +138,12 @@ public interface IBranchSource
     /// <summary>The change that <paramref name="headSha"/> makes on top of <paramref name="baseBranch"/>.</summary>
     Task<BranchChange?> CompareAsync(string repositoryFullName, string baseBranch, string headSha, CancellationToken cancellationToken);
 
-    /// <summary>The text of a file at a commit, or null when there is no such file or it cannot be read (a repair is then judged on the whole file it carries, ADR 0055).</summary>
-    Task<string?> FileAtAsync(string repositoryFullName, string sha, string path, CancellationToken cancellationToken) => Task.FromResult<string?>(null);
+    /// <summary>A file at a commit (<see cref="FileAt"/>), or null when it cannot be read: a repair is then judged on the whole file it carries, and what it removes from a pipeline cannot be judged (ADR 0055).</summary>
+    Task<FileAt?> FileAtAsync(string repositoryFullName, string sha, string path, CancellationToken cancellationToken) => Task.FromResult<FileAt?>(null);
 }
+
+/// <summary>A file read at a commit: its text, or that the commit has no such file.</summary>
+public sealed record FileAt(bool Exists, string? Text);
 
 /// <summary>Used when no forge is connected.</summary>
 public sealed class NoBranchSource : IBranchSource

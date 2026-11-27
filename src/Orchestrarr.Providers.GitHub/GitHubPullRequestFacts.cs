@@ -243,7 +243,7 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefault
         return flat.Length <= 300 ? flat : flat[..300];
     }
 
-    public async Task<string?> FileAtAsync(string repositoryFullName, string sha, string path, CancellationToken cancellationToken)
+    public async Task<FileAt?> FileAtAsync(string repositoryFullName, string sha, string path, CancellationToken cancellationToken)
     {
         if (!RepositoryName().IsMatch(repositoryFullName) || !Sha().IsMatch(sha) || !Orchestrarr.Core.Missions.RepairPolicy.IsPlainPath(path))
         {
@@ -251,10 +251,20 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefault
         }
         try
         {
-            using var file = await GetAsync($"repos/{repositoryFullName}/contents/{path}?ref={sha}", cancellationToken);
-            return file is not null && file.RootElement.ValueKind == JsonValueKind.Object && file.RootElement.TryGetProperty("encoding", out var encoding) && encoding.GetString() == "base64"
+            using var response = await _http.GetAsync(new Uri($"repos/{repositoryFullName}/contents/{path}?ref={sha}", UriKind.Relative), cancellationToken);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                return new FileAt(false, null);
+            }
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+            using var file = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(cancellationToken), cancellationToken: cancellationToken);
+            // A file over the forge's limit comes with no content: it was not read
+            return file.RootElement.ValueKind == JsonValueKind.Object && file.RootElement.TryGetProperty("encoding", out var encoding) && encoding.GetString() == "base64"
                 && file.RootElement.TryGetProperty("content", out var content) && content.GetString() is { } text
-                ? System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(text.Replace("\n", string.Empty, StringComparison.Ordinal)))
+                ? new FileAt(true, System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(text.Replace("\n", string.Empty, StringComparison.Ordinal))))
                 : null;
         }
         catch (Exception failure) when (failure is HttpRequestException or JsonException or KeyNotFoundException or InvalidOperationException or FormatException || failure is TaskCanceledException && !cancellationToken.IsCancellationRequested)

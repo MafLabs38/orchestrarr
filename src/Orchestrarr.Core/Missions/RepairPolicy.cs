@@ -103,7 +103,7 @@ public static partial class RepairPolicy
     private static string[] Added(PatchedFile file, IReadOnlyDictionary<string, string>? before)
     {
         var lines = file.Content.Split('\n');
-        if (before is null || !before.TryGetValue(file.Path, out var old))
+        if (before is null || !before.TryGetValue(file.Path, out var old) || old == Unread)
         {
             return lines;
         }
@@ -126,6 +126,17 @@ public static partial class RepairPolicy
     }
 
     // The steps that a repair takes out of a pipeline file, against the file at the repaired head (nothing to compare with when it was not read)
-    private static string? Removal(PatchedFile file, IReadOnlyDictionary<string, string>? before) =>
-        before is not null && before.TryGetValue(file.Path, out var old) ? PipelineChanges.Removal(file.Path, old.Split('\n'), file.Content.Split('\n')) : null;
+    private static string? Removal(PatchedFile file, IReadOnlyDictionary<string, string>? before)
+    {
+        if (before is null || !before.TryGetValue(file.Path, out var old))
+        {
+            return null;
+        }
+        return old == Unread
+            ? $"the pipeline '{file.Path}' at the repaired head could not be read: what a repair takes out of it cannot be judged"
+            : PipelineChanges.Removal(file.Path, old.Split('\n'), file.Content.Split('\n'));
+    }
+
+    /// <summary>The text that <see cref="Refusal"/> reads, in <c>before</c>, for a file that exists at the repaired head and could not be read: the removal guard then fails closed.</summary>
+    public const string Unread = "\0unread";
 }

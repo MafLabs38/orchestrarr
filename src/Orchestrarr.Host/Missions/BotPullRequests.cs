@@ -33,7 +33,8 @@ internal sealed class BotPullRequests(IServiceProvider services, MissionsOptions
 
     private bool IsBot(string? login) => login is not null && options.BotAuthors.Contains(login, StringComparer.OrdinalIgnoreCase);
 
-    private bool IsUnsignedBot(string? login) => IsBot(login) && options.BotUnsignedAuthors.Contains(login, StringComparer.OrdinalIgnoreCase);
+    // A test-bed setting only: outside Missions:Sandbox every followed commit must be signed
+    private bool IsUnsignedBot(string? login) => options.Sandbox && IsBot(login) && options.BotUnsignedAuthors.Contains(login, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>What becomes of a problem that waits in the line, from the verdict on its pull request. True when it is ready to start (nothing else of the lot is read in this pass).</summary>
     internal async Task<bool> ApplyInLineAsync(PlanEntry entry, FreshnessVerdict verdict, CancellationToken cancellationToken)
@@ -61,7 +62,7 @@ internal sealed class BotPullRequests(IServiceProvider services, MissionsOptions
                     _ = line.Replace(id, entry with { HeadSha = newer });
                     before = before is null ? null : before with { Since = time.GetUtcNow(), Requests = 0, LastRequested = null, LotWasBusy = false };
                 }
-                await ParkAsync(entry, verdict.Reason ?? "it is behind its base branch", verdict.Author, before, cancellationToken);
+                _ = await ParkAsync(entry, verdict.Reason ?? "it is behind its base branch", verdict.Author, before, cancellationToken);
                 return false;
             case Freshness.Followed:
                 _ = line.Replace(id, entry with { HeadSha = verdict.Head });
@@ -86,15 +87,15 @@ internal sealed class BotPullRequests(IServiceProvider services, MissionsOptions
     }
 
     // The pull request is behind its base or in conflict: the bot is asked to rebase it with its own command (Missions:BotRebaseCommands), at most BotRebaseRequests times in one wait and BotRebaseRequestsInAll in the life of the
-    // problem, and after BotRebaseWaitMinutes without a new head the problem is put aside with the reason. A bot that has no command is not waited for
-    internal async Task ParkAsync(PlanEntry entry, string reason, string? author, ParkedProblem? before, CancellationToken cancellationToken)
+    // problem, and after BotRebaseWaitMinutes without a new head the problem is put aside with the reason. A bot that has no command is not waited for. True when it is parked, false when it was put aside
+    internal async Task<bool> ParkAsync(PlanEntry entry, string reason, string? author, ParkedProblem? before, CancellationToken cancellationToken)
     {
         var now = time.GetUtcNow();
         var id = entry.ProblemId;
         if (author is null || !options.BotRebaseCommands.TryGetValue(author, out var command) || string.IsNullOrWhiteSpace(command))
         {
             await PutAsideBeforeStartAsync(entry, $"its bot ({author ?? "unknown"}) has no command to ask it to rebase the pull request ({reason})", cancellationToken);
-            return;
+            return false;
         }
         // While another operation of its lot held the lot, the clock of the bot did not run and the base moved (that operation was merged): the wait starts again from now (ADR 0055)
         if (before is { LotWasBusy: true })
@@ -105,7 +106,7 @@ internal sealed class BotPullRequests(IServiceProvider services, MissionsOptions
         if (now - since >= TimeSpan.FromMinutes(Math.Max(1, options.BotRebaseWaitMinutes)))
         {
             await PutAsideBeforeStartAsync(entry, $"the bot did not rebase the pull request within {options.BotRebaseWaitMinutes} minutes ({reason})", cancellationToken);
-            return;
+            return false;
         }
         var requests = before?.Requests ?? 0;
         var all = before?.AllRequests ?? 0;
@@ -124,6 +125,7 @@ internal sealed class BotPullRequests(IServiceProvider services, MissionsOptions
             _ = await audit.RecordAsync(MissionAuditEvents.ProblemParked, id, $"waits for its bot to rebase the pull request, the lot goes on: {reason}", CancellationToken.None);
         }
         parking.Set(id, new ParkedProblem(since, requests, now, lastRequested, reason, all));
+        return true;
     }
 
     internal async Task PutAsideBeforeStartAsync(PlanEntry entry, string why, CancellationToken cancellationToken)

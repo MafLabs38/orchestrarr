@@ -61,8 +61,10 @@ internal sealed class ProblemStarter(IServiceProvider services, MissionsOptions 
                         break;
                     case Freshness.NeedsRebase:
                         _ = line.Enqueue(new QueuedProblem(one.RowId, verdict.Head is { } newer ? entry with { HeadSha = newer } : entry, time.GetUtcNow()));
-                        await bots.ParkAsync(entry, verdict.Reason ?? "it is behind its base branch", verdict.Author, null, cancellationToken);
-                        return new ValidatedProblem(one.RowId, entry.ProblemId, null, null, null, Queued: true);
+                        // A bot that cannot be asked puts it aside at once: the answer says so, as the flow does
+                        return await bots.ParkAsync(entry, verdict.Reason ?? "it is behind its base branch", verdict.Author, null, cancellationToken)
+                            ? new ValidatedProblem(one.RowId, entry.ProblemId, null, null, null, Queued: true)
+                            : new ValidatedProblem(one.RowId, entry.ProblemId, null, null, "putAside");
                     default:
                         break;
                 }
