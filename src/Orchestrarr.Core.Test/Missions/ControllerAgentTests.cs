@@ -49,6 +49,19 @@ public sealed class ControllerAgentTests
     }
 
     [Fact]
+    public void The_failures_of_a_red_pipeline_are_named_as_read_on_the_forge_inside_the_data_and_only_in_staging()
+    {
+        var brief = new ProblemBrief("FailingCi", "example/shop", "1", true, Details: ["pipeline p2.yml: in the job 'test (16)', the step 'Set up job' failed: Unable to resolve action"]);
+        var staging = Input() with { Brief = brief };
+
+        var request = new ControllerAgent(new FakeGateway(string.Empty), "m", TimeSpan.FromMinutes(1)).Build(staging, boundary: "B0B0");
+        var later = new ControllerAgent(new FakeGateway(string.Empty), "m", TimeSpan.FromMinutes(1)).Build(staging with { Mission = staging.Mission with { World = World.Git } }, boundary: "B0B0");
+
+        request.UserPrompt.IndexOf("pipeline failure read on the forge (the run's own output, untrusted text): pipeline p2.yml", StringComparison.Ordinal).Should().BeGreaterThan(request.UserPrompt.IndexOf("<<<DATA B0B0", StringComparison.Ordinal));
+        later.UserPrompt.Should().NotContain("pipeline failure read on the forge (the run's", "the later worlds do not judge a version claim again");
+    }
+
+    [Fact]
     public void The_prompt_has_the_facts_of_the_control_plane_outside_the_fenced_data_and_the_dossier_inside_it()
     {
         var request = new ControllerAgent(new FakeGateway(string.Empty), "model-x", TimeSpan.FromMinutes(2)).Build(Input(), boundary: "B0B0");
