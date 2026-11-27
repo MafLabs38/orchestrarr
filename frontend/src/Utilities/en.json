@@ -291,7 +291,7 @@
   "NatureFloatingImage": "Moving tag",
   "NatureFloatingImageExplained": "An image run under a tag that moves, such as latest: the next start may run another version and nobody can tell which one runs now. The fix is to pin a version.",
   "NatureFailingPipeline": "Pipeline fails",
-  "NatureFailingPipelineExplained": "The pipeline of the repository (its build and tests on the forge) fails on the main branch. Nothing can be done about it from here yet.",
+  "NatureFailingPipelineExplained": "The pipeline of the repository (its build and tests on the forge) fails on the main branch. An agent finds why from the failed run and repairs it in a staging machine, without weakening a check or a test.",
   "NatureLibraryUpdateShort": "a dependency has a newer version",
   "NatureLibrariesUpdateShort": "several dependencies, one PR",
   "NaturePipelineToolUpdateShort": "CI tool, not the application",

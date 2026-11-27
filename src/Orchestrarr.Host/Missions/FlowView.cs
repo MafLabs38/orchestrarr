@@ -55,7 +55,7 @@ internal static class FlowView
         var going = working.OrderBy(pair => pair.Run.StartedAt).ThenBy(pair => pair.Run.ProblemId, StringComparer.Ordinal).Select(pair => pair.Flow).ToList();
         var started = going.Select(flow => flow.ProblemId).ToHashSet(StringComparer.Ordinal);
         // A problem that has just left the line and is not yet saved as started is in both lists for an instant: it is shown once
-        var queued = waiting.Where(problem => !started.Contains(problem.Entry.ProblemId)).OrderBy(problem => problem.QueuedAt).Select(problem => Queued(problem, inProgress, parkedReason(problem.Entry.ProblemId))).ToList();
+        var queued = ProblemQueue.InOrder(waiting.Where(problem => !started.Contains(problem.Entry.ProblemId))).Select(problem => Queued(problem, inProgress, parkedReason(problem.Entry.ProblemId))).ToList();
         return [.. going, .. queued, .. finished.Take(MaxFinished)];
     }
 

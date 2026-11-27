@@ -54,6 +54,9 @@ public sealed class ProblemQueue
         }
     }
 
+    /// <summary>The order in which the line goes (ADR 0055): the rank in the route, then arrival. The screens show the line in this order, the one <see cref="TakeReady"/> follows.</summary>
+    public static IEnumerable<QueuedProblem> InOrder(IEnumerable<QueuedProblem> waiting) => waiting.OrderBy(other => RouteRank.Of(other.Entry)).ThenBy(other => other.QueuedAt);
+
     /// <summary>The problems that may start now: the first of each repository that <paramref name="isBusy"/> says is free, in the order of the route (<see cref="RouteRank"/>, then arrival). They leave the line.</summary>
     public IReadOnlyList<QueuedProblem> TakeReady(Func<string, bool> isBusy, Func<QueuedProblem, bool>? canStart = null)
     {
@@ -72,7 +75,7 @@ public sealed class ProblemQueue
                 }
                 return known;
             }
-            foreach (var problem in _waiting.OrderBy(other => RouteRank.Of(other.Entry)).ThenBy(other => other.QueuedAt))
+            foreach (var problem in InOrder(_waiting))
             {
                 var repository = RepositoryOf(problem);
                 // A problem that cannot start now (it waits for a bot to rebase its pull request) does not hold its lot: the next one of the route takes the turn (ADR 0055)

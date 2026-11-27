@@ -1,5 +1,6 @@
 using Orchestrarr.Core.Decisions;
 using Orchestrarr.Core.Forge;
+using Orchestrarr.Core.Infrastructure;
 
 namespace Orchestrarr.Core.Test.Decisions;
 
@@ -36,4 +37,15 @@ public sealed class ProblemNatureTests
     [InlineData(ProblemKind.DormantRepository, ProblemNature.Other)]
     public void Any_other_row_is_what_its_kind_says(ProblemKind kind, ProblemNature nature) =>
         ProblemNatures.OfKind(kind).Should().Be(nature);
+
+    [Theory]
+    [InlineData(VersionForm.DockerfileFrom, ProblemNature.BaseImageUpdate)]
+    [InlineData(VersionForm.ImageLine, ProblemNature.ImageBehind)]
+    public void An_image_written_in_the_from_of_a_dockerfile_is_the_base_image(VersionForm form, ProblemNature nature)
+    {
+        var row = new ProblemRow("r", "w", "shop", ProblemKind.ImageUpdate, "node 20 to 22", null, null, null, null, null, null, null, Ceiling.NoAction, CeilingReason.None, false,
+            Locations: [new CodeLocation("o/r", "Dockerfile", 1, form, new ImageReference("node", "20", null))]);
+
+        ProblemNatures.OfRow(row).Should().Be(nature);
+    }
 }

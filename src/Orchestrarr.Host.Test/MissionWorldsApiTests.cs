@@ -321,11 +321,46 @@ public sealed class MissionWorldsApiTests
         var next = await starter.StartOrQueueAsync(NoPullRequest("p-next", "example/shop"), Ct);
 
         parked.Queued.Should().BeTrue("the bot is asked and the operation waits");
-        forge.RebaseAsked.Should().Equal(7);
+        forge.RebaseCommands.Should().Equal([(7, "@dependabot rebase")], "each bot is asked with its own command");
         factory.Services.GetRequiredService<ProblemParking>().IsParked("p-bot").Should().BeTrue();
         line.Contains("p-bot").Should().BeTrue();
         next.MissionId.Should().NotBeNull("a parked operation does not hold its lot");
         factory.Services.GetRequiredService<IProblemStore>().Get("p-bot").Should().BeNull("a parked operation is planned, not started");
+    }
+
+    [Fact]
+    public async Task A_bot_that_has_no_command_to_rebase_is_not_waited_for_and_its_pull_request_is_put_aside_at_once()
+    {
+        var forge = new FakeForge { Author = "renovate[bot]", PullMerge = MergeState.Conflicting };
+        using var factory = new WorldsFactory(forge);
+        var starter = factory.Services.GetRequiredService<ProblemStarter>();
+
+        _ = await starter.StartOrQueueAsync(Prepared("p-bot", 7, "example/shop"), Ct);
+
+        forge.RebaseAsked.Should().BeEmpty("nothing is written on a pull request in a language its bot does not speak");
+        factory.Services.GetRequiredService<ProblemParking>().IsParked("p-bot").Should().BeFalse();
+        var run = factory.Services.GetRequiredService<IProblemStore>().Get("p-bot")!;
+        run.State.Should().Be(ProblemState.Failed);
+        run.Note.Should().Contain("renovate[bot]").And.Contain("no command");
+    }
+
+    [Fact]
+    public async Task A_bot_is_asked_to_rebase_a_bounded_number_of_times_over_the_whole_life_of_the_problem()
+    {
+        var forge = new FakeForge { Author = "dependabot[bot]", PullMerge = MergeState.Conflicting };
+        using var factory = new WorldsFactory(forge);
+        var starter = factory.Services.GetRequiredService<ProblemStarter>();
+        _ = await starter.StartOrQueueAsync(Prepared("p-bot", 7, "example/shop"), Ct);
+        var parking = factory.Services.GetRequiredService<ProblemParking>();
+        // the lot was held meanwhile, so this wait starts again; but the bot was already asked four times in all (Missions:BotRebaseRequestsInAll)
+        parking.Set("p-bot", new ParkedProblem(DateTimeOffset.UtcNow - TimeSpan.FromMinutes(31), 2, DateTimeOffset.UtcNow - TimeSpan.FromMinutes(31), DateTimeOffset.UtcNow - TimeSpan.FromMinutes(31), "it conflicts with its base branch", AllRequests: 4));
+        parking.LotBusy("p-bot");
+        forge.RebaseAsked.Clear();
+
+        await starter.StartReadyAsync(Ct);
+
+        forge.RebaseAsked.Should().BeEmpty("a bot is not asked again and again over the life of a problem");
+        parking.IsParked("p-bot").Should().BeTrue("it still waits, until the wait is over");
     }
 
     [Fact]
@@ -461,6 +496,7 @@ public sealed class MissionWorldsApiTests
 
         answer.MissionId.Should().NotBeNull(answer.Refusal);
         factory.Services.GetRequiredService<IProblemStore>().Get("p-again")!.Entry.HeadSha.Should().Be(Head, "the work follows the head that the bot made");
+        factory.Services.GetRequiredService<Orchestrarr.Core.Approvals.IAuditLog>().Page(100).Select(row => row.Entry.Event).Should().Contain(MissionAuditEvents.ProblemFollowedBot, "following a new head is in the trail");
     }
 
     [Fact]
@@ -654,6 +690,18 @@ public sealed class MissionWorldsApiTests
         refused.Error.Should().Contain("SandboxMergeRepositories");
         await inner.Received(1).MergePullRequestAsync("example/shop", 7, Head, Ct);
         await inner.DidNotReceive().MergePullRequestAsync("other/shop", Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task A_bot_is_asked_to_rebase_only_on_a_repository_that_the_settings_name()
+    {
+        var inner = Substitute.For<IForgeActs>();
+        _ = inner.RequestBotRebaseAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
+        var guarded = new GuardedForgeActs(inner, ["example/*"]);
+
+        (await guarded.RequestBotRebaseAsync("other/shop", 7, "@dependabot rebase", Ct)).Should().BeFalse("nothing is written on a repository outside the test bed");
+        (await guarded.RequestBotRebaseAsync("example/shop", 7, "@dependabot rebase", Ct)).Should().BeTrue();
+        await inner.DidNotReceive().RequestBotRebaseAsync("other/shop", Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

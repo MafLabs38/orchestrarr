@@ -108,7 +108,7 @@ public sealed partial class ChangeProof(IShell shell, MissionRunnerOptions optio
         if (command is null)
         {
             // A repository that holds nothing the runner builds (its pipelines, its scripts) is proved by its pipeline on the forge, which the Git world requires green on the exact head (ADR 0055)
-            evidence.Add("build:none");
+            evidence.Add(MissionEvidence.NoBuild);
             evidence.Add($"{MissionEvidence.ArtifactTree}{tree}");
             evidence.Add($"{MissionEvidence.Repair}{count}");
             await report($"The agent pushed {count} file(s); the repository has nothing that the runner builds, so its pipeline on the forge is the proof");

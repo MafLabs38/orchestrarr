@@ -78,6 +78,10 @@ public static partial class RepairPolicy
             {
                 return weakened;
             }
+            if (DependencySources.Foreign(file.Path, file.Content.Split('\n')) is { } foreignDependency)
+            {
+                return foreignDependency;
+            }
             var size = System.Text.Encoding.UTF8.GetByteCount(file.Content);
             total += size;
             if (size > MaxFileBytes || total > MaxTotalBytes || file.Content.Contains('\0', StringComparison.Ordinal))

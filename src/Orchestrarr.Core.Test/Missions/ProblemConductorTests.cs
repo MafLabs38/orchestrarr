@@ -1267,6 +1267,17 @@ public sealed class ProblemConductorTests : IDisposable
     }
 
     [Fact]
+    public async Task The_pipelines_are_in_the_frame_of_a_mission_unless_its_problem_is_about_them()
+    {
+        var library = await StartStaged(Conductor(), Entry());
+        var red = await StartStaged(Build(_authority, null, "red", locks: null), Entry() with { ProblemId = "problem-red", Brief = new ProblemBrief("FailingCi", "example/shop", "the pipeline fails", true) });
+
+        library.Mandate!.Mandate.Frame.ForbiddenPaths.Should().Contain(".github/**", "a library bump does not touch what judges it");
+        red.Mandate!.Mandate.Frame.ForbiddenPaths.Should().NotContain(".github/**", "a red pipeline is repaired in its pipeline");
+        red.Mandate.Mandate.Frame.ForbiddenPaths.Should().Contain("**/.env*", "the floor stays whatever the problem");
+    }
+
+    [Fact]
     public async Task The_mandates_carry_the_forbidden_paths_of_the_certificate_and_the_application_and_class_of_the_problem()
     {
         _authority.Adjust = request => request with { ForbiddenPaths = ["infra/prod/**"] };

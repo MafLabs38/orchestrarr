@@ -44,6 +44,9 @@ public static class MissionEvidence
     public const string MergeCommit = "merge:commit=";
     public const string Pipeline = "pipeline:";
 
+    /// <summary>Written by a proof in staging of a repository that has nothing to build or run (only pipelines, for example): what was proved is said by its pipeline alone (ADR 0055).</summary>
+    public const string NoBuild = "build:none";
+
     /// <summary>Written by a staging proof that was repaired, with the number of files: what tells the control plane that a repair was made, whatever it still holds of it.</summary>
     public const string Repair = "repair:files=";
 

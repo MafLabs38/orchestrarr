@@ -275,8 +275,13 @@ internal static class SandboxMissionsExtensions
         // One reader of the forge for the facts of a pull request and for the default branch, made when it is first needed
         var githubFacts = new Lazy<GitHubPullRequestFacts?>(() => string.IsNullOrWhiteSpace(github.Token) ? null : GitHubPullRequestFacts.Create(github));
         // The fake source of findings reaches the rows: the lab can plant an advisory that no real scanner reports (ADR 0055)
-        if (!string.IsNullOrWhiteSpace(missions.SandboxFindingsFile) && services.LastOrDefault(descriptor => descriptor.ServiceType == typeof(IFleetSource)) is { ImplementationFactory: { } real } fleet)
+        if (!string.IsNullOrWhiteSpace(missions.SandboxFindingsFile))
         {
+            // A file that is set and cannot be read in is said at start, never ignored: the demo would run without the faults it plants
+            if (services.LastOrDefault(descriptor => descriptor.ServiceType == typeof(IFleetSource)) is not { ImplementationFactory: { } real } fleet)
+            {
+                throw new InvalidOperationException("Missions:SandboxFindingsFile is set but the source of the fleet is not registered by a factory that it can wrap.");
+            }
             var file = missions.SandboxFindingsFile;
             services.Remove(fleet);
             services.AddSingleton<IFleetSource>(provider => new SandboxFleetFindings((IFleetSource)real(provider), file));

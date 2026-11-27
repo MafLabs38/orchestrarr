@@ -72,6 +72,11 @@ public static partial class ChangePolicy
             {
                 return weakened;
             }
+            // A manifest or a container file takes its dependencies from a registry (ADR 0055): read on the lines that the change adds
+            if (DependencySources.Foreign(file.Path, AddedLines(file.Patch)) is { } foreignDependency)
+            {
+                return foreignDependency;
+            }
             if (!CarriedStatuses.Contains(file.Status, StringComparer.Ordinal))
             {
                 return $"'{file.Path}' is {file.Status}: a change is carried as added and modified files";

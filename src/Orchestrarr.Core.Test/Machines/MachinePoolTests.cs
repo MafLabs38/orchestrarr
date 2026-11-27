@@ -98,20 +98,34 @@ public sealed class MachinePoolTests
     public void A_machine_that_went_down_is_qualified_again_by_itself_after_a_while_a_bounded_number_of_times_an_hour()
     {
         var pool = Pool();
-        pool.Register("bilbao", MachineRole.Release);
-        _ = pool.Report("bilbao", Failing(_time.GetUtcNow()));
+        pool.Register("release-1", MachineRole.Release);
+        _ = pool.Report("release-1", Failing(_time.GetUtcNow()));
 
         pool.RequalifyAfterFault(TimeSpan.FromMinutes(5), 2).Should().BeEmpty("not before the delay");
         for (var round = 0; round < 2; round++)
         {
             _time.Advance(TimeSpan.FromMinutes(6));
             pool.RequalifyAfterFault(TimeSpan.FromMinutes(5), 2).Should().ContainSingle().Which.Reason.Should().StartWith(MachinePool.AutomaticRequalification);
-            _ = pool.Report("bilbao", Failing(_time.GetUtcNow()));
+            _ = pool.Report("release-1", Failing(_time.GetUtcNow()));
         }
         _time.Advance(TimeSpan.FromMinutes(6));
 
         pool.RequalifyAfterFault(TimeSpan.FromMinutes(5), 2).Should().BeEmpty("a machine that keeps failing stays down for a person");
-        pool.Get("bilbao")!.State.Should().Be(MachineState.Down);
+        pool.Get("release-1")!.State.Should().Be(MachineState.Down);
+    }
+
+    [Fact]
+    public void A_machine_whose_isolation_failed_stays_down_for_a_person_and_no_requalification_is_made_when_none_is_allowed()
+    {
+        var pool = Pool();
+        pool.Register("release-1", MachineRole.Release);
+        _ = pool.Report("release-1", Failing(_time.GetUtcNow()));
+        _time.Advance(TimeSpan.FromMinutes(6));
+
+        pool.RequalifyAfterFault(TimeSpan.FromMinutes(5), 2, ["isolation"]).Should().BeEmpty("what ran on a machine whose isolation did not hold is looked at by a person before a restore wipes it");
+        pool.RequalifyAfterFault(TimeSpan.FromMinutes(5), 0).Should().BeEmpty("none an hour is none");
+        pool.Get("release-1")!.State.Should().Be(MachineState.Down);
+        pool.RequalifyAfterFault(TimeSpan.FromMinutes(5), 2, ["reachable"]).Should().ContainSingle("only the checks named are kept for a person");
     }
 
     [Theory]

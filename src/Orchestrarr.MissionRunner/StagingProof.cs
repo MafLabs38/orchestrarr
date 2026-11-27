@@ -67,7 +67,7 @@ public sealed partial class StagingProof(IShell shell, MissionRunnerOptions opti
         if (command is null)
         {
             // A repository that holds nothing the runner builds (its pipelines, its scripts) is proved by its pipeline on the forge, which the Git world requires green on the exact head: said as it is (ADR 0055)
-            evidence.Add("build:none");
+            evidence.Add(MissionEvidence.NoBuild);
             return new MissionHandOver($"Pull request #{number} of {mission.Repository} was fetched and merged on its base at {Short(head)} on a staging machine; the repository has nothing that the runner builds (no package.json, requirements.txt or compose file), so what it changes is proved by its pipeline on the forge, which the Git world requires green on the exact head.",
                 $"Fetched {mission.Repository}#{number} at {head}. Nothing to build here: the proof of this change is the pipeline of the pull request.",
                 evidence, [], Complex: false, null, head);
