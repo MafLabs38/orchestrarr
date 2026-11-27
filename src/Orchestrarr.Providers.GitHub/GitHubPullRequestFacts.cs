@@ -74,8 +74,9 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefault
                 // The forge works out the merge state of a pull request lazily, a while after the base moved; how many commits of the base the head lacks is known at once
                 var behind = baseRef is null ? null : await BehindByAsync(repositoryFullName, baseRef, head, cancellationToken);
                 var commits = await CommitAuthorsAsync(repositoryFullName, number, cancellationToken);
+                var pushedBy = await HeadPushedByAsync(repositoryFullName, pull.RootElement.GetProperty("head"), head, cancellationToken);
                 return new PullRequestFacts(head, baseSha, draft, checks, paths, complete, BaseRef: baseRef, DefaultBranch: defaultBranch, Author: author, Merge: mergeState, Closed: closed, BehindBy: behind,
-                    CommitAuthors: commits?.Authors, CommitsSigned: commits?.Signed ?? false);
+                    CommitAuthors: commits, HeadPushedBy: pushedBy);
             }
             // Once it is merged, what runs is the commit that the merge made on the base branch: its tree and the checks of its pipeline are the facts of the later worlds
             var mergeChecks = await ChecksOfAsync(repositoryFullName, mergeCommit, [], cancellationToken, ownWorkflowsOnly: true);
@@ -483,20 +484,36 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefault
         }
     }
 
-    // The account each commit is linked to, and whether every commit is signed with a signature the forge verified and committed by its author or by the forge itself (web-flow: a commit the forge made for the bot)
-    private async Task<(IReadOnlyList<string> Authors, bool Signed)?> CommitAuthorsAsync(string repository, int number, CancellationToken cancellationToken)
+    // The account each commit is linked to, as the forge links it (from the e-mail that whoever wrote the commit chose: it says who claims to have written it, not who pushed it)
+    private async Task<IReadOnlyList<string>?> CommitAuthorsAsync(string repository, int number, CancellationToken cancellationToken)
     {
         using var commits = await GetAsync($"repos/{repository}/pulls/{number}/commits?per_page=100", cancellationToken);
-        if (commits is null || commits.RootElement.ValueKind != JsonValueKind.Array || commits.RootElement.GetArrayLength() >= 100)
+        return commits is null || commits.RootElement.ValueKind != JsonValueKind.Array || commits.RootElement.GetArrayLength() >= 100
+            ? null
+            : [.. commits.RootElement.EnumerateArray().Select(commit => LoginOf(commit, "author"))];
+    }
+
+    // Who pushed the head to its branch, as the forge recorded the push with the account that was signed in (its activity log): no one can write that in a commit. A branch of another repository (a fork), a head that no
+    // push of the log produced, or a log that cannot be read, is no one's
+    private async Task<string?> HeadPushedByAsync(string repository, JsonElement headOfPull, string head, CancellationToken cancellationToken)
+    {
+        if (!headOfPull.TryGetProperty("ref", out var refName) || refName.GetString() is not { Length: > 0 and <= 200 } branch
+            || !headOfPull.TryGetProperty("repo", out var headRepository) || headRepository.ValueKind != JsonValueKind.Object
+            || !headRepository.TryGetProperty("full_name", out var fullName) || !string.Equals(fullName.GetString(), repository, StringComparison.OrdinalIgnoreCase))
         {
             return null;
         }
-        var all = commits.RootElement.EnumerateArray().ToList();
-        IReadOnlyList<string> authors = [.. all.Select(commit => LoginOf(commit, "author"))];
-        var signed = all.Count > 0 && all.All(commit =>
-            commit.TryGetProperty("commit", out var detail) && detail.TryGetProperty("verification", out var verification) && verification.TryGetProperty("verified", out var verified) && verified.ValueKind == JsonValueKind.True
-            && LoginOf(commit, "committer") is { Length: > 0 } committer && (committer == "web-flow" || string.Equals(committer, LoginOf(commit, "author"), StringComparison.OrdinalIgnoreCase)));
-        return (authors, signed);
+        var fullRef = $"refs/heads/{branch}";
+        using var activity = await GetAsync($"repos/{repository}/activity?ref={Uri.EscapeDataString(fullRef)}&per_page=100", cancellationToken);
+        if (activity is null || activity.RootElement.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+        // Newest first: the push that made the head is the newest one on this branch whose result is the head
+        var push = activity.RootElement.EnumerateArray().FirstOrDefault(item =>
+            item.TryGetProperty("ref", out var itemRef) && string.Equals(itemRef.GetString(), fullRef, StringComparison.Ordinal)
+            && item.TryGetProperty("after", out var after) && string.Equals(after.GetString(), head, StringComparison.Ordinal));
+        return push.ValueKind == JsonValueKind.Object && LoginOf(push, "actor") is { Length: > 0 } actor ? actor : null;
     }
 
     private static string LoginOf(JsonElement commit, string role) =>

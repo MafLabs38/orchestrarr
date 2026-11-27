@@ -320,13 +320,14 @@ public sealed class GitHubPullRequestFactsTests
     public async Task An_open_pull_request_says_who_made_it_who_wrote_each_commit_whether_it_is_closed_and_how_far_behind_its_base_it_is()
     {
         Serve("""{ "check_runs": [ { "status": "completed", "conclusion": "success" } ] }""");
-        _routes["/repos/example/app/pulls/3"] = $$"""{ "draft": false, "state": "closed", "mergeable_state": "behind", "user": { "login": "dependabot[bot]" }, "head": { "sha": "{{Head}}" }, "base": { "sha": "{{Base}}", "ref": "develop", "repo": { "default_branch": "develop" } } }""";
+        _routes["/repos/example/app/pulls/3"] = $$"""{ "draft": false, "state": "closed", "mergeable_state": "behind", "user": { "login": "dependabot[bot]" }, "head": { "sha": "{{Head}}", "ref": "dependabot/npm/x", "repo": { "full_name": "example/app" } }, "base": { "sha": "{{Base}}", "ref": "develop", "repo": { "default_branch": "develop" } } }""";
         _routes[$"/repos/example/app/compare/develop...{Head}"] = """{ "behind_by": 2, "files": [] }""";
         _routes["/repos/example/app/pulls/3/commits"] = """[ { "author": { "login": "dependabot[bot]" } }, { "author": null } ]""";
-        _routes["/repos/example/app/pulls/4/commits"] = """[ { "author": { "login": "dependabot[bot]" }, "committer": { "login": "web-flow" }, "commit": { "verification": { "verified": true } } } ]""";
-        _routes["/repos/example/app/pulls/4"] = _routes["/repos/example/app/pulls/3"];
-        _routes["/repos/example/app/pulls/5/commits"] = """[ { "author": { "login": "dependabot[bot]" }, "committer": { "login": "mallory" }, "commit": { "verification": { "verified": true } } } ]""";
-        _routes["/repos/example/app/pulls/5"] = _routes["/repos/example/app/pulls/3"];
+        _routes["/repos/example/app/activity"] = $$"""
+            [ { "ref": "refs/heads/dependabot/npm/x", "after": "{{Head}}", "activity_type": "push", "actor": { "login": "mallory" } },
+              { "ref": "refs/heads/dependabot/npm/x", "after": "{{Head}}", "activity_type": "force_push", "actor": { "login": "dependabot[bot]" } },
+              { "ref": "refs/heads/other", "after": "{{Base}}", "activity_type": "push", "actor": { "login": "dependabot[bot]" } } ]
+            """;
 
         var facts = (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!;
 
@@ -335,9 +336,13 @@ public sealed class GitHubPullRequestFactsTests
         facts.Merge.Should().Be(MergeState.Behind);
         facts.BehindBy.Should().Be(2);
         facts.CommitAuthors.Should().Equal(["dependabot[bot]", ""], "a commit that no account is linked to is no one's: it is not the bot's");
-        facts.CommitsSigned.Should().BeFalse("no signature was verified");
-        (await Facts().ReadAsync("example/app", 4, TestContext.Current.CancellationToken))!.CommitsSigned.Should().BeTrue("signed, and committed by the forge for the bot");
-        (await Facts().ReadAsync("example/app", 5, TestContext.Current.CancellationToken))!.CommitsSigned.Should().BeFalse("signed, but committed by someone else");
+        facts.HeadPushedBy.Should().Be("mallory", "the newest push of the head's own branch that resulted in the head is the one that says who pushed it");
+
+        _routes["/repos/example/app/pulls/3"] = _routes["/repos/example/app/pulls/3"].Replace("\"full_name\": \"example/app\"", "\"full_name\": \"fork/app\"", StringComparison.Ordinal);
+        (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!.HeadPushedBy.Should().BeNull("the branch of a fork is not in this repository's log");
+        _routes["/repos/example/app/pulls/3"] = _routes["/repos/example/app/pulls/3"].Replace("\"full_name\": \"fork/app\"", "\"full_name\": \"example/app\"", StringComparison.Ordinal);
+        _routes.Remove("/repos/example/app/activity");
+        (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!.HeadPushedBy.Should().BeNull("a log that cannot be read says no one pushed it");
 
         _routes.Remove($"/repos/example/app/compare/develop...{Head}");
         _routes.Remove("/repos/example/app/pulls/3/commits");

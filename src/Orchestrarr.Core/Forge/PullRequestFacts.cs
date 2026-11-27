@@ -2,7 +2,8 @@ namespace Orchestrarr.Core.Forge;
 
 /// <summary>
 /// What the forge says about one pull request, read by the control plane itself (FR-MAN-7): the commits, the checks of the head and the paths that change; once it is merged, the commit that the merge made on the base branch, its tree
-/// and the checks of that commit. None of it comes from a worker.
+/// and the checks of that commit. None of it comes from a worker. <c>HeadPushedBy</c> is the account that pushed the head to its branch, as the forge recorded the push (null when it cannot be read): unlike the author of a commit, it
+/// cannot be written by whoever made the commit.
 /// </summary>
 public sealed record PullRequestFacts(
     string HeadSha,
@@ -22,7 +23,7 @@ public sealed record PullRequestFacts(
     bool Closed = false,
     int? BehindBy = null,
     IReadOnlyList<string>? CommitAuthors = null,
-    bool CommitsSigned = false,
+    string? HeadPushedBy = null,
     bool BaseWasRed = false)
 {
     /// <summary>Whether the pull request targets the default branch of its repository: the only base that staging proves a merge onto. Unknown counts as not.</summary>

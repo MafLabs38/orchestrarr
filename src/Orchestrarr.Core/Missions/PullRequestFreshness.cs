@@ -25,12 +25,12 @@ public enum Freshness
 public sealed record FreshnessVerdict(Freshness Kind, string? Head, string? Reason, string? Author = null);
 
 /// <summary>
-/// The decision of ADR 0055 on a pull request that waits for its turn. **Pure**: it reads what the forge said and the plan entry, and never writes. The author, and the account and the signature of every commit, are the guard of the one case where the work follows a new head: only
-/// a pull request that a configured bot made, with commits that are all the bot's own, is followed (the staging proof, the pipeline and the controller still judge the new head), and anything else that moved is left, as ADR 0049 said.
+/// The decision of ADR 0055 on a pull request that waits for its turn. **Pure**: it reads what the forge said and the plan entry, and never writes. The author, the account of every commit and **the account that pushed the head** (as the forge recorded the push) are the guard of the one case where
+/// the work follows a new head: only a pull request that a configured bot made, whose head the bot pushed, with commits that are all linked to the bot, is followed (the staging proof, the pipeline and the controller still judge the new head), and anything else that moved is left, as ADR 0049 said.
 /// </summary>
 public static class PullRequestFreshness
 {
-    public static FreshnessVerdict Of(PlanEntry entry, PullRequestFacts? facts, Func<string?, bool> isBot, Func<string?, bool>? unsignedAllowed = null)
+    public static FreshnessVerdict Of(PlanEntry entry, PullRequestFacts? facts, Func<string?, bool> isBot)
     {
         ArgumentNullException.ThrowIfNull(entry);
         ArgumentNullException.ThrowIfNull(isBot);
@@ -57,7 +57,7 @@ public static class PullRequestFreshness
             return new FreshnessVerdict(Freshness.Left, null, "the pull request moved since the maintainer ticked it and it is not a bot's: it is ticked again on the commit it is at");
         }
         // The author of a pull request stays the bot whoever pushes to its branch afterwards: a new head is the bot's only when every commit of the pull request is the bot's own, as the forge links them to accounts
-        if (moved && !IsTheBotsOwn(facts, unsignedAllowed?.Invoke(facts.Author) == true))
+        if (moved && !IsTheBotsOwn(facts))
         {
             return new FreshnessVerdict(Freshness.Left, null, "someone other than its bot pushed to the bot's branch: it is ticked again on the commit it is at");
         }
@@ -72,13 +72,13 @@ public static class PullRequestFreshness
     }
 
     /// <summary>
-    /// Whether every commit of the pull request is its author's (the bot's): linked by the forge to that account **and signed** with a signature that the forge verified (the account a commit is linked to is read from the e-mail that
-    /// whoever wrote the commit chose; a signature is not). A list that could not be read, or that is empty, is not. <paramref name="unsignedAllowed"/> is for an account whose commits are never signed, such as the lab's bot of a
-    /// test bed (<c>Missions:BotUnsignedAuthors</c>): there the e-mail is the only link, and the test bed's tokens are the guard.
+    /// Whether the head of the pull request is its author's (the bot's) own: **the forge recorded that the bot's account pushed it** (a push is made by an account that is signed in, and no one can write that in a commit, unlike the
+    /// author or the signature of a commit, which another account with write access can make look like the bot's), and every commit is linked to that account. A push or a list that could not be read, or that is empty, is not.
     /// </summary>
-    public static bool IsTheBotsOwn(PullRequestFacts facts, bool unsignedAllowed = false)
+    public static bool IsTheBotsOwn(PullRequestFacts facts)
     {
         ArgumentNullException.ThrowIfNull(facts);
-        return facts.CommitAuthors is { Count: > 0 } authors && authors.All(author => string.Equals(author, facts.Author, StringComparison.OrdinalIgnoreCase)) && (facts.CommitsSigned || unsignedAllowed);
+        return facts.HeadPushedBy is { Length: > 0 } pusher && string.Equals(pusher, facts.Author, StringComparison.OrdinalIgnoreCase)
+            && facts.CommitAuthors is { Count: > 0 } authors && authors.All(author => string.Equals(author, facts.Author, StringComparison.OrdinalIgnoreCase));
     }
 }

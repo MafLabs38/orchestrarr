@@ -13,7 +13,7 @@ public sealed class PullRequestFreshnessTests
         new("p", "app", "x", "x", ["o/r"], World.Release, new MissionBudget(30, 3, 50), new Validation("alice", null), T0, pullRequest, Ticked);
 
     private static PullRequestFacts Facts(string head = Ticked, string? author = "dependabot[bot]", MergeState merge = MergeState.Clean, bool merged = false, bool closed = false, int? behindBy = null, IReadOnlyList<string>? commits = null) =>
-        new(head, "base", false, ChecksState.Passing, ["package.json"], true, Merged: merged, Author: author, Merge: merge, Closed: closed, BehindBy: behindBy, CommitAuthors: commits ?? (author is null ? null : [author]), CommitsSigned: true);
+        new(head, "base", false, ChecksState.Passing, ["package.json"], true, Merged: merged, Author: author, Merge: merge, Closed: closed, BehindBy: behindBy, CommitAuthors: commits ?? (author is null ? null : [author]), HeadPushedBy: author);
 
     private static bool IsBot(string? login) => login == "dependabot[bot]";
 
@@ -28,13 +28,15 @@ public sealed class PullRequestFreshnessTests
         verdict.Reason.Should().Contain("someone other than its bot");
     }
 
-    [Fact]
-    public void A_new_head_with_commits_that_the_forge_did_not_verify_is_left_unless_the_bot_is_allowed_to_be_unsigned()
+    [Theory]
+    [InlineData("orchestrarr-sandbox-agent[bot]")]
+    [InlineData(null)]
+    public void A_new_head_that_the_bot_did_not_push_itself_is_left_even_when_its_commits_claim_to_be_the_bots(string? pusher)
     {
-        var unsigned = Facts(head: "new") with { CommitsSigned = false };
+        var claimed = Facts(head: "new") with { HeadPushedBy = pusher };
 
-        PullRequestFreshness.Of(Entry(), unsigned, IsBot).Kind.Should().Be(Freshness.Left, "the account of a commit is read from an e-mail that anyone who can push may write");
-        PullRequestFreshness.Of(Entry(), unsigned, IsBot, login => login == "dependabot[bot]").Kind.Should().Be(Freshness.Followed);
+        PullRequestFreshness.Of(Entry(), claimed, IsBot).Kind.Should().Be(Freshness.Left, "the account of a commit, and even a signature the forge made through its API, can be made to look like the bot's; the account that pushed cannot");
+        PullRequestFreshness.Of(Entry(), claimed with { HeadPushedBy = "Dependabot[bot]" }, IsBot).Kind.Should().Be(Freshness.Followed, "the bot's own push is followed, whatever the case of its name");
     }
 
     [Fact]

@@ -29,13 +29,10 @@ internal sealed class BotPullRequests(IServiceProvider services, MissionsOptions
             await Task.Delay(TimeSpan.FromSeconds(Math.Max(0, options.BotRebaseUnknownWaitSeconds)), time, cancellationToken);
             read = await facts.ReadAsync(entry.Repositories[0], number, cancellationToken);
         }
-        return PullRequestFreshness.Of(entry, read, IsBot, IsUnsignedBot);
+        return PullRequestFreshness.Of(entry, read, IsBot);
     }
 
     private bool IsBot(string? login) => login is not null && options.BotAuthorsInEffect.Contains(login, StringComparer.OrdinalIgnoreCase);
-
-    // A test-bed setting only: outside Missions:Sandbox every followed commit must be signed
-    private bool IsUnsignedBot(string? login) => options.Sandbox && IsBot(login) && options.BotUnsignedAuthors.Contains(login, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>What becomes of a problem that waits in the line, from the verdict on its pull request. True when it is ready to start (nothing else of the lot is read in this pass).</summary>
     internal async Task<bool> ApplyInLineAsync(PlanEntry entry, FreshnessVerdict verdict, CancellationToken cancellationToken)
@@ -149,7 +146,7 @@ internal sealed class BotPullRequests(IServiceProvider services, MissionsOptions
             return;
         }
         var read = await facts.ReadAsync(entry.Repositories[0], number, cancellationToken);
-        if (read is null || read.Merged || read.Closed || !IsBot(read.Author) || !PullRequestFreshness.IsTheBotsOwn(read, IsUnsignedBot(read.Author)))
+        if (read is null || read.Merged || read.Closed || !IsBot(read.Author) || !PullRequestFreshness.IsTheBotsOwn(read))
         {
             return;
         }

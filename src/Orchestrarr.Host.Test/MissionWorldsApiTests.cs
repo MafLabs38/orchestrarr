@@ -40,8 +40,8 @@ public sealed class MissionWorldsApiTests
         /// <summary>Who wrote each commit of the pull request; null: every commit is its author's.</summary>
         public IReadOnlyList<string>? CommitAuthors { get; set; }
 
-        /// <summary>Whether the forge verified the signature of every commit (a bot's are signed).</summary>
-        public bool CommitsSigned { get; set; } = true;
+        /// <summary>The account the forge recorded as having pushed the head (null: the author of the pull request).</summary>
+        public string? Pusher { get; set; }
 
         /// <summary>The commands that the bots were asked to rebase with, by pull request.</summary>
         public List<(int Number, string Command)> RebaseCommands { get; } = [];
@@ -97,7 +97,7 @@ public sealed class MissionWorldsApiTests
         public string BaseRef { get; set; } = "main";
 
         public Task<PullRequestFacts?> ReadAsync(string repositoryFullName, int number, CancellationToken cancellationToken) =>
-            Task.FromResult<PullRequestFacts?>(new PullRequestFacts(Opened.Count > 0 && number == RepairNumber ? PullHead : Head, "base", false, Opened.Count > 0 && number == RepairNumber ? ChecksState.Passing : HeadChecks, ["package.json"], PathsComplete: true, Merged, Merged ? MergeCommit : null, Merged ? TreeOfTheMerge : null, Merged ? MergeChecks : ChecksState.Unknown, BaseRef: BaseRef, DefaultBranch: "main", Author: Author, Merge: PullMerge, Closed: Closed.Contains(number), CommitAuthors: CommitAuthors ?? (Author is null ? null : [Author]), CommitsSigned: CommitsSigned));
+            Task.FromResult<PullRequestFacts?>(new PullRequestFacts(Opened.Count > 0 && number == RepairNumber ? PullHead : Head, "base", false, Opened.Count > 0 && number == RepairNumber ? ChecksState.Passing : HeadChecks, ["package.json"], PathsComplete: true, Merged, Merged ? MergeCommit : null, Merged ? TreeOfTheMerge : null, Merged ? MergeChecks : ChecksState.Unknown, BaseRef: BaseRef, DefaultBranch: "main", Author: Author, Merge: PullMerge, Closed: Closed.Contains(number), CommitAuthors: CommitAuthors ?? (Author is null ? null : [Author]), HeadPushedBy: Pusher ?? Author));
 
         public Task<DefaultBranchHead?> ReadAsync(string repositoryFullName, CancellationToken cancellationToken) =>
             Task.FromResult<DefaultBranchHead?>(DefaultReadable ? new DefaultBranchHead("main", DefaultHead) : null);
@@ -503,15 +503,15 @@ public sealed class MissionWorldsApiTests
     }
 
     [Fact]
-    public async Task A_new_head_whose_commits_are_not_signed_is_followed_only_for_a_bot_that_the_settings_allow_to_be_unsigned()
+    public async Task A_new_head_that_another_account_pushed_is_not_followed_even_when_its_commits_claim_to_be_the_bots()
     {
-        var forge = new FakeForge { Author = "dependabot[bot]", CommitsSigned = false };
+        var forge = new FakeForge { Author = "dependabot[bot]", Pusher = "orchestrarr-sandbox-agent[bot]" };
         using var factory = new WorldsFactory(forge);
         var again = Prepared("p-again", 7, "example/shop");
 
         var answer = await factory.Services.GetRequiredService<ProblemStarter>().StartOrQueueAsync(again with { Entry = again.Entry! with { HeadSha = "0000000000000000000000000000000000000001" } }, Ct);
 
-        answer.MissionId.Should().BeNull("an e-mail in a commit is chosen by whoever wrote it: an unsigned commit is not the bot's own");
+        answer.MissionId.Should().BeNull("the author and the signature of a commit can be made to look like the bot's; the account that pushed, as the forge recorded it, cannot");
         answer.Refusal.Should().Be("thePullRequestMoved");
     }
 
