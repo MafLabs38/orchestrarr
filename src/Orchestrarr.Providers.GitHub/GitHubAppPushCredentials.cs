@@ -87,10 +87,20 @@ public sealed partial class GitHubAppPushCredentials : IPushCredentials, IDispos
             }
             // What the forge granted is read back: a token that may do more than was asked (a workflow write that was not asked for, any permission beyond metadata) is not handed out
             var permissions = granted.EnumerateObject().Where(permission => permission.Name != "metadata").ToDictionary(permission => permission.Name, permission => permission.Value.GetString() ?? string.Empty, StringComparer.Ordinal);
-            // A token that may write contents may merge a pull request through the API: it is handed out only where the forge keeps it from integrating anything (the default branch is updated by bypassing actors only)
-            if (permissions.Count != asked.Count || !asked.All(pair => permissions.TryGetValue(pair.Key, out var level) && level == pair.Value) || !await IntegrationIsGuardedAsync(repositoryFullName, value, cancellationToken))
+            // A token that may write contents may merge a pull request through the API: it is handed out only where the forge keeps it from integrating anything (the default branch is updated by bypassing actors only). From here
+            // the token is live: whatever goes wrong while it is checked, it is revoked before nothing is answered
+            bool handedOut;
+            try
             {
-                _ = await RevokeAsync(value, cancellationToken);
+                handedOut = permissions.Count == asked.Count && asked.All(pair => permissions.TryGetValue(pair.Key, out var level) && level == pair.Value) && await IntegrationIsGuardedAsync(repositoryFullName, value, cancellationToken);
+            }
+            catch (Exception failure) when (failure is HttpRequestException or JsonException || failure is TaskCanceledException && !cancellationToken.IsCancellationRequested)
+            {
+                handedOut = false;
+            }
+            if (!handedOut)
+            {
+                _ = await RevokeAsync(value, CancellationToken.None);
                 return null;
             }
             return new PushCredential(value, expiresAt, [.. asked.Select(pair => $"{pair.Key}:{pair.Value}")]);
@@ -112,10 +122,14 @@ public sealed partial class GitHubAppPushCredentials : IPushCredentials, IDispos
         // The branches a merge can integrate into: the default branch and the release branch (main), when it exists
         foreach (var guarded in branch == "main" ? [branch] : new[] { branch, "main" })
         {
-            using var exists = guarded == branch ? null : await SendAsync(HttpMethod.Get, $"repos/{repository}/branches/{guarded}", token, null, cancellationToken);
-            if (guarded != branch && exists is null)
+            // Only a branch that the forge says does not exist is skipped: a read that failed for any other reason fails closed
+            if (guarded != branch && await StatusAsync($"repos/{repository}/branches/{guarded}", token, cancellationToken) is var status && (int)status is < 200 or > 299)
             {
-                continue;
+                if (status == System.Net.HttpStatusCode.NotFound)
+                {
+                    continue;
+                }
+                return false;
             }
             using var rules = await SendAsync(HttpMethod.Get, $"repos/{repository}/rules/branches/{Uri.EscapeDataString(guarded)}", token, null, cancellationToken);
             if (rules?.RootElement is not { ValueKind: JsonValueKind.Array } list || !list.EnumerateArray().Any(rule => rule.TryGetProperty("type", out var type) && type.GetString() == "update"))
@@ -124,6 +138,14 @@ public sealed partial class GitHubAppPushCredentials : IPushCredentials, IDispos
             }
         }
         return true;
+    }
+
+    private async Task<System.Net.HttpStatusCode> StatusAsync(string path, string token, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(path, UriKind.Relative));
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        using var response = await _http.SendAsync(request, cancellationToken);
+        return response.StatusCode;
     }
 
     public async Task<bool> RevokeAsync(string token, CancellationToken cancellationToken)

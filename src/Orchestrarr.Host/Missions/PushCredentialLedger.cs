@@ -15,6 +15,9 @@ internal sealed class PushCredentialLedger(IPushCredentials credentials, IMissio
 
     private readonly Dictionary<string, List<string>> _live = new(StringComparer.Ordinal);
 
+    // The credentials whose revocation already failed once and was said: a forge that stays down is tried at each pass, and said once
+    private readonly HashSet<string> _toldFailed = new(StringComparer.Ordinal);
+
     /// <summary>A new credential of the mission, kept to be revoked in its turn; the earlier ones stay valid until the runner says that it placed this one.</summary>
     public void Issued(string missionId, string token)
     {
@@ -113,9 +116,18 @@ internal sealed class PushCredentialLedger(IPushCredentials credentials, IMissio
                 }
             }
         }
-        if (tokens.Count == 0)
+        bool firstTime;
+        lock (_gate)
         {
-            return 0;
+            firstTime = failed.Any(token => _toldFailed.Add(token)) || failed.Count == 0;
+            foreach (var token in tokens.Except(failed, StringComparer.Ordinal))
+            {
+                _ = _toldFailed.Remove(token);
+            }
+        }
+        if (tokens.Count == 0 || !firstTime)
+        {
+            return revoked;
         }
         var said = revoked == tokens.Count ? $"{revoked} push credential(s) revoked on the forge: {why}" : $"{tokens.Count - revoked} of {tokens.Count} push credential(s) could not be revoked on the forge ({why}): tried again at the next pass, and they expire within the hour";
         if (revoked < tokens.Count)

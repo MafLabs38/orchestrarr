@@ -307,6 +307,7 @@ public sealed class ChangeProofTests : IDisposable
         var time = new FakeTimeProvider(new DateTimeOffset(2026, 11, 27, 9, 0, 0, TimeSpan.Zero));
         var credentials = new Credentials(
             Credentials.Given("the-git-token", time.GetUtcNow().AddHours(1), "contents:write", "workflows:write"),
+            new PushCredentialResponse(false, "the forge did not answer", null, null, [], Retry: true),
             Credentials.Given("renewed-token", time.GetUtcNow().AddHours(2)),
             new PushCredentialResponse(false, "the approval was withdrawn", null, null, []));
         var machine = new Machine { AgentWorks = new TaskCompletionSource(), LeakTokens = true };
@@ -314,6 +315,9 @@ public sealed class ChangeProofTests : IDisposable
         var running = Run(machine, credentials: credentials, time: time);
         await Until(() => machine.AgentInput is not null);
         time.Advance(TimeSpan.FromMinutes(40));
+        await Until(() => credentials.Asked == 2);
+        machine.Scripts.Should().NotContain(script => script.EndsWith("rm -f ~/agentin/git-token", StringComparison.Ordinal), "a forge that did not make the credential now is not a refusal: the one in place is kept");
+        time.Advance(TimeSpan.FromMinutes(1));
         await Until(() => machine.Placed.Count == 2);
         time.Advance(TimeSpan.FromMinutes(40));
         await Until(() => { lock (machine.Scripts) { return machine.Scripts.Exists(script => script.EndsWith("rm -f ~/agentin/git-token", StringComparison.Ordinal)); } });
@@ -321,7 +325,7 @@ public sealed class ChangeProofTests : IDisposable
         var (dossier, _, lines) = await running;
 
         machine.Placed.Should().Equal(["the-git-token", "renewed-token"], "the credential is asked for again before it expires, and the new one replaces the old");
-        credentials.Asked.Should().Be(3);
+        credentials.Asked.Should().Be(4);
         credentials.Released.Should().Be(1, "once the agent is done, the control plane is told so that it revokes the credential on the forge");
         credentials.ReleasedEarlier.Should().Be(1, "the credential that the renewed one replaces is revoked only once the renewed one is placed");
         lines.Should().Contain(line => line.Contains("took the push credential back", StringComparison.Ordinal) && line.Contains("withdrawn", StringComparison.Ordinal));

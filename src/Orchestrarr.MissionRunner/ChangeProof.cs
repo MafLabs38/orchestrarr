@@ -218,6 +218,12 @@ public sealed partial class ChangeProof(IShell shell, MissionRunnerOptions optio
                     wait = TimeSpan.FromMinutes(1);
                     continue;
                 }
+                if (renewed is { Allowed: false, Retry: true })
+                {
+                    // The control plane authorised it and the forge did not make it now: the credential in place is kept, and asked for again a minute later
+                    wait = TimeSpan.FromMinutes(1);
+                    continue;
+                }
                 if (!renewed.Allowed || renewed.Token is not { Length: > 0 } next || renewed.ExpiresAt is not { } nextExpiry)
                 {
                     _ = await OnMachineAsync(machine, "rm -f ~/agentin/git-token", TimeSpan.FromMinutes(5), cancellationToken);

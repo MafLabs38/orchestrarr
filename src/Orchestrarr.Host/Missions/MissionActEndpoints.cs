@@ -95,16 +95,17 @@ internal static class MissionActEndpoints
             var grant = PushGrants.For(entry, mission.Frame);
             if (credentials is null || await credentials.IssueAsync(repository, grant.Pipelines, ct) is not { } issued)
             {
-                return Results.Ok(new PushCredentialResponse(false, "the forge made no push credential (Missions:SandboxAgentApp)", null, null, []));
+                return Results.Ok(new PushCredentialResponse(false, "the forge made no push credential now (Missions:SandboxAgentApp, or the forge did not answer)", null, null, [], Retry: credentials is not null));
             }
             var said = $"push credential for {repository} ({string.Join(", ", issued.Permissions)}) until {issued.ExpiresAt:u}: {grant.Justification}";
+            // Kept before anything else can fail, so that whatever happens next it is revoked on the forge (and tried again if the forge does not confirm)
+            ledger?.Issued(id, issued.Token);
             if (!await conductor.RecordActPerformedAsync(id, GatedAct.PushBranch, said, ct))
             {
                 // A credential whose making cannot be written down is not handed out, and is revoked at once
-                _ = await credentials.RevokeAsync(issued.Token, ct);
+                _ = ledger is null ? await credentials.RevokeAsync(issued.Token, ct) : await ledger.RevokeAsync(id, "the audit trail cannot be written", ct) > 0;
                 return Results.Ok(new PushCredentialResponse(false, "the audit trail cannot be written: no power is granted", null, null, []));
             }
-            ledger?.Issued(id, issued.Token);
             progress.Add(id, said);
             live.Publish(LiveTopics.Missions, id);
             return Results.Ok(new PushCredentialResponse(true, null, issued.Token, issued.ExpiresAt, issued.Permissions));

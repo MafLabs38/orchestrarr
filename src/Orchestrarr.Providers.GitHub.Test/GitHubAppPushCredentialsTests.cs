@@ -15,13 +15,18 @@ public sealed class GitHubAppPushCredentialsTests : IDisposable
 
     public void Dispose() => _key.Dispose();
 
-    private sealed class Forge(string? granted, bool guarded = true, bool mainExists = true, bool mainGuarded = true) : HttpMessageHandler
+    private sealed class Forge(string? granted, bool guarded = true, bool mainExists = true, bool mainGuarded = true, bool failRules = false) : HttpMessageHandler
     {
         public List<(HttpMethod Method, string Path, string? Authorization, string Body)> Requests { get; } = [];
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var path = request.RequestUri!.AbsolutePath;
+            if (failRules && path.Contains("/rules/", StringComparison.Ordinal))
+            {
+                Requests.Add((request.Method, path, request.Headers.Authorization?.Parameter, string.Empty));
+                throw new HttpRequestException("the forge did not answer");
+            }
             Requests.Add((request.Method, path, request.Headers.Authorization?.Parameter, request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync(cancellationToken)));
             var body = path switch
             {
@@ -129,6 +134,16 @@ public sealed class GitHubAppPushCredentialsTests : IDisposable
             (await noMain.IssueAsync("example/shop", pipelines: false, Ct)).Should().NotBeNull("a repository with no main has only its default branch to guard");
         }
         forge.Requests.Should().Contain(request => request.Method == HttpMethod.Delete && request.Path == "/installation/token" && request.Authorization == "ghs_the_token");
+    }
+
+    [Fact]
+    public async Task A_token_made_and_then_not_checked_because_the_forge_failed_is_revoked()
+    {
+        var forge = new Forge("""{ "contents": "write" }""", failRules: true);
+        using var credentials = Credentials(forge);
+
+        (await credentials.IssueAsync("example/shop", pipelines: false, Ct)).Should().BeNull();
+        forge.Requests.Should().Contain(request => request.Method == HttpMethod.Delete && request.Path == "/installation/token", "a token that is live is never left behind by an error");
     }
 
     [Fact]

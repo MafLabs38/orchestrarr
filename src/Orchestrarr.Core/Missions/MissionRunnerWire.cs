@@ -81,4 +81,5 @@ public sealed record MissionHandOver(string? Claim, string? WhatChangedAndWhy, I
 /// What the act gateway answers to a staging runner that asks for the credential of its free agent (ADR 0057): the token, until when it is valid and what it may do, or why none is given. The runner asks again before it expires; a
 /// refusal then (the stop, a withdrawn approval, an expired mandate) takes the credential away from the agent.
 /// </summary>
-public sealed record PushCredentialResponse(bool Allowed, string? Refusal, string? Token, DateTimeOffset? ExpiresAt, IReadOnlyList<string> Permissions);
+/// <c>Retry</c> says that the act was authorised and only the forge did not make the credential now: the one in place is kept and the runner asks again later.
+public sealed record PushCredentialResponse(bool Allowed, string? Refusal, string? Token, DateTimeOffset? ExpiresAt, IReadOnlyList<string> Permissions, bool Retry = false);
