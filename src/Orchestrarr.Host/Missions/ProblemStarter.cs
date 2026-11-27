@@ -144,8 +144,9 @@ internal sealed class ProblemStarter(IServiceProvider services, MissionsOptions 
     // parked one is read again only every half minute, and the lot goes on with the next operation of its route meanwhile
     private async Task FreshenAsync(string repository, CancellationToken cancellationToken)
     {
-        var candidates = line.Waiting().Where(waiting => waiting.Entry.Repositories.Count == 1 && waiting.Entry.Repositories[0] == repository && waiting.Entry.PullRequest is not null)
-            .OrderBy(waiting => RouteRank.Of(waiting.Entry)).ThenBy(waiting => waiting.QueuedAt).Select(waiting => waiting.Entry).ToList();
+        // In the order the line goes (priority, route, arrival), and never a held one: a hold stops all work on the operation, the reading of its pull request and the request to its bot included (ADR 0056)
+        var candidates = ProblemQueue.InOrder(line.Waiting().Where(waiting => waiting.Entry.Repositories.Count == 1 && waiting.Entry.Repositories[0] == repository && waiting.Entry.PullRequest is not null && waiting.Held is null))
+            .Select(waiting => waiting.Entry).ToList();
         foreach (var entry in candidates)
         {
             var id = entry.ProblemId;

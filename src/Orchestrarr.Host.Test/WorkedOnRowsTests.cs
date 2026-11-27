@@ -84,4 +84,18 @@ public sealed class WorkedOnRowsTests
 
         ProblemsEndpoints.MarkWorkedOn(table, services).Should().BeSameAs(table);
     }
+
+    [Fact]
+    public void The_rows_of_a_validation_are_shown_as_being_planned_until_it_ends_however_it_ends()
+    {
+        var planning = new Orchestrarr.Host.Missions.ProblemPlanning();
+        var scope = planning.Track([new Orchestrarr.Host.Missions.PlannedRow("p-a", "a", "DependencyUpdate", "o/one", DateTimeOffset.UnixEpoch), new Orchestrarr.Host.Missions.PlannedRow("p-b", "b", "DependencyUpdate", "o/one", DateTimeOffset.UnixEpoch)]);
+        planning.All().Select(row => row.ProblemId).Should().BeEquivalentTo("p-a", "p-b");
+
+        // p-a is placed; then the validation fails or is cancelled before p-b is
+        planning.Remove("p-a");
+        scope.Dispose();
+
+        planning.All().Should().BeEmpty("a validation that ends early leaves nothing shown as being planned");
+    }
 }

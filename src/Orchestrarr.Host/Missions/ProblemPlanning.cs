@@ -17,7 +17,28 @@ public sealed class ProblemPlanning
 
     public void Remove(string problemId) => _planning.TryRemove(problemId, out _);
 
-    public bool Contains(string problemId) => _planning.ContainsKey(problemId);
+    /// <summary>The rows of one validation, shown as being planned until the returned scope ends, however the validation ends (placed, refused, failed or cancelled).</summary>
+    public IDisposable Track(IEnumerable<PlannedRow> rows)
+    {
+        var ids = new List<string>();
+        foreach (var row in rows)
+        {
+            Add(row);
+            ids.Add(row.ProblemId);
+        }
+        return new Scope(this, ids);
+    }
+
+    private sealed class Scope(ProblemPlanning planning, List<string> ids) : IDisposable
+    {
+        public void Dispose()
+        {
+            foreach (var id in ids)
+            {
+                planning.Remove(id);
+            }
+        }
+    }
 
     public IReadOnlyList<PlannedRow> All() => [.. _planning.Values.OrderBy(row => row.Since)];
 }

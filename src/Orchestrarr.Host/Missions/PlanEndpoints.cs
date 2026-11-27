@@ -79,13 +79,16 @@ internal static class PlanEndpoints
             // Each row is a decision taken from now on: the table does not offer it again and the Flow shows it at the entry of the line while the lead plans it (ADR 0056)
             var planned = services.GetService<ProblemPlanning>();
             var problemIds = rows.Select(chosen => chosen.Id is { } rowId ? PlanEntryFactory.ProblemIdOf(rowId) : null).ToList();
+            // A validation that ends early (the request was cancelled, a plan failed) leaves nothing shown as being planned: the scope ends with the request
+            var plannedRows = new List<PlannedRow>();
             foreach (var (chosen, index) in rows.Select((chosen, index) => (chosen, index)))
             {
                 if (problemIds[index] is { } id && chosen.Id is { } rowId && table.TryGetValue(rowId, out var known))
                 {
-                    planned?.Add(new PlannedRow(id, PlannedTitle(known), known.Kind.ToString(), known.Source ?? known.Application, time.GetUtcNow()));
+                    plannedRows.Add(new PlannedRow(id, PlannedTitle(known), known.Kind.ToString(), known.Source ?? known.Application, time.GetUtcNow()));
                 }
             }
+            using var tracked = planned?.Track(plannedRows);
             live.Publish(LiveTopics.Missions);
             var planning = rows.Select((chosen, index) => PrepareAsync(chosen, table, approver.Subject, lead, new ProblemSources(findings, pipelines), conductor, audit, stop, NotAsked(index, agents.LeadMaxRows), time, ct)).ToList();
             // One work site at a time on a repository: the first problem of a free repository starts, the others wait for their turn (ProblemQueue). The plans of a lot are placed in the order of its route, and the lots
@@ -117,11 +120,7 @@ internal static class PlanEndpoints
             }
             finally
             {
-                // A validation that ends early (the request was cancelled, a plan failed) leaves nothing shown as being planned
-                foreach (var id in problemIds.OfType<string>())
-                {
-                    planned?.Remove(id);
-                }
+                tracked?.Dispose();
                 live.Publish(LiveTopics.Missions);
             }
             var started = placed.OfType<ValidatedProblem>().ToList();

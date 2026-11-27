@@ -187,6 +187,9 @@ public sealed class MissionWorldsApiTests
                 services.AddSingleton<IDefaultBranchSource>(forge);
                 services.AddSingleton<IBranchSource>(forge);
                 services.AddSingleton<IPushCredentials>(forge);
+                // A trail that a test can make refuse every entry, as a full disk would
+                services.AddSingleton<SwitchableAudit>();
+                services.AddSingleton<IMissionAudit>(provider => provider.GetRequiredService<SwitchableAudit>().Over(new AuditTrailMissions(provider.GetRequiredService<IAuditSink>(), provider.GetRequiredService<TimeProvider>())));
             });
             builder.UseEnvironment("Development");
             builder.UseSetting("Missions:Sandbox", "true");
@@ -201,6 +204,23 @@ public sealed class MissionWorldsApiTests
             builder.UseSetting("Tasks:Runners:0:Name", "runner-staging");
             builder.UseSetting("Tasks:Runners:0:Token", Token);
         }
+    }
+
+    /// <summary>The trail of the missions, which a test can switch off: every entry is then refused.</summary>
+    private sealed class SwitchableAudit : IMissionAudit
+    {
+        private IMissionAudit? _inner;
+
+        public bool Writable { get; set; } = true;
+
+        public SwitchableAudit Over(IMissionAudit inner)
+        {
+            _inner = inner;
+            return this;
+        }
+
+        public ValueTask<bool> RecordAsync(string eventName, string subject, string? detail, CancellationToken cancellationToken) =>
+            Writable && _inner is not null ? _inner.RecordAsync(eventName, subject, detail, cancellationToken) : ValueTask.FromResult(false);
     }
 
     private static HttpClient Runner(AccountsApiFactory factory)
@@ -358,6 +378,8 @@ public sealed class MissionWorldsApiTests
         _ = await starter.StartOrQueueAsync(Prepared("p-held", 8, "example/shop"), Ct);
         _ = await starter.StartOrQueueAsync(NoPullRequest("p-next", "example/shop"), Ct);
 
+        var before = (await person.GetFromJsonAsync<JsonElement>("/api/v1/flow/queue", Ct)).GetProperty("line").EnumerateArray().ToList();
+        before.Select(entry => (entry.GetProperty("problemId").GetString(), entry.GetProperty("next").GetBoolean())).Should().Equal(("p-held", true), ("p-next", false));
         (await person.PostAsJsonAsync("/api/v1/flow/p-held/hold", new { reason = "" }, Ct)).StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity, "a hold says why");
         (await person.PostAsJsonAsync("/api/v1/flow/p-unknown/hold", new { reason = "look first" }, Ct)).StatusCode.Should().Be(HttpStatusCode.Conflict, "only an operation of the line is held");
         (await person.PostAsJsonAsync("/api/v1/flow/p-held/hold", new { reason = "an analysis first" }, Ct)).EnsureSuccessStatusCode();
@@ -366,6 +388,8 @@ public sealed class MissionWorldsApiTests
         held.GetProperty("state").GetString().Should().Be("held");
         held.GetProperty("held").GetProperty("reason").GetString().Should().Be("an analysis first");
         held.GetProperty("held").GetProperty("by").GetString().Should().Be(AccountsApiFactory.AdminName, "a person reads who held it by name");
+        held.GetProperty("next").GetBoolean().Should().BeFalse();
+        line.GetProperty("line").EnumerateArray().Single(entry => entry.GetProperty("problemId").GetString() == "p-next").GetProperty("next").GetBoolean().Should().BeTrue("a held operation never holds its lot");
 
         // the first one ends: the lot is free, and the held one lets the next of the route go
         problems.Save(problems.Get("p-first")! with { State = ProblemState.Closed });
@@ -1449,5 +1473,76 @@ public sealed class MissionWorldsApiTests
         await driver.PassAsync(Ct);
 
         forge.Revoked.Should().Equal([$"{FakeForge.PushToken}-1", $"{FakeForge.PushToken}-1"], "a forge that was down is asked again, and a credential revoked once is not asked about again");
+    }
+
+    [Fact]
+    public async Task An_act_on_the_line_that_the_trail_cannot_record_is_undone_and_answered_503()
+    {
+        using var factory = new WorldsFactory(new FakeForge());
+        var starter = factory.Services.GetRequiredService<ProblemStarter>();
+        var problems = factory.Services.GetRequiredService<IProblemStore>();
+        var trail = factory.Services.GetRequiredService<SwitchableAudit>();
+        using var person = await Operator(factory);
+        _ = await starter.StartOrQueueAsync(Prepared("p-first", 7, "example/shop"), Ct);
+        _ = await starter.StartOrQueueAsync(Prepared("p-held", 8, "example/shop"), Ct);
+        async Task<JsonElement> Entry() => (await person.GetFromJsonAsync<JsonElement>("/api/v1/flow/queue", Ct)).GetProperty("line").EnumerateArray().Single(entry => entry.GetProperty("problemId").GetString() == "p-held");
+
+        trail.Writable = false;
+        (await person.PostAsJsonAsync("/api/v1/flow/p-held/hold", new { reason = "an analysis" }, Ct)).StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        (await Entry()).GetProperty("held").ValueKind.Should().Be(JsonValueKind.Null, "a hold the trail did not take is not made");
+        (await person.PostAsJsonAsync("/api/v1/flow/p-held/priority", new { priority = 80 }, Ct)).StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        (await Entry()).GetProperty("priority").GetInt32().Should().Be(FlowPriority.Normal);
+        (await person.PostAsJsonAsync("/api/v1/flow/p-first/priority", new { priority = 60 }, Ct)).StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        problems.Get("p-first")!.Priority.Should().Be(FlowPriority.Normal, "a priority in process that the trail did not take is not set");
+
+        trail.Writable = true;
+        (await person.PostAsJsonAsync("/api/v1/flow/p-held/hold", new { reason = "an analysis" }, Ct)).EnsureSuccessStatusCode();
+        trail.Writable = false;
+        (await person.PostAsync("/api/v1/flow/p-held/release", null, Ct)).StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        (await Entry()).GetProperty("held").ValueKind.Should().Be(JsonValueKind.Object, "a release the trail did not take is not made");
+        problems.Save(problems.Get("p-first")! with { State = ProblemState.Closed });
+        await starter.StartReadyAsync(Ct);
+        problems.Get("p-held").Should().BeNull("it is still held");
+    }
+
+    [Fact]
+    public async Task A_held_operation_leaves_the_line_with_its_hold_when_its_approval_runs_out()
+    {
+        using var factory = new WorldsFactory(new FakeForge());
+        var starter = factory.Services.GetRequiredService<ProblemStarter>();
+        var line = factory.Services.GetRequiredService<ProblemQueue>();
+        var holds = factory.Services.GetRequiredService<ProblemHolds>();
+        using var person = await Operator(factory);
+        var old = Prepared("p-old", 8, "example/shop").Entry ?? throw new InvalidOperationException("prepared");
+        line.Enqueue(new QueuedProblem("row-p-old", old, DateTimeOffset.UtcNow - ProblemStarter.QueuedLifetime - TimeSpan.FromMinutes(1), Held: new HeldProblem("alice", DateTimeOffset.UtcNow, "an analysis")));
+
+        await starter.StartReadyAsync(Ct);
+
+        line.Contains("p-old").Should().BeFalse("a hold never keeps an approval alive");
+        holds.IsHeld("p-old").Should().BeFalse("the hold leaves with its operation");
+        factory.Services.GetRequiredService<IProblemStore>().Get("p-old").Should().BeNull();
+        (await person.PostAsync("/api/v1/flow/p-old/release", null, Ct)).StatusCode.Should().Be(HttpStatusCode.Conflict);
+    }
+
+    [Fact]
+    public async Task The_traveler_of_an_operation_outside_the_flow_is_read_from_the_store()
+    {
+        using var factory = new WorldsFactory(new FakeForge());
+        var starter = factory.Services.GetRequiredService<ProblemStarter>();
+        var problems = factory.Services.GetRequiredService<IProblemStore>();
+        using var person = await Operator(factory);
+        _ = await starter.StartOrQueueAsync(NoPullRequest("p-old", "example/shop"), Ct);
+        var run = problems.Get("p-old")!;
+        // its missions are not among the recent ones the flow reads: only the store and the trail know it
+        foreach (var mission in factory.Services.GetRequiredService<IMissionStore>().ForProblem("p-old"))
+        {
+            factory.Services.GetRequiredService<IMissionStore>().Save(mission with { ProblemId = "p-other" });
+        }
+        problems.Save(run with { State = ProblemState.Closed, EndedAt = DateTimeOffset.UtcNow });
+
+        var traveler = await person.GetFromJsonAsync<JsonElement>("/api/v1/problems/p-old/traveler", Ct);
+
+        traveler.GetProperty("state").GetString().Should().Be("closed");
+        traveler.GetProperty("steps").EnumerateArray().Select(step => step.GetProperty("event").GetString()).Should().Contain("problem.started");
     }
 }

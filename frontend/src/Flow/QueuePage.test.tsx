@@ -46,13 +46,17 @@ const view: DispatchView = {
   ],
 };
 
-function stubQueue(session: unknown) {
+function stubQueue(session: unknown, refusal?: { status: number; error: string }) {
   const calls: { path: string; body: unknown }[] = [];
   const fetchMock = vi.fn((input: string, init?: RequestInit) => {
     const path = String(input);
     if (init?.method === 'POST') {
       calls.push({ path, body: init.body ? JSON.parse(String(init.body)) : null });
-      return Promise.resolve(new Response('{}', { status: 200 }));
+      return Promise.resolve(
+        refusal
+          ? new Response(JSON.stringify({ error: refusal.error }), { status: refusal.status })
+          : new Response('{}', { status: 200 }),
+      );
     }
     if (path === '/api/v1/flow/queue') {
       return Promise.resolve(new Response(JSON.stringify(view), { status: 200 }));
@@ -113,5 +117,32 @@ describe('QueuePage', () => {
     expect(await screen.findByText('node:14-alpine → 22')).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Hold' })).not.toBeInTheDocument());
     expect(screen.queryByRole('button', { name: 'Set' })).not.toBeInTheDocument();
+  });
+
+  it('says next to the lever why the host refused it', async () => {
+    stubQueue(operator, { status: 409, error: 'notInTheLine' });
+
+    renderWithProviders(<QueuePage />);
+
+    const first = within((await screen.findAllByRole('table'))[0]).getAllByRole('row')[1];
+    fireEvent.click(within(first).getByRole('button', { name: 'Hold' }));
+    fireEvent.change(within(first).getByLabelText('Why hold p-image'), { target: { value: 'wait for the vendor' } });
+    fireEvent.click(within(first).getAllByRole('button', { name: 'Hold' })[0]);
+
+    expect(await within(first).findByRole('alert')).toHaveTextContent(
+      'Refused: the operation has started or left the line.',
+    );
+  });
+
+  it('releases a held operation, and says so when the trail could not record it', async () => {
+    const calls = stubQueue(operator, { status: 503, error: 'storageUnavailable' });
+
+    renderWithProviders(<QueuePage />);
+
+    const held = within((await screen.findAllByRole('table'))[0]).getAllByRole('row')[2];
+    fireEvent.click(within(held).getByRole('button', { name: 'Release' }));
+
+    expect(await within(held).findByRole('alert')).toHaveTextContent('Not done: the audit trail could not record it.');
+    expect(calls).toContainEqual({ path: '/api/v1/flow/p-held/release', body: {} });
   });
 });

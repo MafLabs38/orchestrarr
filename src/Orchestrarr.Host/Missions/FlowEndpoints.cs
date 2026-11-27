@@ -113,15 +113,16 @@ internal static class FlowEndpoints
             {
                 return refusal ?? Results.Forbid();
             }
-            if (services.GetService<ProblemHolds>() is not { } holds || holds.Get(problemId) is not { } held || !holds.Release(problemId))
+            if (services.GetService<ProblemHolds>() is not { } holds || !holds.IsHeld(problemId))
             {
                 return Results.Json(new ErrorResponse("notHeld"), statusCode: StatusCodes.Status409Conflict);
             }
+            // Written before it is released: a start could take the operation as soon as it is released, so a release that the trail did not take is never made
             if (!await audit.RecordAsync(MissionAuditEvents.ProblemReleased, problemId, $"released by {WhoIs(context, approver)}", CancellationToken.None))
             {
-                _ = holds.Hold(problemId, held);
                 return Unrecorded();
             }
+            _ = holds.Release(problemId);
             live.Publish(LiveTopics.Missions);
             return Results.Ok();
         }).RequireAuthorization(Permissions.ApprovalsCreate);
@@ -149,8 +150,12 @@ internal static class FlowEndpoints
                     return Unrecorded();
                 }
             }
-            else if (!(await conductor.SetPriorityAsync(problemId, priority, by, ct)).Ok)
+            else if (await conductor.SetPriorityAsync(problemId, priority, by, ct) is { Ok: false } refused)
             {
+                if (refused.Refusal == ProblemConductor.Unrecorded)
+                {
+                    return Unrecorded();
+                }
                 return Results.Json(new ErrorResponse("notInTheFlow"), statusCode: StatusCodes.Status409Conflict);
             }
             live.Publish(LiveTopics.Missions);

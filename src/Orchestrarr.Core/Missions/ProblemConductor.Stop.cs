@@ -3,12 +3,15 @@ namespace Orchestrarr.Core.Missions;
 /// <summary>The stop, the budget and the sweep of the conductor: what ends a problem that no runner will end for itself.</summary>
 public sealed partial class ProblemConductor
 {
+    /// <summary>The refusal of an act of a person that the audit trail could not record.</summary>
+    public const string Unrecorded = "the audit trail could not record it";
+
     /// <summary>The global stop, the maintainer or the budget: every mandate of the problem is revoked and the running mission ends cleanly.</summary>
     public async Task<ConductResult> StopAsync(string problemId, string reason, CancellationToken cancellationToken) => await LockedAsync(problemId, () => StopLockedAsync(problemId, reason), cancellationToken);
 
     /// <summary>
     /// A person sets the priority of a problem in progress (0 to 100, ADR 0056): it orders the next mission a runner is given, never interrupts one that runs and grants no power. Under the lock of the problem, so that a move between worlds
-    /// never writes an older priority back. Fails for a problem that is not in progress.
+    /// never writes an older priority back. Fails for a problem that is not in progress, and when the audit trail cannot record it (<see cref="Unrecorded"/>): an act of a person that is not written is not done.
     /// </summary>
     public async Task<ConductResult> SetPriorityAsync(string problemId, int priority, string by, CancellationToken cancellationToken) =>
         await LockedAsync(problemId, async () =>
@@ -18,8 +21,12 @@ public sealed partial class ProblemConductor
                 return ConductResult.Fail("the problem is not being worked on");
             }
             var set = Math.Clamp(priority, FlowPriority.Lowest, FlowPriority.Highest);
+            // Written first, under the lock of the problem: nothing else changes the problem meanwhile, and a priority the trail did not take is never set
+            if (!await audit.RecordAsync(MissionAuditEvents.PrioritySet, problemId, Text($"priority {run.Priority} to {set}, by {by}"), CancellationToken.None))
+            {
+                return ConductResult.Fail(Unrecorded);
+            }
             problems.Save(run with { Priority = set });
-            await BestEffortAsync(MissionAuditEvents.PrioritySet, problemId, Text($"priority {run.Priority} to {set}, by {by}"));
             return new ConductResult(true, null, [], null, null);
         }, cancellationToken);
 
