@@ -11,7 +11,7 @@ namespace Orchestrarr.Core.Missions;
 public static partial class PipelineChanges
 {
     /// <summary>How a red pipeline is repaired, said once for the lead's plan and for the fix of a merge that turned the integration branch red (one text, so that the two never drift).</summary>
-    public const string RepairRules = "A pipeline is repaired by the fix that a good developer makes: a test that fails only some of the time is made deterministic (a seed, a fixed value, no dependence on chance or on time), never retried until it passes; a check or a smoke test is never weakened to pass (what it checked, it still checks: the application is fixed, or what it needs is given to it in the pipeline); and a step that needs a secret that is not set runs only when the secret is there.";
+    public const string RepairRules = "A pipeline is repaired by the fix that a good developer makes: a test that fails only some of the time is made deterministic (a seed, a fixed value, no dependence on chance or on time), never retried until it passes; a check or a smoke test is never weakened to pass (what it checked, it still checks: the application is fixed, or what it needs is given to it in the pipeline); and a step that needs a secret that is not set is left as it is and said in the last answer (a new read of a secret is a person's decision).";
 
     /// <summary>The pipeline files of the forges and of the CI services: GitHub, GitLab, Gitea, Forgejo, Woodpecker, Drone, CircleCI, Jenkins, Azure Pipelines, Travis, Bitbucket.</summary>
     public static readonly IReadOnlyList<string> Paths =
@@ -55,13 +55,25 @@ public static partial class PipelineChanges
     {
         ArgumentNullException.ThrowIfNull(removedLines);
         ArgumentNullException.ThrowIfNull(addedLines);
-        var removed = removedLines.Count(line => Step().IsMatch(line));
-        var added = addedLines.Count(line => Step().IsMatch(line));
-        return removed > added ? $"the change removes {removed - added} step(s) of the pipeline '{path}': what a pipeline checks is not taken out of it to make it pass, that is a person's decision" : null;
+        var removedList = removedLines.ToList();
+        var addedList = addedLines.ToList();
+        var removed = removedList.Count(line => Step().IsMatch(line));
+        var added = addedList.Count(line => Step().IsMatch(line));
+        if (removed > added)
+        {
+            return $"the change removes {removed - added} step(s) of the pipeline '{path}': what a pipeline checks is not taken out of it to make it pass, that is a person's decision";
+        }
+        // A token is widened by taking out what narrows it, too: a permissions block or a read-only scope
+        return removedList.Count(line => Narrowing().IsMatch(line)) > addedList.Count(line => Narrowing().IsMatch(line))
+            ? $"the change takes a restriction of the token out of the pipeline '{path}': a wider token is a person's decision"
+            : null;
     }
 
     [GeneratedRegex(@"^\s*-?\s*(run|uses|script|needs)\s*:", RegexOptions.IgnoreCase, 250)]
     private static partial Regex Step();
+
+    [GeneratedRegex(@"^\s*permissions\s*:|^\s*[a-z-]+\s*:\s*['""]?(read|none)['""]?\s*(#.*)?$|read-all", RegexOptions.IgnoreCase, 250)]
+    private static partial Regex Narrowing();
 
     // What weakens a pipeline: a step or a job that cannot fail or never runs (in any spelling the line-based net knows; a net, not a proof), a command made to succeed whatever happens, a token with write rights, a trigger that runs with the credentials of the base branch, a secret that a job reads
     [GeneratedRegex(@"continue-on-error:\s*(\$\{\{\s*)?['""]?true|^\s*if:\s*(\$\{\{\s*)?(always\(\)\s*&&\s*)?['""]?false\b|\|\|\s*(true|:|exit\s+0)\b|^\s*-?\s*run:\s*(true|:|exit\s+0)\s*$|\bset\s+\+e\b|pull_request_target|workflow_run|issue_comment|write-all|^\s*[a-z-]+:\s*['""]?write['""]?\s*(#.*)?$|\{[^}]*:\s*write\b|\bsecrets\s*[.\[]|toJSON\(\s*secrets|secrets:\s*inherit|allow_failure:\s*true|failure:\s*ignore", RegexOptions.IgnoreCase | RegexOptions.Multiline, 250)]

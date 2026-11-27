@@ -23,7 +23,16 @@ public sealed class ProblemParking
     public void Set(string problemId, ParkedProblem parked) => _parked[problemId] = parked;
 
     /// <summary>Another operation of its lot holds the lot: the parked problem is not read meanwhile, and its wait starts again when the lot is free.</summary>
-    public void LotBusy(string problemId) => _parked.AddOrUpdate(problemId, _ => throw new InvalidOperationException("not parked"), (_, parked) => parked with { LotWasBusy = true });
+    public void LotBusy(string problemId)
+    {
+        // A problem released meanwhile (it started, or left the line) has nothing to mark
+        var marked = false;
+        while (!marked && _parked.TryGetValue(problemId, out var parked) && !parked.LotWasBusy)
+        {
+            // Another writer changed the record meanwhile: read it again
+            marked = _parked.TryUpdate(problemId, parked with { LotWasBusy = true }, parked);
+        }
+    }
 
     /// <summary>How many times a problem was put back in the line after the runner refused its pull request (a bot made it again while it was proved).</summary>
     public int Requeues(string problemId) => _requeues.GetValueOrDefault(problemId);

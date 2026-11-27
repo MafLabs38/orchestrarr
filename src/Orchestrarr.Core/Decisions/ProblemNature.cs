@@ -47,12 +47,14 @@ public static class ProblemNatures
     {
         ArgumentNullException.ThrowIfNull(pullRequest);
         var parts = pullRequest.HeadBranch.Split('/');
-        var ecosystem = parts.Length > 2 && parts[0] is "dependabot" or "renovate" ? parts[1] : string.Empty;
-        if (ecosystem is "github_actions" || pullRequest.Labels.Contains("github_actions", StringComparer.OrdinalIgnoreCase))
+        var ecosystem = parts.Length > 2 && (parts[0] is "dependabot" or "renovate") ? parts[1] : string.Empty;
+        // The nature lets an operation change the pipelines (ADR 0055): a label, which anyone who triages may add, is read only on a bot's pull request (an account the forge marks as a bot)
+        var labels = pullRequest.Author.EndsWith("[bot]", StringComparison.Ordinal) ? pullRequest.Labels : [];
+        if (ecosystem is "github_actions" || labels.Contains("github_actions", StringComparer.OrdinalIgnoreCase))
         {
             return ProblemNature.PipelineToolUpdate;
         }
-        if (ecosystem is "docker" || pullRequest.Labels.Contains("docker", StringComparer.OrdinalIgnoreCase))
+        if (ecosystem is "docker" || labels.Contains("docker", StringComparer.OrdinalIgnoreCase))
         {
             return ProblemNature.BaseImageUpdate;
         }

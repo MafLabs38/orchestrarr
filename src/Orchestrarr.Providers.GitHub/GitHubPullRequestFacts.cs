@@ -407,7 +407,6 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefault
         return judged.Any(run => !run.IsCompleted) || required.Any(context => !present.Contains(context)) ? ChecksState.Pending : ChecksState.Passing;
     }
 
-    // The check suites of a commit that the forge's dependency service made (its workflow runs under `dynamic/dependabot/`): read once, and an answer that cannot be read leaves nothing out
     // The check suites of a commit that the repository's own workflows made (`.github/workflows/`, on the repository itself); null when they cannot be read (then nothing is left out)
     private async Task<HashSet<long>?> OwnSuitesAsync(string repository, string sha, CancellationToken cancellationToken)
     {
@@ -431,6 +430,7 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefault
 
     private static bool IsForgeServiceRun(string path) => path.StartsWith("dynamic/dependabot/", StringComparison.Ordinal);
 
+    // The check suites of a commit that the forge's dependency service made (its workflow runs under `dynamic/dependabot/`): read once, and an answer that cannot be read leaves nothing out
     private async Task<HashSet<long>> ServiceSuitesAsync(string repository, string sha, CancellationToken cancellationToken)
     {
         var suites = new HashSet<long>();
@@ -462,7 +462,6 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefault
         }
     }
 
-    // Who wrote each commit of the pull request, as the forge links it to an account (an empty name for a commit that no account is linked to); null when they cannot all be read
     // The account each commit is linked to, and whether every commit is signed with a signature the forge verified and committed by its author or by the forge itself (web-flow: a commit the forge made for the bot)
     private async Task<(IReadOnlyList<string> Authors, bool Signed)?> CommitAuthorsAsync(string repository, int number, CancellationToken cancellationToken)
     {

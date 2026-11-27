@@ -112,4 +112,21 @@ public sealed class PipelineChangesTests
         RepairPolicy.Refusal([new PatchedFile(".github/workflows/ci.yml", Head.Replace("      - run: npm test\n", string.Empty, StringComparison.Ordinal))], before: before).Should().Contain("removes 1 step");
         RepairPolicy.Refusal([new PatchedFile(".github/workflows/ci.yml", Head + "      - run: npm audit || true\n")], before: before).Should().Contain("weakens the pipeline");
     }
+
+    [Fact]
+    public void A_change_that_takes_a_restriction_of_the_token_out_is_refused()
+    {
+        static BranchChange Change(string patch) => new("c0ffee", 0, 1, [new BranchFile(".github/workflows/ci.yml", "modified", 2, patch)], FilesComplete: true);
+
+        ChangePolicy.Refusal(Change("@@ -1,3 +1,1 @@\n on: push\n-permissions:\n-  contents: read")).Should().Contain("restriction of the token");
+    }
+
+    [Fact]
+    public void A_repair_that_copies_a_weakening_line_the_head_already_holds_into_another_job_is_refused()
+    {
+        const string Head = "jobs:\n  lint:\n    continue-on-error: true\n    steps:\n      - run: npm run lint\n  test:\n    steps:\n      - run: npm test\n";
+        var copied = Head.Replace("  test:\n", "  test:\n    continue-on-error: true\n", StringComparison.Ordinal);
+
+        RepairPolicy.Refusal([new PatchedFile(".github/workflows/ci.yml", copied)], before: new Dictionary<string, string> { [".github/workflows/ci.yml"] = Head }).Should().Contain("weakens the pipeline");
+    }
 }

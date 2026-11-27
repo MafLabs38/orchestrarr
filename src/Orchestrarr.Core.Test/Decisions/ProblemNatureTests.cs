@@ -28,6 +28,10 @@ public sealed class ProblemNatureTests
     public void A_label_says_it_when_the_branch_does_not(string label, ProblemNature nature) =>
         ProblemNatures.OfPullRequest(Pull("bot/some-branch", "dependencies", label)).Should().Be(nature);
 
+    [Fact]
+    public void A_label_on_a_pull_request_that_is_not_a_bots_says_nothing_since_the_nature_may_open_the_pipelines() =>
+        ProblemNatures.OfPullRequest(Pull("feature/bump") with { Author = "alice", Labels = ["github_actions"] }).Should().Be(ProblemNature.LibraryUpdate);
+
     [Theory]
     [InlineData(ProblemKind.DependencyAlert, ProblemNature.SecurityAlert)]
     [InlineData(ProblemKind.ImageUpdate, ProblemNature.ImageBehind)]

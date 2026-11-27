@@ -36,7 +36,6 @@ public static partial class RepairPolicy
     [GeneratedRegex(@"^[A-Za-z0-9_./@+-]+$", RegexOptions.None, 250)]
     private static partial Regex PlainPath();
 
-    /// <summary>Why a set of files cannot be a repair, or null when it can: how many, how big, where (the policy, and the paths that the frame of the mission forbids), and whether it is text.</summary>
     /// <summary>Whether the guards read this file line by line (a pipeline, a manifest or a container file): its text at the head that is repaired is worth reading, so that only what the repair adds is judged.</summary>
     public static bool ReadsLines(string path) => PipelineChanges.IsPipeline(path) || DependencySources.Reads(path);
 
@@ -108,8 +107,22 @@ public static partial class RepairPolicy
         {
             return lines;
         }
-        var held = old.Split('\n').Select(line => line.TrimEnd('\r')).ToHashSet(StringComparer.Ordinal);
-        return [.. lines.Where(line => !held.Contains(line.TrimEnd('\r')))];
+        // Counted, not only compared: a line that the head holds once and the repair writes twice (a weakening copied into another job) is added once
+        var held = old.Split('\n').Select(line => line.TrimEnd('\r')).GroupBy(line => line, StringComparer.Ordinal).ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
+        var added = new List<string>();
+        foreach (var line in lines)
+        {
+            var key = line.TrimEnd('\r');
+            if (held.TryGetValue(key, out var count) && count > 0)
+            {
+                held[key] = count - 1;
+            }
+            else
+            {
+                added.Add(line);
+            }
+        }
+        return [.. added];
     }
 
     // The steps that a repair takes out of a pipeline file, against the file at the repaired head (nothing to compare with when it was not read)
