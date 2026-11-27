@@ -6,7 +6,7 @@
 // Whatever happens after the setup, the browser is closed and the sandbox is reset again (LAB_KEEP=1 keeps what the run made).
 const fs = require('fs');
 const path = require('path');
-const { execFileSync } = require('child_process');
+const { execFileSync, spawn } = require('child_process');
 const { chromium } = require('playwright');
 
 const scenarioPath = process.argv[2];
@@ -207,6 +207,7 @@ async function followMissions(page, known, round = scenario) {
 
 (async () => {
   let browser;
+  let bot;
   try {
     // 1 and 2. the sandbox goes back to its seed, and the faults of the scenario are planted
     let planted = [];
@@ -240,6 +241,8 @@ async function followMissions(page, known, round = scenario) {
       await Promise.all([page.waitForResponse((r) => r.url().includes('/api/v1/problems') && r.url().includes('refresh=true'), { timeout: 60000 }), page.getByRole('button', { name: UI.refresh }).click()]);
       await page.reload();
     }
+    // "bot": the lab's dependency bot runs while the missions go on, every so many seconds, and answers the control plane's requests to rebase as Dependabot does (ADR 0055)
+    if (scenario.bot) bot = spawn(path.join(__dirname, '..', 'demo-bot.sh'), [scenarioPath, String(scenario.bot)], { stdio: ['ignore', 'ignore', 'inherit'], detached: true });
     if (await tickAndValidate(page, scenario.tick)) {
       // 4. the missions go on, and the final state is read from the forge, not from the interface
       await followMissions(page, known);
@@ -271,6 +274,7 @@ async function followMissions(page, known, round = scenario) {
   } catch (error) {
     expect(false, `the run failed: ${String(error.message).split('\n')[0]}`);
   } finally {
+    if (bot) try { process.kill(-bot.pid, 'SIGTERM'); } catch { /* already gone */ }
     if (browser) await browser.close().catch(() => {});
     // the advisories go away with the scenario
     if (scenario.findings && !keep) fs.writeFileSync(findingsFile, '{}');
