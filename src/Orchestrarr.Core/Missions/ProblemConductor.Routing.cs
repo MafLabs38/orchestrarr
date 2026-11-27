@@ -68,6 +68,11 @@ public sealed partial class ProblemConductor
         {
             return (Route.Stop, "the budget is used up");
         }
+        // A merge on a branch that was red before it: the change is in, and no mission of this problem can make the branch green (ADR 0055)
+        if (world == World.Git && failures.Contains(PreconditionFailure.IntegrationBranchRedBeforeMerge))
+        {
+            return (Route.Escalate, "the change is merged, and the integration branch was already red before the merge: a person decides (the red pipeline is a row of its own)");
+        }
         // A merge that turned the integration branch red is fixed forward, as a developer does: the problem goes back to staging, where an agent brings the branch back to green, and its lot waits (ADR 0055)
         if (world == World.Git && failures.Contains(PreconditionFailure.IntegrationBranchRedAfterMerge))
         {

@@ -30,7 +30,7 @@ public sealed class ProblemNatureTests
 
     [Fact]
     public void A_label_on_a_pull_request_that_is_not_a_bots_says_nothing_since_the_nature_may_open_the_pipelines() =>
-        ProblemNatures.OfPullRequest(Pull("feature/bump") with { Author = "alice", Labels = ["github_actions"] }).Should().Be(ProblemNature.LibraryUpdate);
+        ProblemNatures.OfPullRequest(Pull("dependabot/github_actions/actions/checkout-7") with { Author = "alice", Labels = ["github_actions"] }).Should().Be(ProblemNature.LibraryUpdate);
 
     [Theory]
     [InlineData(ProblemKind.DependencyAlert, ProblemNature.SecurityAlert)]

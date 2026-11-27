@@ -72,6 +72,12 @@ public enum PreconditionFailure
     /// back to the staging world to bring the branch back to green, as a developer fixes forward, instead of ending with a red branch that holds every other operation of its lot.
     /// </summary>
     IntegrationBranchRedAfterMerge,
+
+    /// <summary>
+    /// In the Git world: the change is merged, the pipeline of the merge commit failed, and it had failed on the commit before the merge too (ADR 0055): the merge did not turn the branch red. Nothing a mission of this problem can do
+    /// changes that, so it goes to a person, and the red pipeline is a row of its own.
+    /// </summary>
+    IntegrationBranchRedBeforeMerge,
 }
 
 /// <summary>What the code checks and never leaves to a judgement (FR-MAN-7). The controller judges the rest. <c>DiffTouchesForbiddenPath</c> also covers a diff that is not known: unknown counts as failing.</summary>

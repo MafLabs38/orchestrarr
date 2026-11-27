@@ -249,7 +249,7 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
             }
             // A merge that turned the integration branch red is never only sent back or ended: whatever the controller judged, the facts route it, and the problem goes back to staging to fix it forward (ADR 0055)
             if (mission.World == World.Git && decision.Kind is ControllerDecisionKind.SendBack or ControllerDecisionKind.End
-                && await ClosingChecksAsync(run, mission, dossiers.Get(mission.Id), cancellationToken) is { } closing && closing.Contains(PreconditionFailure.IntegrationBranchRedAfterMerge))
+                && await ClosingChecksAsync(run, mission, dossiers.Get(mission.Id), cancellationToken) is { } closing && (closing.Contains(PreconditionFailure.IntegrationBranchRedAfterMerge) || closing.Contains(PreconditionFailure.IntegrationBranchRedBeforeMerge)))
             {
                 _ = await RequiredAsync(MissionAuditEvents.ControllerDecided, missionId, Text($"{decision.Kind}: {string.Join(" | ", decision.Reasons)}"), cancellationToken);
                 return await RouteFailuresAsync(mission, run, closing, cancellationToken);

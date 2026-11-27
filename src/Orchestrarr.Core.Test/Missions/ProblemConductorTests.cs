@@ -1037,7 +1037,9 @@ public sealed class ProblemConductorTests : IDisposable
         var result = await conductor.DecideAsync(git.Id, new ControllerDecision(ControllerDecisionKind.End, ["red"], null), Ct);
 
         result.Failures.Should().NotContain(PreconditionFailure.IntegrationBranchRedAfterMerge, "the branch was red before the merge");
+        result.Failures.Should().Contain(PreconditionFailure.IntegrationBranchRedBeforeMerge);
         _restarts.Problems.Should().BeEmpty();
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.Escalated, "no mission of this problem can make the branch green: it does not go round until its loop ends");
     }
 
     [Fact]
