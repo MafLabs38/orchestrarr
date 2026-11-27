@@ -2,7 +2,7 @@
 
 - **Status**: proposed (accepted when the pull request that carries it is merged)
 - **Date**: 2026-11-26
-- **Spec**: D-110 ([SPEC.md](../SPEC.md)), FR-VIEW-1, FR-VIEW-3, FR-VIEW-7 and FR-VIEW-8 ([FUNCTIONAL.md](../FUNCTIONAL.md)). Builds on [ADR 0055](0055-the-flow-is-a-fab-lots-routes-machines-and-rules-that-keep-it-moving.md) (lots, routes, machines), [ADR 0053](0053-each-world-has-lanes-and-a-machine-is-never-idle-while-a-mission-waits.md) (lanes), [ADR 0052](0052-the-missions-screen-follows-problems-and-says-what-each-one-waits-for.md) (the Missions screen), [ADR 0047](0047-a-machine-has-a-state-and-leaves-a-reset-isolated-and-qualified.md) (machine states) and [ADR 0025](0025-everything-that-changes-is-pushed-to-the-screens-as-it-changes.md) (live by default). It supersedes the screens *Runs*, *Queue* and *History* of the first design ([ADR 0017](0017-orders-are-typed-tasks-approved-with-a-second-factor-that-the-executor-checks.md), [ADR 0029](0029-the-table-is-one-table-and-the-history-is-a-screen-of-its-own.md)), whose data the flow of missions no longer writes ([ADR 0038](0038-what-the-first-design-built-and-this-supersedes.md)).
+- **Spec**: D-110 ([SPEC.md](../SPEC.md)), FR-VIEW-1, FR-VIEW-3, FR-VIEW-7 and FR-VIEW-8 ([FUNCTIONAL.md](../FUNCTIONAL.md)). Builds on [ADR 0055](0055-the-flow-is-a-fab-lots-routes-machines-and-rules-that-keep-it-moving.md) (lots, routes, machines), [ADR 0053](0053-each-world-has-lanes-and-a-machine-is-never-idle-while-a-mission-waits.md) (lanes), [ADR 0052](0052-the-missions-screen-follows-problems-and-says-what-each-one-waits-for.md) (the Missions screen), [ADR 0047](0047-a-machine-has-a-state-and-leaves-a-reset-isolated-and-qualified.md) (machine states) and [ADR 0025](0025-everything-that-changes-is-pushed-to-the-screens-as-it-changes.md) (live by default). It supersedes the screens *Runs*, *Queue* and *History* of the first design ([ADR 0017](0017-orders-are-typed-tasks-approved-with-a-second-factor-that-the-executor-checks.md), [ADR 0029](0029-the-table-is-one-table-and-the-history-is-a-screen-of-its-own.md)), whose data the flow of missions no longer writes ([ADR 0038](0038-what-the-first-design-built-and-this-supersedes.md)). It amends ADR 0050 (a person sets the priority) and ADR 0055 point 2 (the line goes by priority first).
 
 ## Context
 
@@ -10,7 +10,7 @@ The maintainer ticked the 19 rows of the demo at once and watched (chat of 2026-
 
 - *Runs*, *Queue* and *History* are empty: they belong to the typed tasks of the first design, which the flow of missions does not feed;
 - *Decisions* still shows every row he had just validated, as if nothing had been decided;
-- on *Missions*, a card is framed the same way whether it works, waits for a machine, waits for its turn on its repository or waits for its bot: "on ne sait pas pourquoi ils sont orange";
+- on *Missions*, a card is framed the same way whether it works, waits for a machine, waits for its turn on its repository or waits for its bot: "we cannot tell why they are orange";
 - nothing shows the workshops, their equipment, their capacity, what is in process and what waits in front of each.
 
 His image is a clean-room fab followed by an MES: **the lots are the corrections to make, the workshops are the worlds** (staging with two machines, the forge with its slots, the release with its machine), the staging machines are the equipment; a qualification workshop will come one day. He asked for a flow that is **very graphic, live and limpid**, a dispatch list whose order he can change, a **hold** ("this work is held, the others pass, a complementary analysis is needed"), the steps of a lot one after the other, and decisions that leave the table once they are taken.
@@ -28,7 +28,7 @@ His image is a clean-room fab followed by an MES: **the lots are the corrections
 ## Decision
 
 1. **Four screens follow the fab, one job each, all live** (topics of `/api/v1/live`; polling alone is a defect, ADR 0025):
-   - **Decisions**: the decisions **to take**, and below them the decisions **taken** (each row that was validated, with what became of it: in the line, in process in a world, held, done, put aside, and a link to its traveler; the rows set aside by the operator are there too and can be taken back). A row leaves the first table as soon as it is validated.
+   - **Decisions**: the decisions **to take**, and below them the decisions **taken** (each row that was validated, with what became of it: in the line, in process in a world, held, done, put aside, and a link to its traveler; the rows set aside by the operator (and the approvals of the first design) are in a section of the page, read when it is opened, where they can be taken back). A row leaves the first table as soon as it is validated.
    - **Flow** (it replaces *Runs*): the factory view. One column per **workshop** (staging, forge, release; the decisions upstream, the outcomes downstream), and in each its **equipment** with its state and what it works on (the two staging machines, the slots of the forge, the deployment machine), the **buffer** in front of it and its counters; one row per **lot** (a repository) with its **operations placed in the column where they are**, each with its state in words and an icon. It reads like a map: at a glance, what moves, what waits and why, where the narrow place is. A click on an operation opens its traveler.
    - **Queue** (it replaces the queue of approvals): the **dispatch list**, the operations that wait, in the order they will go, with why each waits; the operator **changes the priority** of an operation (0 to 100, ADR 0050) and **holds or releases** it.
    - **History** (it replaces the history of approvals): the **traveler** of each operation, its steps one after the other.
@@ -56,7 +56,7 @@ His image is a clean-room fab followed by an MES: **the lots are the corrections
 
 ## Defaults taken, for the maintainer to veto
 
-- The names of the screens: **Decisions, Flow, Queue, History, Missions** (in French: Décisions, Flux, File, Historique, Missions).
+- The names of the screens: **Decisions, Flow, Queue, History, Missions**.
 - Decisions stays the home page (it is where the work starts); Flow is second in the menu.
 - A hold needs a reason in words; a priority does not.
 - The work is one pull request with its demo (the plan in three steps, in the maintainer's local documents, was built as one vertical once the flow of ADR 0055 was merged): the Flow screen and its read model, the Queue with priority and hold, Decisions split into to take and taken, the History (traveler), and the old screens out of the menu.
