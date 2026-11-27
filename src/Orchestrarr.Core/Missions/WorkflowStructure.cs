@@ -155,8 +155,9 @@ public static class WorkflowStructure
         {
             return null;
         }
-        var gone = previous.Actions.Except(next.Actions, StringComparer.OrdinalIgnoreCase).ToList();
-        var come = next.Actions.Except(previous.Actions, StringComparer.OrdinalIgnoreCase).ToList();
+        // Counted, not as a set: an action used twice and replaced in one place is a swap too
+        var gone = previous.Actions.Where(used => next.Actions.GetValueOrDefault(used.Key) < used.Value).Select(used => used.Key).ToList();
+        var come = next.Actions.Where(used => previous.Actions.GetValueOrDefault(used.Key) < used.Value).Select(used => used.Key).ToList();
         return gone.Count > 0 && come.Count > 0 ? $"replaces the action '{gone[0]}' with '{come[0]}' (an action is mended by another version of the same action)" : null;
     }
 
@@ -231,7 +232,7 @@ public static class WorkflowStructure
 
     private sealed record Job(int Steps, int AlwaysRunningSteps, int CannotFailSteps, bool CannotFail, string? Condition, int MatrixValues, Dictionary<string, string>? Permissions);
 
-    private sealed record Workflow(Dictionary<string, string> Triggers, Dictionary<string, string>? Permissions, Dictionary<string, Job> Jobs, HashSet<string> CustomShells, Dictionary<string, PathFilter> PathFilters, HashSet<string> Actions, bool ReadsSecrets = false)
+    private sealed record Workflow(Dictionary<string, string> Triggers, Dictionary<string, string>? Permissions, Dictionary<string, Job> Jobs, HashSet<string> CustomShells, Dictionary<string, PathFilter> PathFilters, Dictionary<string, int> Actions, bool ReadsSecrets = false)
     {
         public static Workflow Empty { get; } = new([], null, [], [], [], []);
 
@@ -326,7 +327,7 @@ public static class WorkflowStructure
             }
             var shells = new HashSet<string>(StringComparer.Ordinal);
             CollectShells(root, shells);
-            var actions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var actions = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             CollectActions(root, actions);
             return new Workflow(TriggersOf(Child(root, "on")), PermissionsOf(Child(root, "permissions")), jobs, shells, PathFiltersOf(Child(root, "on")), actions, text.Contains("secrets", StringComparison.OrdinalIgnoreCase));
         }
@@ -395,7 +396,7 @@ public static class WorkflowStructure
     };
 
     // Every action a step or a job uses, without its version: `owner/name` (and a path inside it), a local action or a container image as written
-    private static void CollectActions(YamlNode node, HashSet<string> found)
+    private static void CollectActions(YamlNode node, Dictionary<string, int> found)
     {
         switch (node)
         {
@@ -404,7 +405,8 @@ public static class WorkflowStructure
                 {
                     if (key is YamlScalarNode { Value: "uses" } && value is YamlScalarNode { Value: { } used })
                     {
-                        _ = found.Add(used.Split('@')[0].Trim());
+                        var name = used.Split('@')[0].Trim();
+                        found[name] = found.GetValueOrDefault(name) + 1;
                     }
                     else
                     {

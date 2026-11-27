@@ -37,7 +37,6 @@ const expect = (ok, text) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${text}`); i
 // A pull request is named by its branch, or by its title when the lab did not choose it (a repair's number is only known along the way): "{0}" is the number of the first planted pull request
 let plantedNumbers = [];
 let followed = [];
-const secretsSet = [];
 function prState(want) {
   try {
     if (want.title) {
@@ -244,15 +243,6 @@ async function followMissions(page, known, round = scenario) {
   try {
     // 1 and 2. the sandbox goes back to its seed, and the faults of the scenario are planted
     let planted = [];
-    // "secrets": what the maintainer sets in the scenario (an agent never sets nor invents one): always the same placeholder, never a real value, never over a secret that exists, taken away at the end of the run
-    for (const [repo, names] of Object.entries(scenario.secrets ?? {})) {
-      const existing = execFileSync('gh', ['secret', 'list', '-R', `${org}/${repo}`, '--json', 'name', '--jq', '.[].name'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] }).split('\n');
-      for (const name of names) {
-        if (!/^[A-Z][A-Z0-9_]{0,63}$/.test(name) || existing.includes(name)) throw new Error(`the secret ${name} of ${repo} is refused: not a plain name, or it exists already`);
-        execFileSync('gh', ['secret', 'set', name, '-R', `${org}/${repo}`, '--body', 'lab-placeholder'], { stdio: ['ignore', 'ignore', 'inherit'] });
-        secretsSet.push([repo, name]);
-      }
-    }
     if (setup) {
       if (scenario.findings) fs.writeFileSync(findingsFile, JSON.stringify(Object.fromEntries(Object.entries(scenario.findings).map(([repo, list]) => [`${org}/${repo}`, list]))));
       console.log(sandbox('reset', ...repos));
@@ -320,8 +310,6 @@ async function followMissions(page, known, round = scenario) {
     expect(false, `the run failed: ${String(error.message).split('\n')[0]}`);
   } finally {
     if (bot) try { process.kill(-bot.pid, 'SIGTERM'); } catch { /* already gone */ }
-    // Only what this run set is deleted: a secret that existed is never touched
-    for (const [repo, name] of secretsSet) try { execFileSync('gh', ['secret', 'delete', name, '-R', `${org}/${repo}`], { stdio: 'ignore' }); } catch { /* already gone */ }
     if (browser) await browser.close().catch(() => {});
     // the advisories go away with the scenario
     if (scenario.findings && !keep) fs.writeFileSync(findingsFile, '{}');

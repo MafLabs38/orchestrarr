@@ -220,6 +220,8 @@ public sealed class WorkflowStructureTests
         WorkflowStructure.Weakening(Path, Dormant, Dormant.Replace("old/**", "src/**", StringComparison.Ordinal), files).Should().Contain("runs with the base's credentials");
         Judge(Base.Replace("actions/checkout@v4", "actions/checkout@v5", StringComparison.Ordinal)).Should().BeNull("another version of the same action mends it");
         Judge(Base.Replace("actions/checkout@v4", "someone/checkout@v1", StringComparison.Ordinal)).Should().Contain("replaces the action 'actions/checkout' with 'someone/checkout'");
+        var twice = Base.Replace("      - run: npm ci", "      - uses: actions/checkout@v4\n      - run: npm ci", StringComparison.Ordinal);
+        Judge(twice.Replace("      - uses: actions/checkout@v4\n      - run: npm ci", "      - uses: someone/checkout@v1\n      - run: npm ci", StringComparison.Ordinal), twice).Should().Contain("replaces the action", "an action used twice and replaced in one place is a swap");
     }
 
     [Theory]
