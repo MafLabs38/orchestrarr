@@ -73,7 +73,7 @@ public static partial class ChangePolicy
                 return weakened;
             }
             // A manifest or a container file takes its dependencies from a registry (ADR 0055): read on the lines that the change adds
-            if (DependencySources.Foreign(file.Path, AddedLines(file.Patch)) is { } foreignDependency)
+            if ((DependencySources.Foreign(file.Path, AddedLines(file.Patch)) ?? DependencySources.ScriptWeakening(file.Path, AddedLines(file.Patch))) is { } foreignDependency)
             {
                 return foreignDependency;
             }
@@ -110,12 +110,18 @@ public static partial class ChangePolicy
     // The host of the first address that the lines ADDED to a lock file name and that is not a registry, or null when they all are
     private static readonly string[] NpmFamily = ["package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml"];
 
-    private static string? ForeignSource(string path, string patch)
+    private static string? ForeignSource(string path, string patch) =>
+        ForeignHost(path, patch.Split('\n').Where(line => line.StartsWith('+') && !line.StartsWith("+++", StringComparison.Ordinal)).Select(line => line[1..]));
+
+    /// <summary>The host of the first address that these lines, added to a lock file, fetch from and that is not a registry; null when they all are. Read for a free agent's change and for a repair.</summary>
+    public static string? ForeignHost(string path, IEnumerable<string> addedLines)
     {
+        ArgumentNullException.ThrowIfNull(path);
+        ArgumentNullException.ThrowIfNull(addedLines);
         // The lock files of npm and yarn say where a package comes from in a few keys (and carry funding and homepage links beside them); the others (Cargo, poetry, Pipfile, composer, go) are read for every address that they add
         var everything = !NpmFamily.Contains(path[(path.LastIndexOf('/') + 1)..], StringComparer.Ordinal);
         // Only the lines that say where a package comes from (a funding link or a homepage is not where it is fetched from)
-        foreach (var line in patch.Split('\n').Where(line => line.StartsWith('+') && !line.StartsWith("+++", StringComparison.Ordinal) && (everything || line.Contains("resolved", StringComparison.Ordinal) || line.Contains("tarball", StringComparison.Ordinal) || line.Contains("resolution", StringComparison.Ordinal))))
+        foreach (var line in addedLines.Where(line => everything || line.Contains("resolved", StringComparison.Ordinal) || line.Contains("tarball", StringComparison.Ordinal) || line.Contains("resolution", StringComparison.Ordinal)))
         {
             foreach (System.Text.RegularExpressions.Match address in Address().Matches(line))
             {

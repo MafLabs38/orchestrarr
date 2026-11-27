@@ -32,7 +32,7 @@ internal sealed class MachineKeeper(MachinePool pool, MissionsOptions options, I
                     // Never while the global stop is engaged: a stop stops the machines too
                     if (services.GetService<Orchestrarr.Core.Missions.IStopSignal>() is not { Engaged: true })
                     {
-                        foreach (var machine in pool.RequalifyAfterFault(TimeSpan.FromMinutes(Math.Max(1, options.MachineRequalifyMinutes)), Math.Max(0, options.MachineRequalifyPerHour), options.MachineRequalifyNever))
+                        foreach (var machine in pool.RequalifyAfterFault(TimeSpan.FromMinutes(Math.Max(1, options.MachineRequalifyMinutes)), Math.Max(0, options.MachineRequalifyPerHour), options.RequalifyNeverInEffect))
                         {
                             logger.LogWarning("{Machine} was down: it is qualified again by itself", machine.Id);
                             if (services.GetService<Orchestrarr.Core.Missions.IMissionAudit>() is { } audit)

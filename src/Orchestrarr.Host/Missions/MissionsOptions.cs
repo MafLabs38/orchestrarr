@@ -25,7 +25,10 @@ public sealed class MissionsOptions
     public int MachineRequalifyPerHour { get; set; } = 3;
 
     /// <summary>The checks of a qualification whose failure keeps a machine Down for a person, never qualified again by itself: an isolation that does not hold may mean that something ran on it that must be looked at before it is restored.</summary>
-    public string[] MachineRequalifyNever { get; set; } = ["isolation"];
+    public string[] MachineRequalifyNever { get; set; } = [];
+
+    // An array that the configuration sets is merged index by index into a default it holds, so the defaults live apart: what is set replaces them whole
+    internal IReadOnlyList<string> RequalifyNeverInEffect => MachineRequalifyNever.Length > 0 ? MachineRequalifyNever : ["isolation"];
 
     /// <summary>How long a lease lives without a sign of life of its runner. Generous: a long troubleshooting is normal; only a runner that has disappeared must not keep a machine for ever.</summary>
     public int MachineLeaseMinutes { get; set; } = (int)MachineOptions.Default.LeaseTimeout.TotalMinutes;
@@ -77,7 +80,10 @@ public sealed class MissionsOptions
     /// The accounts whose pull requests a bot makes and rebases by itself (ADR 0055): only for those is the bot asked to rebase a pull request that is behind or in conflict, and only those are followed when the bot made the pull
     /// request again. Anyone else's pull request that moved is left to be ticked again. A deployment names its bots; the test bed adds the account of the lab, which plays one.
     /// </summary>
-    public string[] BotAuthors { get; set; } = ["dependabot[bot]", "renovate[bot]"];
+    public string[] BotAuthors { get; set; } = [];
+
+    /// <summary>The accounts that are bots: <see cref="BotAuthors"/> when it is set (it replaces the default whole), else <c>dependabot[bot]</c> and <c>renovate[bot]</c>.</summary>
+    internal IReadOnlyList<string> BotAuthorsInEffect => BotAuthors.Length > 0 ? BotAuthors : ["dependabot[bot]", "renovate[bot]"];
 
     /// <summary>
     /// The accounts of <see cref="BotAuthors"/> whose commits are followed to a new head **without a signature** that the forge verified (ADR 0055). Empty by default: a bot's commits are signed by the forge (Dependabot's are), and the

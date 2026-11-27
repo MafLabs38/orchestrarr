@@ -31,7 +31,7 @@ internal sealed class BotPullRequests(IServiceProvider services, MissionsOptions
         return PullRequestFreshness.Of(entry, read, IsBot, IsUnsignedBot);
     }
 
-    private bool IsBot(string? login) => login is not null && options.BotAuthors.Contains(login, StringComparer.OrdinalIgnoreCase);
+    private bool IsBot(string? login) => login is not null && options.BotAuthorsInEffect.Contains(login, StringComparer.OrdinalIgnoreCase);
 
     // A test-bed setting only: outside Missions:Sandbox every followed commit must be signed
     private bool IsUnsignedBot(string? login) => options.Sandbox && IsBot(login) && options.BotUnsignedAuthors.Contains(login, StringComparer.OrdinalIgnoreCase);

@@ -34,6 +34,25 @@ public static partial class DependencySources
         return line is null ? null : $"'{path}' fetches something from outside a registry ({Shown(line)}): a maintenance takes its dependencies from the registry of its ecosystem";
     }
 
+    /// <summary>
+    /// Why these lines of a <c>package.json</c> make a script that judges the code (test, lint, build, check, type check) unable to fail, or null. What the pipeline runs is as much the judge as the pipeline (ADR 0055): a net, not a
+    /// proof, read for every operation.
+    /// </summary>
+    public static string? ScriptWeakening(string path, IEnumerable<string> lines)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        ArgumentNullException.ThrowIfNull(lines);
+        if (path[(path.LastIndexOf('/') + 1)..] != "package.json")
+        {
+            return null;
+        }
+        var line = lines.FirstOrDefault(candidate => NeutralScript().IsMatch(candidate));
+        return line is null ? null : $"'{path}' makes a script that judges the code unable to fail ({Shown(line)}): a check is never weakened to pass";
+    }
+
+    [GeneratedRegex(@"""(pre)?(test|lint|build|check|ci|verify|typecheck|type-check)[\w:.-]*""\s*:\s*""\s*(exit\s+0|true|:|echo\b[^""]*)\s*""|""(test|lint|build|check|ci|verify|typecheck)[\w:.-]*""\s*:\s*""[^""]*(\|\|\s*(true|exit\s+0|:)|--passWithNoTests|--no-fail)", RegexOptions.IgnoreCase, 250)]
+    private static partial Regex NeutralScript();
+
     private static Regex? RuleFor(string name) => name switch
     {
         "package.json" => Npm(),

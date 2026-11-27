@@ -37,7 +37,7 @@ public static partial class RepairPolicy
     private static partial Regex PlainPath();
 
     /// <summary>Whether the guards read this file line by line (a pipeline, a manifest or a container file): its text at the head that is repaired is worth reading, so that only what the repair adds is judged.</summary>
-    public static bool ReadsLines(string path) => PipelineChanges.IsPipeline(path) || DependencySources.Reads(path);
+    public static bool ReadsLines(string path) => PipelineChanges.IsPipeline(path) || DependencySources.Reads(path) || ChangePolicy.IsGenerated(path);
 
     /// <summary>
     /// Why a set of files cannot be a repair, or null when it can. <paramref name="before"/> holds the text of the files at the head that is repaired, when it was read: the guards of the pipelines and of the dependencies then judge
@@ -85,9 +85,14 @@ public static partial class RepairPolicy
             {
                 return weakened;
             }
-            if (DependencySources.Foreign(file.Path, added) is { } foreignDependency)
+            if ((DependencySources.Foreign(file.Path, added) ?? DependencySources.ScriptWeakening(file.Path, added)) is { } foreignDependency)
             {
                 return foreignDependency;
+            }
+            // A lock file takes its packages from a registry too (the same rule as for a free agent's change)
+            if (ChangePolicy.IsGenerated(file.Path) && ChangePolicy.ForeignHost(file.Path, added) is { } host)
+            {
+                return $"the lock file '{file.Path}' points at {host}, which is not a registry that this policy knows";
             }
             var size = System.Text.Encoding.UTF8.GetByteCount(file.Content);
             total += size;
