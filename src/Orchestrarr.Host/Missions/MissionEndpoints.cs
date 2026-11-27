@@ -70,7 +70,7 @@ internal static class MissionEndpoints
         })];
     }
 
-    private static IResult WhenReadable(Func<IResult> read)
+    internal static IResult WhenReadable(Func<IResult> read)
     {
         try
         {

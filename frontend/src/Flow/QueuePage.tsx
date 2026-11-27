@@ -9,6 +9,7 @@ import Label from 'Components/Label';
 import PageContent from 'Components/Page/PageContent';
 import PageContentBody from 'Components/Page/PageContentBody';
 import PageHeading from 'Components/Page/PageHeading';
+import { ApiRefusal } from 'Helpers/Hooks/sendJson';
 import useNow from 'Helpers/Hooks/useNow';
 import { kinds } from 'Helpers/Props/kinds';
 import { iconSizes } from 'Helpers/Props/sizes';
@@ -16,7 +17,7 @@ import type { DispatchEntry, InProcessEntry } from 'typings/api';
 import { describeAge } from 'Utilities/describe';
 import translate from 'Utilities/translate';
 
-import { operationLook, operationTitle, placeName } from './operationState';
+import { lotName, operationLook, placeName } from './operationState';
 import styles from './QueuePage.module.css';
 import { useDispatch, useHold, useRelease, useSetPriority } from './useDispatch';
 
@@ -37,7 +38,31 @@ function rankName(rank: number): string {
 }
 
 function lotOf(repository: string): string {
-  return repository.split('/').pop() ?? repository;
+  return lotName(repository);
+}
+
+const refusals: Record<string, Parameters<typeof translate>[0]> = {
+  notInTheLine: 'FlowActRefused_notInTheLine',
+  notHeld: 'FlowActRefused_notHeld',
+  notInTheFlow: 'FlowActRefused_notInTheFlow',
+  priorityOutOfRange: 'FlowActRefused_priorityOutOfRange',
+  holdNeedsAReason: 'FlowActRefused_holdNeedsAReason',
+  storageUnavailable: 'FlowActRefused_storageUnavailable',
+};
+
+// What the host answered to a lever that it refused, in words: the operation started meanwhile, or the trail could not record the act
+function Refused({ error }: Readonly<{ error: Error | null }>) {
+  if (!error) {
+    return null;
+  }
+  const code = error instanceof ApiRefusal ? error.code : null;
+  const text =
+    code && code in refusals ? translate(refusals[code]) : translate('FlowActRefused', { code: code ?? error.message });
+  return (
+    <span className={styles.refused} role="alert">
+      {text}
+    </span>
+  );
 }
 
 // The priority of an operation, set by a person: from 0 to 100, 50 is normal (ADR 0050)
@@ -68,6 +93,7 @@ function Priority({ problemId, priority, canAct }: Readonly<{ problemId: string;
       <Button type="submit" disabled={set.isPending || value === String(priority)}>
         {translate('SetPriority')}
       </Button>
+      <Refused error={set.error} />
     </form>
   );
 }
@@ -80,9 +106,12 @@ function HoldControl({ entry }: Readonly<{ entry: DispatchEntry }>) {
   const release = useRelease();
   if (entry.held) {
     return (
-      <Button onClick={() => release.mutate(entry.problemId)} disabled={release.isPending}>
-        {translate('Release')}
-      </Button>
+      <>
+        <Button onClick={() => release.mutate(entry.problemId)} disabled={release.isPending}>
+          {translate('Release')}
+        </Button>
+        <Refused error={release.error} />
+      </>
     );
   }
   if (!asking) {
@@ -108,6 +137,7 @@ function HoldControl({ entry }: Readonly<{ entry: DispatchEntry }>) {
         {translate('Hold')}
       </Button>
       <Button onClick={() => setAsking(false)}>{translate('Cancel')}</Button>
+      <Refused error={hold.error} />
     </form>
   );
 }
@@ -123,7 +153,7 @@ function LineRow({ entry, now, canAct }: Readonly<{ entry: DispatchEntry; now: n
     <tr>
       <td>{entry.position}</td>
       <td className={styles.operation}>
-        {operationTitle(entry.title, entry.kind)}
+        {entry.title}
         {entry.next ? <Label kind={kinds.INFO}>{translate('NextOfItsLot')}</Label> : null}
       </td>
       <td>{lotOf(entry.repository)}</td>
@@ -152,7 +182,7 @@ function LineRow({ entry, now, canAct }: Readonly<{ entry: DispatchEntry; now: n
 function InProcessRow({ entry, canAct }: Readonly<{ entry: InProcessEntry; canAct: boolean }>) {
   return (
     <tr>
-      <td className={styles.operation}>{operationTitle(entry.title, entry.kind)}</td>
+      <td className={styles.operation}>{entry.title}</td>
       <td>{lotOf(entry.repository)}</td>
       <td>{placeName(entry.place)}</td>
       <td>

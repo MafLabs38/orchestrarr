@@ -1,8 +1,8 @@
 import classNames from 'classnames';
-import { operationLook, operationStateOf } from 'Flow/operationState';
 
 import CapabilityHint from 'Components/CapabilityHint';
 import Label from 'Components/Label';
+import { operationLook } from 'Flow/operationState';
 import { type Kind, kinds } from 'Helpers/Props/kinds';
 import { iconSizes } from 'Helpers/Props/sizes';
 import type { FlowActivity, FlowProblem, FlowStep, MissionView } from 'typings/api';
@@ -123,13 +123,13 @@ function Details({ missions }: Readonly<{ missions: MissionView[] }>) {
 // One problem, followed: what it is, where it stands in each world, what it does now or what it waits for (the maintainer, 2026-11-25)
 function Problem({ problem, missions, now }: Readonly<{ problem: FlowProblem; missions: MissionView[]; now: number }>) {
   // The frame and the label say what the problem does now: at work, judged, or waiting (dashed), and for what (ADR 0056)
-  const operation = operationStateOf(problem);
+  const operation = problem.state === 'queued' || problem.state === 'inProgress' ? problem.operation : null;
   const look = operation ? operationLook(operation) : null;
   return (
     <li className={classNames(styles.problem, look && frameOf(look))}>
       <div className={styles.head}>
-        <span className={styles.title} title={titleOf(problem)}>
-          {titleOf(problem)}
+        <span className={styles.title} title={problem.title}>
+          {problem.title}
         </span>
         <span className={styles.repository}>{problem.repository}</span>
         {look ? (
@@ -174,13 +174,6 @@ function frameOf(look: { kind: string; waiting: boolean }): string | undefined {
     return styles.frameWaiting;
   }
   return look.kind === kinds.PURPLE ? styles.framePurple : styles.frameInfo;
-}
-
-// What the table says of a row is a number for an alert (the count of the alerts): it is told as what it is
-function titleOf(problem: FlowProblem): string {
-  return problem.kind === 'DependencyAlert' && /^\d+$/.test(problem.title)
-    ? translate('FlowTitleAlerts', { count: problem.title })
-    : problem.title;
 }
 
 // The same row ticked again later is the same problem: the missions of an earlier run are not the ones it is doing now

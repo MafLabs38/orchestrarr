@@ -39,8 +39,8 @@ public sealed class FlowBoardTests
         all["p-line"].Should().Match<BoardOperation>(operation => operation.Place == "queue" && operation.State == "waitingTurn");
         all["p-bot"].State.Should().Be("waitingBot", "an operation parked for its bot says so, not only that it waits");
         all["p-done"].Should().Match<BoardOperation>(operation => operation.Place == "out" && operation.State == "done");
-        all["p-grain"].Should().Match<BoardOperation>(operation => operation.State == "putAside" && operation.Detail == "no fixed version exists", "what was put aside keeps its reason");
-        board.Counters.Should().Be(new BoardCounters(Queued: 2, InProcess: 1, Waiting: 1, Done: 1, PutAside: 1, OldestQueuedSince: T0));
+        all["p-grain"].Should().Match<BoardOperation>(operation => operation.Place == "out" && operation.State == "escalated" && operation.Detail == "no fixed version exists", "an escalated operation waits for a person with its reason: it is not put aside");
+        board.Counters.Should().Be(new BoardCounters(Queued: 2, InProcess: 1, Waiting: 1, Done: 1, PutAside: 0, OldestQueuedSince: T0, Escalated: 1));
     }
 
     [Fact]

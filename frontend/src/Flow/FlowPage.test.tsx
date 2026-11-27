@@ -87,7 +87,11 @@ const board: FlowBoard = {
       operations: [
         operation('p-1', 'Staging', 'working', { equipment: 'leipzig', title: 'node:14-alpine → 22' }),
         operation('p-2', 'queue', 'waitingBot', { title: 'mocha 8.0.1 → 10.8.2' }),
-        operation('p-3', 'out', 'putAside', { title: '1', kind: 'DependencyAlert', detail: 'no fixed version exists' }),
+        operation('p-3', 'out', 'putAside', {
+          title: '1 dependency alerts',
+          kind: 'DependencyAlert',
+          detail: 'no fixed version exists',
+        }),
       ],
     },
     {
@@ -100,7 +104,16 @@ const board: FlowBoard = {
       ],
     },
   ],
-  counters: { queued: 1, inProcess: 1, waiting: 1, done: 4, putAside: 1, oldestQueuedSince: minutesAgo(3), held: 1 },
+  counters: {
+    queued: 1,
+    inProcess: 1,
+    waiting: 1,
+    done: 4,
+    putAside: 1,
+    oldestQueuedSince: minutesAgo(3),
+    held: 1,
+    escalated: 0,
+  },
 };
 
 afterEach(() => {

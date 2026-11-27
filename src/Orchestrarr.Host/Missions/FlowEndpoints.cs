@@ -19,7 +19,7 @@ public sealed record DispatchView(IReadOnlyList<DispatchEntry> Line, IReadOnlyLi
 
 public sealed record HoldRequest(string? Reason);
 
-public sealed record PriorityRequest(int Priority);
+public sealed record PriorityRequest(int? Priority);
 
 /// <summary>
 /// The Queue screen (ADR 0056): the dispatch list, and the operator's two levers on the line, the priority and the hold. Each is an act of a person who may approve, written in the audit trail and pushed live to the screens. Neither grants
@@ -31,7 +31,7 @@ internal static class FlowEndpoints
 
     public static void MapFlowEndpoints(this RouteGroupBuilder api)
     {
-        api.MapGet("/flow/queue", (IServiceProvider services, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, MissionProgress progress, RunnerRegistry runners) =>
+        api.MapGet("/flow/queue", (IServiceProvider services, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, MissionProgress progress, RunnerRegistry runners) => MissionEndpoints.WhenReadable(() =>
         {
             var line = services.GetService<ProblemQueue>();
             var holds = services.GetService<ProblemHolds>();
@@ -49,28 +49,25 @@ internal static class FlowEndpoints
                 var repository = waiting.Entry.Repositories.FirstOrDefault() ?? string.Empty;
                 var next = held is null && !parked && nextOfLot.Add(repository);
                 var shown = flow.GetValueOrDefault(id);
-                var state = "waitingTurn";
-                if (held is not null)
-                {
-                    state = "held";
-                }
-                else if (parked)
-                {
-                    state = "waitingBot";
-                }
+                // The state is the one every screen reads (OperationStates); a problem that has just entered the line and is not in the flow yet waits for its turn
+                var state = shown?.Operation ?? "waitingTurn";
                 entries.Add(new DispatchEntry(index + 1, id, shown?.Title ?? waiting.Entry.Objective, waiting.Entry.Brief?.Kind, repository, waiting.Priority, RouteRank.Of(waiting.Entry), waiting.QueuedAt, state,
                     shown?.Activity?.Waiting?.Subject, held, next));
             }
             var inProcess = board.Where(problem => problem.State == "inProgress")
-                .Select(problem => new InProcessEntry(problem.ProblemId, problem.Title, problem.Kind, problem.Repository, problem.Steps.FirstOrDefault(step => step.State is "running" or "reading" or "waiting")?.World ?? string.Empty, problem.Priority))
+                .Select(problem => new InProcessEntry(problem.ProblemId, problem.Title, problem.Kind, problem.Repository, OperationStates.CurrentStep(problem.Steps)?.World ?? FlowBoard.Queue, problem.Priority))
                 .ToList();
             return Results.Ok(new DispatchView(entries, inProcess));
-        }).RequireAuthorization(Permissions.FleetRead);
+        })).RequireAuthorization(Permissions.FleetRead);
 
         // The traveler of an operation (ADR 0056): its steps one after the other, from the audit trail
-        api.MapGet("/problems/{problemId}/traveler", (string problemId, IServiceProvider services, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, MissionProgress progress, RunnerRegistry runners, IAuditLog audit) =>
+        api.MapGet("/problems/{problemId}/traveler", (string problemId, IServiceProvider services, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, MissionProgress progress, RunnerRegistry runners, IAuditLog audit) => MissionEndpoints.WhenReadable(() =>
         {
-            var shown = MissionEndpoints.FlowOf(services, missions.Recent(MissionEndpoints.MaxPageSize), mandates, problems, progress, runners).FirstOrDefault(problem => string.Equals(problem.ProblemId, problemId, StringComparison.Ordinal));
+            // What the flow shows of it now; an operation older than what the flow lists is told from what the store keeps of it (its steps are in the audit trail all the same)
+            var shown = MissionEndpoints.FlowOf(services, missions.Recent(MissionEndpoints.MaxPageSize), mandates, problems, progress, runners).FirstOrDefault(problem => string.Equals(problem.ProblemId, problemId, StringComparison.Ordinal))
+                ?? (problems.Get(problemId) is { } run
+                    ? new FlowProblem(run.ProblemId, FlowView.TitleOf(run.Entry), run.Entry.Brief?.Kind ?? run.Entry.ProblemClass, run.Entry.Repositories.FirstOrDefault() ?? string.Empty, FlowView.StateOf(run.State), run.Priority, run.StartedAt, [], null, run.Note)
+                    : null);
             if (shown is null)
             {
                 return Results.NotFound();
@@ -78,16 +75,17 @@ internal static class FlowEndpoints
             var ofProblem = missions.ForProblem(problemId);
             var rows = audit.About([problemId, .. ofProblem.Select(mission => mission.Id)], MaxTravelerSteps);
             return Results.Ok(Traveler.Build(shown, ofProblem, rows));
-        }).RequireAuthorization(Permissions.AuditRead);
+        })).RequireAuthorization(Permissions.AuditRead);
 
         // A hold: an operation of the line does not start until it is released, and never holds its lot (ADR 0056). A reason in words is required
         api.MapPost("/flow/{problemId}/hold", async (string problemId, HoldRequest request, HttpContext context, IApproverAccessor accessor, IServiceProvider services, IMissionAudit audit, ILiveNotifier live, TimeProvider time) =>
         {
-            if (Operator(accessor, context) is { Refusal: { } refusal })
+            var (approver, refusal) = Operator(accessor, context);
+            if (approver is null)
             {
-                return refusal;
+                return refusal ?? Results.Forbid();
             }
-            var by = WhoIs(context, accessor);
+            var by = WhoIs(context, approver);
             if (string.IsNullOrWhiteSpace(request.Reason) || request.Reason.Length > ProblemHolds.MaxReason)
             {
                 return Results.Json(new ErrorResponse("holdNeedsAReason"), statusCode: StatusCodes.Status422UnprocessableEntity);
@@ -98,22 +96,32 @@ internal static class FlowEndpoints
             {
                 return Results.Json(new ErrorResponse("notInTheLine"), statusCode: StatusCodes.Status409Conflict);
             }
-            _ = await audit.RecordAsync(MissionAuditEvents.ProblemHeld, problemId, $"held by {by}: {reason}", CancellationToken.None);
+            // An act that the trail cannot take is not done (a full audit trail of every act)
+            if (!await audit.RecordAsync(MissionAuditEvents.ProblemHeld, problemId, $"held by {by}: {reason}", CancellationToken.None))
+            {
+                _ = holds.Release(problemId);
+                return Unrecorded();
+            }
             live.Publish(LiveTopics.Missions);
             return Results.Ok();
         }).RequireAuthorization(Permissions.ApprovalsCreate);
 
         api.MapPost("/flow/{problemId}/release", async (string problemId, HttpContext context, IApproverAccessor accessor, IServiceProvider services, IMissionAudit audit, ILiveNotifier live) =>
         {
-            if (Operator(accessor, context) is { Refusal: { } refusal })
+            var (approver, refusal) = Operator(accessor, context);
+            if (approver is null)
             {
-                return refusal;
+                return refusal ?? Results.Forbid();
             }
-            if (services.GetService<ProblemHolds>() is not { } holds || !holds.Release(problemId))
+            if (services.GetService<ProblemHolds>() is not { } holds || holds.Get(problemId) is not { } held || !holds.Release(problemId))
             {
                 return Results.Json(new ErrorResponse("notHeld"), statusCode: StatusCodes.Status409Conflict);
             }
-            _ = await audit.RecordAsync(MissionAuditEvents.ProblemReleased, problemId, $"released by {WhoIs(context, accessor)}", CancellationToken.None);
+            if (!await audit.RecordAsync(MissionAuditEvents.ProblemReleased, problemId, $"released by {WhoIs(context, approver)}", CancellationToken.None))
+            {
+                _ = holds.Hold(problemId, held);
+                return Unrecorded();
+            }
             live.Publish(LiveTopics.Missions);
             return Results.Ok();
         }).RequireAuthorization(Permissions.ApprovalsCreate);
@@ -121,20 +129,27 @@ internal static class FlowEndpoints
         // A priority set by a person, from 0 to 100 (ADR 0050, ADR 0056): an operation of the line, or one in process
         api.MapPost("/flow/{problemId}/priority", async (string problemId, PriorityRequest request, HttpContext context, IApproverAccessor accessor, IServiceProvider services, ProblemConductor conductor, IMissionAudit audit, ILiveNotifier live, CancellationToken ct) =>
         {
-            if (Operator(accessor, context) is { Refusal: { } refusal })
+            var (approver, refusal) = Operator(accessor, context);
+            if (approver is null)
             {
-                return refusal;
+                return refusal ?? Results.Forbid();
             }
-            if (request.Priority is < FlowPriority.Lowest or > FlowPriority.Highest)
+            if (request.Priority is not { } priority || priority is < FlowPriority.Lowest or > FlowPriority.Highest)
             {
                 return Results.Json(new ErrorResponse("priorityOutOfRange"), statusCode: StatusCodes.Status422UnprocessableEntity);
             }
-            var by = WhoIs(context, accessor);
-            if (services.GetService<ProblemQueue>() is { } line && line.SetPriority(problemId, request.Priority))
+            var by = WhoIs(context, approver);
+            var line = services.GetService<ProblemQueue>();
+            var before = line?.Ordered().FirstOrDefault(waiting => string.Equals(waiting.Entry.ProblemId, problemId, StringComparison.Ordinal))?.Priority;
+            if (line is not null && before is { } previous && line.SetPriority(problemId, priority))
             {
-                _ = await audit.RecordAsync(MissionAuditEvents.PrioritySet, problemId, $"priority in the line set to {request.Priority}, by {by}", CancellationToken.None);
+                if (!await audit.RecordAsync(MissionAuditEvents.PrioritySet, problemId, $"priority in the line set to {priority}, by {by}", CancellationToken.None))
+                {
+                    _ = line.SetPriority(problemId, previous);
+                    return Unrecorded();
+                }
             }
-            else if (!(await conductor.SetPriorityAsync(problemId, request.Priority, by, ct)).Ok)
+            else if (!(await conductor.SetPriorityAsync(problemId, priority, by, ct)).Ok)
             {
                 return Results.Json(new ErrorResponse("notInTheFlow"), statusCode: StatusCodes.Status409Conflict);
             }
@@ -144,8 +159,11 @@ internal static class FlowEndpoints
     }
 
     // Who acted, as a person reads it: the name of the account, else its identifier
-    private static string WhoIs(HttpContext context, IApproverAccessor accessor) =>
-        context.User.Identity?.Name is { Length: > 0 } name ? name : accessor.Current(context)!.Subject;
+    private static string WhoIs(HttpContext context, Approver approver) =>
+        context.User.Identity?.Name is { Length: > 0 } name ? name : approver.Subject;
+
+    // The trail could not take the act: it is undone and said so
+    private static IResult Unrecorded() => Results.Json(new ErrorResponse(ApiErrors.StorageUnavailable), statusCode: StatusCodes.Status503ServiceUnavailable);
 
     // The same gate as approving: a person who may approve
     private static (Approver? Approver, IResult? Refusal) Operator(IApproverAccessor accessor, HttpContext context)

@@ -113,7 +113,7 @@ public sealed partial class ProblemConductor
                     last = ended;
                 }
             }
-            problems.Save(run with { State = ProblemState.Failed, Note = reason });
+            problems.Save(run with { State = ProblemState.Failed, Note = reason, EndedAt = time.GetUtcNow() });
         });
         foreach (var (mission, id) in revoked)
         {

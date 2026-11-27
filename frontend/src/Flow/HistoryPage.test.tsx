@@ -14,7 +14,7 @@ const board: FlowBoard = {
       operations: [
         {
           problemId: 'p-grain',
-          title: '1',
+          title: '1 dependency alerts',
           kind: 'DependencyAlert',
           repository: 'example/shop',
           place: 'out',
@@ -39,12 +39,21 @@ const board: FlowBoard = {
       ],
     },
   ],
-  counters: { queued: 0, inProcess: 1, waiting: 0, done: 0, putAside: 1, oldestQueuedSince: null, held: 0 },
+  counters: {
+    queued: 0,
+    inProcess: 1,
+    waiting: 0,
+    done: 0,
+    putAside: 1,
+    oldestQueuedSince: null,
+    held: 0,
+    escalated: 0,
+  },
 };
 
 const traveler: TravelerView = {
   problemId: 'p-grain',
-  title: '1',
+  title: '1 dependency alerts',
   kind: 'DependencyAlert',
   repository: 'example/shop',
   state: 'escalated',

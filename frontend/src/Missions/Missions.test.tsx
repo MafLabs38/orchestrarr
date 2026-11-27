@@ -55,6 +55,7 @@ const working: FlowProblem = {
     waiting: null,
   },
   note: null,
+  operation: 'working',
 };
 
 afterEach(() => {
@@ -88,6 +89,7 @@ describe('Missions', () => {
           state: 'queued',
           steps: [{ ...staging, state: 'notStarted', missionId: null, attempts: 0 }],
           activity: { kind: 'waiting', text: null, at: null, waiting: { code: 'turn', subject: 'nginx:1.14 → 1.28' } },
+          operation: 'waitingTurn',
         },
         {
           ...working,
@@ -99,6 +101,7 @@ describe('Missions', () => {
             at: null,
             waiting: { code: 'machine', subject: 'leipzig (InProcess)' },
           },
+          operation: 'waitingMachine',
         },
       ],
       '/api/v1/missions?limit=200': [],
@@ -127,6 +130,7 @@ describe('Missions', () => {
             at: null,
             waiting: { code: 'busy', subject: 'Git 3/3' },
           },
+          operation: 'waitingLane',
         },
       ],
       '/api/v1/missions?limit=200': [],
@@ -137,17 +141,6 @@ describe('Missions', () => {
     expect(
       await screen.findByText(/Waits for a free place: every lane of this world is at work \(Git 3\/3\)/),
     ).toBeInTheDocument();
-  });
-
-  it('tells the alerts of a row as what they are, not as a bare number', async () => {
-    stubApi({
-      '/api/v1/flow': [{ ...working, kind: 'DependencyAlert', title: '2' }],
-      '/api/v1/missions?limit=200': [],
-    });
-
-    renderWithProviders(<Missions />);
-
-    expect(await screen.findByText('2 dependency alerts')).toBeInTheDocument();
   });
 
   it('tells a mission that has gone quiet', async () => {

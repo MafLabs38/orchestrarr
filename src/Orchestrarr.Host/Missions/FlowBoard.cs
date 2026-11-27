@@ -22,7 +22,7 @@ public sealed record BoardOperation(string ProblemId, string Title, string? Kind
 public sealed record BoardLot(string Repository, IReadOnlyList<BoardOperation> Operations);
 
 /// <summary>What a person counts at a glance: the operations in the line, in process, waiting in a workshop, done and put aside (among the recent ones), and since when the oldest of the line waits.</summary>
-public sealed record BoardCounters(int Queued, int InProcess, int Waiting, int Done, int PutAside, DateTimeOffset? OldestQueuedSince, int Held = 0);
+public sealed record BoardCounters(int Queued, int InProcess, int Waiting, int Done, int PutAside, DateTimeOffset? OldestQueuedSince, int Held = 0, int Escalated = 0);
 
 /// <summary>The factory view of the flow (ADR 0056): the places an operation can be in, in order, the workshops with their equipment, the lots with their operations, and the counters.</summary>
 public sealed record FlowBoardView(IReadOnlyList<string> Places, IReadOnlyList<BoardWorkshop> Workshops, IReadOnlyList<BoardLot> Lots, BoardCounters Counters);
@@ -58,7 +58,8 @@ internal static class FlowBoard
             operations.Count(operation => operation.State == "done"),
             operations.Count(operation => operation.State == "putAside"),
             queued.Count > 0 ? queued.Min(operation => operation.Since) : null,
-            queued.Count(operation => operation.State == "held"));
+            queued.Count(operation => operation.State == "held"),
+            operations.Count(operation => operation.State == "escalated"));
         return new FlowBoardView([Queue, .. worlds, Out], workshops, lots, counters);
     }
 
@@ -90,36 +91,19 @@ internal static class FlowBoard
 
     private static BoardOperation OperationOf(FlowProblem problem, IReadOnlyList<Machine> machines)
     {
+        var state = problem.Operation;
         switch (problem.State)
         {
             case "queued":
-                return new BoardOperation(problem.ProblemId, problem.Title, problem.Kind, problem.Repository, Queue, problem.Activity?.Waiting?.Code switch { "bot" => "waitingBot", "held" => "held", "planning" => "planning", _ => "waitingTurn" },
-                    problem.Activity?.Waiting?.Subject, problem.Priority, problem.StartedAt, null);
+                return new BoardOperation(problem.ProblemId, problem.Title, problem.Kind, problem.Repository, Queue, state, problem.Activity?.Waiting?.Subject, problem.Priority, problem.StartedAt, null);
             case "inProgress":
-                var step = CurrentStep(problem.Steps);
+                var step = OperationStates.CurrentStep(problem.Steps);
                 var machine = step?.MissionId is { } missionId ? machines.FirstOrDefault(candidate => string.Equals(candidate.MissionId, missionId, StringComparison.Ordinal)) : null;
-                return new BoardOperation(problem.ProblemId, problem.Title, problem.Kind, problem.Repository, step?.World ?? Queue, StateOf(problem.Activity), DetailOf(problem.Activity), problem.Priority,
-                    problem.Activity?.At ?? problem.StartedAt, machine?.Id);
+                return new BoardOperation(problem.ProblemId, problem.Title, problem.Kind, problem.Repository, step?.World ?? Queue, state, DetailOf(problem.Activity), problem.Priority, problem.Activity?.At ?? problem.StartedAt, machine?.Id);
             default:
-                return new BoardOperation(problem.ProblemId, problem.Title, problem.Kind, problem.Repository, Out, problem.State == "closed" ? "done" : "putAside", problem.Note, problem.Priority, problem.StartedAt, null);
+                return new BoardOperation(problem.ProblemId, problem.Title, problem.Kind, problem.Repository, Out, state, problem.Note, problem.Priority, problem.StartedAt, null);
         }
     }
-
-    // The world an operation in progress is in: the one whose mission runs, is read or waits; else the first that has not started (its mandate is about to be issued)
-    private static FlowStep? CurrentStep(IReadOnlyList<FlowStep> steps) =>
-        steps.FirstOrDefault(step => step.State is "running" or "reading" or "waiting") ?? steps.FirstOrDefault(step => step.State == "notStarted") ?? steps.LastOrDefault();
-
-    private static string StateOf(FlowActivity? activity) => activity switch
-    {
-        { Kind: "running" } => "working",
-        { Kind: "controller" } => "judging",
-        { Waiting.Code: "machine" } => "waitingMachine",
-        { Waiting.Code: "busy" } => "waitingLane",
-        { Waiting.Code: "turn" } => "waitingTurn",
-        { Waiting.Code: "bot" } => "waitingBot",
-        { Waiting.Code: "runner" } => "waitingRunner",
-        _ => "waitingPickup",
-    };
 
     private static string? DetailOf(FlowActivity? activity) => activity?.Kind == "running" ? activity.Text : activity?.Waiting?.Subject;
 

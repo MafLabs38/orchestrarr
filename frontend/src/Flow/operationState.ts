@@ -2,7 +2,7 @@ import type { LucideIcon } from 'lucide-react';
 
 import * as icons from 'Helpers/Props/icons';
 import { type Kind, kinds } from 'Helpers/Props/kinds';
-import type { EquipmentState, FlowProblem, OperationState } from 'typings/api';
+import type { BoardOperation, EquipmentState, FlowBoard, OperationState } from 'typings/api';
 import translate from 'Utilities/translate';
 
 // What an operation does, as a word, a kind and an icon: a state is never told by its colour alone (DESIGN §5)
@@ -37,6 +37,8 @@ export function operationLook(state: OperationState): StateLook {
       return { text: translate('OperationDone'), kind: kinds.SUCCESS, Icon: icons.DONE, waiting: false };
     case 'putAside':
       return { text: translate('OperationPutAside'), kind: kinds.DANGER, Icon: icons.PUT_ASIDE, waiting: false };
+    case 'escalated':
+      return { text: translate('OperationEscalated'), kind: kinds.WARNING, Icon: icons.WARNING, waiting: true };
     default:
       return { text: translate('OperationWaitingPickup'), kind: kinds.DEFAULT, Icon: icons.PENDING, waiting: true };
   }
@@ -73,49 +75,21 @@ export function placeName(place: string): string {
   }
 }
 
-// What the table says of an alert row is a number (the count of the alerts): it is told as what it is
-export function operationTitle(title: string, kind: string | null): string {
-  if (!/^\d+$/.test(title)) {
-    return title;
-  }
-  if (kind === 'DependencyAlert') {
-    return translate('FlowTitleAlerts', { count: title });
-  }
-  return kind === 'FailingCi' ? translate('FlowTitlePipelineRed') : title;
+// The short name of a lot: its repository without its owner
+export function lotName(repository: string): string {
+  return repository.split('/').pop() ?? repository;
 }
 
-// What a problem that is not over does now, in the words of the Flow screen (the same rule as the factory view of the host): null when it is over
-export function operationStateOf(problem: FlowProblem): OperationState | null {
-  const code = problem.activity?.waiting?.code;
-  if (problem.state === 'queued') {
-    if (code === 'held' || code === 'planning') {
-      return code;
-    }
-    return code === 'bot' ? 'waitingBot' : 'waitingTurn';
+function placeOrder(operation: BoardOperation): number {
+  if (operation.place === 'out') {
+    return 2;
   }
-  if (problem.state !== 'inProgress') {
-    return null;
-  }
-  switch (problem.activity?.kind) {
-    case 'running':
-      return 'working';
-    case 'controller':
-      return 'judging';
-    default:
-      break;
-  }
-  switch (code) {
-    case 'machine':
-      return 'waitingMachine';
-    case 'busy':
-      return 'waitingLane';
-    case 'turn':
-      return 'waitingTurn';
-    case 'bot':
-      return 'waitingBot';
-    case 'runner':
-      return 'waitingRunner';
-    default:
-      return 'waitingPickup';
-  }
+  return operation.place === 'queue' ? 1 : 0;
+}
+
+// Every operation of the factory view: in process first, then the line, then what is over, the newest first in each (what the History and the decisions taken list)
+export function operationsOf(board: FlowBoard | undefined): BoardOperation[] {
+  return (board?.lots ?? [])
+    .flatMap((lot) => lot.operations)
+    .sort((a, b) => placeOrder(a) - placeOrder(b) || Date.parse(b.since) - Date.parse(a.since));
 }

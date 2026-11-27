@@ -140,13 +140,8 @@ internal static class PlanEndpoints
 
     internal static World CeilingOf(ValidatedRow chosen) => chosen.StopBeforeProduction ? World.Git : PlanCeiling;
 
-    // What a person reads of a row being planned: what the table says, a count of alerts or a red pipeline said as what it is
-    private static string PlannedTitle(ProblemRow row) => row.Kind switch
-    {
-        ProblemKind.DependencyAlert when int.TryParse(row.Description, out _) => $"{row.Description} dependency alerts",
-        ProblemKind.FailingCi when int.TryParse(row.Description, out _) => "the pipeline is red",
-        _ => row.ParsedChange ?? row.Description,
-    };
+    // What a person reads of a row being planned: the same name as the flow gives it once it is placed
+    private static string PlannedTitle(ProblemRow row) => FlowView.TitleOf(row.Kind.ToString(), row.Description, row.ParsedChange ?? row.Description ?? string.Empty);
 
     // The lot of a row is its repository (ADR 0055); a row that the table does not know is a lot of its own
     private static string LotOf(ValidatedRow chosen, Dictionary<string, ProblemRow> table) =>

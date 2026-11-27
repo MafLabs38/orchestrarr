@@ -9,11 +9,12 @@ import PageContentBody from 'Components/Page/PageContentBody';
 import PageHeading from 'Components/Page/PageHeading';
 import { kinds } from 'Helpers/Props/kinds';
 import { iconSizes } from 'Helpers/Props/sizes';
-import type { BoardOperation, TravelerStep } from 'typings/api';
+import type { TravelerStep } from 'typings/api';
+import formatTime from 'Utilities/formatTime';
 import translate from 'Utilities/translate';
 
 import styles from './HistoryPage.module.css';
-import { operationLook, operationTitle, placeName } from './operationState';
+import { lotName, operationLook, operationsOf, placeName } from './operationState';
 import { describeStep } from './travelerEvents';
 import { useFlowBoard } from './useFlowBoard';
 import { useTraveler } from './useTraveler';
@@ -21,7 +22,7 @@ import { useTraveler } from './useTraveler';
 export const historyOf = (problemId: string) => `/history?problem=${encodeURIComponent(problemId)}`;
 
 function time(at: string): string {
-  return new Date(at).toLocaleTimeString();
+  return formatTime(at) ?? at;
 }
 
 function Step({ step }: Readonly<{ step: TravelerStep }>) {
@@ -50,7 +51,7 @@ function Traveler({ problemId }: Readonly<{ problemId: string }>) {
   }
   return (
     <section className={styles.traveler} aria-label={translate('Traveler')}>
-      <h2 className={styles.title}>{operationTitle(data.title, data.kind)}</h2>
+      <h2 className={styles.title}>{data.title}</h2>
       <p className={styles.meta}>
         {data.repository} · {translate('ColumnPriority')} {data.priority}
         {data.note ? ` · ${data.note}` : ''}
@@ -68,28 +69,19 @@ function Traveler({ problemId }: Readonly<{ problemId: string }>) {
   );
 }
 
-function order(operation: BoardOperation): number {
-  if (operation.place === 'out') {
-    return 2;
-  }
-  return operation.place === 'queue' ? 1 : 0;
-}
-
 // The History of the fab (ADR 0056): the operations of the flow, and the traveler of the one chosen
 export default function HistoryPage() {
   const [search] = useSearchParams();
   const chosen = search.get('problem');
   const { data: board } = useFlowBoard();
-  const operations = (board?.lots ?? [])
-    .flatMap((lot) => lot.operations)
-    .sort((a, b) => order(a) - order(b) || Date.parse(b.since) - Date.parse(a.since));
+  const operations = operationsOf(board);
   return (
     <PageContent title={translate('HistoryTitle')}>
       <PageContentBody>
         <PageHeading title={translate('HistoryTitle')} description={translate('HistoryTravelerDescription')} />
         <div className={styles.layout}>
           <nav className={styles.list} aria-label={translate('Operations')}>
-            {operations.length === 0 ? <CapabilityHint>{translate('DecisionsTakenEmpty')}</CapabilityHint> : null}
+            {operations.length === 0 ? <CapabilityHint>{translate('HistoryEmpty')}</CapabilityHint> : null}
             <ul>
               {operations.map((operation) => {
                 const look = operationLook(operation.state);
@@ -100,10 +92,10 @@ export default function HistoryPage() {
                       className={classNames(styles.entry, operation.problemId === chosen && styles.chosen)}
                       aria-current={operation.problemId === chosen ? 'page' : undefined}
                     >
-                      <span className={styles.entryTitle}>{operationTitle(operation.title, operation.kind)}</span>
+                      <span className={styles.entryTitle}>{operation.title}</span>
                       <span className={styles.entryMeta}>
                         <look.Icon size={iconSizes.SMALL} aria-hidden="true" />
-                        {operation.repository.split('/').pop()} · {look.text}
+                        {lotName(operation.repository)} · {look.text}
                       </span>
                     </Link>
                   </li>

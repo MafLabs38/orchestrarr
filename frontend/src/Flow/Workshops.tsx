@@ -7,7 +7,7 @@ import type { BoardCounters, BoardEquipment, BoardWorkshop } from 'typings/api';
 import { describeAge } from 'Utilities/describe';
 import translate from 'Utilities/translate';
 
-import { equipmentLook, operationLook, operationTitle, placeName } from './operationState';
+import { equipmentLook, lotName, operationLook, placeName } from './operationState';
 import styles from './Workshops.module.css';
 
 function Equipment({ equipment }: Readonly<{ equipment: BoardEquipment }>) {
@@ -22,10 +22,8 @@ function Equipment({ equipment }: Readonly<{ equipment: BoardEquipment }>) {
       </div>
       {equipment.title ? (
         <p className={styles.on} title={equipment.title}>
-          {operationTitle(equipment.title, equipment.operationKind)}
-          {equipment.repository ? (
-            <span className={styles.repository}> · {equipment.repository.split('/').pop()}</span>
-          ) : null}
+          {equipment.title}
+          {equipment.repository ? <span className={styles.repository}> · {lotName(equipment.repository)}</span> : null}
         </p>
       ) : null}
       {equipment.reason ? <p className={styles.reason}>{equipment.reason}</p> : null}
@@ -104,6 +102,13 @@ export default function Workshops({
             {translate('FlowPutAsideCount', { count: counters.putAside })}
           </Label>
         </p>
+        {counters.escalated > 0 ? (
+          <p className={styles.outcome}>
+            <Label kind={operationLook('escalated').kind}>
+              {translate('FlowEscalatedCount', { count: counters.escalated })}
+            </Label>
+          </p>
+        ) : null}
       </section>
     </div>
   );

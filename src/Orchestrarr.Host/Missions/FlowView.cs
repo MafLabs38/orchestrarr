@@ -13,7 +13,11 @@ public sealed record FlowWaiting(string Code, string? Subject);
 public sealed record FlowActivity(string Kind, string? Text, DateTimeOffset? At, FlowWaiting? Waiting);
 
 /// <summary>One problem as a person follows it: what it is, where it stands in each world, what it does now, how urgent it is.</summary>
-public sealed record FlowProblem(string ProblemId, string Title, string? Kind, string Repository, string State, int Priority, DateTimeOffset StartedAt, IReadOnlyList<FlowStep> Steps, FlowActivity? Activity, string? Note);
+public sealed record FlowProblem(string ProblemId, string Title, string? Kind, string Repository, string State, int Priority, DateTimeOffset StartedAt, IReadOnlyList<FlowStep> Steps, FlowActivity? Activity, string? Note)
+{
+    /// <summary>What the operation does now, in the words of every screen (ADR 0056): one rule, <see cref="OperationStates"/>.</summary>
+    public string Operation => OperationStates.Of(this);
+}
 
 /// <summary>
 /// The read model of the Missions screen (the maintainer, 2026-11-25: follow the flow, understand what happens and where, whether it is blocked or active). It is computed from what the conductor keeps and says nothing the stores do not: the problems that wait in the
@@ -91,7 +95,7 @@ internal static class FlowView
             [.. Worlds(entry.MaxWorld, true).Select(world => new FlowStep(world.ToString(), "notStarted", null, 0))], new FlowActivity("waiting", null, problem.QueuedAt, waiting), null);
     }
 
-    private static string StateOf(ProblemState state) => state switch
+    internal static string StateOf(ProblemState state) => state switch
     {
         ProblemState.InProgress => "inProgress",
         ProblemState.Escalated => "escalated",
@@ -103,12 +107,15 @@ internal static class FlowView
 
     // What a person reads as the name of the problem: what the control plane read of the row (an image, a version, a count of alerts), then where
     // A row of alerts or of a red pipeline is read as a number (how many): it is said as what it is
-    internal static string TitleOf(PlanEntry entry) => entry.Brief switch
+    internal static string TitleOf(PlanEntry entry) => TitleOf(entry.Brief?.Kind, entry.Brief?.Description, entry.Objective);
+
+    /// <summary>The one rule that names an operation for every screen: a row of alerts or of a red pipeline is read as a number (how many), and is said as what it is.</summary>
+    internal static string TitleOf(string? kind, string? description, string otherwise) => (kind, description) switch
     {
-        { Kind: "DependencyAlert", Description: var count } when int.TryParse(count, out _) => $"{count} dependency alerts",
-        { Kind: "FailingCi", Description: var count } when int.TryParse(count, out _) => "the pipeline is red",
-        { Description.Length: > 0 } brief => brief.Description,
-        _ => entry.Objective,
+        ("DependencyAlert", { } count) when int.TryParse(count, out _) => $"{count} dependency alerts",
+        ("FailingCi", { } count) when int.TryParse(count, out _) => "the pipeline is red",
+        (_, { Length: > 0 }) => description,
+        _ => otherwise,
     };
 
     private static IEnumerable<World> Worlds(World highest, bool uses) =>

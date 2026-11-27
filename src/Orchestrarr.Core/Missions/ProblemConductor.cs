@@ -365,7 +365,7 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
         var sentBack = new AuditLine(MissionAuditEvents.MissionSentBack, mission.Id, Text($"send-back {sent.SendBacks}"));
         if (sent.State == MissionState.Ended)
         {
-            await SettleAsync(mission, sent, run with { State = ProblemState.Failed, Note = sent.EndReason }, sentBack, new AuditLine(MissionAuditEvents.ProblemFailed, run.ProblemId, sent.EndReason));
+            await SettleAsync(mission, sent, run with { State = ProblemState.Failed, Note = sent.EndReason, EndedAt = time.GetUtcNow() }, sentBack, new AuditLine(MissionAuditEvents.ProblemFailed, run.ProblemId, sent.EndReason));
         }
         else
         {
@@ -383,7 +383,7 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
         {
             return ConductResult.Fail(transition.Refusal ?? "refused");
         }
-        await SettleAsync(mission, ended, run with { State = ProblemState.Escalated, Note = reason },
+        await SettleAsync(mission, ended, run with { State = ProblemState.Escalated, Note = reason, EndedAt = time.GetUtcNow() },
             new AuditLine(MissionAuditEvents.MissionEnded, mission.Id, Text($"escalated: {reason}")), new AuditLine(MissionAuditEvents.ProblemEscalated, run.ProblemId, reason));
         return ConductResult.Success(ended);
     }
@@ -395,7 +395,7 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
         {
             return ConductResult.Fail(transition.Refusal ?? "refused");
         }
-        await SettleAsync(mission, ended, run with { State = ProblemState.Failed, Note = reason },
+        await SettleAsync(mission, ended, run with { State = ProblemState.Failed, Note = reason, EndedAt = time.GetUtcNow() },
             new AuditLine(MissionAuditEvents.MissionEnded, mission.Id, Text($"{ended.End}: {reason}")), new AuditLine(MissionAuditEvents.ProblemFailed, run.ProblemId, reason));
         return ConductResult.Success(ended);
     }
@@ -503,7 +503,7 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
     // A mandate that cannot be issued ends the problem as failed, with the reason and an entry in the trail: nothing is left in progress with no mission and no way forward
     private async Task<ConductResult> FailedAsync(ProblemRun run, string reason, IReadOnlyList<PreconditionFailure>? failures = null)
     {
-        problems.Save(run with { State = ProblemState.Failed, Note = reason });
+        problems.Save(run with { State = ProblemState.Failed, Note = reason, EndedAt = time.GetUtcNow() });
         await BestEffortAsync(MissionAuditEvents.ProblemFailed, run.ProblemId, reason);
         return ConductResult.Fail(reason, failures);
     }

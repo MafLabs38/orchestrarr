@@ -7,7 +7,7 @@ import translate from 'Utilities/translate';
 
 import { historyOf } from './HistoryPage';
 import styles from './LotMap.module.css';
-import { operationLook, operationTitle, placeName } from './operationState';
+import { lotName, operationLook, placeName } from './operationState';
 
 const urgentFrom = 70;
 
@@ -16,7 +16,7 @@ const outShown = 3;
 
 function Operation({ operation }: Readonly<{ operation: BoardOperation }>) {
   const look = operationLook(operation.state);
-  const title = operationTitle(operation.title, operation.kind);
+  const title = operation.title;
   const where = operation.equipment ? ` · ${operation.equipment}` : '';
   return (
     <li
@@ -59,7 +59,7 @@ export default function LotMap({ lots, places }: Readonly<{ lots: BoardLot[]; pl
       {lots.map((lot) => (
         <div key={lot.repository} className={styles.row} role="row">
           <span className={styles.lot} role="rowheader">
-            {lot.repository.split('/').pop()}
+            {lotName(lot.repository)}
           </span>
           {places.map((place) => {
             const all = lot.operations.filter((operation) => operation.place === place);

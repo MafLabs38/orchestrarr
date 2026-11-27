@@ -1,7 +1,4 @@
 import { QueryClientProvider } from '@tanstack/react-query';
-import FlowPage from 'Flow/FlowPage';
-import FlowHistoryPage from 'Flow/HistoryPage';
-import QueuePage from 'Flow/QueuePage';
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
 
 import Account from 'Account/Account';
@@ -9,6 +6,9 @@ import Accounts from 'Accounts/Accounts';
 import Activity from 'Activity/Activity';
 import Page from 'Components/Page/Page';
 import Decisions from 'Decisions/Decisions';
+import FlowPage from 'Flow/FlowPage';
+import FlowHistoryPage from 'Flow/HistoryPage';
+import QueuePage from 'Flow/QueuePage';
 import LiveUpdates from 'Live/LiveUpdates';
 import Missions from 'Missions/Missions';
 import Options from 'Options/Options';

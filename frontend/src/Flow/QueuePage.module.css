@@ -57,3 +57,8 @@
 .priority {
   width: 5em;
 }
+
+.refused {
+  color: var(--dangerColor);
+  font-size: var(--fontSizeMeta);
+}

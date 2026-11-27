@@ -1,33 +1,24 @@
-import { historyOf } from 'Flow/HistoryPage';
-import { operationLook, operationTitle, placeName } from 'Flow/operationState';
-import { useFlowBoard } from 'Flow/useFlowBoard';
 import { Link } from 'react-router-dom';
 
 import CapabilityHint from 'Components/CapabilityHint';
 import Label from 'Components/Label';
+import { historyOf } from 'Flow/HistoryPage';
+import { lotName, operationLook, operationsOf, placeName } from 'Flow/operationState';
+import { useFlowBoard } from 'Flow/useFlowBoard';
 import useNow from 'Helpers/Hooks/useNow';
 import { iconSizes } from 'Helpers/Props/sizes';
-import type { BoardOperation } from 'typings/api';
 import { describeAge } from 'Utilities/describe';
 import translate from 'Utilities/translate';
 
 import styles from './TakenDecisions.module.css';
 
 // What is going on first (in process, then in the line), then what is over, the newest first
-function order(operation: BoardOperation): number {
-  if (operation.place === 'out') {
-    return 2;
-  }
-  return operation.place === 'queue' ? 1 : 0;
-}
 
 // The decisions taken (ADR 0056): each row that was validated, with what became of it, live, from the same reading as the Flow screen
 export default function TakenDecisions() {
   const { data: board } = useFlowBoard();
   const now = useNow(15_000);
-  const operations = (board?.lots ?? [])
-    .flatMap((lot) => lot.operations)
-    .sort((a, b) => order(a) - order(b) || Date.parse(b.since) - Date.parse(a.since));
+  const operations = operationsOf(board);
   return (
     <section className={styles.taken} aria-label={translate('DecisionsTaken')}>
       <h2 className={styles.title}>{translate('DecisionsTaken')}</h2>
@@ -52,9 +43,9 @@ export default function TakenDecisions() {
                 return (
                   <tr key={operation.problemId}>
                     <td className={styles.operation}>
-                      <Link to={historyOf(operation.problemId)}>{operationTitle(operation.title, operation.kind)}</Link>
+                      <Link to={historyOf(operation.problemId)}>{operation.title}</Link>
                     </td>
-                    <td>{operation.repository.split('/').pop()}</td>
+                    <td>{lotName(operation.repository)}</td>
                     <td>{placeName(operation.place)}</td>
                     <td>
                       <Label kind={look.kind}>
