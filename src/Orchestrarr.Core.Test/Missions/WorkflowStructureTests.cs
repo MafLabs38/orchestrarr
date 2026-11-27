@@ -221,4 +221,15 @@ public sealed class WorkflowStructureTests
         Judge(Base.Replace("actions/checkout@v4", "actions/checkout@v5", StringComparison.Ordinal)).Should().BeNull("another version of the same action mends it");
         Judge(Base.Replace("actions/checkout@v4", "someone/checkout@v1", StringComparison.Ordinal)).Should().Contain("replaces the action 'actions/checkout' with 'someone/checkout'");
     }
+
+    [Theory]
+    [InlineData("permissions:\n  contents: write\n")]
+    [InlineData("permissions: write-all\n")]
+    [InlineData("env:\n  TOKEN: ${{ secrets.NPM_TOKEN }}\n")]
+    public void A_dormant_workflow_that_can_write_or_reads_a_secret_is_never_woken(string powers)
+    {
+        var dormant = "on:\n  push:\n    paths: ['old/**']\n" + powers + "jobs:\n  t:\n    runs-on: x\n    steps:\n      - run: make";
+
+        WorkflowStructure.Weakening(Path, dormant, dormant.Replace("old/**", "src/**", StringComparison.Ordinal), ["src/feature.js"]).Should().Contain("can write or reads a secret");
+    }
 }

@@ -101,6 +101,11 @@ public static class WorkflowStructure
             {
                 return $"changes the path filters of the trigger '{trigger}' ({refusal})";
             }
+            // A dormant workflow that can write or reads a secret stays dormant: waking it gives it powers, a person's decision
+            if (next.HoldsPowers)
+            {
+                return $"wakes the workflow on '{trigger}' while it can write or reads a secret";
+            }
         }
         return null;
     }
@@ -226,9 +231,14 @@ public static class WorkflowStructure
 
     private sealed record Job(int Steps, int AlwaysRunningSteps, int CannotFailSteps, bool CannotFail, string? Condition, int MatrixValues, Dictionary<string, string>? Permissions);
 
-    private sealed record Workflow(Dictionary<string, string> Triggers, Dictionary<string, string>? Permissions, Dictionary<string, Job> Jobs, HashSet<string> CustomShells, Dictionary<string, PathFilter> PathFilters, HashSet<string> Actions)
+    private sealed record Workflow(Dictionary<string, string> Triggers, Dictionary<string, string>? Permissions, Dictionary<string, Job> Jobs, HashSet<string> CustomShells, Dictionary<string, PathFilter> PathFilters, HashSet<string> Actions, bool ReadsSecrets = false)
     {
         public static Workflow Empty { get; } = new([], null, [], [], [], []);
+
+        /// <summary>Whether the workflow, or one of its jobs, asks for a token that can write, or reads a secret.</summary>
+        public bool HoldsPowers => ReadsSecrets || CanWrite(Permissions) || Jobs.Values.Any(job => CanWrite(job.Permissions));
+
+        private static bool CanWrite(Dictionary<string, string>? permissions) => permissions is not null && permissions.Values.Any(level => level.Contains("write", StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>The path filters of a trigger (<c>paths</c> with its <c>!</c> negations, last match wins; <c>paths-ignore</c>), and the rest of its filters in one canonical text.</summary>
@@ -318,7 +328,7 @@ public static class WorkflowStructure
             CollectShells(root, shells);
             var actions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             CollectActions(root, actions);
-            return new Workflow(TriggersOf(Child(root, "on")), PermissionsOf(Child(root, "permissions")), jobs, shells, PathFiltersOf(Child(root, "on")), actions);
+            return new Workflow(TriggersOf(Child(root, "on")), PermissionsOf(Child(root, "permissions")), jobs, shells, PathFiltersOf(Child(root, "on")), actions, text.Contains("secrets", StringComparison.OrdinalIgnoreCase));
         }
         catch (Exception failure) when (failure is YamlException or ArgumentException or InvalidOperationException or InvalidCastException)
         {
