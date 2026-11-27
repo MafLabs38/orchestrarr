@@ -119,7 +119,9 @@ internal sealed class PushCredentialLedger(IPushCredentials credentials, IMissio
         bool firstTime;
         lock (_gate)
         {
-            firstTime = failed.Any(token => _toldFailed.Add(token)) || failed.Count == 0;
+            // Every failed token is recorded (no short-circuit): each is said the first time it fails, and only then
+            var newlyFailed = failed.Count(token => _toldFailed.Add(token));
+            firstTime = newlyFailed > 0 || failed.Count == 0;
             foreach (var token in tokens.Except(failed, StringComparer.Ordinal))
             {
                 _ = _toldFailed.Remove(token);

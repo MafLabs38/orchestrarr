@@ -18,6 +18,9 @@ public static class WorkflowStructure
 
     private static readonly string[] NeverRuns = ["false", "0", "''", "\"\"", "null"];
 
+    // The shells the forge knows: any other value is a template of its own, which can make every step pass
+    private static readonly string[] KnownShells = ["bash", "sh", "pwsh", "powershell", "python", "cmd"];
+
     /// <summary>Whether the path is a workflow of the forge (the only place GitHub reads them: <c>.github/workflows/*.yml</c> or <c>.yaml</c> at the root).</summary>
     public static bool IsWorkflow(string path)
     {
@@ -35,7 +38,7 @@ public static class WorkflowStructure
             return $"the pipeline '{path}' does not read as a workflow: what cannot be read cannot be judged";
         }
         var previous = (before is null ? null : Read(before)) ?? Workflow.Empty;
-        var reason = NewDangerousTrigger(previous, next) ?? Widened(previous.Permissions, next.Permissions, "the workflow");
+        var reason = NewDangerousTrigger(previous, next) ?? LostTrigger(previous, next) ?? NewShell(previous, next) ?? Widened(previous.Permissions, next.Permissions, "the workflow");
         foreach (var (name, job) in next.Jobs)
         {
             reason ??= previous.Jobs.TryGetValue(name, out var was) ? JobWeakening(name, was, job, previous, next) : NewJobWeakening(name, job, previous, next);
@@ -45,7 +48,27 @@ public static class WorkflowStructure
     }
 
     private static string? NewDangerousTrigger(Workflow previous, Workflow next) =>
-        next.Triggers.Where(trigger => DangerousTriggers.Contains(trigger, StringComparer.Ordinal) && !previous.Triggers.Contains(trigger)).Select(trigger => $"adds the trigger '{trigger}', which runs with the base's credentials").FirstOrDefault();
+        next.Triggers.Keys.Where(trigger => DangerousTriggers.Contains(trigger, StringComparer.Ordinal) && !previous.Triggers.ContainsKey(trigger)).Select(trigger => $"adds the trigger '{trigger}', which runs with the base's credentials").FirstOrDefault();
+
+    // A workflow that no longer runs where it ran checks nothing there: a trigger removed, or its filters (branches, paths, tags) changed
+    private static string? LostTrigger(Workflow previous, Workflow next)
+    {
+        foreach (var (trigger, filters) in previous.Triggers)
+        {
+            if (!next.Triggers.TryGetValue(trigger, out var now))
+            {
+                return $"stops the workflow from running on '{trigger}'";
+            }
+            if (!string.Equals(filters, now, StringComparison.Ordinal))
+            {
+                return $"changes the filters of the trigger '{trigger}'";
+            }
+        }
+        return null;
+    }
+
+    private static string? NewShell(Workflow previous, Workflow next) =>
+        next.CustomShells.Where(shell => !previous.CustomShells.Contains(shell)).Select(shell => $"runs its steps in a shell of its own ('{shell}'), which can make every step pass").FirstOrDefault();
 
     private static string? JobWeakening(string name, Job was, Job job, Workflow previous, Workflow next)
     {
@@ -115,9 +138,9 @@ public static class WorkflowStructure
 
     private sealed record Job(int Steps, int AlwaysRunningSteps, int CannotFailSteps, bool CannotFail, string? Condition, int MatrixValues, Dictionary<string, string>? Permissions);
 
-    private sealed record Workflow(HashSet<string> Triggers, Dictionary<string, string>? Permissions, Dictionary<string, Job> Jobs)
+    private sealed record Workflow(Dictionary<string, string> Triggers, Dictionary<string, string>? Permissions, Dictionary<string, Job> Jobs, HashSet<string> CustomShells)
     {
-        public static Workflow Empty { get; } = new([], null, []);
+        public static Workflow Empty { get; } = new([], null, [], []);
     }
 
     private static Workflow? Read(string text)
@@ -141,7 +164,9 @@ public static class WorkflowStructure
                     }
                 }
             }
-            return new Workflow(TriggersOf(Child(root, "on")), PermissionsOf(Child(root, "permissions")), jobs);
+            var shells = new HashSet<string>(StringComparer.Ordinal);
+            CollectShells(root, shells);
+            return new Workflow(TriggersOf(Child(root, "on")), PermissionsOf(Child(root, "permissions")), jobs, shells);
         }
         catch (Exception failure) when (failure is YamlException or ArgumentException or InvalidOperationException or InvalidCastException)
         {
@@ -160,13 +185,47 @@ public static class WorkflowStructure
         return new Job(count, always, cannotFail, MayPassAnyway(Child(job, "continue-on-error")), Normalised(Scalar(Child(job, "if"))), MatrixSize(Child(Child(job, "strategy"), "matrix")), PermissionsOf(Child(job, "permissions")));
     }
 
-    private static HashSet<string> TriggersOf(YamlNode? node) => node switch
+    // Each trigger with its filters, written in one canonical text (empty when it has none)
+    private static Dictionary<string, string> TriggersOf(YamlNode? node) => node switch
     {
-        YamlScalarNode { Value: { } one } => [one],
-        YamlSequenceNode many => [.. many.Children.OfType<YamlScalarNode>().Select(item => item.Value).OfType<string>()],
-        YamlMappingNode map => [.. map.Children.Keys.OfType<YamlScalarNode>().Select(item => item.Value).OfType<string>()],
-        _ => [],
+        YamlScalarNode { Value: { } one } => new(StringComparer.Ordinal) { [one] = string.Empty },
+        YamlSequenceNode many => many.Children.OfType<YamlScalarNode>().Select(item => item.Value).OfType<string>().Distinct(StringComparer.Ordinal).ToDictionary(name => name, _ => string.Empty, StringComparer.Ordinal),
+        YamlMappingNode map => map.Children.Where(pair => pair.Key is YamlScalarNode { Value: not null })
+            .ToDictionary(pair => ((YamlScalarNode)pair.Key).Value!, pair => Canonical(pair.Value), StringComparer.Ordinal),
+        _ => new(StringComparer.Ordinal),
     };
+
+    private static string Canonical(YamlNode node) => node switch
+    {
+        YamlScalarNode scalar => scalar.Value ?? string.Empty,
+        YamlSequenceNode list => "[" + string.Join(",", list.Children.Select(Canonical)) + "]",
+        YamlMappingNode map => "{" + string.Join(",", map.Children.OrderBy(pair => (pair.Key as YamlScalarNode)?.Value, StringComparer.Ordinal).Select(pair => $"{Canonical(pair.Key)}:{Canonical(pair.Value)}")) + "}",
+        _ => string.Empty,
+    };
+
+    // Every `shell` of the workflow (its defaults, a job's defaults, a step) that is not a shell the forge knows
+    private static void CollectShells(YamlNode node, HashSet<string> found)
+    {
+        switch (node)
+        {
+            case YamlMappingNode map:
+                foreach (var (key, value) in map.Children)
+                {
+                    if (key is YamlScalarNode { Value: "shell" } && value is YamlScalarNode { Value: { } shell } && !KnownShells.Contains(shell.Trim(), StringComparer.Ordinal))
+                    {
+                        _ = found.Add(shell.Trim());
+                    }
+                    CollectShells(value, found);
+                }
+                break;
+            case YamlSequenceNode list:
+                foreach (var item in list.Children)
+                {
+                    CollectShells(item, found);
+                }
+                break;
+        }
+    }
 
     private static Dictionary<string, string>? PermissionsOf(YamlNode? node) => node switch
     {

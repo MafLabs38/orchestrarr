@@ -55,7 +55,7 @@ public sealed class WorkflowStructureTests
     [Fact]
     public void Removing_a_job_is_refused_and_a_new_job_that_cannot_fail_is_too()
     {
-        Judge("on: push\npermissions:\n  contents: read\njobs: {}").Should().Contain("removes the job 'test'");
+        Judge("on: [push, pull_request]\npermissions:\n  contents: read\njobs: {}").Should().Contain("removes the job 'test'");
         Judge(Base + "\n  extra:\n    runs-on: ubuntu-latest\n    continue-on-error: true\n    steps:\n      - run: make check").Should().Contain("job 'extra'");
     }
 
@@ -94,5 +94,19 @@ public sealed class WorkflowStructureTests
         const string Bare = "on: push\njobs:\n  t:\n    runs-on: x\n    steps:\n      - run: make";
         Judge(Bare.Replace("on: push", "on: push\npermissions:\n  contents: write", StringComparison.Ordinal), Bare).Should().Contain("contents: write", "where nothing was said the token had the read-only default");
         Judge(Bare.Replace("on: push", "on: push\npermissions:\n  contents: read", StringComparison.Ordinal), Bare).Should().BeNull("a narrower token is not a weakening");
+    }
+
+    [Theory]
+    [InlineData("on: [push, pull_request]", "on: [workflow_dispatch]", "stops the workflow from running")]
+    [InlineData("on: [push, pull_request]", "on:\n  push:\n    paths-ignore: ['**']\n  pull_request:", "changes the filters of the trigger 'push'")]
+    [InlineData("      - run: npm test", "      - run: npm test\n        shell: true {0}", "shell of its own")]
+    public void A_workflow_that_no_longer_runs_where_it_ran_or_runs_its_steps_in_a_shell_of_its_own_is_refused(string from, string to, string reason) =>
+        Judge(Base.Replace(from, to, StringComparison.Ordinal)).Should().Contain(reason);
+
+    [Fact]
+    public void A_known_shell_and_unchanged_filters_are_not_a_weakening()
+    {
+        const string Filtered = "on:\n  push:\n    paths: [src/**]\njobs:\n  t:\n    runs-on: x\n    steps:\n      - run: make\n        shell: bash";
+        Judge(Filtered.Replace("run: make", "run: make test", StringComparison.Ordinal), Filtered).Should().BeNull();
     }
 }
