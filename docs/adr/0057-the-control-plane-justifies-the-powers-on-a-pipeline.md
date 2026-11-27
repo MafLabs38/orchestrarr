@@ -39,7 +39,7 @@ The review of the pull request that carries ADR 0055 left four serious points, w
 
 ## Consequences
 
-- No credential can change a workflow outside an operation about its pipeline, and none can merge into the default branch or `main` (checked before it is handed out). A credential is revoked on the forge when its mission ends or the stop is engaged; a revocation the forge does not confirm is tried again at each pass of the driver, and only a restart of the control plane, or a forge that stays unreachable, leaves one to expire by itself within the hour.
+- No credential can change a workflow outside an operation about its pipeline, and none can merge into the default branch or `main` (checked before it is handed out). A credential is revoked on the forge when its mission ends or the stop is engaged; a revocation the forge does not confirm is tried again at each pass of the driver once the mission no longer runs or the stop is engaged (one that a renewal replaced is tried again at the next renewal or then), and only a restart of the control plane, or a forge that stays unreachable, leaves one to expire by itself within the hour.
 - The maintainer creates the App once per test bed (its private key is a secret of the host); the runner needs no token of its own.
 - A pipeline change costs the agent a few sentences, and the controller one more rule; an unexplained one comes back to the agent instead of reaching the forge's pipeline.
 - Following a bot reads one more page of the forge per pull request read (the activity log of its branch).

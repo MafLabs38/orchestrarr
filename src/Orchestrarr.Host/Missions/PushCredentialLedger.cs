@@ -101,7 +101,7 @@ internal sealed class PushCredentialLedger(IPushCredentials credentials, IMissio
                 failed.Add(token);
             }
         }
-        // A revocation that the forge did not confirm is kept, and the driver's next pass tries again (the mission no longer runs, or the stop is engaged, so the sweep takes it)
+        // A revocation that the forge did not confirm is kept, and the driver's pass tries again once the mission no longer runs or the stop is engaged (a replaced one that failed is tried again at the next renewal, or then)
         if (failed.Count > 0)
         {
             lock (_gate)
