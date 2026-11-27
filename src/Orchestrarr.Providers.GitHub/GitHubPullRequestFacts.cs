@@ -2,11 +2,12 @@ using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Orchestrarr.Core.Forge;
+using Orchestrarr.Core.Missions;
 
 namespace Orchestrarr.Providers.GitHub;
 
 /// <summary>Reads one pull request from GitHub's REST API: its head and base commits, the checks of the head and the paths that change. Read-only, redirects never followed, the token goes to the configured address only.</summary>
-public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefaultBranchSource, IBranchSource, IPipelineFailures, Orchestrarr.Core.Missions.IDependencyFindings
+public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefaultBranchSource, IBranchSource, IPipelineFailures, IDependencyFindings
 {
     private const int MaxPages = 10;
 
@@ -153,7 +154,7 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefault
 
     // The open security alerts of the forge on the dependencies of the repository (Dependabot's), one finding per package: the version that fixes every alert of the package (the highest of their first patched versions), the
     // highest severity and how many advisories. A package with an alert that has no patched version says so. Data for the lead, never an order; nothing that cannot be read is guessed
-    async Task<IReadOnlyList<Orchestrarr.Core.Missions.DependencyFinding>> Orchestrarr.Core.Missions.IDependencyFindings.ReadAsync(string repository, CancellationToken cancellationToken)
+    async Task<IReadOnlyList<DependencyFinding>> IDependencyFindings.ReadAsync(string repository, CancellationToken cancellationToken)
     {
         if (!RepositoryName().IsMatch(repository))
         {
@@ -193,14 +194,14 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefault
         }
     }
 
-    private static Orchestrarr.Core.Missions.DependencyFinding Finding(string package, List<(string? Fix, string? Severity, string? Summary, string? Range)> alerts)
+    private static DependencyFinding Finding(string package, List<(string? Fix, string? Severity, string? Summary, string? Range)> alerts)
     {
         // One alert with no patched version leaves the package with no fixed version: a higher version does not remove that flaw
         var fix = alerts.Any(alert => alert.Fix is null) ? null : alerts.Select(alert => alert.Fix!).MaxBy(VersionKey, VersionComparer.Instance);
         var severity = alerts.Select(alert => alert.Severity).MaxBy(level => level switch { "critical" => 4, "high" => 3, "medium" => 2, "low" => 1, _ => 0 });
         var ranges = string.Join(", ", alerts.Select(alert => alert.Range).OfType<string>().Distinct(StringComparer.Ordinal).Take(3));
         var summary = Plain($"{alerts.Count} advisor{(alerts.Count == 1 ? "y" : "ies")} (vulnerable: {ranges}); {alerts[0].Summary}");
-        return new Orchestrarr.Core.Missions.DependencyFinding("advisory", package, null, fix, severity, summary, null);
+        return new DependencyFinding("advisory", package, null, fix, severity, summary, null);
     }
 
     // A version as numbers for the comparison (1.26.20 after 1.26.3); what is not a number sorts first
