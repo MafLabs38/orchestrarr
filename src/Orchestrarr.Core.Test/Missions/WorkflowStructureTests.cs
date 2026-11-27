@@ -136,7 +136,7 @@ public sealed class WorkflowStructureTests
     public void A_dead_path_filter_mended_to_cover_the_code_is_a_fix_and_any_other_filter_change_is_refused()
     {
         string[] files = ["src/feature.js", "src/feature.test.js", "README.md"];
-        const string Dead = "on:\n  push:\n    paths: ['source/**']\njobs:\n  t:\n    runs-on: x\n    steps:\n      - run: make";
+        const string Dead = "on:\n  push:\n    paths: ['source/**']\npermissions:\n  contents: read\njobs:\n  t:\n    runs-on: x\n    steps:\n      - run: make";
         var live = Dead.Replace("source/**", "src/**", StringComparison.Ordinal);
 
         WorkflowStructure.Weakening(Path, Dead, live, files).Should().BeNull("the filter covered no file; it now covers the code: the control is mended, not weakened");
@@ -157,7 +157,7 @@ public sealed class WorkflowStructureTests
     public void A_path_filter_the_forge_reads_otherwise_is_not_measured(string patterns)
     {
         string[] files = ["src/feature.js"];
-        const string Dead = "on:\n  push:\n    paths: ['source/**']\njobs:\n  t:\n    runs-on: x\n    steps:\n      - run: make";
+        const string Dead = "on:\n  push:\n    paths: ['source/**']\npermissions:\n  contents: read\njobs:\n  t:\n    runs-on: x\n    steps:\n      - run: make";
 
         WorkflowStructure.Weakening(Path, Dead, Dead.Replace("['source/**']", patterns, StringComparison.Ordinal), files).Should().Contain("cannot be measured exactly");
     }
@@ -165,12 +165,12 @@ public sealed class WorkflowStructureTests
     [Fact]
     public void A_trigger_with_both_kinds_of_path_filter_is_not_measured()
     {
-        const string Dead = "on:\n  push:\n    paths: ['source/**']\njobs:\n  t:\n    runs-on: x\n    steps:\n      - run: make";
+        const string Dead = "on:\n  push:\n    paths: ['source/**']\npermissions:\n  contents: read\njobs:\n  t:\n    runs-on: x\n    steps:\n      - run: make";
 
         WorkflowStructure.Weakening(Path, Dead, Dead.Replace("    paths: ['source/**']", "    paths: ['src/**']\n    paths-ignore: ['src/x/**']", StringComparison.Ordinal), ["src/feature.js"]).Should().Contain("cannot be measured exactly");
     }
 
-    private static string Push(string filters) => $"on:\n  push:\n    {filters}\njobs:\n  t:\n    runs-on: x\n    steps:\n      - run: make";
+    private static string Push(string filters) => $"on:\n  push:\n    {filters}\npermissions:\n  contents: read\njobs:\n  t:\n    runs-on: x\n    steps:\n      - run: make";
 
     [Theory]
     [InlineData("paths: ['sr?/**']", "paths: ['src/feature.js']", "cannot be measured exactly")]
@@ -226,6 +226,7 @@ public sealed class WorkflowStructureTests
     [InlineData("permissions:\n  contents: write\n")]
     [InlineData("permissions: write-all\n")]
     [InlineData("env:\n  TOKEN: ${{ secrets.NPM_TOKEN }}\n")]
+    [InlineData("")]
     public void A_dormant_workflow_that_can_write_or_reads_a_secret_is_never_woken(string powers)
     {
         var dormant = "on:\n  push:\n    paths: ['old/**']\n" + powers + "jobs:\n  t:\n    runs-on: x\n    steps:\n      - run: make";

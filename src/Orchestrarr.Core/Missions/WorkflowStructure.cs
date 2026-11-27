@@ -235,8 +235,8 @@ public static class WorkflowStructure
     {
         public static Workflow Empty { get; } = new([], null, [], [], [], []);
 
-        /// <summary>Whether the workflow, or one of its jobs, asks for a token that can write, or reads a secret.</summary>
-        public bool HoldsPowers => ReadsSecrets || CanWrite(Permissions) || Jobs.Values.Any(job => CanWrite(job.Permissions));
+        /// <summary>Whether the workflow, or one of its jobs, asks for a token that can write, reads a secret, or leaves its token to the repository's default (which may write).</summary>
+        public bool HoldsPowers => ReadsSecrets || (Permissions is null && Jobs.Values.Any(job => job.Permissions is null)) || CanWrite(Permissions) || Jobs.Values.Any(job => CanWrite(job.Permissions));
 
         private static bool CanWrite(Dictionary<string, string>? permissions) => permissions is not null && permissions.Values.Any(level => level.Contains("write", StringComparison.OrdinalIgnoreCase));
     }
