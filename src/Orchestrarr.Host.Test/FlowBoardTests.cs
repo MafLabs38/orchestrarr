@@ -59,8 +59,9 @@ public sealed class FlowBoardTests
     }
 
     [Fact]
-    public void A_lot_shows_what_is_worked_on_first_then_its_line_in_the_order_of_the_route_then_what_is_over()
+    public void A_lot_shows_what_is_worked_on_first_then_its_line_in_the_order_it_goes_then_what_is_over()
     {
+        // The flow lists the line in the order it goes (priority, route, arrival: ProblemQueue.InOrder); here a person raised the bump above the alert, which arrived first
         var flow = new[]
         {
             Problem("p-bump", "o/one", "queued", new FlowActivity("waiting", null, T0, new FlowWaiting("turn", null)), "DependencyUpdate", minutes: 1),
@@ -72,7 +73,7 @@ public sealed class FlowBoardTests
         var lot = Board(flow).Lots.Single();
 
         lot.Repository.Should().Be("o/one");
-        lot.Operations.Select(operation => operation.ProblemId).Should().Equal("p-image", "p-alert", "p-bump", "p-done");
+        lot.Operations.Select(operation => operation.ProblemId).Should().Equal("p-image", "p-bump", "p-alert", "p-done");
     }
 
     [Fact]

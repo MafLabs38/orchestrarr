@@ -42,11 +42,13 @@ internal static class FlowBoard
         var missionById = missions.GroupBy(mission => mission.Id, StringComparer.Ordinal).ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
         var byProblem = flow.ToDictionary(problem => problem.ProblemId, StringComparer.Ordinal);
         var operations = flow.Select(problem => OperationOf(problem, machines)).ToList();
+        // The flow lists the line in the order it goes (ProblemQueue.InOrder: priority, route, arrival), and a lot shows its line in that order
+        var lineOrder = operations.Select((operation, index) => (operation.ProblemId, index)).ToDictionary(pair => pair.ProblemId, pair => pair.index, StringComparer.Ordinal);
         var worlds = WorldsOf(flow, machines);
         var workshops = worlds.Select(world => WorkshopOf(world, operations, machines, missionById, byProblem, lanesOf(world))).ToList();
         var lots = operations.GroupBy(operation => operation.Repository, StringComparer.Ordinal)
             .OrderBy(lot => lot.Key, StringComparer.Ordinal)
-            .Select(lot => new BoardLot(lot.Key, [.. lot.OrderBy(OrderInLot).ThenBy(operation => operation.Place == Out ? -operation.Since.ToUnixTimeMilliseconds() : operation.Since.ToUnixTimeMilliseconds())]))
+            .Select(lot => new BoardLot(lot.Key, [.. lot.OrderBy(operation => OrderInLot(operation, lineOrder)).ThenBy(operation => operation.Place == Out ? -operation.Since.ToUnixTimeMilliseconds() : operation.Since.ToUnixTimeMilliseconds())]))
             .ToList();
         var queued = operations.Where(operation => operation.Place == Queue).ToList();
         var counters = new BoardCounters(
@@ -60,11 +62,11 @@ internal static class FlowBoard
         return new FlowBoardView([Queue, .. worlds, Out], workshops, lots, counters);
     }
 
-    // In a lot, what is being worked on comes first, then the line in the order of the route (ADR 0055), then what is over
-    private static (int Group, int Rank) OrderInLot(BoardOperation operation) => operation.Place switch
+    // In a lot, what is being worked on comes first, then the line in the order it goes (ADR 0055, ADR 0056), then what is over
+    private static (int Group, int Rank) OrderInLot(BoardOperation operation, Dictionary<string, int> lineOrder) => operation.Place switch
     {
         Out => (2, 0),
-        Queue => (1, RouteRank.Of(operation.Kind)),
+        Queue => (1, lineOrder[operation.ProblemId]),
         _ => (0, 0),
     };
 
