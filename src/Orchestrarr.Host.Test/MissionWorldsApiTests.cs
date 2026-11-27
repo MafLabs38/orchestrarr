@@ -1277,8 +1277,10 @@ public sealed class MissionWorldsApiTests
         trail.Should().Contain(line => line.Contains("PushBranch", StringComparison.Ordinal) && line.Contains("not about its pipeline", StringComparison.Ordinal), "the credential and why it may or may not change a workflow are written down");
         trail.Should().NotContain(line => line.Contains(FakeForge.PushToken, StringComparison.Ordinal));
 
-        // A renewal revokes the credential it replaces, and the end of the agent revokes the last one, on the forge itself
+        // A renewal revokes the credential it replaces once the runner placed the new one, never before, and the end of the agent revokes the last one, on the forge itself
         _ = await runner.PostAsync($"/api/v1/runner/missions/{staging}/acts/push-credential", null, Ct);
+        forge.Revoked.Should().BeEmpty("a runner that did not get the renewed credential keeps one that works");
+        (await runner.PostAsync($"/api/v1/runner/missions/{staging}/acts/push-credential/release?keepLatest=true", null, Ct)).EnsureSuccessStatusCode();
         forge.Revoked.Should().Equal($"{FakeForge.PushToken}-1");
         (await runner.PostAsync($"/api/v1/runner/missions/{staging}/acts/push-credential/release", null, Ct)).EnsureSuccessStatusCode();
         forge.Revoked.Should().Equal($"{FakeForge.PushToken}-1", $"{FakeForge.PushToken}-2");
@@ -1327,5 +1329,26 @@ public sealed class MissionWorldsApiTests
         stopped.GetProperty("refusal").GetString().Should().Contain("stop");
         stopped.GetProperty("token").ValueKind.Should().Be(JsonValueKind.Null);
         forge.CredentialsMade.Should().BeEmpty("nothing is made when the act is not authorised");
+    }
+
+    [Fact]
+    public async Task A_push_credential_of_a_mission_that_no_longer_runs_is_revoked_at_the_next_pass_of_the_driver()
+    {
+        var forge = new FakeForge();
+        using var factory = new WorldsFactory(forge);
+        _ = await StartChangeProblemAsync(factory);
+        using var runner = Runner(factory);
+        var staging = (await ClaimAsync(runner, "Staging")).GetProperty("missionId").GetString()!;
+        (await runner.PostAsync($"/api/v1/runner/missions/{staging}/started", null, Ct)).EnsureSuccessStatusCode();
+        _ = await runner.PostAsync($"/api/v1/runner/missions/{staging}/acts/push-credential", null, Ct);
+        var driver = factory.Services.GetServices<IHostedService>().OfType<MissionDriver>().Single();
+        await driver.PassAsync(Ct);
+        forge.Revoked.Should().BeEmpty("the mission runs: its credential is the agent's");
+
+        // The runner hands over without saying that the agent is done: the mission no longer runs, and its credential goes with it
+        await HandOverBranchAsync(runner, staging, start: false);
+        await driver.PassAsync(Ct);
+
+        forge.Revoked.Should().Equal([$"{FakeForge.PushToken}-1"], "a credential never outlives its mission on the forge");
     }
 }

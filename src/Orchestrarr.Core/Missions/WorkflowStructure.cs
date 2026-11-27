@@ -89,9 +89,18 @@ public static class WorkflowStructure
         {
             return $"takes the restriction of the token of {what} away";
         }
-        if (was is null || now is null)
+        if (now is null)
         {
-            return now is not null && now.TryGetValue("*", out var all) && all == "write" ? $"gives every right to the token of {what}" : null;
+            return null;
+        }
+        // Where nothing was said, the token had the repository's default, which the test bed keeps read-only: a right to write that is now written is a wider token, whatever the default is
+        if (was is null)
+        {
+            if (now.FirstOrDefault(pair => pair.Value == "write") is not { Key: { } scope })
+            {
+                return null;
+            }
+            return scope == "*" ? $"widens the token of {what} (every right: write)" : $"widens the token of {what} ({scope}: write)";
         }
         foreach (var (scope, level) in now)
         {
@@ -169,20 +178,33 @@ public static class WorkflowStructure
         _ => null,
     };
 
-    // How many runs the matrix makes, as the lists say them: the values of each key, the entries it includes, less the ones it excludes
+    // How many runs the matrix makes: the product of the lengths of its axes (a value that is not a list is one), plus the entries it includes, less the ones it excludes
     private static int MatrixSize(YamlNode? node)
     {
         if (node is not YamlMappingNode matrix)
         {
             return 0;
         }
-        var total = 0;
+        var product = 1;
+        var included = 0;
+        var excluded = 0;
         foreach (var (key, value) in matrix.Children)
         {
             var size = value is YamlSequenceNode list ? list.Children.Count : 1;
-            total += (key as YamlScalarNode)?.Value switch { "exclude" => -size, _ => size };
+            switch ((key as YamlScalarNode)?.Value)
+            {
+                case "include":
+                    included += size;
+                    break;
+                case "exclude":
+                    excluded += size;
+                    break;
+                default:
+                    product *= size;
+                    break;
+            }
         }
-        return total;
+        return product + included - excluded;
     }
 
     private static bool MayPassAnyway(YamlNode? node) => node is not null && !string.Equals(Normalised(Scalar(node)), "false", StringComparison.Ordinal);

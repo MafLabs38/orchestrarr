@@ -12,8 +12,8 @@ public sealed record PushGrant(bool Pipelines, string Justification);
 /// </summary>
 public static class PushGrants
 {
-    // A path that stands for every workflow of the forge: the frame forbids it when it forbids the pipelines
-    private const string AWorkflow = ".github/workflows/pipeline.yml";
+    // Paths that stand for the workflows of the forge: a credential that may write one may write them all, so a frame that forbids any of them, or names any file of that folder, gets none
+    private static readonly string[] Workflows = [".github/workflows/ci.yml", ".github/workflows/release.yml", ".github/workflows/deploy.yaml"];
 
     public static PushGrant For(PlanEntry entry, MissionFrame frame)
     {
@@ -23,7 +23,7 @@ public static class PushGrants
         {
             return new PushGrant(false, "the operation is not about its pipeline: the credential cannot change a workflow");
         }
-        if (PathPatterns.AnyMatches(frame.ForbiddenPaths, [AWorkflow]))
+        if (PathPatterns.AnyMatches(frame.ForbiddenPaths, Workflows) || frame.ForbiddenPaths.Any(pattern => pattern.Contains(".github/workflows", StringComparison.OrdinalIgnoreCase)))
         {
             return new PushGrant(false, "the frame of the mission forbids the pipeline files: the credential cannot change a workflow");
         }

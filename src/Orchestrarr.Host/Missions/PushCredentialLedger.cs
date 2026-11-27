@@ -4,9 +4,10 @@ using Orchestrarr.Core.Missions;
 namespace Orchestrarr.Host.Missions;
 
 /// <summary>
-/// The push credentials that the control plane made and that are still valid on the forge (ADR 0057), **in memory only** (never written, never logged), so that it can revoke them on the forge itself: the earlier ones of a mission when
-/// a new one replaces them, all of them when the agent is done, when the control plane refuses to renew, and at the latest at the next pass of the driver when the stop is engaged or the mission no longer runs. Deleting the file on the
-/// machine is not enough: an agent that copied it could still push until it expires.
+/// The push credentials that the control plane made and that are still valid on the forge (ADR 0057), **in memory only** (never written, never logged), so that it can revoke them on the forge itself: the earlier ones of a mission once
+/// the runner says that it placed the new one (not before: a runner that did not get the new one keeps a credential that works), all of them when the agent is done, when the control plane refuses to renew, and at the latest at the next
+/// pass of the driver when the stop is engaged or the mission no longer runs. Deleting the file on the machine is not enough: an agent that copied it could still push until it expires. A restart of the control plane forgets them: they
+/// then expire within the hour.
 /// </summary>
 internal sealed class PushCredentialLedger(IPushCredentials credentials, IMissionStore missions, IStopSignal stop, ProblemConductor conductor, ILogger<PushCredentialLedger> logger)
 {
@@ -14,16 +15,36 @@ internal sealed class PushCredentialLedger(IPushCredentials credentials, IMissio
 
     private readonly Dictionary<string, List<string>> _live = new(StringComparer.Ordinal);
 
-    /// <summary>A new credential of the mission: the earlier ones are revoked, and this one is kept to be revoked in its turn.</summary>
-    public async Task IssuedAsync(string missionId, string token, CancellationToken cancellationToken)
+    /// <summary>A new credential of the mission, kept to be revoked in its turn; the earlier ones stay valid until the runner says that it placed this one.</summary>
+    public void Issued(string missionId, string token)
+    {
+        lock (_gate)
+        {
+            if (_live.TryGetValue(missionId, out var held))
+            {
+                held.Add(token);
+            }
+            else
+            {
+                _live[missionId] = [token];
+            }
+        }
+    }
+
+    /// <summary>The runner placed the newest credential of the mission: the earlier ones are revoked.</summary>
+    public async Task<int> RevokeEarlierAsync(string missionId, CancellationToken cancellationToken)
     {
         List<string> earlier;
         lock (_gate)
         {
-            earlier = _live.TryGetValue(missionId, out var held) ? held : [];
-            _live[missionId] = [token];
+            if (!_live.TryGetValue(missionId, out var held) || held.Count < 2)
+            {
+                return 0;
+            }
+            earlier = held[..^1];
+            _live[missionId] = [held[^1]];
         }
-        await RevokeAllAsync(missionId, earlier, "replaced by a new one", cancellationToken);
+        return await RevokeAllAsync(missionId, earlier, "replaced by a new one that the runner placed", cancellationToken);
     }
 
     /// <summary>Revokes every credential of the mission that is still valid. Returns how many were revoked.</summary>

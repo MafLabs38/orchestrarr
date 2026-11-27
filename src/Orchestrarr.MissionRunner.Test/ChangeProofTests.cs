@@ -34,9 +34,18 @@ public sealed class ChangeProofTests : IDisposable
 
         public int Released { get; private set; }
 
-        public Task ReleasePushCredentialAsync(string missionId, CancellationToken cancellationToken)
+        public int ReleasedEarlier { get; private set; }
+
+        public Task ReleasePushCredentialAsync(string missionId, bool keepLatest, CancellationToken cancellationToken)
         {
-            Released++;
+            if (keepLatest)
+            {
+                ReleasedEarlier++;
+            }
+            else
+            {
+                Released++;
+            }
             return Task.CompletedTask;
         }
 
@@ -314,6 +323,7 @@ public sealed class ChangeProofTests : IDisposable
         machine.Placed.Should().Equal(["the-git-token", "renewed-token"], "the credential is asked for again before it expires, and the new one replaces the old");
         credentials.Asked.Should().Be(3);
         credentials.Released.Should().Be(1, "once the agent is done, the control plane is told so that it revokes the credential on the forge");
+        credentials.ReleasedEarlier.Should().Be(1, "the credential that the renewed one replaces is revoked only once the renewed one is placed");
         lines.Should().Contain(line => line.Contains("took the push credential back", StringComparison.Ordinal) && line.Contains("withdrawn", StringComparison.Ordinal));
         lines.Should().Contain(line => line.Contains("contents:write, workflows:write", StringComparison.Ordinal), "what the credential may do is said");
         string.Join(" ", dossier.Claim, dossier.WhatChangedAndWhy, string.Join(" ", lines)).Should().NotContain("the-git-token").And.NotContain("renewed-token");

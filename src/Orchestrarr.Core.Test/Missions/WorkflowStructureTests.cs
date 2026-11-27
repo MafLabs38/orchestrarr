@@ -82,4 +82,17 @@ public sealed class WorkflowStructureTests
         PipelineChanges.Guard(Path, Base, Base.Replace("run: npm test", "run: npm test || true", StringComparison.Ordinal), ["              - run: npm test || true"], []).Should().Contain("|| true");
         PipelineChanges.Guard(Path, Base, Base.Replace("run: npm test", "run: echo ${{ secrets.TOKEN }}", StringComparison.Ordinal), ["              - run: echo ${{ secrets.TOKEN }}"], []).Should().Contain("secrets");
     }
+
+    [Fact]
+    public void The_matrix_is_counted_in_runs_and_a_token_given_rights_where_it_had_the_default_is_wider()
+    {
+        const string Two = "on: push\njobs:\n  t:\n    runs-on: x\n    strategy:\n      matrix:\n        os: [a, b]\n        node: [20, 22]\n    steps:\n      - run: make";
+        Judge(Two.Replace("os: [a, b]", "os: [a, b]\n        include:\n          - os: c\n            node: 24", StringComparison.Ordinal), Two).Should().BeNull("an included run adds one");
+        Judge(Two.Replace("node: [20, 22]", "node: [20, 22]\n        exclude:\n          - os: a\n            node: 20", StringComparison.Ordinal), Two).Should().Contain("narrows the matrix", "an excluded run is one less");
+        Judge(Two.Replace("os: [a, b]", "os: [a, b, c]", StringComparison.Ordinal).Replace("node: [20, 22]", "node: [22]", StringComparison.Ordinal), Two).Should().Contain("narrows the matrix", "three by one is fewer runs than two by two");
+
+        const string Bare = "on: push\njobs:\n  t:\n    runs-on: x\n    steps:\n      - run: make";
+        Judge(Bare.Replace("on: push", "on: push\npermissions:\n  contents: write", StringComparison.Ordinal), Bare).Should().Contain("contents: write", "where nothing was said the token had the read-only default");
+        Judge(Bare.Replace("on: push", "on: push\npermissions:\n  contents: read", StringComparison.Ordinal), Bare).Should().BeNull("a narrower token is not a weakening");
+    }
 }

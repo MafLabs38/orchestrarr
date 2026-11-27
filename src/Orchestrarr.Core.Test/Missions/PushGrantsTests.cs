@@ -38,6 +38,17 @@ public sealed class PushGrantsTests
         grant.Justification.Should().Contain("frame");
     }
 
+    [Theory]
+    [InlineData(".github/workflows/release.yml")]
+    [InlineData("**/.github/workflows/**")]
+    [InlineData(".github/workflows/*.yaml")]
+    public void A_frame_that_forbids_any_workflow_gets_no_permission_on_the_workflows_since_the_forge_grants_them_all(string forbidden) =>
+        PushGrants.For(Entry("FailingCi"), new MissionFrame(["o/r"], [.. ForbiddenPathsDefaults.Floor, forbidden], "here")).Pipelines.Should().BeFalse();
+
+    [Fact]
+    public void The_floor_of_every_frame_does_not_by_itself_take_the_workflows_away() =>
+        PushGrants.For(Entry("FailingCi"), Frame(Entry("FailingCi"))).Pipelines.Should().BeTrue("the floor names other files of the forge's folder, not its workflows");
+
     [Fact]
     public void Only_the_staging_of_a_problem_with_no_pull_request_lists_the_push_of_a_branch()
     {

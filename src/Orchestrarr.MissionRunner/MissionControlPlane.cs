@@ -13,8 +13,8 @@ public interface IPushCredentialSource
 {
     Task<PushCredentialResponse> PushCredentialAsync(string missionId, CancellationToken cancellationToken);
 
-    /// <summary>The agent is done: the control plane revokes on the forge what it made for the mission.</summary>
-    Task ReleasePushCredentialAsync(string missionId, CancellationToken cancellationToken);
+    /// <summary>The control plane revokes on the forge what it made for the mission: every credential when the agent is done, or, with <paramref name="keepLatest"/>, the ones that the newest replaces once it is placed.</summary>
+    Task ReleasePushCredentialAsync(string missionId, bool keepLatest, CancellationToken cancellationToken);
 }
 
 public interface IMissionControlPlane
@@ -182,9 +182,9 @@ public sealed class MissionControlPlane : IMissionControlPlane, IPushCredentialS
         return await response.Content.ReadFromJsonAsync<PushCredentialResponse>(MissionWire.Json, cancellationToken) ?? new PushCredentialResponse(false, "the control plane gave no answer", null, null, []);
     }
 
-    public async Task ReleasePushCredentialAsync(string missionId, CancellationToken cancellationToken)
+    public async Task ReleasePushCredentialAsync(string missionId, bool keepLatest, CancellationToken cancellationToken)
     {
-        using var response = await _http.PostAsync($"/api/v1/runner/missions/{Uri.EscapeDataString(missionId)}/acts/push-credential/release", content: null, cancellationToken);
+        using var response = await _http.PostAsync($"/api/v1/runner/missions/{Uri.EscapeDataString(missionId)}/acts/push-credential/release{(keepLatest ? "?keepLatest=true" : string.Empty)}", content: null, cancellationToken);
         response.EnsureSuccessStatusCode();
     }
 

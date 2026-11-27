@@ -15,7 +15,7 @@ public sealed class GitHubAppPushCredentialsTests : IDisposable
 
     public void Dispose() => _key.Dispose();
 
-    private sealed class Forge(string? granted) : HttpMessageHandler
+    private sealed class Forge(string? granted, bool guarded = true) : HttpMessageHandler
     {
         public List<(HttpMethod Method, string Path, string? Authorization, string Body)> Requests { get; } = [];
 
@@ -27,6 +27,9 @@ public sealed class GitHubAppPushCredentialsTests : IDisposable
             {
                 "/repos/example/shop/installation" => """{ "id": 4242 }""",
                 "/app/installations/4242/access_tokens" when granted is not null => $$"""{ "token": "ghs_the_token", "expires_at": "2026-11-27T10:00:00Z", "permissions": {{granted}} }""",
+                "/repos/example/shop" => """{ "default_branch": "develop" }""",
+                "/repos/example/shop/rules/branches/develop" => guarded ? """[ { "type": "pull_request" }, { "type": "update" } ]""" : """[ { "type": "pull_request" } ]""",
+                "/installation/token" => "{}",
                 _ => null,
             };
             return body is null ? new HttpResponseMessage(HttpStatusCode.NotFound) : new HttpResponseMessage(HttpStatusCode.Created) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
@@ -101,11 +104,21 @@ public sealed class GitHubAppPushCredentialsTests : IDisposable
         var forge = new Forge("""{ "contents": "write" }""");
         using var credentials = Credentials(forge);
 
-        (await credentials.RevokeAsync("ghs_the_token", Ct)).Should().BeFalse("the fake forge answers 404 to anything it does not know");
+        (await credentials.RevokeAsync("ghs_the_token", Ct)).Should().BeTrue();
         var request = forge.Requests.Should().ContainSingle().Subject;
         request.Method.Should().Be(HttpMethod.Delete);
         request.Path.Should().Be("/installation/token");
         request.Authorization.Should().Be("ghs_the_token", "the token revokes itself; the App's key is not needed");
+    }
+
+    [Fact]
+    public async Task No_credential_is_handed_out_where_the_forge_does_not_keep_it_from_merging_and_the_one_made_is_revoked()
+    {
+        var forge = new Forge("""{ "contents": "write" }""", guarded: false);
+        using var credentials = Credentials(forge);
+
+        (await credentials.IssueAsync("example/shop", pipelines: false, Ct)).Should().BeNull("a token that writes contents could merge a pull request through the API on a default branch that any writer may update");
+        forge.Requests.Should().Contain(request => request.Method == HttpMethod.Delete && request.Path == "/installation/token" && request.Authorization == "ghs_the_token");
     }
 
     [Fact]

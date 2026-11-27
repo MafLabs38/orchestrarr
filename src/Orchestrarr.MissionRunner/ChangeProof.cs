@@ -95,7 +95,7 @@ public sealed partial class ChangeProof(IShell shell, MissionRunnerOptions optio
         _ = await OnMachineAsync(machine, "rm -f ~/agentin/git-token", quick, cancellationToken);
         try
         {
-            await credentials.ReleasePushCredentialAsync(mission.MissionId, cancellationToken);
+            await credentials.ReleasePushCredentialAsync(mission.MissionId, keepLatest: false, cancellationToken);
         }
         catch (Exception failure) when (failure is HttpRequestException || failure is TaskCanceledException && !cancellationToken.IsCancellationRequested)
         {
@@ -227,7 +227,20 @@ public sealed partial class ChangeProof(IShell shell, MissionRunnerOptions optio
                 issued.Add(next);
                 if ((await PlaceAsync(machine, next, cancellationToken)).ExitCode != 0)
                 {
+                    // The one in place still works: it is not revoked, and the next renewal tries again
                     await report("The renewed push credential could not be placed on the machine");
+                }
+                else
+                {
+                    // Placed: the ones it replaces are revoked on the forge
+                    try
+                    {
+                        await credentials.ReleasePushCredentialAsync(mission.MissionId, keepLatest: true, cancellationToken);
+                    }
+                    catch (Exception failure) when (failure is HttpRequestException || failure is TaskCanceledException && !cancellationToken.IsCancellationRequested)
+                    {
+                        await report("The control plane could not be told that the renewed credential is placed: the earlier one is revoked when the mission ends, or expires within the hour");
+                    }
                 }
                 wait = RenewalDelay(nextExpiry, _time.GetUtcNow(), options.Repair.FreeCredentialRenewMinutes);
             }

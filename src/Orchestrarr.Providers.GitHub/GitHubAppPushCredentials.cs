@@ -87,14 +87,31 @@ public sealed partial class GitHubAppPushCredentials : IPushCredentials, IDispos
             }
             // What the forge granted is read back: a token that may do more than was asked (a workflow write that was not asked for, any permission beyond metadata) is not handed out
             var permissions = granted.EnumerateObject().Where(permission => permission.Name != "metadata").ToDictionary(permission => permission.Name, permission => permission.Value.GetString() ?? string.Empty, StringComparer.Ordinal);
-            return permissions.Count == asked.Count && asked.All(pair => permissions.TryGetValue(pair.Key, out var level) && level == pair.Value)
-                ? new PushCredential(value, expiresAt, [.. asked.Select(pair => $"{pair.Key}:{pair.Value}")])
-                : null;
+            // A token that may write contents may merge a pull request through the API: it is handed out only where the forge keeps it from integrating anything (the default branch is updated by bypassing actors only)
+            if (permissions.Count != asked.Count || !asked.All(pair => permissions.TryGetValue(pair.Key, out var level) && level == pair.Value) || !await IntegrationIsGuardedAsync(repositoryFullName, value, cancellationToken))
+            {
+                _ = await RevokeAsync(value, cancellationToken);
+                return null;
+            }
+            return new PushCredential(value, expiresAt, [.. asked.Select(pair => $"{pair.Key}:{pair.Value}")]);
         }
         catch (Exception failure) when (failure is HttpRequestException or JsonException or InvalidOperationException || failure is TaskCanceledException && !cancellationToken.IsCancellationRequested)
         {
             return null;
         }
+    }
+
+    // The rules in force on the default branch, read with the credential itself: an `update` rule (only the actors that may bypass it update the branch) keeps it from merging
+    private async Task<bool> IntegrationIsGuardedAsync(string repository, string token, CancellationToken cancellationToken)
+    {
+        using var described = await SendAsync(HttpMethod.Get, $"repos/{repository}", token, null, cancellationToken);
+        if (described?.RootElement.TryGetProperty("default_branch", out var name) != true || name.GetString() is not { Length: > 0 and <= 200 } branch)
+        {
+            return false;
+        }
+        using var rules = await SendAsync(HttpMethod.Get, $"repos/{repository}/rules/branches/{Uri.EscapeDataString(branch)}", token, null, cancellationToken);
+        return rules?.RootElement is { ValueKind: JsonValueKind.Array } list
+            && list.EnumerateArray().Any(rule => rule.TryGetProperty("type", out var type) && type.GetString() == "update");
     }
 
     public async Task<bool> RevokeAsync(string token, CancellationToken cancellationToken)

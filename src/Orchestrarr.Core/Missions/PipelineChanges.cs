@@ -108,11 +108,15 @@ public static partial class PipelineChanges
     [GeneratedRegex(@"^\s*permissions\s*:|^\s*[a-z-]+\s*:\s*['""]?(read|none)['""]?\s*(#.*)?$|read-all", RegexOptions.IgnoreCase, 250)]
     private static partial Regex Narrowing();
 
-    // What only the text of a step says: a command made to succeed whatever happens, the errors of a shell switched off, a secret that a job reads
-    [GeneratedRegex(@"\|\|\s*(true|:|exit\s+0)\b|^\s*-?\s*run:\s*(true|:|exit\s+0)\s*$|\bset\s+\+e\b|\bsecrets\s*[.\[]|toJSON\(\s*secrets|secrets:\s*inherit", RegexOptions.IgnoreCase | RegexOptions.Multiline, 250)]
+    // What only the text of a step says: a command made to succeed whatever happens, the errors of a shell switched off, a secret that a job reads. One fragment, used by both nets, so that they never drift apart
+    private const string ShellNet = @"\|\|\s*(true|:|exit\s+0)\b|^\s*-?\s*run:\s*(true|:|exit\s+0)\s*$|\bset\s+\+e\b|\bsecrets\s*[.\[]|toJSON\(\s*secrets|secrets:\s*inherit";
+
+    // What the configuration of a pipeline says, for a forge whose files are not read as YAML here: a step or a job that cannot fail or never runs, a token with write rights, a trigger that runs with the credentials of the base branch
+    private const string ConfigurationNet = @"continue-on-error:\s*(\$\{\{\s*)?['""]?true|^\s*if:\s*(\$\{\{\s*)?(always\(\)\s*&&\s*)?['""]?false\b|pull_request_target|workflow_run|issue_comment|write-all|^\s*[a-z-]+:\s*['""]?write['""]?\s*(#.*)?$|\{[^}]*:\s*write\b|allow_failure:\s*true|failure:\s*ignore";
+
+    [GeneratedRegex(ShellNet, RegexOptions.IgnoreCase | RegexOptions.Multiline, 250)]
     private static partial Regex ShellWeakens();
 
-    // What weakens a pipeline: a step or a job that cannot fail or never runs (in any spelling the line-based net knows; a net, not a proof), a command made to succeed whatever happens, a token with write rights, a trigger that runs with the credentials of the base branch, a secret that a job reads
-    [GeneratedRegex(@"continue-on-error:\s*(\$\{\{\s*)?['""]?true|^\s*if:\s*(\$\{\{\s*)?(always\(\)\s*&&\s*)?['""]?false\b|\|\|\s*(true|:|exit\s+0)\b|^\s*-?\s*run:\s*(true|:|exit\s+0)\s*$|\bset\s+\+e\b|pull_request_target|workflow_run|issue_comment|write-all|^\s*[a-z-]+:\s*['""]?write['""]?\s*(#.*)?$|\{[^}]*:\s*write\b|\bsecrets\s*[.\[]|toJSON\(\s*secrets|secrets:\s*inherit|allow_failure:\s*true|failure:\s*ignore", RegexOptions.IgnoreCase | RegexOptions.Multiline, 250)]
+    [GeneratedRegex(ShellNet + "|" + ConfigurationNet, RegexOptions.IgnoreCase | RegexOptions.Multiline, 250)]
     private static partial Regex Weakens();
 }

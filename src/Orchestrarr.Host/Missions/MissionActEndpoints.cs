@@ -104,23 +104,25 @@ internal static class MissionActEndpoints
                 _ = await credentials.RevokeAsync(issued.Token, ct);
                 return Results.Ok(new PushCredentialResponse(false, "the audit trail cannot be written: no power is granted", null, null, []));
             }
-            if (ledger is not null)
-            {
-                await ledger.IssuedAsync(id, issued.Token, ct);
-            }
+            ledger?.Issued(id, issued.Token);
             progress.Add(id, said);
             live.Publish(LiveTopics.Missions, id);
             return Results.Ok(new PushCredentialResponse(true, null, issued.Token, issued.ExpiresAt, issued.Permissions));
         });
 
-        // The agent is done: what was made for it is revoked on the forge at once (the driver's pass revokes it too once the mission no longer runs)
-        group.MapPost("/missions/{id}/acts/push-credential/release", async (string id, HttpContext context, IMissionStore missions, IMandateLedger mandates, PushCredentialLedger? ledger, CancellationToken ct) =>
+        // The runner placed a renewed credential (`keepLatest`): the earlier ones are revoked; or the agent is done: every one made for it is revoked on the forge at once (the driver's pass revokes them too once the mission no
+        // longer runs)
+        group.MapPost("/missions/{id}/acts/push-credential/release", async (string id, bool? keepLatest, HttpContext context, IMissionStore missions, IMandateLedger mandates, PushCredentialLedger? ledger, CancellationToken ct) =>
         {
             if (!MissionRunnerEndpoints.Owns(id, runnerName(context), missions, mandates))
             {
                 return Results.NotFound();
             }
-            var revoked = ledger is null ? 0 : await ledger.RevokeAsync(id, "the agent is done", ct);
+            if (ledger is null)
+            {
+                return Results.Ok(new { revoked = 0 });
+            }
+            var revoked = keepLatest == true ? await ledger.RevokeEarlierAsync(id, ct) : await ledger.RevokeAsync(id, "the agent is done", ct);
             return Results.Ok(new { revoked });
         });
 
