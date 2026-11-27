@@ -1,6 +1,7 @@
 # 0044 — A worker agent repairs the source in staging, and the gateway carries the repair into a pull request
 
 - **Status**: proposed (accepted when the pull request that carries it is merged)
+- **Amended by**: [ADR 0055](0055-the-flow-is-a-fab-lots-routes-machines-and-rules-that-keep-it-moving.md): a repair may raise a companion dependency and change the container files; the pipelines are in the frame of every operation that is not about them and are never weakened (`PipelineChanges`); a dependency comes from a registry (`DependencySources`)
 - **Date**: 2026-11-22
 - **Spec**: D-98 ([SPEC.md](../SPEC.md), [FUNCTIONAL.md](../FUNCTIONAL.md) FR-WLD-1 to FR-WLD-10, FR-MIS-1). Builds on [ADR 0042](0042-a-runner-serves-one-world-and-the-test-bed-validates-through-the-plan.md), [ADR 0043](0043-the-act-gateway-merges-and-the-runner-deploys.md) and the repair on paper of [ADR 0024](0024-a-pull-request-is-validated-for-real-and-an-agent-may-try-to-repair-it-on-paper.md).
 

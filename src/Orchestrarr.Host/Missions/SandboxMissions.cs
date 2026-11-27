@@ -1,3 +1,4 @@
+using Orchestrarr.Core.Fleet;
 using Orchestrarr.Core.Forge;
 using Orchestrarr.Core.Missions;
 using Orchestrarr.Core.SecondFactor;
@@ -37,7 +38,7 @@ internal sealed class SandboxApprovals : IApprovalSource
             return false;
         }
         var code = Totp.Code(secret, Totp.StepAt(_time.GetUtcNow(), _factor.Totp), _factor.Totp);
-        var request = new ApprovalRequest(CertificateKind.Problem, entry.ProblemId, entry.ApplicationId, entry.Repositories, entry.MaxWorld, entry.Budget, TimeSpan.FromHours(2));
+        var request = new ApprovalRequest(CertificateKind.Problem, entry.ProblemId, entry.ApplicationId, entry.Repositories, entry.MaxWorld, entry.Budget, TimeSpan.FromHours(2), PipelineChanges.ForbiddenFor(entry));
         if (_authority.Propose(request, Subject) is { } proposal && (await _authority.ApproveAsync(proposal.Id, Subject, code, cancellationToken)).Approval is { } approval)
         {
             _prepared[entry.ProblemId] = approval;
@@ -169,8 +170,19 @@ internal sealed class SandboxFacts(IProblemStore problems, IPullRequestFacts pul
             ChangedPaths: read.ChangedPaths,
             Repository: entry.Repositories[0],
             BaseCommit: read.BaseSha,
+            Merged: read.Merged,
+            BaseWasRedBeforeMerge: read.Merged ? read.BaseWasRed : null,
             Health: query.World == World.Release && health is not null ? await health.ReadAsync(entry.Repositories[0], cancellationToken) : null);
     }
+}
+
+/// <summary>The push credentials of the test bed are made for its repositories only (<c>Missions:SandboxMergeRepositories</c>), whatever the App is installed on.</summary>
+internal sealed class GuardedPushCredentials(IPushCredentials inner, IReadOnlyList<string> allowed) : IPushCredentials
+{
+    public Task<PushCredential?> IssueAsync(string repositoryFullName, bool pipelines, CancellationToken cancellationToken) =>
+        allowed.Any(pattern => Orchestrarr.Core.Tasks.RepositoryPattern.Matches(pattern, repositoryFullName)) ? inner.IssueAsync(repositoryFullName, pipelines, cancellationToken) : Task.FromResult<PushCredential?>(null);
+
+    public Task<bool> RevokeAsync(string token, CancellationToken cancellationToken) => inner.RevokeAsync(token, cancellationToken);
 }
 
 /// <summary>What the gateway writes (a merge, a branch and a pull request, the closing of a pull request) is done on the repositories that the settings name and no other: the gateway does not write where it was not told it may, whatever a row says.</summary>
@@ -193,6 +205,9 @@ internal sealed class GuardedForgeActs(IForgeActs inner, IReadOnlyList<string> a
         Allowed(repositoryFullName)
             ? inner.OpenPullRequestFromBranchAsync(repositoryFullName, baseBranch, branch, expectedSha, title, body, cancellationToken)
             : Task.FromResult(new OpenedPullRequest(false, 0, null, "the gateway may not write on this repository (Missions:SandboxMergeRepositories)"));
+
+    public Task<bool> RequestBotRebaseAsync(string repositoryFullName, int number, string command, CancellationToken cancellationToken) =>
+        Allowed(repositoryFullName) ? inner.RequestBotRebaseAsync(repositoryFullName, number, command, cancellationToken) : Task.FromResult(false);
 
     private bool Allowed(string repository) => allowed.Any(pattern => Orchestrarr.Core.Tasks.RepositoryPattern.Matches(pattern, repository));
 }
@@ -269,9 +284,22 @@ internal static class SandboxMissionsExtensions
         }
         // One reader of the forge for the facts of a pull request and for the default branch, made when it is first needed
         var githubFacts = new Lazy<GitHubPullRequestFacts?>(() => string.IsNullOrWhiteSpace(github.Token) ? null : GitHubPullRequestFacts.Create(github));
+        // The fake source of findings reaches the rows: the lab can plant an advisory that no real scanner reports (ADR 0055)
+        if (!string.IsNullOrWhiteSpace(missions.SandboxFindingsFile))
+        {
+            // A file that is set and cannot be read in is said at start, never ignored: the demo would run without the faults it plants
+            if (services.LastOrDefault(descriptor => descriptor.ServiceType == typeof(IFleetSource)) is not { ImplementationFactory: { } real } fleet)
+            {
+                throw new InvalidOperationException("Missions:SandboxFindingsFile is set but the source of the fleet is not registered by a factory that it can wrap.");
+            }
+            var file = missions.SandboxFindingsFile;
+            services.Remove(fleet);
+            services.AddSingleton<IFleetSource>(provider => new SandboxFleetFindings((IFleetSource)real(provider), file));
+        }
         return services
             .AddSingleton<SandboxApprovals>()
             .AddSingleton<RepairRegistry>()
+            .AddSingleton<BotPullRequests>()
             .AddSingleton<ProblemStarter>()
             .AddSingleton<IApprovalSource>(provider => provider.GetRequiredService<SandboxApprovals>())
             .AddSingleton(provider => provider.GetRequiredService<SandboxApprovals>().Verifier)
@@ -281,8 +309,17 @@ internal static class SandboxMissionsExtensions
             .AddSingleton<IPullRequestFacts>(_ => githubFacts.Value is { } facts ? facts : new NoPullRequestFacts())
             .AddSingleton<IDefaultBranchSource>(_ => githubFacts.Value is { } facts ? facts : new NoDefaultBranchSource())
             .AddSingleton<IBranchSource>(_ => githubFacts.Value is { } facts ? facts : new NoBranchSource())
+            .AddSingleton<IPipelineFailures>(_ => githubFacts.Value is { } facts ? facts : new NoPipelineFailures())
             .AddSingleton<IForgeActs>(_ => string.IsNullOrWhiteSpace(missions.SandboxMergeToken) ? new NoForgeActs() : new GuardedForgeActs(GitHubForgeActs.Create(github.WithToken(missions.SandboxMergeToken)), missions.SandboxMergeRepositories))
+            .AddSingleton<IPushCredentials>(provider => string.IsNullOrWhiteSpace(missions.SandboxAgentAppClientId) || string.IsNullOrWhiteSpace(missions.SandboxAgentAppKeyFile)
+                ? new NoPushCredentials()
+                : new GuardedPushCredentials(GitHubAppPushCredentials.Create(github, missions.SandboxAgentAppClientId, File.ReadAllText(missions.SandboxAgentAppKeyFile),
+                    said: refusal => provider.GetRequiredService<ILoggerFactory>().CreateLogger("Orchestrarr.Missions.PushCredentials").LogWarning("{Refusal}", refusal)), missions.SandboxMergeRepositories))
+            .AddSingleton<PushCredentialLedger>()
             .AddSingleton<IFactsSource, SandboxFacts>()
-            .AddSingleton<IDependencyFindings>(_ => string.IsNullOrWhiteSpace(missions.SandboxFindingsFile) ? new NoDependencyFindings() : new FileDependencyFindings(missions.SandboxFindingsFile));
+            // What the lab planted for a repository wins (its fake advisories, the grain of sand); else what the forge says of the alerts of the repository
+            .AddSingleton<IDependencyFindings>(_ => new FirstDependencyFindings([
+                string.IsNullOrWhiteSpace(missions.SandboxFindingsFile) ? new NoDependencyFindings() : new FileDependencyFindings(missions.SandboxFindingsFile),
+                githubFacts.Value is { } facts ? facts : new NoDependencyFindings()]));
     }
 }

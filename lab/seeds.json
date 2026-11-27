@@ -4,15 +4,16 @@
     "seed": "b9160e284c97612620ec475669d8ea5467b7364e"
   },
   {
-    "repository": "ledger-worker",
-    "seed": "5c2aa41f63a60bd6bf5f29c1e763245c3bfa15ab"
-  },
-  {
     "repository": "edge-stack",
     "seed": "866c0b50664be903e7a6f5dd46534582772b6b21"
   },
   {
     "repository": "pipeline-scenarios",
-    "seed": "394574968bcc819da861f4e1f0118d8edaf647b3"
+    "seed": "394574968bcc819da861f4e1f0118d8edaf647b3",
+    "red": true
+  },
+  {
+    "repository": "ledger-worker",
+    "seed": "d2bfa8f4960099ce23e9e7bbec953bbab652c3c3"
   }
 ]

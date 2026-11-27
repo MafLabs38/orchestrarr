@@ -4,7 +4,7 @@ namespace Orchestrarr.Core.Missions;
 
 /// <summary>
 /// What may be **integrated** when a worker agent solves a problem that has no pull request (ADR 0048). Inside the machine the agent is free: it installs, builds, tests and breaks what it needs, and no rule says how it works.
-/// The frame is on what it hands over, because that is what reaches a repository and then production: never the pipelines, the files that carry secrets, the files that instruct an agent or the repository's own metadata. Whatever the
+/// The frame is on what it hands over, because that is what reaches a repository and then production: never the files that carry secrets, the files that instruct an agent or the repository's own metadata; the pipelines are maintenance like the rest (the maintainer, 2026-11-26, ADR 0055). Whatever the
 /// agent did with the tests and the dependencies is its own judgement, and the pipelines and the controller judge it afterwards. It is read by the control plane that opens the pull request:
 /// the control plane's own reading is the one that counts.
 /// </summary>
@@ -15,10 +15,9 @@ public static partial class ChangePolicy
     public const int MaxFilePatch = 1_000_000;
     public const int MaxTotalPatch = 4_000_000;
 
-    /// <summary>The paths that never leave the machine, whatever the problem: how the code is built and released by the forge, what carries a secret, what instructs an agent.</summary>
+    /// <summary>The paths that never leave the machine, whatever the problem: the repository's own metadata, where the dependencies come from, what carries a secret, what instructs an agent.</summary>
     public static readonly IReadOnlyList<string> ProtectedPaths =
     [
-        ".github/**", "**/.github/**", ".gitlab-ci.yml", ".circleci/**", "**/Jenkinsfile*", "azure-pipelines.yml", "**/.travis.yml", "**/bitbucket-pipelines.yml",
         ".git/**", "**/.git/**", "**/.gitmodules", "**/.gitattributes",
         // Where the dependencies come from: a registry that a change points elsewhere is a change of what is installed, not of what is asked for
         "**/.npmrc", "**/.yarnrc", "**/.yarnrc.yml", "**/pip.conf", "**/.pypirc", "**/.netrc",
@@ -34,9 +33,11 @@ public static partial class ChangePolicy
 
     /// <summary>
     /// Why what a branch holds cannot become a pull request, or null when it can. **The forge's own reading**, never a runner's: how many files, where (this policy and the paths that the frame of the mission forbids), what happened to each,
-    /// how big, and whether it is text (the forge gives no patch for a binary file or a very large one: a generated file may have none, anything else without a patch is refused).
+    /// how big, and whether it is text (the forge gives no patch for a binary file or a very large one: a generated file may have none, anything else without a patch is refused). <paramref name="before"/> and <paramref name="after"/> are the
+    /// texts of the workflows that the change touches, at the merge base and at the commit (ADR 0057): a workflow is then read as YAML and compared; a text that could not be read is null, and a workflow
+    /// that is new has no text before.
     /// </summary>
-    public static string? Refusal(BranchChange change, IEnumerable<string>? forbidden = null)
+    public static string? Refusal(BranchChange change, IEnumerable<string>? forbidden = null, IReadOnlyDictionary<string, string?>? before = null, IReadOnlyDictionary<string, string?>? after = null)
     {
         ArgumentNullException.ThrowIfNull(change);
         if (change.Files.Count is 0 or > MaxFiles || !change.FilesComplete)
@@ -66,7 +67,17 @@ public static partial class ChangePolicy
             }
             if (IsProtected(file.Path))
             {
-                return $"the path '{file.Path}' is protected: a change never carries the pipelines, the files that hold a secret or the files that instruct an agent";
+                return $"the path '{file.Path}' is protected: a change never carries the files that hold a secret, the files that instruct an agent or where the dependencies come from";
+            }
+            // A pipeline that the frame lets this operation change is never weakened by it (ADR 0055): a workflow read as YAML against the file before it, any other pipeline on the lines that the change adds and removes
+            if (PipelineChanges.IsPipeline(file.Path) && PipelineGuard(file, before, after) is { } weakened)
+            {
+                return weakened;
+            }
+            // A manifest or a container file takes its dependencies from a registry (ADR 0055): read on the lines that the change adds
+            if ((DependencySources.Foreign(file.Path, AddedLines(file.Patch)) ?? DependencySources.ScriptWeakening(file.Path, AddedLines(file.Patch))) is { } foreignDependency)
+            {
+                return foreignDependency;
             }
             if (!CarriedStatuses.Contains(file.Status, StringComparer.Ordinal))
             {
@@ -101,12 +112,18 @@ public static partial class ChangePolicy
     // The host of the first address that the lines ADDED to a lock file name and that is not a registry, or null when they all are
     private static readonly string[] NpmFamily = ["package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml"];
 
-    private static string? ForeignSource(string path, string patch)
+    private static string? ForeignSource(string path, string patch) =>
+        ForeignHost(path, patch.Split('\n').Where(line => line.StartsWith('+') && !line.StartsWith("+++", StringComparison.Ordinal)).Select(line => line[1..]));
+
+    /// <summary>The host of the first address that these lines, added to a lock file, fetch from and that is not a registry; null when they all are. Read for a free agent's change and for a repair.</summary>
+    public static string? ForeignHost(string path, IEnumerable<string> addedLines)
     {
+        ArgumentNullException.ThrowIfNull(path);
+        ArgumentNullException.ThrowIfNull(addedLines);
         // The lock files of npm and yarn say where a package comes from in a few keys (and carry funding and homepage links beside them); the others (Cargo, poetry, Pipfile, composer, go) are read for every address that they add
         var everything = !NpmFamily.Contains(path[(path.LastIndexOf('/') + 1)..], StringComparer.Ordinal);
         // Only the lines that say where a package comes from (a funding link or a homepage is not where it is fetched from)
-        foreach (var line in patch.Split('\n').Where(line => line.StartsWith('+') && !line.StartsWith("+++", StringComparison.Ordinal) && (everything || line.Contains("resolved", StringComparison.Ordinal) || line.Contains("tarball", StringComparison.Ordinal) || line.Contains("resolution", StringComparison.Ordinal))))
+        foreach (var line in addedLines.Where(line => everything || line.Contains("resolved", StringComparison.Ordinal) || line.Contains("tarball", StringComparison.Ordinal) || line.Contains("resolution", StringComparison.Ordinal)))
         {
             foreach (System.Text.RegularExpressions.Match address in Address().Matches(line))
             {
@@ -119,6 +136,39 @@ public static partial class ChangePolicy
         }
         return null;
     }
+
+    // The lines that a patch adds
+    private static string? PipelineGuard(BranchFile file, IReadOnlyDictionary<string, string?>? before, IReadOnlyDictionary<string, string?>? after)
+    {
+        var added = AddedLines(file.Patch).ToList();
+        var removed = RemovedLines(file.Patch).ToList();
+        if (after is null || !WorkflowStructure.IsWorkflow(file.Path))
+        {
+            return PipelineChanges.Guard(file.Path, null, null, added, removed);
+        }
+        // What could not be read is not judged as if it were fine
+        if (!after.TryGetValue(file.Path, out var now) || now is null)
+        {
+            return $"the pipeline '{file.Path}' could not be read at the commit of the change: it cannot be judged";
+        }
+        string? was = null;
+        if (before is not null && before.TryGetValue(file.Path, out var old))
+        {
+            if (old is null)
+            {
+                return $"the pipeline '{file.Path}' could not be read before the change: what the change takes out of it cannot be judged";
+            }
+            was = old;
+        }
+        return PipelineChanges.Guard(file.Path, was, now, added, removed);
+    }
+
+    private static IEnumerable<string> AddedLines(string? patch) =>
+        (patch ?? string.Empty).Split('\n').Where(line => line.StartsWith('+') && !line.StartsWith("+++", StringComparison.Ordinal)).Select(line => line[1..]);
+
+    // The lines that a patch takes out
+    private static IEnumerable<string> RemovedLines(string? patch) =>
+        (patch ?? string.Empty).Split('\n').Where(line => line.StartsWith('-') && !line.StartsWith("---", StringComparison.Ordinal)).Select(line => line[1..]);
 
     // The changed lines of a patch (those that start with a plus or a minus), as the controller reads them
     private static string LineText(string? patch) =>

@@ -158,4 +158,23 @@ public sealed class ControllerAgentTests
         (await failing.DecideAsync(Input(), TestContext.Current.CancellationToken)).Should().Match<ControllerOutcome>(outcome => outcome.Decision == null && outcome.Failure == "the quota is used up");
         (await answering.DecideAsync(Input(), TestContext.Current.CancellationToken)).Decision!.Kind.Should().Be(ControllerDecisionKind.Grant);
     }
+
+    [Fact]
+    public void A_change_to_a_pipeline_is_shown_with_the_workers_justification_in_the_data_and_the_control_plane_says_when_the_pipeline_is_its_only_proof()
+    {
+        var input = Input() with
+        {
+            Dossier = new Dossier("m1", "done", "fixed p1", [MissionEvidence.NoBuild, "repair:files=1"], [], false, null, PipelineJustification: "p1 used the removed set-output command"),
+            Facts = new FactsView([".github/workflows/p1.yml"], "unknown", "not applicable", []),
+        };
+
+        var request = new ControllerAgent(new FakeGateway("{}"), "m", TimeSpan.FromMinutes(1)).Build(input, "MARK");
+
+        request.SystemPrompt.Should().Contain("second control").And.Contain("never take it on its word").And.Contain("escalate");
+        var facts = request.UserPrompt[..request.UserPrompt.IndexOf("<<<DATA", StringComparison.Ordinal)];
+        facts.Should().Contain("pipeline files that the change touches: 1").And.Contain("the only proof of the change");
+        facts.Should().NotContain("p1.yml", "the names of the files are the worker's: they are in the data");
+        request.UserPrompt.Should().Contain("justification of each pipeline change: p1 used the removed set-output command");
+        new ControllerAgent(new FakeGateway("{}"), "m", TimeSpan.FromMinutes(1)).Build(Input(), "MARK").UserPrompt.Should().NotContain("pipeline files", "a change that touches no pipeline has nothing to justify");
+    }
 }

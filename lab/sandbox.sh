@@ -57,15 +57,30 @@ clone() {
   echo "$dir"
 }
 
-# The identity of the lab's own commits
-lab_commit() { git -C "$1" -c user.name="lab" -c user.email="lab@users.noreply.github.com" commit -q -m "$2"; }
+# The identity of the lab's own commits: the account of its token, under the forge's no-reply address, so that the forge links each commit to the account that opens the pull request (a bot's new head is followed only when every
+# commit of the pull request is its author's own, ADR 0055)
+LAB_ACCOUNT="${LAB_ACCOUNT:-$(gh api user --jq '.login' 2>/dev/null)}"
+LAB_EMAIL="${LAB_EMAIL:-$(gh api user --jq '"\(.id)+\(.login)@users.noreply.github.com"' 2>/dev/null)}"
+lab_commit() { git -C "$1" -c user.name="${LAB_ACCOUNT:-lab}" -c user.email="${LAB_EMAIL:-lab@users.noreply.github.com}" commit -q -m "$2"; }
 
 # The seed of a repository is pinned in lab/seeds.json (repository -> commit): the tag of the remote is only where the commit is fetched from.
-# A moved tag, or a repository that is not pinned, is no seed: nothing is restored or planted there.
+# A moved tag, or a repository that is not pinned, is no seed: nothing is restored or planted there. A seed marked "red" has red pipelines as its fault (pipeline-scenarios): its restore is not held
+# by its checks, and its pipelines are run on the base afterwards, so that the forge shows the default branch as the seed has it, as a real repository's would be.
 SEEDS_FILE="${LAB_SEEDS_FILE:-$HERE/seeds.json}"
 [ -r "$SEEDS_FILE" ] && jq -e 'type == "array"' "$SEEDS_FILE" >/dev/null 2>&1 || { echo "$SEEDS_FILE is missing or is not a list of {repository, seed}" >&2; exit 2; }
 pinned_seed() { jq -r --arg r "$1" '.[] | select(.repository == $r) | .seed' "$SEEDS_FILE"; }
 pinned_repositories() { jq -r '.[].repository' "$SEEDS_FILE"; }
+pinned_red() { jq -r --arg r "$1" '.[] | select(.repository == $r) | (.red // false)' "$SEEDS_FILE"; }
+
+# The pipelines of a red seed, run on the base: each workflow that can be started by hand
+run_pipelines() {
+  local repo="$1" id
+  [ "$(pinned_red "$repo")" = true ] || return 0
+  for id in $(gh workflow list -R "$ORG/$repo" --json id,state --jq '.[] | select(.state == "active") | .id'); do
+    gh workflow run "$id" -R "$ORG/$repo" --ref "$BASE" >/dev/null 2>&1 || true
+  done
+  echo "$repo: its pipelines were run on $BASE, as its seed has them"
+}
 has_seed() {
   local dir="$1" repo="$2" pin tag
   pin=$(pinned_seed "$repo"); [ -n "$pin" ] || return 1
@@ -106,7 +121,7 @@ cmd_mark_seed() {
   git -C "$dir" tag -f lab-seed "$ref"
   git -C "$dir" push -q --force origin refs/tags/lab-seed
   local sha; sha=$(git -C "$dir" rev-parse "lab-seed^{commit}")
-  local tmp; tmp=$(mktemp); jq --arg r "$repo" --arg s "$sha" 'map(select(.repository != $r)) + [{repository: $r, seed: $s}]' "$SEEDS_FILE" > "$tmp" && cat "$tmp" > "$SEEDS_FILE" && rm -f "$tmp"
+  local tmp; tmp=$(mktemp); jq --arg r "$repo" --arg s "$sha" 'if any(.[]; .repository == $r) then map(if .repository == $r then .seed = $s else . end) else . + [{repository: $r, seed: $s}] end' "$SEEDS_FILE" > "$tmp" && cat "$tmp" > "$SEEDS_FILE" && rm -f "$tmp"
   echo "$repo: seed is now ${sha:0:7}, pinned in $SEEDS_FILE (commit that file)"
 }
 
@@ -157,7 +172,7 @@ reset_one() {
   close_pull_requests "$repo"
   delete_work_branches "$dir"
   git -C "$dir" fetch -q --prune --tags origin
-  if same_as_seed "$dir"; then echo "$repo: already at the seed"; return 0; fi
+  if same_as_seed "$dir"; then echo "$repo: already at the seed"; run_pipelines "$repo"; return 0; fi
 
   local branch="lab/restore-$(date +%Y%m%d%H%M%S)"
   git -C "$dir" checkout -q -B "$branch" "origin/$BASE"
@@ -169,7 +184,13 @@ reset_one() {
   local pr; pr=$(gh pr create -R "$ORG/$repo" --base "$BASE" --head "$branch" --title "chore(lab): restore the seed" --body "The test-bed repository goes back to its seed so that a scenario can be played again." | grep -oE '[0-9]+$')
   # The forge can still list a required check as queued when the rollup already shows the earlier ones as passed: a merge it refuses for that is asked for again after the checks are waited for again
   local head attempt
+  # A red seed is restored with its red pipelines: its checks fail by design, so the merge is pinned to the head that was pushed and does not wait for them
+  if [ "$(pinned_red "$repo")" = true ]; then
+    head=$(gh pr view "$pr" -R "$ORG/$repo" --json headRefOid --jq .headRefOid)
+    gh pr merge "$pr" -R "$ORG/$repo" --squash --match-head-commit "$head" >/dev/null || return 1
+  fi
   for attempt in 1 2 3; do
+    [ "$(pinned_red "$repo")" = true ] && break
     head=$(wait_checks "$repo" "$pr")
     if gh pr merge "$pr" -R "$ORG/$repo" --squash --match-head-commit "$head" >/dev/null 2>"${TMPDIR:-/tmp}/lab-merge-$$.err"; then rm -f "${TMPDIR:-/tmp}/lab-merge-$$.err"; break; fi
     if [ "$attempt" = 3 ] || ! grep -qiE 'status check|queued|in progress|pending|base branch policy' "${TMPDIR:-/tmp}/lab-merge-$$.err"; then cat "${TMPDIR:-/tmp}/lab-merge-$$.err" >&2; rm -f "${TMPDIR:-/tmp}/lab-merge-$$.err"; return 1; fi
@@ -180,6 +201,7 @@ reset_one() {
   git -C "$dir" fetch -q --prune --tags origin
   same_as_seed "$dir" || { echo "$repo: restored, but $BASE still differs from the seed" >&2; return 1; }
   echo "$repo: restored through #$pr"
+  run_pipelines "$repo"
 }
 
 cmd_reset() {
@@ -192,8 +214,16 @@ cmd_reset() {
 }
 
 # A scenario lists faults to plant: {"plants": [{"repo", "branch", "title", "body", "kind": "npm-bump"|"patch", ...}]}
+#   pip-bump: "package", "from", "version" (a pinned line of requirements.txt)
 #   npm-bump: "package", "from", "version"  (the version the seed holds, checked; the lock file follows), "patches" (optional: files next to the scenario, applied with git apply)
 #   patch: "patch" (a file next to the scenario, applied with git apply)
+# What Dependabot does when the base already holds the version it proposed: it says so and closes its pull request
+close_useless() {
+  local repo="$1" branch="$2" package="$3" current="$4"
+  gh pr close "$branch" -R "$ORG/$repo" --delete-branch --comment "Looks like $package is up-to-date now ($current on the base), so this is no longer needed." >/dev/null 2>&1 || true
+  echo "$repo: closed $branch, $package is already $current on $BASE"
+}
+
 plant_one() {
   local scenario="$1" index="$2" dir item repo branch title body kind
   item=$(jq -c --argjson i "$index" '.plants[$i]' "$scenario")
@@ -214,15 +244,33 @@ plant_one() {
       [[ "$package" =~ ^(@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*$ ]] || { echo "refused: '$package' is not a package name" >&2; return 1; }
       [[ "$to" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]] || { echo "refused: '$to' is not a version" >&2; return 1; }
       current=$(jq -r --arg p "$package" '(.dependencies[$p] // .devDependencies[$p] // "")' "$dir/package.json")
-      [ "$current" = "$from" ] || { echo "$repo: $package is $current in the seed, the scenario says $from" >&2; return 1; }
+      if [ -n "${REBASE:-}" ] && [ -n "$current" ] && [ "$(printf '%s\n%s\n' "$to" "${current#^}" | sort -V | tail -1)" = "${current#^}" ]; then close_useless "$repo" "$branch" "$package" "$current"; return 0; fi
+      # a bot that makes its pull request again does not mind what the base holds now: it bumps to the version it was asked for (the first planting checks the seed)
+      [ -n "${REBASE:-}" ] || [ "$current" = "$from" ] || { echo "$repo: $package is $current in the seed, the scenario says $from" >&2; return 1; }
       # npm reads the .npmrc of the repository, which may expand environment variables: it runs with an empty environment, none of the lab's credentials
       mkdir -p "$WORK/.npm-home"
       (cd "$dir" && env -i PATH="$PATH" HOME="$WORK/.npm-home" npm install --package-lock-only --save-exact --ignore-scripts --no-audit --no-fund "$package@$to" >/dev/null)
       # what else the author of the change touched with it (a file next to the scenario, applied with git apply)
       for patch in $(jq -r '.patches[]? // empty' <<<"$item"); do
         valid_name "$patch"
+        # a bot that makes its pull request again on a base that already holds one of its hunks (the same base image, raised by another change) drops that hunk: git does the same
+        if git -C "$dir" apply --reverse --check "$(dirname "$scenario")/$patch" 2>/dev/null; then continue; fi
+        # made again on a base that was changed in the same place by someone else (an agent raised the same image): the bot drops what the base already holds rather than leave the pull request in conflict
+        if [ -n "${REBASE:-}" ]; then git -C "$dir" apply "$(dirname "$scenario")/$patch" 2>/dev/null || echo "$repo: the base already holds the change that $patch carries: dropped"; continue; fi
         git -C "$dir" apply "$(dirname "$scenario")/$patch"
       done ;;
+    pip-bump)
+      # what a bot does to a pinned Python requirement: the line of the package in requirements.txt says the new version
+      local package from to current
+      package=$(jq -r .package <<<"$item"); from=$(jq -r .from <<<"$item"); to=$(jq -r .version <<<"$item")
+      [[ "$package" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || { echo "refused: '$package' is not a package name" >&2; return 1; }
+      [[ "$to" =~ ^[0-9]+(\.[0-9]+)*$ ]] || { echo "refused: '$to' is not a version" >&2; return 1; }
+      current=$(grep -iE "^${package}==" "$dir/requirements.txt" | head -1 | cut -d= -f3)
+      [ -n "$current" ] || { echo "$repo: $package is not pinned in requirements.txt" >&2; return 1; }
+      [ -n "${REBASE:-}" ] || [ "$current" = "$from" ] || { echo "$repo: $package is $current in the seed, the scenario says $from" >&2; return 1; }
+      # a bot never goes down: a base that already holds this version or a newer one makes the pull request useless, and the bot closes it
+      if [ -n "${REBASE:-}" ] && [ "$(printf '%s\n%s\n' "$to" "$current" | sort -V | tail -1)" = "$current" ]; then close_useless "$repo" "$branch" "$package" "$current"; return 0; fi
+      sed -i -E "s/^(${package})==.*$/\1==${to}/I" "$dir/requirements.txt" ;;
     patch)
       local patch; patch=$(jq -r .patch <<<"$item"); valid_name "$patch"
       git -C "$dir" apply "$(dirname "$scenario")/$patch" ;;
@@ -252,13 +300,14 @@ cmd_plant() {
   for i in $(seq 0 $((n - 1))); do plant_one "$scenario" "$i"; done
 }
 
-# What a dependency bot does when the base moved under its pull request: the same bump, made again on the base as it is now, on the same branch (the pull request stays open and its head moves). Only the pull requests that are still open.
+# What a dependency bot does when the base moved under its pull request: the same bump, made again on the base as it is now, on the same branch (the pull request stays open and its head moves). Only the pull requests that are still open and behind the base.
 cmd_rebase() {
   local scenario n branch repo; scenario=$(realpath "$1"); n=$(jq '.plants | length' "$scenario")
   for i in $(seq 0 $((n - 1))); do
     repo=$(jq -r ".plants[$i].repo" "$scenario"); branch=$(jq -r ".plants[$i].branch" "$scenario")
     valid_name "$repo"; valid_name "$branch"
-    if [ "$(gh pr view "$branch" -R "$ORG/$repo" --json state --jq .state 2>/dev/null)" = "OPEN" ]; then REBASE=1 plant_one "$scenario" "$i"; fi
+    # a bot rebases a pull request when its base moved under it, not at every look: only a pull request that is behind the base is made again
+    if [ "$(gh pr view "$branch" -R "$ORG/$repo" --json state --jq .state 2>/dev/null)" = "OPEN" ] && [ "$(gh api "repos/$ORG/$repo/compare/$BASE...$branch" --jq .behind_by 2>/dev/null || echo 0)" -gt 0 ]; then REBASE=1 plant_one "$scenario" "$i"; fi
   done
 }
 

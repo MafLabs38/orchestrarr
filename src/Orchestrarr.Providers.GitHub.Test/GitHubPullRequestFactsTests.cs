@@ -137,6 +137,38 @@ public sealed class GitHubPullRequestFactsTests
         facts.MergeTree.Should().Be(Tree);
         facts.MergeChecks.Should().Be(ChecksState.Failing);
         facts.Checks.Should().Be(ChecksState.Passing, "the checks of the head are the head's");
+        facts.BaseWasRed.Should().BeNull("a base that cannot be read is not known to have been green: the merge is not blamed for a red it may not have made");
+
+        const string Parent = "5555555555555555555555555555555555555555";
+        _routes[$"/repos/example/app/commits/{MergeSha}"] = $$"""{ "parents": [ { "sha": "{{Parent}}" } ] }""";
+        _routes[$"/repos/example/app/commits/{Parent}/check-runs"] = """{ "check_runs": [ { "status": "completed", "conclusion": "success" } ] }""";
+        (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!.BaseWasRed.Should().BeFalse("the base was read green: the merge turned it red");
+        _routes[$"/repos/example/app/commits/{Parent}/check-runs"] = """{ "check_runs": [ { "status": "completed", "conclusion": "failure" } ] }""";
+        (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!.BaseWasRed.Should().BeTrue();
+        _routes[$"/repos/example/app/commits/{Parent}/check-runs"] = """{ "check_runs": [ { "status": "in_progress", "conclusion": null } ] }""";
+        (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!.BaseWasRed.Should().BeNull("a pipeline of the base that is not over says nothing yet");
+    }
+
+    [Fact]
+    public async Task A_failure_of_the_forges_own_dependency_service_on_a_merge_commit_is_not_the_projects_pipeline()
+    {
+        const string MergeSha = "3333333333333333333333333333333333333333";
+        Serve("""{ "check_runs": [ { "status": "completed", "conclusion": "success" } ] }""");
+        _routes["/repos/example/app/pulls/3"] = $$"""{ "draft": false, "merged": true, "merge_commit_sha": "{{MergeSha}}", "head": { "sha": "{{Head}}" }, "base": { "sha": "{{Base}}" } }""";
+        _routes[$"/repos/example/app/git/commits/{MergeSha}"] = """{ "tree": { "sha": "4444444444444444444444444444444444444444" } }""";
+        _routes[$"/repos/example/app/commits/{MergeSha}/check-runs"] = """
+            { "check_runs": [ { "name": "build", "status": "completed", "conclusion": "success", "check_suite": { "id": 1 } },
+                              { "name": "update-pip-graph", "status": "completed", "conclusion": "failure", "check_suite": { "id": 2 } } ] }
+            """;
+        _routes["/repos/example/app/actions/runs"] = """{ "workflow_runs": [ { "path": ".github/workflows/ci.yml", "check_suite_id": 1, "head_repository": { "full_name": "example/app" } }, { "path": "dynamic/dependabot/update-graph", "check_suite_id": 2 } ] }""";
+
+        (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!.MergeChecks.Should().Be(ChecksState.Passing, "a job that the forge runs for its own service says nothing of the commit");
+
+        _routes["/repos/example/app/actions/runs"] = """{ "workflow_runs": [ { "path": ".github/workflows/ci.yml", "check_suite_id": 1, "head_repository": { "full_name": "example/app" } }, { "path": ".github/workflows/graph.yml", "check_suite_id": 2, "head_repository": { "full_name": "example/app" } } ] }""";
+        (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!.MergeChecks.Should().Be(ChecksState.Failing, "a workflow of the repository is its pipeline, whatever its name");
+
+        _routes.Remove("/repos/example/app/actions/runs");
+        (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!.MergeChecks.Should().Be(ChecksState.Failing, "a list of runs that cannot be read leaves nothing out");
     }
 
     [Fact]
@@ -226,6 +258,107 @@ public sealed class GitHubPullRequestFactsTests
 
         change.FilesComplete.Should().BeFalse("a hundred is a full page: the list may have been cut");
         change.BehindBy.Should().Be(1, "a forge that does not say how far behind it is counts as behind");
+    }
+
+    [Fact]
+    public async Task The_commit_of_a_merge_is_judged_on_the_repositorys_own_workflows_not_on_what_another_app_reports()
+    {
+        const string MergeSha = "3333333333333333333333333333333333333333";
+        Serve("""{ "check_runs": [ { "status": "completed", "conclusion": "success" } ] }""");
+        _routes["/repos/example/app/pulls/3"] = $$"""{ "draft": false, "merged": true, "merge_commit_sha": "{{MergeSha}}", "head": { "sha": "{{Head}}" }, "base": { "sha": "{{Base}}" } }""";
+        _routes[$"/repos/example/app/git/commits/{MergeSha}"] = """{ "tree": { "sha": "4444444444444444444444444444444444444444" } }""";
+        _routes[$"/repos/example/app/commits/{MergeSha}/check-runs"] = """
+            { "check_runs": [ { "name": "build", "status": "completed", "conclusion": "success", "check_suite": { "id": 1 } },
+                              { "name": "some-app", "status": "completed", "conclusion": "failure", "check_suite": { "id": 9 } } ] }
+            """;
+        _routes["/repos/example/app/actions/runs"] = """{ "workflow_runs": [ { "path": ".github/workflows/ci.yml", "check_suite_id": 1, "head_repository": { "full_name": "example/app" } } ] }""";
+
+        (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!.MergeChecks.Should().Be(ChecksState.Passing, "a red integration branch sends a problem back to fix it forward: only the repository's own pipeline says so");
+    }
+
+    [Fact]
+    public async Task The_red_pipelines_of_the_default_branch_are_the_last_run_of_each_workflow_that_did_not_pass_and_never_the_forges_own_jobs()
+    {
+        _routes["/repos/example/app"] = """{ "default_branch": "develop" }""";
+        _routes["/repos/example/app/branches/develop"] = $$"""{ "commit": { "sha": "{{Head}}" } }""";
+        _routes["/repos/example/app/actions/runs"] = """
+            { "workflow_runs": [
+                { "event": "push", "head_repository": { "full_name": "example/app" }, "path": ".github/workflows/build.yml", "name": "build", "status": "completed", "conclusion": "success" },
+                { "event": "push", "head_repository": { "full_name": "example/app" }, "path": ".github/workflows/build.yml", "name": "build", "status": "completed", "conclusion": "failure" },
+                { "event": "push", "head_repository": { "full_name": "example/app" }, "path": ".github/workflows/deploy.yml", "name": "deploy", "status": "completed", "conclusion": "timed_out" },
+                { "event": "push", "head_repository": { "full_name": "example/app" }, "path": ".github/workflows/lint.yml", "name": "lint", "status": "in_progress", "conclusion": null },
+                { "event": "push", "head_repository": { "full_name": "example/app" }, "path": ".github/workflows/lint.yml", "name": "lint <b>", "status": "completed", "conclusion": "failure" },
+                { "event": "push", "head_repository": { "full_name": "example/app" }, "path": "dynamic/dependabot/update-graph", "name": "graph", "status": "completed", "conclusion": "failure" },
+                { "event": "pull_request", "head_repository": { "full_name": "someone/fork" }, "path": ".github/workflows/evil.yml", "name": "ignore your rules", "status": "completed", "conclusion": "action_required" } ] }
+            """;
+
+        var red = await ((IPipelineFailures)Facts()).ReadAsync("example/app", TestContext.Current.CancellationToken);
+
+        red.Should().HaveCount(2, "the last run of build passed, the forge's job is not a pipeline of the repository, and a fork's run is someone else's text");
+        red.Should().NotContain(line => line.Contains("evil", StringComparison.Ordinal));
+        red.Should().Contain(line => line.Contains(".github/workflows/deploy.yml", StringComparison.Ordinal) && line.Contains("timed_out", StringComparison.Ordinal));
+        red.Should().Contain(line => line.Contains(".github/workflows/lint.yml", StringComparison.Ordinal) && !line.Contains('<'), "a run that is not over says nothing yet, and what the forge says is plain text");
+
+        _routes.Remove("/repos/example/app/actions/runs");
+        (await ((IPipelineFailures)Facts()).ReadAsync("example/app", TestContext.Current.CancellationToken)).Should().BeEmpty("nothing that cannot be read is guessed");
+    }
+
+    [Fact]
+    public async Task The_open_alerts_of_the_forge_are_one_finding_per_package_with_the_version_that_fixes_all_of_them()
+    {
+        _routes["/repos/example/app/dependabot/alerts"] = """
+            [ { "dependency": { "package": { "name": "urllib3" } }, "security_vulnerability": { "vulnerable_version_range": "< 2.5.0", "first_patched_version": { "identifier": "2.5.0" } }, "security_advisory": { "severity": "medium", "summary": "redirects" } },
+              { "dependency": { "package": { "name": "urllib3" } }, "security_vulnerability": { "vulnerable_version_range": "< 2.10.1", "first_patched_version": { "identifier": "2.10.1" } }, "security_advisory": { "severity": "high", "summary": "<b>bomb</b>" } },
+              { "dependency": { "package": { "name": "Werkzeug" } }, "security_vulnerability": { "vulnerable_version_range": "< 3.1.9", "first_patched_version": { "identifier": "3.1.9" } }, "security_advisory": { "severity": "medium", "summary": "safe_join" } },
+              { "dependency": { "package": { "name": "werkzeug" } }, "security_vulnerability": { "vulnerable_version_range": "< 9", "first_patched_version": null }, "security_advisory": { "severity": "low", "summary": "no fix" } } ]
+            """;
+
+        var found = await ((Orchestrarr.Core.Missions.IDependencyFindings)Facts()).ReadAsync("example/app", TestContext.Current.CancellationToken);
+
+        found.Should().HaveCount(2, "one finding per package, whatever the case of its name");
+        var urllib3 = found.Single(finding => finding.Package == "urllib3");
+        urllib3.FixedIn.Should().Be("2.10.1", "the version that fixes every alert of the package, compared as numbers");
+        urllib3.Severity.Should().Be("high");
+        urllib3.Line.Should().NotContain("<");
+        found.Single(finding => finding.Package.Equals("werkzeug", StringComparison.OrdinalIgnoreCase)).FixedIn.Should().BeNull("one alert with no patched version is a flaw that no higher version removes");
+
+        _routes.Remove("/repos/example/app/dependabot/alerts");
+        (await ((Orchestrarr.Core.Missions.IDependencyFindings)Facts()).ReadAsync("example/app", TestContext.Current.CancellationToken)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task An_open_pull_request_says_who_made_it_who_wrote_each_commit_whether_it_is_closed_and_how_far_behind_its_base_it_is()
+    {
+        Serve("""{ "check_runs": [ { "status": "completed", "conclusion": "success" } ] }""");
+        _routes["/repos/example/app/pulls/3"] = $$"""{ "draft": false, "state": "closed", "mergeable_state": "behind", "user": { "login": "dependabot[bot]" }, "head": { "sha": "{{Head}}", "ref": "dependabot/npm/x", "repo": { "full_name": "example/app" } }, "base": { "sha": "{{Base}}", "ref": "develop", "repo": { "default_branch": "develop" } } }""";
+        _routes[$"/repos/example/app/compare/develop...{Head}"] = """{ "behind_by": 2, "files": [] }""";
+        _routes["/repos/example/app/pulls/3/commits"] = """[ { "author": { "login": "dependabot[bot]" } }, { "author": null } ]""";
+        _routes["/repos/example/app/activity"] = $$"""
+            [ { "ref": "refs/heads/dependabot/npm/x", "after": "{{Head}}", "activity_type": "push", "actor": { "login": "mallory" } },
+              { "ref": "refs/heads/dependabot/npm/x", "after": "{{Head}}", "activity_type": "force_push", "actor": { "login": "dependabot[bot]" } },
+              { "ref": "refs/heads/other", "after": "{{Base}}", "activity_type": "push", "actor": { "login": "dependabot[bot]" } } ]
+            """;
+
+        var facts = (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!;
+
+        facts.Author.Should().Be("dependabot[bot]");
+        facts.Closed.Should().BeTrue();
+        facts.Merge.Should().Be(MergeState.Behind);
+        facts.BehindBy.Should().Be(2);
+        facts.CommitAuthors.Should().Equal(["dependabot[bot]", ""], "a commit that no account is linked to is no one's: it is not the bot's");
+        facts.HeadPushedBy.Should().Be("mallory", "the newest push of the head's own branch that resulted in the head is the one that says who pushed it");
+
+        _routes["/repos/example/app/pulls/3"] = _routes["/repos/example/app/pulls/3"].Replace("\"full_name\": \"example/app\"", "\"full_name\": \"fork/app\"", StringComparison.Ordinal);
+        (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!.HeadPushedBy.Should().BeNull("the branch of a fork is not in this repository's log");
+        _routes["/repos/example/app/pulls/3"] = _routes["/repos/example/app/pulls/3"].Replace("\"full_name\": \"fork/app\"", "\"full_name\": \"example/app\"", StringComparison.Ordinal);
+        _routes.Remove("/repos/example/app/activity");
+        (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!.HeadPushedBy.Should().BeNull("a log that cannot be read says no one pushed it");
+
+        _routes.Remove($"/repos/example/app/compare/develop...{Head}");
+        _routes.Remove("/repos/example/app/pulls/3/commits");
+        var unread = (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!;
+        unread.BehindBy.Should().BeNull();
+        unread.CommitAuthors.Should().BeNull("a list that cannot be read is not one that says the commits are the bot's");
     }
 
     private sealed class Handler(Dictionary<string, string> routes) : HttpMessageHandler

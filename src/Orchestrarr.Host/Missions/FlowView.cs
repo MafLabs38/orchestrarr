@@ -6,7 +6,7 @@ namespace Orchestrarr.Host.Missions;
 /// <summary>Where one world of a problem stands: <c>notStarted</c>, <c>waiting</c> (a mandate that no runner has taken), <c>running</c>, <c>reading</c> (the controller reads the dossier), <c>done</c> or <c>ended</c> (not done). <c>Attempts</c> counts the missions of that world, a world that is done again after a release that failed.</summary>
 public sealed record FlowStep(string World, string State, string? MissionId, int Attempts);
 
-/// <summary>Why a problem does not move: <c>turn</c> (another problem is being done on its repository), <c>machine</c> (no machine of its world is free), <c>busy</c> (every lane of its world is at work; the subject is <c>World running/lanes</c>), <c>runner</c> (no runner has asked for work lately) or <c>pickup</c> (nothing is in the way, the runner takes it at its next call).</summary>
+/// <summary>Why a problem does not move: <c>turn</c> (another problem is being done on its repository), <c>machine</c> (no machine of its world is free), <c>busy</c> (every lane of its world is at work; the subject is <c>World running/lanes</c>), <c>bot</c> (the bot that made its pull request is asked to rebase it, and the lot goes on meanwhile, ADR 0055; the subject is why), <c>runner</c> (no runner has asked for work lately) or <c>pickup</c> (nothing is in the way, the runner takes it at its next call).</summary>
 public sealed record FlowWaiting(string Code, string? Subject);
 
 /// <summary>What a problem does now: the last thing its runner reported (<c>running</c>), the controller reading the dossier (<c>controller</c>), or what it waits for (<c>waiting</c>). <c>At</c> is when it last moved.</summary>
@@ -23,10 +23,11 @@ internal static class FlowView
 {
     private const int MaxFinished = 20;
 
-    internal static IReadOnlyList<FlowProblem> Build(IReadOnlyList<Mission> recent, IProblemStore problems, IReadOnlyList<QueuedProblem> waiting, IReadOnlyList<Machine> machines, bool runnerConnected, Func<string, (string? Line, DateTimeOffset? At)> lastNews, Func<Mission, DateTimeOffset?> issuedAt, Func<Mission, bool>? reworkPending = null, Func<string, int>? lanesOf = null)
+    internal static IReadOnlyList<FlowProblem> Build(IReadOnlyList<Mission> recent, IProblemStore problems, IReadOnlyList<QueuedProblem> waiting, IReadOnlyList<Machine> machines, bool runnerConnected, Func<string, (string? Line, DateTimeOffset? At)> lastNews, Func<Mission, DateTimeOffset?> issuedAt, Func<Mission, bool>? reworkPending = null, Func<string, int>? lanesOf = null, Func<string, string?>? parkedReason = null)
     {
         reworkPending ??= _ => false;
         lanesOf ??= _ => 0;
+        parkedReason ??= _ => null;
         // The newest missions first: the order of the problems follows the last thing that happened to each
         var byProblem = recent.GroupBy(mission => mission.ProblemId, StringComparer.Ordinal).ToList();
         var runs = problems.GetMany([.. byProblem.Select(group => group.Key)]);
@@ -54,7 +55,7 @@ internal static class FlowView
         var going = working.OrderBy(pair => pair.Run.StartedAt).ThenBy(pair => pair.Run.ProblemId, StringComparer.Ordinal).Select(pair => pair.Flow).ToList();
         var started = going.Select(flow => flow.ProblemId).ToHashSet(StringComparer.Ordinal);
         // A problem that has just left the line and is not yet saved as started is in both lists for an instant: it is shown once
-        var queued = waiting.Where(problem => !started.Contains(problem.Entry.ProblemId)).OrderBy(problem => problem.QueuedAt).Select(problem => Queued(problem, inProgress)).ToList();
+        var queued = ProblemQueue.InOrder(waiting.Where(problem => !started.Contains(problem.Entry.ProblemId))).Select(problem => Queued(problem, inProgress, parkedReason(problem.Entry.ProblemId))).ToList();
         return [.. going, .. queued, .. finished.Take(MaxFinished)];
     }
 
@@ -66,12 +67,14 @@ internal static class FlowView
             StepsOf(run, missions, reworkPending), run.State == ProblemState.InProgress && active is not null ? ActivityOf(active, run, inProgress, machines, runnerConnected, lastNews, reworkPending(active), LoadOf(active.World, all, reworkPending, lanesOf)) : null, run.Note);
     }
 
-    private static FlowProblem Queued(QueuedProblem problem, IReadOnlyList<ProblemRun> inProgress)
+    private static FlowProblem Queued(QueuedProblem problem, IReadOnlyList<ProblemRun> inProgress, string? parked)
     {
         var entry = problem.Entry;
         var ahead = AheadOf(entry.Repositories.FirstOrDefault(), entry.ProblemId, inProgress);
+        var behind = ahead is null ? null : TitleOf(ahead.Entry);
+        var waiting = parked is not null ? new FlowWaiting("bot", parked) : new FlowWaiting("turn", behind);
         return new FlowProblem(entry.ProblemId, TitleOf(entry), entry.Brief?.Kind ?? entry.ProblemClass, entry.Repositories.FirstOrDefault() ?? string.Empty, "queued", FlowPriority.Normal, problem.QueuedAt,
-            [.. Worlds(entry.MaxWorld, true).Select(world => new FlowStep(world.ToString(), "notStarted", null, 0))], new FlowActivity("waiting", null, problem.QueuedAt, new FlowWaiting("turn", ahead is null ? null : TitleOf(ahead.Entry))), null);
+            [.. Worlds(entry.MaxWorld, true).Select(world => new FlowStep(world.ToString(), "notStarted", null, 0))], new FlowActivity("waiting", null, problem.QueuedAt, waiting), null);
     }
 
     private static string StateOf(ProblemState state) => state switch

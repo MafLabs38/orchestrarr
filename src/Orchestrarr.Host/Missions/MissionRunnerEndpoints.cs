@@ -202,9 +202,14 @@ internal static partial class MissionRunnerEndpoints
                 {
                     refused = "the change cannot be read on the forge";
                 }
-                else if (ChangePolicy.Refusal(change, staged.Frame.ForbiddenPaths) is { } policy)
+                else if (await RepairBase.WorkflowsAsync(branches, repository, change, pushed, ct) is var (before, after) && ChangePolicy.Refusal(change, staged.Frame.ForbiddenPaths, before, after) is { } policy)
                 {
                     refused = policy;
+                }
+                // A change to a pipeline file is justified by the agent, then checked by the controller against the lines and the problem (ADR 0057): one that does not say why is not kept
+                else if (PipelineChanges.Unjustified(change.Files.Select(file => file.Path), request.PipelineJustification) is { } unjustified)
+                {
+                    refused = unjustified;
                 }
                 else
                 {
@@ -233,7 +238,7 @@ internal static partial class MissionRunnerEndpoints
                 {
                     return Results.Json(new { error = "files are handed over only to repair a pull request, at the commit that the maintainer saw" }, statusCode: StatusCodes.Status409Conflict);
                 }
-                var refusal = RepairPolicy.Refusal(files, staged.Frame.ForbiddenPaths);
+                var refusal = RepairPolicy.Refusal(files, staged.Frame.ForbiddenPaths, await RepairBase.ReadAsync(branches, entry.Repositories[0], baseHead, files, ct));
                 if (refusal is not null)
                 {
                     return Results.Json(new { error = refusal }, statusCode: StatusCodes.Status422UnprocessableEntity);
@@ -246,7 +251,7 @@ internal static partial class MissionRunnerEndpoints
                 repairs.Forget(staged.ProblemId);
             }
             var dossier = new Dossier(id, Cut(request.Claim), Cut(request.WhatChangedAndWhy), Bounded(request.EvidenceDigests), Bounded(request.OpenPoints), request.Complex, request.ComplexReason is null ? null : Cut(request.ComplexReason),
-                request.Commit is { } commit && CommitShape().IsMatch(commit) ? commit : null);
+                request.Commit is { } commit && CommitShape().IsMatch(commit) ? commit : null, string.IsNullOrWhiteSpace(request.PipelineJustification) ? null : Cut(request.PipelineJustification));
             var result = await conductor.HandOverAsync(id, dossier, ct);
             live.Publish(LiveTopics.Missions, id);
             return result.Ok ? Results.Ok() : Results.Conflict(new { error = result.Refusal });

@@ -85,7 +85,7 @@ internal sealed class DemoRun(MissionStores stores, ProblemLocks locks, IRunnerD
                 return;
             }
             var code = Totp.Code(secret, Totp.StepAt(time.GetUtcNow(), options.Totp), options.Totp);
-            var request = new ApprovalRequest(CertificateKind.Problem, entry.ProblemId, entry.ApplicationId, entry.Repositories, entry.MaxWorld, entry.Budget, TimeSpan.FromHours(2));
+            var request = new ApprovalRequest(CertificateKind.Problem, entry.ProblemId, entry.ApplicationId, entry.Repositories, entry.MaxWorld, entry.Budget, TimeSpan.FromHours(2), PipelineChanges.ForbiddenFor(entry));
             // The demo plays both sides: it proposes, then confirms what it proposed with the code of the demo account
             if (authority.Propose(request, "demo") is { } proposal && (await authority.ApproveAsync(proposal.Id, "demo", code, cancellationToken)).Approval is { } approval)
             {

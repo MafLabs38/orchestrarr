@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using Orchestrarr.Core.Approvals;
 using Orchestrarr.Core.Launch;
 using Orchestrarr.Core.Machines;
+using Orchestrarr.Core.Forge;
 using Orchestrarr.Core.Missions;
 using Orchestrarr.Host.Agents;
 using Orchestrarr.Host.Storage;
@@ -44,6 +45,7 @@ internal static class MissionsServiceCollectionExtensions
         services
             .AddSingleton<ProblemLocks>()
             .AddSingleton<ProblemQueue>()
+            .AddSingleton<ProblemParking>()
             .AddSingleton(_ => SigningKey.Open(options.SigningKeyFile ?? (storage is SqliteStorage file ? Path.Combine(Path.GetDirectoryName(file.Path) ?? contentRoot, "keys", "mandate-signing.key") : null)))
             .AddSingleton<IRunnerDirectory>(new ConfiguredRunners(options))
             .AddSingleton<IFactsSource, ConservativeFacts>()
@@ -58,11 +60,13 @@ internal static class MissionsServiceCollectionExtensions
             .AddSingleton<IApprovalWithdrawals, UnreadableWithdrawals>()
             .AddSingleton(provider => new MissionStores(provider.GetRequiredService<IMissionStore>(), provider.GetRequiredService<IMandateLedger>(), provider.GetRequiredService<IProblemStore>(), provider.GetRequiredService<IDossierStore>(), provider.GetRequiredService<IMissionUnit>()))
             .AddSingleton(provider => new PowerSources(provider.GetRequiredService<IApprovalSource>(), provider.GetRequiredService<ApprovalVerifier>(), provider.GetRequiredService<IApprovalWithdrawals>(), provider.GetRequiredService<IGrantSource>(), provider.GetRequiredService<IStopSignal>()))
-            .AddSingleton(provider => new ConductorServices(provider.GetRequiredService<IFactsSource>(), provider.GetRequiredService<IRunnerDirectory>(), provider.GetRequiredService<IMissionAudit>(), provider.GetRequiredService<TimeProvider>(), () => Guid.NewGuid().ToString("N")))
+            .AddSingleton(provider => new ConductorServices(provider.GetRequiredService<IFactsSource>(), provider.GetRequiredService<IRunnerDirectory>(), provider.GetRequiredService<IMissionAudit>(), provider.GetRequiredService<TimeProvider>(), () => Guid.NewGuid().ToString("N"),
+                provider.GetService<RepairRegistry>()))
             .AddSingleton(provider => new ProblemConductor(
                 provider.GetRequiredService<MandateSigner>(), provider.GetRequiredService<MissionStores>(), provider.GetRequiredService<PowerSources>(), provider.GetRequiredService<ConductorServices>(), options.Conductor(), provider.GetRequiredService<ProblemLocks>()));
         services.AddSingleton<MissionProgress>();
         services.TryAddSingleton<IDependencyFindings>(_ => new NoDependencyFindings());
+        services.TryAddSingleton<IPipelineFailures>(_ => new NoPipelineFailures());
         if (options.Machines.Length > 0)
         {
             services.AddMachines(options, storage);

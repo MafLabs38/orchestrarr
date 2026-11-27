@@ -18,8 +18,8 @@ public sealed class FlowViewTests
         new(id, problem, "shop", world, "o", new MissionFrame(["o/shop"], [], ""), new MissionBudget(1, 1, 1), state, MandateId: "mandate-" + id, End: end);
 
     private static IReadOnlyList<FlowProblem> Build(IReadOnlyList<Mission> missions, IProblemStore problems, IReadOnlyList<QueuedProblem>? waiting = null, IReadOnlyList<Machine>? machines = null, bool runner = true,
-        Func<string, (string?, DateTimeOffset?)>? news = null, Func<Mission, DateTimeOffset?>? issued = null, Func<Mission, bool>? reworkPending = null, Func<string, int>? lanes = null) =>
-        FlowView.Build(missions, problems, waiting ?? [], machines ?? [], runner, news ?? (_ => (null, null)), issued ?? (_ => T0), reworkPending, lanes);
+        Func<string, (string?, DateTimeOffset?)>? news = null, Func<Mission, DateTimeOffset?>? issued = null, Func<Mission, bool>? reworkPending = null, Func<string, int>? lanes = null, Func<string, string?>? parked = null) =>
+        FlowView.Build(missions, problems, waiting ?? [], machines ?? [], runner, news ?? (_ => (null, null)), issued ?? (_ => T0), reworkPending, lanes, parked);
 
     private static InMemoryProblemStore Store(params ProblemRun[] runs)
     {
@@ -29,6 +29,16 @@ public sealed class FlowViewTests
             store.Save(run);
         }
         return store;
+    }
+
+    [Fact]
+    public void A_problem_that_waits_for_its_bot_to_rebase_its_pull_request_says_so_and_not_that_it_waits_for_its_turn()
+    {
+        var waiting = new QueuedProblem("row-2", Entry("p2", description: "mocha 8.0.1 → 8.4.0"), T0.AddMinutes(1));
+
+        var flow = Build([Mission("m1", "p1", World.Staging, MissionState.Running)], Store(Run("p1")), [waiting], parked: id => id == "p2" ? "it conflicts with its base branch" : null);
+
+        flow.Single(problem => problem.ProblemId == "p2").Activity!.Waiting.Should().Be(new FlowWaiting("bot", "it conflicts with its base branch"));
     }
 
     [Fact]

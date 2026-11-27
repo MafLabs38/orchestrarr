@@ -43,9 +43,13 @@ public interface IMissionAudit
 public static class MissionAuditEvents
 {
     public const string ProblemStarted = "problem.started";
+    public const string MachineRequalified = "machine.requalified";
     public const string PriorityRaised = "problem.priority-raised";
     public const string ProblemQueued = "problem.queued";
     public const string QueuedProblemRefused = "problem.queue-refused";
+    public const string ProblemParked = "problem.parked";
+    public const string BotRebaseRequested = "problem.bot-rebase-requested";
+    public const string ProblemFollowedBot = "problem.followed-bot";
     public const string LeadRefused = "lead.refused";
     public const string LeadPlanned = "lead.planned";
     public const string ProblemClosed = "problem.closed";

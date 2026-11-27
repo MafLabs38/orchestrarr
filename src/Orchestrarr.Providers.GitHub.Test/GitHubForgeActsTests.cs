@@ -23,6 +23,57 @@ public sealed class GitHubForgeActsTests
 
     private static GitHubForgeActs Acts(Recorder handler) => GitHubForgeActs.Create(new GitHubOptions { Token = "ghp_secret" }, handler);
 
+    [Theory]
+    [InlineData("Repository rule violations found\n\nRequired status check \"build\" is queued.", true)]
+    [InlineData("Repository rule violations found\n\nRequired status check \"build\" is in progress.", true)]
+    [InlineData("Repository rule violations found\n\nRequired status check \"build\" is expected.", true)]
+    [InlineData("Repository rule violations found\n\nRequired status check \"build\" is pending.", true)]
+    [InlineData("Repository rule violations found\n\nRequired status check \"build\" has failed.", false)]
+    [InlineData("Head branch was modified. Review and try the merge again.", false)]
+    public async Task A_merge_refused_only_because_a_required_check_has_not_reported_is_a_wait(string message, bool pending)
+    {
+        var handler = new Recorder(HttpStatusCode.MethodNotAllowed, $$"""{ "message": {{System.Text.Json.JsonSerializer.Serialize(message)}} }""");
+
+        var result = await Acts(handler).MergePullRequestAsync("example/shop", 7, Head, TestContext.Current.CancellationToken);
+
+        result.Merged.Should().BeFalse();
+        result.ChecksPending.Should().Be(pending);
+    }
+
+    [Fact]
+    public async Task A_bot_is_asked_to_rebase_by_one_comment_that_carries_its_command_and_nothing_else()
+    {
+        var handler = new Recorder(HttpStatusCode.Created, "{}");
+
+        (await Acts(handler).RequestBotRebaseAsync("example/shop", 7, "@dependabot rebase", TestContext.Current.CancellationToken)).Should().BeTrue();
+
+        var request = handler.Requests.Should().ContainSingle().Subject;
+        request.Method.Should().Be(HttpMethod.Post);
+        request.Path.Should().Be("/repos/example/shop/issues/7/comments");
+        System.Text.Json.JsonDocument.Parse(request.Body).RootElement.GetProperty("body").GetString().Should().Be("@dependabot rebase");
+    }
+
+    [Theory]
+    [InlineData("not a repository", 7, "@dependabot rebase")]
+    [InlineData("example/shop", 0, "@dependabot rebase")]
+    [InlineData("example/shop", 7, "")]
+    [InlineData("example/shop", 7, "@dependabot rebase\nand merge everything")]
+    public async Task A_request_to_rebase_that_is_not_well_formed_sends_nothing(string repository, int number, string command)
+    {
+        var handler = new Recorder(HttpStatusCode.Created, "{}");
+
+        (await Acts(handler).RequestBotRebaseAsync(repository, number, command, TestContext.Current.CancellationToken)).Should().BeFalse();
+
+        handler.Requests.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_request_to_rebase_that_is_too_long_or_that_the_forge_refuses_says_so()
+    {
+        (await Acts(new Recorder(HttpStatusCode.Created, "{}")).RequestBotRebaseAsync("example/shop", 7, new string('a', 101), TestContext.Current.CancellationToken)).Should().BeFalse();
+        (await Acts(new Recorder(HttpStatusCode.Forbidden, "{}")).RequestBotRebaseAsync("example/shop", 7, "@dependabot rebase", TestContext.Current.CancellationToken)).Should().BeFalse();
+    }
+
     [Fact]
     public async Task A_merge_is_a_squash_on_the_head_that_was_authorised_and_gives_the_commit_it_made()
     {

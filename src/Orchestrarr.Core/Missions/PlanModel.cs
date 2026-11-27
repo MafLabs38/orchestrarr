@@ -36,8 +36,8 @@ public sealed record PlanEntry(
     ProblemBrief? Brief = null,
     LeadPlan? Plan = null);
 
-/// <summary>What the control plane keeps about one problem while it is worked on: its plan entry, the certificate of the approval, the priority of the flow (<see cref="FlowPriority"/>: it changes while the problem runs, so it is not part of the entry that the approval covers), the highest world its powers reached when it started (a display: the power is read again at each crossing), and whether its application has a staging.</summary>
-public sealed record ProblemRun(string ProblemId, string ApplicationId, ProblemState State, DateTimeOffset StartedAt, PlanEntry Entry, World HighestAllowed, bool UsesStaging, SignedApproval Approval, World? CurrentWorld = null, string? Note = null, int Priority = FlowPriority.Normal);
+/// <summary>What the control plane keeps about one problem while it is worked on: its plan entry, the certificate of the approval, the priority of the flow (<see cref="FlowPriority"/>: it changes while the problem runs, so it is not part of the entry that the approval covers), the highest world its powers reached when it started (a display: the power is read again at each crossing), whether its application has a staging, and how many times a merge of it turned the integration branch red and it was fixed forward (ADR 0055).</summary>
+public sealed record ProblemRun(string ProblemId, string ApplicationId, ProblemState State, DateTimeOffset StartedAt, PlanEntry Entry, World HighestAllowed, bool UsesStaging, SignedApproval Approval, World? CurrentWorld = null, string? Note = null, int Priority = FlowPriority.Normal, int FixesForward = 0);
 
 /// <summary>The four stores of the missions, together: the missions, the mandates, the problems and the dossiers.</summary>
 public sealed record MissionStores(IMissionStore Missions, IMandateLedger Mandates, IProblemStore Problems, IDossierStore Dossiers, IMissionUnit Unit);
@@ -148,7 +148,7 @@ public interface IDossierStore
 public sealed record ObservedFacts(
     bool BudgetAvailable, bool? DiffIsClean, bool? CiGreenOnExactCommit, bool? ArtifactIsTheOneProvedInStaging, bool? WayBackKnown, bool WorkerClaimMatchesFacts,
     bool? MergeMayDeploy = null, bool? ExecutedFilesTouched = null, bool? TagCreationBlocked = null, bool? BranchCannotReachWriteCredentials = null, string? HeadCommit = null, bool? IdentityConfinedToItsBranches = null, IReadOnlyList<string>? ChangedPaths = null, string? Repository = null, string? BaseCommit = null,
-    string? Health = null, string? ChangeReading = null);
+    string? Health = null, string? ChangeReading = null, bool? Merged = null, bool? BaseWasRedBeforeMerge = null);
 
 /// <summary>
 /// The source of the facts. It says only what it observed: the plan, the stop, the loop and the staging are the conductor's own. **The commit it is given is the worker's claim, not the commit to look at**: the source reads

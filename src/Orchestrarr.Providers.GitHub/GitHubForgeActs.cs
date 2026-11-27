@@ -59,7 +59,7 @@ public sealed partial class GitHubForgeActs : IForgeActs
                 return new MergeResult(true, commit, null);
             }
             var message = body?.RootElement.TryGetProperty("message", out var text) == true ? text.GetString() : null;
-            return new MergeResult(false, null, $"{(int)response.StatusCode}: {message ?? "the forge refused the merge"}");
+            return new MergeResult(false, null, $"{(int)response.StatusCode}: {message ?? "the forge refused the merge"}", ChecksNotOverYet(message));
         }
         catch (Exception failure) when (failure is HttpRequestException or TaskCanceledException or JsonException)
         {
@@ -206,6 +206,24 @@ public sealed partial class GitHubForgeActs : IForgeActs
         }
     }
 
+    // The command is one of the bot's own (a short line, no mention of anyone else): the comment is the only thing written
+    public async Task<bool> RequestBotRebaseAsync(string repositoryFullName, int number, string command, CancellationToken cancellationToken)
+    {
+        if (!RepositoryName().IsMatch(repositoryFullName) || number < 1 || string.IsNullOrWhiteSpace(command) || command.Length > 100 || command.Contains('\n', StringComparison.Ordinal))
+        {
+            return false;
+        }
+        try
+        {
+            using var commented = await SendAsync(HttpMethod.Post, $"repos/{repositoryFullName}/issues/{number}/comments", new { body = command }, cancellationToken);
+            return commented.Ok;
+        }
+        catch (Exception failure) when (failure is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            return false;
+        }
+    }
+
     private const int OpenAttempts = 3;
 
     private sealed record Answer(bool Ok, int Status, JsonDocument? Body) : IDisposable
@@ -240,4 +258,9 @@ public sealed partial class GitHubForgeActs : IForgeActs
             return null;
         }
     }
+
+    // What GitHub says when a check that the rules of the branch require has not reported yet: "Required status check \"build\" is queued" (or in progress, or expected, or pending)
+    internal static bool ChecksNotOverYet(string? message) =>
+        message is not null && message.Contains("Required status check", StringComparison.OrdinalIgnoreCase)
+        && (message.Contains("is queued", StringComparison.OrdinalIgnoreCase) || message.Contains("is in progress", StringComparison.OrdinalIgnoreCase) || message.Contains("is expected", StringComparison.OrdinalIgnoreCase) || message.Contains("is pending", StringComparison.OrdinalIgnoreCase));
 }

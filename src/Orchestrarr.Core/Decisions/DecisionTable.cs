@@ -144,7 +144,8 @@ public sealed record ProblemRow(
     string? Source = null,
     IReadOnlyList<CodeLocation>? Locations = null,
     IReadOnlyList<RepositoryProblem>? Warnings = null,
-    string? ParsedChange = null);
+    string? ParsedChange = null,
+    ProblemNature Nature = ProblemNature.Other);
 
 /// <summary>
 /// What a connected runner accepts, as it reported it. The table never promises more than they would run: with none connected, nothing can be run, and every row says so. <c>FreeAgent</c>: it has a free agent for a problem that has
@@ -179,6 +180,7 @@ public static class DecisionTable
                 AddOtherProblems(rows, item, policy, infrastructure, dormant: true);
                 NameApplication(rows, before, item, applicationNames ?? []);
                 Warn(rows, before, infrastructure);
+                NameNature(rows, before);
                 continue;
             }
             AddDependencyUpdates(rows, item, applications, runners, results ?? [], policy);
@@ -189,6 +191,7 @@ public static class DecisionTable
             }
             NameApplication(rows, before, item, applicationNames ?? []);
             Warn(rows, before, infrastructure);
+            NameNature(rows, before);
         }
         return rows;
     }
@@ -205,6 +208,18 @@ public static class DecisionTable
         }
         var days = (int)(at - lastPush).TotalDays;
         return days > policy.DormantAfterDays ? days : null;
+    }
+
+    // A row that is not a bot's pull request is what its kind says it is
+    private static void NameNature(List<ProblemRow> rows, int from)
+    {
+        for (var index = from; index < rows.Count; index++)
+        {
+            if (rows[index].Nature == ProblemNature.Other)
+            {
+                rows[index] = rows[index] with { Nature = ProblemNatures.OfRow(rows[index]) };
+            }
+        }
     }
 
     // What the bell says about a repository that cannot be read is also said on the rows it concerns: the rows about that very repository, and the rows that stopped
@@ -280,7 +295,7 @@ public static class DecisionTable
             var description = parsedChange ?? pullRequest.Title;
             rows.Add(new ProblemRow(
                 $"{PullRequestRowPrefix}{item.RepositoryFullName}#{pullRequest.Number}", item.Id, item.RepositoryFullName, ProblemKind.DependencyUpdate, description,
-                null, null, change?.Kind ?? UpdateKind.Unknown, pullRequest.Checks, pullRequest.Url, pullRequest.Number, pullRequest.HeadSha, ceiling, why, canStop, VerdictOf(mine), ParsedChange: parsedChange));
+                null, null, change?.Kind ?? UpdateKind.Unknown, pullRequest.Checks, pullRequest.Url, pullRequest.Number, pullRequest.HeadSha, ceiling, why, canStop, VerdictOf(mine), ParsedChange: parsedChange, Nature: ProblemNatures.OfPullRequest(pullRequest)));
         }
     }
 
@@ -413,9 +428,9 @@ public static class DecisionTable
             : (Ceiling.MergeIntoDevelop, CeilingReason.UpdateClassStopsBeforeProduction, false);
     }
 
-    // The problems that have no pull request and that a worker agent solves in staging (ADR 0048, ADR 0051): a dependency alert, an image that has a newer version, an image run under a tag that moves. An image that the platform or
+    // The problems that have no pull request and that a worker agent solves in staging (ADR 0048, ADR 0051, ADR 0055): a dependency alert, an image that has a newer version, an image run under a tag that moves, a pipeline that is red on the main branch. An image that the platform or
     // an automation keeps, that is not written in the code that was read, or that differs from what runs, stays without action, with its own reason: only the reasons below leave a row that an agent can work on.
-    private static readonly ProblemKind[] SolvedInStaging = [ProblemKind.DependencyAlert, ProblemKind.ImageUpdate, ProblemKind.FloatingImage];
+    private static readonly ProblemKind[] SolvedInStaging = [ProblemKind.DependencyAlert, ProblemKind.ImageUpdate, ProblemKind.FloatingImage, ProblemKind.FailingCi];
 
     private static readonly CeilingReason[] LeavesAnAgentWork = [CeilingReason.NoActionDefined, CeilingReason.MajorNeedsPlan];
 
@@ -431,7 +446,7 @@ public static class DecisionTable
             }
             // An image is solved where it is written: in the repository of the problem, in code that was read, and not on a line that an automation rewrites. No place read in this repository (no code perimeter, a place
             // in another repository, a reference that is not one) is no problem that an agent can work on
-            if (rows[index].Kind != ProblemKind.DependencyAlert && !WrittenHere(rows[index], item.RepositoryFullName))
+            if (rows[index].Kind is ProblemKind.ImageUpdate or ProblemKind.FloatingImage && !WrittenHere(rows[index], item.RepositoryFullName))
             {
                 continue;
             }

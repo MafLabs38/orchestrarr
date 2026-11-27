@@ -19,6 +19,26 @@ public sealed class DecisionTableTests
         new(number, $"Bump a from 1.0.0 to 2.0.{number}", new Uri($"https://github.com/example/shop/pull/{number}"), "dependabot[bot]", "dependabot/npm", draft, checks, merge, [],
             [new DependencyChange("lodash", "1.0.0", "1.1.0", kind)], At, head.Length == 0 ? Head : head);
 
+    [Fact]
+    public void A_row_says_what_it_really_is_whatever_its_kind()
+    {
+        var item = Item([Pull(1) with { HeadBranch = "dependabot/github_actions/actions/checkout-7" }, Pull(2)], [new Finding(FindingKind.OpenDependencyPullRequests, Severity.Info, 2), new Finding(FindingKind.FailingCi, Severity.Warning, 1)]);
+
+        var rows = Table(item);
+
+        rows.Single(row => row.PullRequest == 1).Nature.Should().Be(ProblemNature.PipelineToolUpdate);
+        rows.Single(row => row.PullRequest == 2).Nature.Should().Be(ProblemNature.LibraryUpdate);
+        rows.Single(row => row.Kind == ProblemKind.FailingCi).Nature.Should().Be(ProblemNature.FailingPipeline);
+    }
+
+    [Fact]
+    public void A_pull_request_that_changes_the_pipeline_is_offered_like_any_other_maintenance()
+    {
+        var rows = Table(Item([Pull(1) with { HeadBranch = "dependabot/github_actions/actions/checkout-7" }], [new Finding(FindingKind.OpenDependencyPullRequests, Severity.Info, 1)]));
+
+        rows.Single(row => row.PullRequest == 1).GoesUpTo.Should().NotBe(Ceiling.NoAction, "changing a pipeline is maintenance (ADR 0055)");
+    }
+
     private static PlanStep Step(StepKind kind, bool available = true, bool granted = true) => new(kind, null, null, true, available, granted, null);
 
     private static WorkItem Item(IReadOnlyList<PullRequestInfo>? pulls = null, IReadOnlyList<Finding>? findings = null, PullRequestsRead? read = null, bool grantMerge = true, bool grantValidate = true, string id = Id, bool grantRepair = true) =>
@@ -462,10 +482,20 @@ public sealed class DecisionTableTests
 
         rows.Select(row => row.Kind).Should().Equal(ProblemKind.DependencyAlert, ProblemKind.CodeScanningAlert, ProblemKind.ExposedSecret, ProblemKind.FailingCi, ProblemKind.ImageUpdate, ProblemKind.DependencyScanUnavailable);
         rows.Should().OnlyContain(row => row.PullRequest == null);
-        rows.Where(row => row.Kind is not (ProblemKind.DependencyAlert or ProblemKind.ImageUpdate or ProblemKind.FloatingImage)).Should().OnlyContain(row => row.GoesUpTo == Ceiling.NoAction && row.Why == CeilingReason.NoActionDefined && !row.CanStopBeforeProduction);
+        rows.Where(row => row.Kind is not (ProblemKind.DependencyAlert or ProblemKind.ImageUpdate or ProblemKind.FloatingImage or ProblemKind.FailingCi)).Should().OnlyContain(row => row.GoesUpTo == Ceiling.NoAction && row.Why == CeilingReason.NoActionDefined && !row.CanStopBeforeProduction);
         rows.Single(row => row.Kind == ProblemKind.DependencyAlert).Should().Match<ProblemRow>(row => row.Count == 2 && row.Severity == Severity.Danger);
         rows.Single(row => row.Kind == ProblemKind.ImageUpdate).Description.Should().Be("ghcr.io/example/app:1 → 2");
         rows.Select(row => row.Id).Should().OnlyHaveUniqueItems();
+    }
+
+    [Fact]
+    public void A_red_pipeline_is_a_row_that_can_be_chosen_and_goes_as_far_as_the_chain_of_its_application_goes()
+    {
+        var row = Table(Item(pulls: [], findings: [new Finding(FindingKind.FailingCi, Severity.Warning, 1)], read: PullRequestsRead.NotNeeded), Described(promote: "\"patch\", \"minor\", \"major\""), [Everything]).Single();
+
+        row.Kind.Should().Be(ProblemKind.FailingCi);
+        row.GoesUpTo.Should().NotBe(Ceiling.NoAction, "a free agent repairs a red pipeline in staging (ADR 0055)");
+        row.Nature.Should().Be(ProblemNature.FailingPipeline);
     }
 
     private static IReadOnlyList<Finding> Alerts => [new Finding(FindingKind.DependencyAlerts, Severity.Danger, 2, new AlertCounts(1, 1, 0, 0))];

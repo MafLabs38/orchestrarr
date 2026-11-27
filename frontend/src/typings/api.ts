@@ -266,12 +266,25 @@ export type ProblemKind =
   | 'dormantRepository'
   | 'pullRequestsNotRead';
 
+// What a row really is, in the words of a person: the kind says how it was found, the nature says what it concerns
+export type ProblemNature =
+  | 'other'
+  | 'libraryUpdate'
+  | 'librariesUpdate'
+  | 'pipelineToolUpdate'
+  | 'baseImageUpdate'
+  | 'securityAlert'
+  | 'imageBehind'
+  | 'floatingImage'
+  | 'failingPipeline';
+
 // One problem, one row. A dependency update carries its pull request and the commit that was read; an alert has a severity and no action yet.
 export interface ProblemRow {
   id: string;
   workItemId: string;
   application: string;
   kind: ProblemKind;
+  nature: ProblemNature;
   description: string;
   severity: Severity | null;
   count: number | null;
@@ -363,7 +376,7 @@ export interface FlowStep {
 }
 
 export interface FlowWaiting {
-  code: 'turn' | 'machine' | 'busy' | 'runner' | 'pickup';
+  code: 'turn' | 'machine' | 'busy' | 'bot' | 'runner' | 'pickup';
   subject: string | null;
 }
 

@@ -52,6 +52,13 @@ public sealed partial class ProblemConductor
         {
             failures.Add(PreconditionFailure.ReleaseCommitIsNotTheAcceptedOne);
         }
+        // A merge that turned the integration branch red: read in the Git world, and at the crossing out of it (the only crossing into the release world that is issued). A branch that was red before the merge was not turned
+        // red by it: the red pipeline stays what it is, and no fix forward is made for a fault that is not the change's. A base that was not read green is not blamed on the merge either: a fix forward starts an agent, and an
+        // unknown fact never leads to an act (a person decides)
+        if (observed.Merged == true && observed.CiGreenOnExactCommit == false && (check.InWorld == World.Git || (check.Issuing && check.InWorld == World.Release)))
+        {
+            failures.Add(observed.BaseWasRedBeforeMerge == false ? PreconditionFailure.IntegrationBranchRedAfterMerge : PreconditionFailure.IntegrationBranchRedBeforeMerge);
+        }
         return failures;
     }
 

@@ -16,6 +16,18 @@ public sealed class LeadAgentTests
 
     private static ControllerAgent Agent(string reply = "", bool ok = true, string? failure = null) => new(new FakeGateway(reply, ok, failure), "m", TimeSpan.FromMinutes(1));
 
+    // Answers each question in turn with the next reply, and keeps what it was asked
+    private sealed class Sequence(params string[] replies) : IAgentGateway
+    {
+        public List<AgentRequest> Asked { get; } = [];
+
+        public Task<AgentReply> RunAsync(AgentRequest request, CancellationToken cancellationToken)
+        {
+            Asked.Add(request);
+            return Task.FromResult(new AgentReply(true, replies[Math.Min(Asked.Count - 1, replies.Length - 1)], null));
+        }
+    }
+
     private const string Good = """
         {"steps":[{"world":"staging","instruction":"Build and run the tests."},{"world":"git","instruction":"Merge."},{"world":"release","instruction":null}],"complex":false,"complex_reason":null,"reasons":["a patch bump with passing checks"]}
         """;
@@ -45,6 +57,9 @@ public sealed class LeadAgentTests
         var data = plan.UserPrompt.IndexOf("<<<DATA B3", StringComparison.Ordinal);
         plan.UserPrompt.IndexOf("fixed in 4.17.21", StringComparison.Ordinal).Should().BeGreaterThan(data);
         plan.SystemPrompt.Should().Contain("the facts the worker needs").And.Contain("say what must be true at the end, not the commands");
+        plan.SystemPrompt.Should().Contain("make every pipeline of the repository pass").And.Contain("never retried until it passes", "a red pipeline is repaired as a developer does, a flaky test made deterministic")
+            .And.Contain("never the fix of a finding").And.Contain("never plan a rewrite of the application in another language")
+            .And.Contain("a check or a smoke test is never weakened to pass");
     }
 
     [Fact]
@@ -70,6 +85,27 @@ public sealed class LeadAgentTests
 
         outcome.Plan.Should().BeNull();
         outcome.Failure.Should().NotBeNullOrEmpty();
+    }
+
+    [Fact]
+    public async Task A_lead_that_answers_with_no_step_is_asked_once_more_and_a_plan_that_comes_back_is_taken()
+    {
+        var gateway = new Sequence("{\"steps\":[],\"reasons\":[\"nothing\"]}", Good);
+
+        var outcome = await new ControllerAgent(gateway, "m", TimeSpan.FromMinutes(1)).PlanAsync(Input(), Ct);
+
+        outcome.Plan.Should().NotBeNull();
+        gateway.Asked.Should().HaveCount(2);
+        gateway.Asked[1].UserPrompt.Should().Contain("had no step");
+    }
+
+    [Fact]
+    public async Task A_lead_that_answers_twice_with_no_step_gives_no_plan()
+    {
+        var gateway = new Sequence("{\"steps\":[],\"reasons\":[\"nothing\"]}");
+
+        (await new ControllerAgent(gateway, "m", TimeSpan.FromMinutes(1)).PlanAsync(Input(), Ct)).Failure.Should().Be("the plan has no step");
+        gateway.Asked.Should().HaveCount(2, "asked once more, never more");
     }
 
     [Fact]
@@ -105,7 +141,9 @@ public sealed class LeadAgentTests
         var request = Agent().Build(input, boundary: "B4");
 
         request.UserPrompt.IndexOf("no fixed version exists", StringComparison.Ordinal).Should().BeGreaterThan(request.UserPrompt.IndexOf("<<<DATA B4", StringComparison.Ordinal));
-        request.SystemPrompt.Should().Contain("a count (the alerts the source counts) that is larger than the findings").And.Contain("the dependency as it is").And.Contain("escalate to the maintainer");
+        request.SystemPrompt.Should().Contain("a count (the alerts the source counts) that is larger than the findings").And.Contain("the dependency as it is").And.Contain("escalate to the maintainer")
+            .And.Contain("accepting a risk is the maintainer's decision", "a note or a mitigation that leaves the flaw is not a fix")
+            .And.Contain("out of proportion with the problem", "a rewrite in another language is a decision of the maintainer, not maintenance");
     }
 
     [Fact]

@@ -65,7 +65,66 @@ internal static class MissionActEndpoints
                 }
             }
             live.Publish(LiveTopics.Missions, id);
-            return Results.Ok(new MissionActResponse(merged.Merged, merged.Merged ? null : merged.Error, [], Retry: false, merged.Commit));
+            // A forge that refuses because a check it requires has not reported yet (the pipeline of the pull request was only just queued) is a wait, not a refusal: the runner asks again
+            return Results.Ok(new MissionActResponse(merged.Merged, merged.Merged ? null : merged.Error, [], Retry: !merged.Merged && merged.ChecksPending, merged.Commit));
+        });
+
+        // The credential with which a free agent pushes its own branch (ADR 0048, ADR 0057): made by the control plane for this mission only, for its one repository and for an hour at most, after the conductor authorised the act
+        // with the power read now; it may change the pipeline files only when the operation is about them and the approved frame leaves them open. The runner asks again before it expires: the stop, a withdrawn approval or
+        // an expired mandate then refuse, and the agent can no longer push. The token goes to the runner and nowhere else: not to the audit trail, the progress or the logs
+        group.MapPost("/missions/{id}/acts/push-credential", async (string id, HttpContext context, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, ProblemConductor conductor, IPushCredentials? credentials,
+            PushCredentialLedger? ledger, MissionProgress progress, ILiveNotifier live, CancellationToken ct) =>
+        {
+            if (!Gate(id, runnerName(context), missions, mandates, problems, out var entry) || missions.Get(id) is not { World: World.Staging } mission || entry.PullRequest is not null)
+            {
+                return Results.NotFound();
+            }
+            var repository = entry.Repositories[0];
+            var authorisation = await conductor.AuthoriseActAsync(id, GatedAct.PushBranch, null, ct, repository);
+            if (!authorisation.Allowed)
+            {
+                // What was given before is taken back on the forge, not only on the machine
+                if (ledger is not null)
+                {
+                    _ = await ledger.RevokeAsync(id, $"the control plane refused to renew it ({Describe(authorisation)})", ct);
+                }
+                progress.Add(id, $"no push credential: {Describe(authorisation)}");
+                live.Publish(LiveTopics.Missions, id);
+                return Results.Ok(new PushCredentialResponse(false, authorisation.Refusal ?? Describe(authorisation), null, null, []));
+            }
+            var grant = PushGrants.For(entry, mission.Frame);
+            if (credentials is null || await credentials.IssueAsync(repository, grant.Pipelines, ct) is not { } issued)
+            {
+                return Results.Ok(new PushCredentialResponse(false, "the forge made no push credential now (Missions:SandboxAgentApp, or the forge did not answer)", null, null, [], Retry: credentials is not null));
+            }
+            var said = $"push credential for {repository} ({string.Join(", ", issued.Permissions)}) until {issued.ExpiresAt:u}: {grant.Justification}";
+            // Kept before anything else can fail, so that whatever happens next it is revoked on the forge (and tried again if the forge does not confirm)
+            ledger?.Issued(id, issued.Token, issued.ExpiresAt);
+            if (!await conductor.RecordActPerformedAsync(id, GatedAct.PushBranch, said, ct))
+            {
+                // A credential whose making cannot be written down is not handed out, and is revoked at once
+                _ = ledger is null ? await credentials.RevokeAsync(issued.Token, ct) : await ledger.RevokeAsync(id, "the audit trail cannot be written", ct) > 0;
+                return Results.Ok(new PushCredentialResponse(false, "the audit trail cannot be written: no power is granted", null, null, []));
+            }
+            progress.Add(id, said);
+            live.Publish(LiveTopics.Missions, id);
+            return Results.Ok(new PushCredentialResponse(true, null, issued.Token, issued.ExpiresAt, issued.Permissions));
+        });
+
+        // The runner placed a renewed credential (`keepLatest`): the earlier ones are revoked; or the agent is done: every one made for it is revoked on the forge at once (the driver's pass revokes them too once the mission no
+        // longer runs)
+        group.MapPost("/missions/{id}/acts/push-credential/release", async (string id, bool? keepLatest, HttpContext context, IMissionStore missions, IMandateLedger mandates, PushCredentialLedger? ledger, CancellationToken ct) =>
+        {
+            if (!MissionRunnerEndpoints.Owns(id, runnerName(context), missions, mandates))
+            {
+                return Results.NotFound();
+            }
+            if (ledger is null)
+            {
+                return Results.Ok(new { revoked = 0 });
+            }
+            var revoked = keepLatest == true ? await ledger.RevokeEarlierAsync(id, ct) : await ledger.RevokeAsync(id, "the agent is done", ct);
+            return Results.Ok(new { revoked });
         });
 
         // The pull request that carries the repair of a staging runner: the gateway makes the branch and the commit itself from the files that it checked, so that the runner never holds a credential that writes to a repository
@@ -114,7 +173,7 @@ internal static class MissionActEndpoints
                     return Results.Ok(new MissionPullRequestResponse(false, 0, null, "the branch is no longer at the commit that was audited: the problem goes back to staging"));
                 }
             }
-            else if (RepairPolicy.Refusal(repair.Files, missions.Get(id)!.Frame.ForbiddenPaths) is { } forbidden)
+            else if (RepairPolicy.Refusal(repair.Files, missions.Get(id)!.Frame.ForbiddenPaths, await RepairBase.ReadAsync(branches, repository, repair.OriginalHead, repair.Files, ct)) is { } forbidden)
             {
                 return Results.Ok(new MissionPullRequestResponse(false, 0, null, forbidden));
             }
@@ -215,8 +274,9 @@ internal static class MissionActEndpoints
     }
 
     // Only a pipeline that is not over yet is worth asking again about: a red one, or any other check that failed, is final
+    // A pull request that was just opened has the checks of its push and none yet of the pull request: the forge reads green while the result that counts is not known. Only a red pipeline is a reason not to wait (ADR 0055)
     private static bool WaitingForPipeline(ActAuthorisation authorisation, ChecksState checks) =>
-        checks is ChecksState.Pending or ChecksState.Unknown or ChecksState.NotRun && authorisation.Failures.Count > 0
+        checks is not ChecksState.Failing && authorisation.Failures.Count > 0
         && authorisation.Failures.All(failure => failure is PreconditionFailure.CiNotGreenOnExactCommit or PreconditionFailure.CiResultNotKnown);
 
     private static string Describe(ActAuthorisation authorisation) =>

@@ -28,4 +28,7 @@ public enum GatedAct
     ReserveStaging = 4,
     RestoreStaging = 5,
     ReleaseStaging = 6,
+
+    /// <summary>A free agent pushes a branch of its own with a credential that the control plane makes for the mission (ADR 0057): the staging world of a problem that has no pull request.</summary>
+    PushBranch = 7,
 }

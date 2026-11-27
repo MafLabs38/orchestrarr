@@ -149,3 +149,14 @@
   width: 1%;
   max-width: 170px;
 }
+
+/* What the row really is: its name and a few words, on one line; the full explanation is in the bubble */
+.nature {
+  white-space: nowrap;
+}
+
+.explained {
+  margin-left: 6px;
+  font-size: var(--fontSizeMeta);
+  color: var(--inkMuted);
+}

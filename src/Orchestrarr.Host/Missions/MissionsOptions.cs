@@ -18,6 +18,18 @@ public sealed class MissionsOptions
     /// <summary>The lab machines (ADR 0047): each has a state kept by the control plane, a role, and the one runner that may take it. With none, no mission is tied to a machine.</summary>
     public MachineSetting[] Machines { get; set; } = [];
 
+    /// <summary>A machine that went Down for a reason that a restore repairs (not a failed isolation: see <see cref="MachineRequalifyNever"/>) is qualified again by itself after this many minutes, never while the global stop is engaged (ADR 0055).</summary>
+    public int MachineRequalifyMinutes { get; set; } = 5;
+
+    /// <summary>At most this many automatic qualifications of one machine an hour; then it stays Down for a person. 0: never by itself.</summary>
+    public int MachineRequalifyPerHour { get; set; } = 3;
+
+    /// <summary>The checks of a qualification whose failure keeps a machine Down for a person, never qualified again by itself: an isolation that does not hold may mean that something ran on it that must be looked at before it is restored.</summary>
+    public string[] MachineRequalifyNever { get; set; } = [];
+
+    // An array that the configuration sets is merged index by index into a default it holds, so the defaults live apart: what is set replaces them whole
+    internal IReadOnlyList<string> RequalifyNeverInEffect => MachineRequalifyNever.Length > 0 ? MachineRequalifyNever : ["isolation"];
+
     /// <summary>How long a lease lives without a sign of life of its runner. Generous: a long troubleshooting is normal; only a runner that has disappeared must not keep a machine for ever.</summary>
     public int MachineLeaseMinutes { get; set; } = (int)MachineOptions.Default.LeaseTimeout.TotalMinutes;
 
@@ -28,6 +40,9 @@ public sealed class MissionsOptions
     public int MaxMandatesPerProblem { get; set; } = LoopPolicy.Default.MaxMandatesPerProblem;
 
     public int MaxHoursPerProblem { get; set; } = (int)LoopPolicy.Default.MaxTimePerProblem.TotalHours;
+
+    /// <summary>How many times a problem whose merge turned the integration branch red is fixed forward before a person decides (ADR 0055): the block above the controller's judgement of each one.</summary>
+    public int MaxFixesForwardPerProblem { get; set; } = LoopPolicy.Default.MaxFixesForwardPerProblem;
 
     /// <summary>Where the private key that signs the mandates is kept. Unset: next to the database when there is one, else a key that lives as long as the host.</summary>
     public string? SigningKeyFile { get; set; }
@@ -55,6 +70,15 @@ public sealed class MissionsOptions
 
     public string[] SandboxMergeRepositories { get; set; } = [];
 
+    /// <summary>
+    /// With <see cref="Sandbox"/>: the GitHub App with which the control plane makes the push credential of a free agent (ADR 0057): its client id and a file that holds its private key (PEM). The App is installed on the repositories
+    /// of the test bed with <c>Contents: write</c> and <c>Workflows: write</c>; each credential is for one repository of <see cref="SandboxMergeRepositories"/>, an hour at most, and carries <c>workflows</c> only when the operation and its
+    /// approved frame justify it. Without both, a free agent cannot push and its problem is refused by the runner.
+    /// </summary>
+    public string? SandboxAgentAppClientId { get; set; }
+
+    public string? SandboxAgentAppKeyFile { get; set; }
+
     /// <summary>The first port of the deployed applications. It must be the same value as <c>MissionRunner:DeployPortBase</c>, or the control plane probes another port than the one deployed to.</summary>
     public int SandboxDeployPortBase { get; set; } = DeploymentPort.DefaultBase;
 
@@ -64,7 +88,37 @@ public sealed class MissionsOptions
     /// </summary>
     public string? SandboxFindingsFile { get; set; }
 
-    /// <summary>The paths no mission may touch, whatever its repository (pipelines, secrets). Unset: the pipelines of the forge, the encrypted files and the environment files.</summary>
+    /// <summary>
+    /// The accounts whose pull requests a bot makes and rebases by itself (ADR 0055): only for those is the bot asked to rebase a pull request that is behind or in conflict, and only those are followed when the bot made the pull
+    /// request again. Anyone else's pull request that moved is left to be ticked again. A deployment names its bots; the test bed adds the account of the lab, which plays one.
+    /// </summary>
+    public string[] BotAuthors { get; set; } = [];
+
+    /// <summary>The accounts that are bots: <see cref="BotAuthors"/> when it is set (it replaces the default whole), else <c>dependabot[bot]</c> and <c>renovate[bot]</c>.</summary>
+    internal IReadOnlyList<string> BotAuthorsInEffect => BotAuthors.Length > 0 ? BotAuthors : ["dependabot[bot]", "renovate[bot]"];
+
+    /// <summary>How long a problem waits for its bot to rebase its pull request before it is put aside (ADR 0055).</summary>
+    public int BotRebaseWaitMinutes { get; set; } = 30;
+
+    /// <summary>How many times the bot is asked to rebase one pull request in one wait.</summary>
+    public int BotRebaseRequests { get; set; } = 2;
+
+    /// <summary>How many times, in all, the bot of one pull request is asked to rebase it (each wait after another operation of its lot moved the base may ask again, never past this).</summary>
+    public int BotRebaseRequestsInAll { get; set; } = 4;
+
+    /// <summary>
+    /// The command that asks each bot to rebase its pull request, by the account that made the pull request (ADR 0055): written as a comment on the pull request. A bot that has none here (Renovate rebases from a box of its
+    /// pull request, not a comment) is not waited for: its pull request is put aside at once with the reason.
+    /// </summary>
+    public Dictionary<string, string> BotRebaseCommands { get; set; } = new(StringComparer.OrdinalIgnoreCase) { ["dependabot[bot]"] = "@dependabot rebase" };
+
+    /// <summary>The forge works out the merge state of a pull request when it is asked, after a merge moved the base: an unknown state is read again, up to three times, after this many seconds.</summary>
+    public int BotRebaseUnknownWaitSeconds { get; set; } = 3;
+
+    /// <summary>How often the forge is read again for a problem that waits for its bot to rebase its pull request.</summary>
+    public int BotRebaseRecheckSeconds { get; set; } = 30;
+
+    /// <summary>The paths no mission may touch, whatever its repository, beyond the floor (the review owners, the dependency bot's configuration, the encrypted and environment files). Unset: the floor alone. The pipelines are forbidden by the frame of each operation that is not about them (ADR 0055).</summary>
     public string[]? ForbiddenPaths { get; set; }
 
     /// <summary>The public key of the approval authority (ADR 0031 point 7), a file in SubjectPublicKeyInfo form. Unset: no certificate is ever valid, so no real mandate is issued.</summary>
@@ -77,10 +131,27 @@ public sealed class MissionsOptions
         Positive(MaxSendBacksPerMission, nameof(MaxSendBacksPerMission));
         Positive(MaxMandatesPerProblem, nameof(MaxMandatesPerProblem));
         Positive(MaxHoursPerProblem, nameof(MaxHoursPerProblem));
+        Positive(MaxFixesForwardPerProblem, nameof(MaxFixesForwardPerProblem));
+        // The bounds of the bots' parking and of a machine's requalification are refused at start too, not read as something else at each use
+        Positive(BotRebaseWaitMinutes, nameof(BotRebaseWaitMinutes));
+        Positive(BotRebaseRequests, nameof(BotRebaseRequests));
+        Positive(BotRebaseRequestsInAll, nameof(BotRebaseRequestsInAll));
+        Positive(MachineRequalifyMinutes, nameof(MachineRequalifyMinutes));
+        NotNegative(BotRebaseUnknownWaitSeconds, nameof(BotRebaseUnknownWaitSeconds));
+        NotNegative(BotRebaseRecheckSeconds, nameof(BotRebaseRecheckSeconds));
+        NotNegative(MachineRequalifyPerHour, nameof(MachineRequalifyPerHour));
         return new ConductorOptions(
             TimeSpan.FromMinutes(MandateMinutes),
             ForbiddenPaths ?? [.. ConductorOptions.Default.ForbiddenPaths],
-            new LoopPolicy(MaxSendBacksPerMission, MaxMandatesPerProblem, TimeSpan.FromHours(MaxHoursPerProblem)));
+            new LoopPolicy(MaxSendBacksPerMission, MaxMandatesPerProblem, TimeSpan.FromHours(MaxHoursPerProblem), MaxFixesForwardPerProblem));
+    }
+
+    private static void NotNegative(int value, string name)
+    {
+        if (value < 0)
+        {
+            throw new InvalidOperationException($"{SectionName}:{name} must be zero or more, not {value}.");
+        }
     }
 
     private static void Positive(int value, string name)

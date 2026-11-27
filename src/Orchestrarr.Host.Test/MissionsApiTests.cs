@@ -63,7 +63,7 @@ public sealed class MissionsApiTests
         staging.GetProperty("mandate").GetProperty("source").GetString().Should().Be("PlanValidation");
         staging.GetProperty("dossier").GetProperty("complex").GetBoolean().Should().BeTrue();
         missions.EnumerateArray().Where(mission => mission.GetProperty("world").GetString() != "Staging").Should().OnlyContain(mission => mission.GetProperty("mandate").GetProperty("source").GetString() == "Controller");
-        staging.GetProperty("mandate").GetProperty("acts").EnumerateArray().Should().BeEmpty("the platform owns the staging slots, no act of a mandate reserves, restores or releases one (ADR 0041)");
+        staging.GetProperty("mandate").GetProperty("acts").EnumerateArray().Select(act => act.GetString()).Should().Equal(["PushBranch"], "the platform owns the staging slots, no act of a mandate reserves, restores or releases one (ADR 0041); the one act of the staging of a problem with no pull request is the push of the free agent's branch (ADR 0057)");
     }
 
     [Fact]

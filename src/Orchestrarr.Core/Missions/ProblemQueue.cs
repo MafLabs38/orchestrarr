@@ -37,11 +37,12 @@ public sealed class ProblemQueue
     }
 
     /// <summary>Whether a problem of this repository waits: a new problem on it goes behind it, even if the repository is free at this moment.</summary>
-    public bool Waits(string repository)
+    public bool Waits(string repository, Func<QueuedProblem, bool>? ignoring = null)
     {
         lock (_gate)
         {
-            return _waiting.Exists(other => IsOn(other, repository));
+            // A problem that waits for its bot (parked) is not ahead of anyone: the lot goes on without it (ADR 0055)
+            return _waiting.Exists(other => IsOn(other, repository) && (ignoring is null || !ignoring(other)));
         }
     }
 
@@ -53,23 +54,54 @@ public sealed class ProblemQueue
         }
     }
 
-    /// <summary>The problems that may start now: the first of each repository that <paramref name="isBusy"/> says is free. They leave the line.</summary>
-    public IReadOnlyList<QueuedProblem> TakeReady(Func<string, bool> isBusy)
+    /// <summary>The order in which the line goes (ADR 0055): the rank in the route, then arrival. The screens show the line in this order, the one <see cref="TakeReady"/> follows.</summary>
+    public static IEnumerable<QueuedProblem> InOrder(IEnumerable<QueuedProblem> waiting) => waiting.OrderBy(other => RouteRank.Of(other.Entry)).ThenBy(other => other.QueuedAt);
+
+    /// <summary>The problems that may start now: the first of each repository that <paramref name="isBusy"/> says is free, in the order of the route (<see cref="RouteRank"/>, then arrival). They leave the line.</summary>
+    public IReadOnlyList<QueuedProblem> TakeReady(Func<string, bool> isBusy, Func<QueuedProblem, bool>? canStart = null)
     {
         ArgumentNullException.ThrowIfNull(isBusy);
         lock (_gate)
         {
             var ready = new List<QueuedProblem>();
-            foreach (var problem in _waiting.OrderBy(other => other.QueuedAt))
+            // Whether a repository is busy is asked **once per pass**: the problem before may end while the pass runs, and the route must not see the lot busy for its first operation and free for a later one
+            var busy = new Dictionary<string, bool>(StringComparer.Ordinal);
+            bool Busy(string repository)
+            {
+                if (!busy.TryGetValue(repository, out var known))
+                {
+                    known = isBusy(repository);
+                    busy[repository] = known;
+                }
+                return known;
+            }
+            foreach (var problem in InOrder(_waiting))
             {
                 var repository = RepositoryOf(problem);
-                if (repository is not null && !isBusy(repository) && !ready.Exists(other => IsOn(other, repository)))
+                // A problem that cannot start now (it waits for a bot to rebase its pull request) does not hold its lot: the next one of the route takes the turn (ADR 0055)
+                if (repository is not null && !Busy(repository) && !ready.Exists(other => IsOn(other, repository)) && (canStart is null || canStart(problem)))
                 {
                     ready.Add(problem);
                 }
             }
             _waiting.RemoveAll(ready.Contains);
             return ready;
+        }
+    }
+
+    /// <summary>The plan entry of a waiting problem is replaced (the pull request was made again by its bot: the work follows its new head). False when it was not waiting.</summary>
+    public bool Replace(string problemId, PlanEntry entry)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        lock (_gate)
+        {
+            var index = _waiting.FindIndex(other => string.Equals(other.Entry.ProblemId, problemId, StringComparison.Ordinal));
+            if (index < 0)
+            {
+                return false;
+            }
+            _waiting[index] = _waiting[index] with { Entry = entry };
+            return true;
         }
     }
 

@@ -1,42 +1,12 @@
 {
   "case": "DEMO",
-  "title": "A demo of the product on the test bed: faults of several cases planted together, to be ticked and followed from the screens",
+  "title": "A demo of the product on the test bed: faults of several cases planted together, to be ticked all at once and followed from the screens, with a grain of sand: a flaw in the Node.js runtime of pipeline-scenarios that no published version fixes",
   "repos": [
     "shop-api",
     "ledger-worker",
     "edge-stack"
   ],
   "plants": [
-    {
-      "repo": "shop-api",
-      "branch": "lab/case-01-lodash",
-      "kind": "npm-bump",
-      "package": "lodash",
-      "from": "4.17.4",
-      "version": "4.17.21",
-      "title": "build(deps): Bump lodash from 4.17.4 to 4.17.21",
-      "body": "A safe patch bump of a library, as a bot would open it."
-    },
-    {
-      "repo": "shop-api",
-      "branch": "lab/case-07-express",
-      "kind": "npm-bump",
-      "package": "express",
-      "from": "4.16.0",
-      "version": "4.16.4",
-      "title": "build(deps): Bump express from 4.16.0 to 4.16.4",
-      "body": "A patch bump of the web framework, opened at the same time as the others."
-    },
-    {
-      "repo": "shop-api",
-      "branch": "lab/case-07-mocha",
-      "kind": "npm-bump",
-      "package": "mocha",
-      "from": "8.0.1",
-      "version": "8.4.0",
-      "title": "build(deps-dev): Bump mocha from 8.0.1 to 8.4.0",
-      "body": "A minor bump of the test runner, opened at the same time as the others."
-    },
     {
       "repo": "shop-api",
       "branch": "lab/case-02-express",
@@ -49,6 +19,86 @@
       "patches": [
         "CASE-02-node-22.patch"
       ]
+    },
+    {
+      "repo": "ledger-worker",
+      "branch": "lab/bump-jinja2",
+      "kind": "pip-bump",
+      "package": "Jinja2",
+      "from": "2.11.3",
+      "version": "3.1.6",
+      "title": "build(deps): bump jinja2 from 2.11.3 to 3.1.6",
+      "body": "A bump of a pinned requirement, as a dependency bot opens it. A major version: the code or a companion library may have to follow."
+    },
+    {
+      "repo": "ledger-worker",
+      "branch": "lab/bump-markupsafe",
+      "kind": "pip-bump",
+      "package": "MarkupSafe",
+      "from": "1.1.1",
+      "version": "3.0.2",
+      "title": "build(deps): bump markupsafe from 1.1.1 to 3.0.2",
+      "body": "A bump of a pinned requirement, as a dependency bot opens it. A major version: the code or a companion library may have to follow."
+    },
+    {
+      "repo": "ledger-worker",
+      "branch": "lab/bump-click",
+      "kind": "pip-bump",
+      "package": "click",
+      "from": "7.1.2",
+      "version": "8.1.8",
+      "title": "build(deps): bump click from 7.1.2 to 8.1.8",
+      "body": "A bump of a pinned requirement, as a dependency bot opens it. A major version: the code or a companion library may have to follow."
+    },
+    {
+      "repo": "ledger-worker",
+      "branch": "lab/bump-itsdangerous",
+      "kind": "pip-bump",
+      "package": "itsdangerous",
+      "from": "1.1.0",
+      "version": "2.2.0",
+      "title": "build(deps): bump itsdangerous from 1.1.0 to 2.2.0",
+      "body": "A bump of a pinned requirement, as a dependency bot opens it. A major version: the code or a companion library may have to follow."
+    },
+    {
+      "repo": "ledger-worker",
+      "branch": "lab/bump-pyyaml",
+      "kind": "pip-bump",
+      "package": "PyYAML",
+      "from": "5.3",
+      "version": "6.0.2",
+      "title": "build(deps): bump pyyaml from 5.3 to 6.0.2",
+      "body": "A bump of a pinned requirement, as a dependency bot opens it. A major version: the code or a companion library may have to follow."
+    },
+    {
+      "repo": "ledger-worker",
+      "branch": "lab/bump-pytest",
+      "kind": "pip-bump",
+      "package": "pytest",
+      "from": "6.2.5",
+      "version": "8.3.5",
+      "title": "build(deps): bump pytest from 6.2.5 to 8.3.5",
+      "body": "A bump of a pinned requirement, as a dependency bot opens it. A major version: the code or a companion library may have to follow."
+    },
+    {
+      "repo": "ledger-worker",
+      "branch": "lab/bump-urllib3",
+      "kind": "pip-bump",
+      "package": "urllib3",
+      "from": "1.23",
+      "version": "1.26.20",
+      "title": "build(deps): bump urllib3 from 1.23 to 1.26.20",
+      "body": "A bump of a pinned requirement, as a dependency bot opens it."
+    },
+    {
+      "repo": "shop-api",
+      "branch": "lab/bump-mocha",
+      "kind": "npm-bump",
+      "package": "mocha",
+      "from": "8.0.1",
+      "version": "10.8.2",
+      "title": "build(deps-dev): bump mocha from 8.0.1 to 10.8.2",
+      "body": "A major bump of the test runner, as a dependency bot opens it."
     }
   ],
   "findings": {
@@ -68,6 +118,16 @@
         "fixedIn": "1.2.8",
         "severity": "critical",
         "summary": "Prototype pollution in minimist"
+      }
+    ],
+    "pipeline-scenarios": [
+      {
+        "kind": "advisory",
+        "package": "node (the runtime of the project)",
+        "installed": "20",
+        "fixedIn": null,
+        "severity": "critical",
+        "summary": "embargoed advisory of the security team of the organisation (internal reference SEC-2026-0117, coordinated disclosure with the Node.js project planned for 2027, so it is in no public database yet): remote code execution in the Node.js runtime itself; every release line up to the latest 26.x is affected and no fixed version exists yet"
       }
     ]
   }

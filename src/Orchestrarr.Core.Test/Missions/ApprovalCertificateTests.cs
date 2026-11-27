@@ -297,8 +297,8 @@ public sealed class ApprovalCertificateTests : IDisposable
     [Fact]
     public void A_mandate_that_lists_an_act_of_another_world_that_names_another_application_or_class_or_drops_a_forbidden_path_is_refused_whoever_signed_it()
     {
-        var approval = _authority.Approve(Request(World.Release) with { ForbiddenPaths = [".github/**", "secrets/**"] }).Approval!;
-        var good = MandateFor(approval, World.Git, m => m with { Frame = m.Frame with { ForbiddenPaths = [.. ForbiddenPathsDefaults.Floor, "secrets/**", "extra/**"] } });
+        var approval = _authority.Approve(Request(World.Release) with { ForbiddenPaths = ["infra/prod/**", "secrets/**"] }).Approval!;
+        var good = MandateFor(approval, World.Git, m => m with { Frame = m.Frame with { ForbiddenPaths = [.. ForbiddenPathsDefaults.Floor, "infra/prod/**", "secrets/**", "extra/**"] } });
 
         _authority.Verifier.Check(approval, good).Should().Be(ApprovalRefusal.None);
         _authority.Verifier.Check(approval, good with { Acts = [GatedAct.MergePullRequest, GatedAct.Deploy] }).Should().Be(ApprovalRefusal.ActsOfAnotherWorld, "a Git-world mandate cannot list a deployment");

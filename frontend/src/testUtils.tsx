@@ -43,6 +43,7 @@ export function problem(overrides: Partial<ProblemRow> = {}): ProblemRow {
     workItemId: 'repository:example/shop',
     application: 'example/shop',
     kind: 'dependencyUpdate',
+    nature: 'libraryUpdate',
     description: 'express 4.16.0 → 4.21.2',
     severity: null,
     count: null,

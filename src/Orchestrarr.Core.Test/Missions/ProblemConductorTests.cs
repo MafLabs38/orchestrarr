@@ -57,7 +57,7 @@ public sealed class ProblemConductorTests : IDisposable
             {
                 return null;
             }
-            return ChangedPaths ?? (DiffTouchesForbidden ? [".github/workflows/ci.yml"] : ["src/Orders.cs", "tests/OrdersTests.cs"]);
+            return ChangedPaths ?? (DiffTouchesForbidden ? [".env.production"] : ["src/Orders.cs", "tests/OrdersTests.cs"]);
         }
 
         public bool? WayBack { get; set; } = true;
@@ -72,6 +72,10 @@ public sealed class ProblemConductorTests : IDisposable
 
         public bool? Confined { get; set; } = true;
 
+        /// <summary>Whether the source reads the pull request as merged (the Git world after the merge).</summary>
+        public bool? Merged { get; set; }
+
+        public bool? BaseWasRed { get; set; } = false;
 
         /// <summary>What the forge says the head is; null: the head is the commit that was asked about.</summary>
         public string? HeadCommit { get; set; }
@@ -81,7 +85,7 @@ public sealed class ProblemConductorTests : IDisposable
         public ValueTask<ObservedFacts> FactsAsync(FactsQuery query, CancellationToken cancellationToken)
         {
             Last = query;
-            return ValueTask.FromResult(new ObservedFacts(true, DiffSaysClean, CiGreen, ArtifactProved, WayBack, ClaimMatches, MergeMayDeploy, ExecutedFiles, TagsBlocked, BranchSafe, HeadCommit ?? query.Commit, Confined, Paths(), query.Repository, BaseCommit ?? query.BaseCommit));
+            return ValueTask.FromResult(new ObservedFacts(true, DiffSaysClean, CiGreen, ArtifactProved, WayBack, ClaimMatches, MergeMayDeploy, ExecutedFiles, TagsBlocked, BranchSafe, HeadCommit ?? query.Commit, Confined, Paths(), query.Repository, BaseCommit ?? query.BaseCommit, Merged: Merged, BaseWasRedBeforeMerge: BaseWasRed));
         }
     }
 
@@ -133,6 +137,15 @@ public sealed class ProblemConductorTests : IDisposable
         }
     }
 
+    private sealed class FakeRestarts : IProblemRestarts
+    {
+        public List<string> Problems { get; } = [];
+
+        public void Restarted(string problemId) => Problems.Add(problemId);
+    }
+
+    private readonly FakeRestarts _restarts = new();
+
     private sealed class Runners : IRunnerDirectory
     {
         public string RunnerFor(World world, string applicationId) => $"runner-{world}".ToLowerInvariant();
@@ -141,7 +154,7 @@ public sealed class ProblemConductorTests : IDisposable
     private ProblemConductor Conductor(ConductorOptions? options = null) => Build(_authority, options, "id", locks: null);
 
     private ProblemConductor Build(IApprovalSource approvals, ConductorOptions? options, string idPrefix, ProblemLocks? locks) =>
-        new(_signer, new MissionStores(_missions, _mandates, _problems, _dossiers, new InMemoryMissionUnit()), new PowerSources(approvals, _authority.Verifier, _withdrawals, _grants, _stop), new ConductorServices(_facts, new Runners(), _audit, _time, () => $"{idPrefix}-{Interlocked.Increment(ref _ids)}"), options ?? ConductorOptions.Default, locks);
+        new(_signer, new MissionStores(_missions, _mandates, _problems, _dossiers, new InMemoryMissionUnit()), new PowerSources(approvals, _authority.Verifier, _withdrawals, _grants, _stop), new ConductorServices(_facts, new Runners(), _audit, _time, () => $"{idPrefix}-{Interlocked.Increment(ref _ids)}", _restarts), options ?? ConductorOptions.Default, locks);
 
     private static PlanEntry Entry(World max = World.Release, string rule = "") => new("problem-1", "shop", "deprecated-dependency", "Replace the removed method", ["example/shop"], max, new MissionBudget(20, 3, 50),
         new Validation("alice", rule.Length == 0 ? null : rule), new DateTimeOffset(2026, 11, 13, 11, 0, 0, TimeSpan.Zero));
@@ -943,6 +956,165 @@ public sealed class ProblemConductorTests : IDisposable
         return await conductor.DecideAsync(release.Id, Grant(), Ct);
     }
 
+    // A Git mission that merged its change, as the source then reads it: merged, and the pipeline of the merge commit as given
+    private async Task<(ProblemConductor Conductor, Mission Git)> MergedInGit(bool? ciGreen, bool staged = true, ConductorOptions? options = null)
+    {
+        var conductor = Conductor(options);
+        var git = staged
+            ? (await Through(conductor, await StartStaged(conductor))).Mission!
+            : (await conductor.StartAsync(Entry(), StagingDeclaration.DeclaredNoStaging, StagingRequirement.BlankMachine, StagingState.NotDefined, Ct)).Mission!;
+        _facts.Merged = true;
+        _facts.CiGreen = ciGreen;
+        await conductor.StartedAsync(git.Id, Ct);
+        await conductor.HandOverAsync(git.Id, DossierFor(git.Id) with { Commit = "0123456789abcdef0123456789abcdef01234567" }, Ct);
+        return (conductor, git);
+    }
+
+    [Theory]
+    [InlineData(ControllerDecisionKind.End)]
+    [InlineData(ControllerDecisionKind.SendBack)]
+    [InlineData(ControllerDecisionKind.Grant)]
+    public async Task A_merge_that_turns_the_integration_branch_red_goes_back_to_staging_to_be_fixed_forward_whatever_the_controller_decided(ControllerDecisionKind kind)
+    {
+        var (conductor, git) = await MergedInGit(ciGreen: false);
+
+        var result = await conductor.DecideAsync(git.Id, new ControllerDecision(kind, ["every pipeline must be green"], kind == ControllerDecisionKind.SendBack ? "make it green" : null), Ct);
+
+        result.Failures.Should().Contain(PreconditionFailure.IntegrationBranchRedAfterMerge);
+        result.Mandate!.Mandate.World.Should().Be(World.Staging, "an agent brings the branch back to green in staging, as a developer fixes forward");
+        _missions.Get(git.Id)!.State.Should().Be(MissionState.Ended);
+        var run = _problems.Get("problem-1")!;
+        run.State.Should().Be(ProblemState.InProgress, "the lot waits while its integration branch is red");
+        run.CurrentWorld.Should().Be(World.Staging);
+        run.Priority.Should().BeGreaterThan(FlowPriority.Normal, "a red integration branch goes ahead of the normal work");
+        run.Entry.PullRequest.Should().BeNull("the change is merged: the fix is a new change, made by a free agent on the branch as it is now");
+        run.Entry.HeadSha.Should().BeNull();
+        run.Entry.Plan!.First.Should().Be(World.Staging);
+        run.Entry.Plan.InstructionFor(World.Staging).Should().Contain("01234567").And.Contain("red").And.Contain("never retried until it passes");
+        run.Entry.Plan.Last.Should().Be(Entry().Plan?.Last ?? World.Release, "the later worlds are the ones the plan had");
+        _restarts.Problems.Should().Equal("problem-1");
+    }
+
+    // The merge of the fix forward that was just opened turns the branch red again: staging and Git are gone through, and the controller ends the Git mission
+    private async Task<ConductResult> RedAgain(ProblemConductor conductor, ConductResult forward, string commit)
+    {
+        _facts.Merged = false;
+        _facts.CiGreen = true;
+        var again = (await Through(conductor, forward)).Mission!;
+        _facts.Merged = true;
+        _facts.CiGreen = false;
+        await conductor.StartedAsync(again.Id, Ct);
+        await conductor.HandOverAsync(again.Id, DossierFor(again.Id) with { Commit = commit }, Ct);
+        return await conductor.DecideAsync(again.Id, new ControllerDecision(ControllerDecisionKind.End, ["red again"], null), Ct);
+    }
+
+    [Fact]
+    public async Task A_branch_that_is_red_again_after_a_fix_forward_is_fixed_forward_again_and_told_that_the_last_one_did_not_hold()
+    {
+        var (conductor, git) = await MergedInGit(ciGreen: false, options: ConductorOptions.Default with { Loop = LoopPolicy.Default with { MaxMandatesPerProblem = 20 } });
+        var forward = await conductor.DecideAsync(git.Id, new ControllerDecision(ControllerDecisionKind.End, ["red"], null), Ct);
+
+        var second = await RedAgain(conductor, forward, "1123456789abcdef0123456789abcdef01234567");
+
+        second.Mandate.Should().NotBeNull("there is no rule of one fix forward: whether another is worth it is the controller's judgement of it");
+        var run = _problems.Get("problem-1")!;
+        run.State.Should().Be(ProblemState.InProgress);
+        run.FixesForward.Should().Be(2, "the problem counts its fixes forward itself, not from a text");
+        run.Entry.Objective.Should().Contain("fix forward 2").And.Contain("did not hold");
+        run.Entry.Plan!.InstructionFor(World.Staging).Should().Contain("do not repeat it");
+    }
+
+    [Fact]
+    public async Task A_branch_that_stays_red_after_the_most_fixes_forward_the_loop_allows_goes_to_the_maintainer()
+    {
+        var (conductor, git) = await MergedInGit(ciGreen: false, options: ConductorOptions.Default with { Loop = LoopPolicy.Default with { MaxFixesForwardPerProblem = 1 } });
+        var forward = await conductor.DecideAsync(git.Id, new ControllerDecision(ControllerDecisionKind.End, ["red"], null), Ct);
+
+        var result = await RedAgain(conductor, forward, "1123456789abcdef0123456789abcdef01234567");
+
+        result.Mandate.Should().BeNull("the bound of the loop is the block above the controller's judgement");
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.Escalated);
+        _restarts.Problems.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task A_grant_withdrawn_before_a_red_merge_is_judged_stops_the_problem_instead_of_fixing_it_forward()
+    {
+        var (conductor, git) = await MergedInGit(ciGreen: false);
+        _grants.Withdrawn.Add("shop");
+
+        var result = await conductor.DecideAsync(git.Id, new ControllerDecision(ControllerDecisionKind.End, ["red"], null), Ct);
+
+        result.Mandate.Should().BeNull();
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.Failed);
+        _restarts.Problems.Should().BeEmpty("nothing is restarted for a problem whose power was withdrawn");
+    }
+
+    [Fact]
+    public async Task A_merge_on_a_branch_that_was_already_red_is_not_blamed_for_it_and_not_fixed_forward()
+    {
+        var (conductor, git) = await MergedInGit(ciGreen: false);
+        _facts.BaseWasRed = true;
+
+        var result = await conductor.DecideAsync(git.Id, new ControllerDecision(ControllerDecisionKind.End, ["red"], null), Ct);
+
+        result.Failures.Should().NotContain(PreconditionFailure.IntegrationBranchRedAfterMerge, "the branch was red before the merge");
+        result.Failures.Should().Contain(PreconditionFailure.IntegrationBranchRedBeforeMerge);
+        _restarts.Problems.Should().BeEmpty();
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.Escalated, "no mission of this problem can make the branch green: it does not go round until its loop ends");
+    }
+
+    [Fact]
+    public async Task A_merge_whose_base_could_not_be_read_green_is_not_fixed_forward_and_goes_to_a_person()
+    {
+        var (conductor, git) = await MergedInGit(ciGreen: false);
+        _facts.BaseWasRed = null;
+
+        var result = await conductor.DecideAsync(git.Id, new ControllerDecision(ControllerDecisionKind.End, ["red"], null), Ct);
+
+        result.Failures.Should().NotContain(PreconditionFailure.IntegrationBranchRedAfterMerge, "an unknown fact never leads to an act");
+        _restarts.Problems.Should().BeEmpty("no agent is started to fix a red that the merge may not have made");
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.Escalated);
+    }
+
+    [Fact]
+    public async Task A_red_pipeline_on_a_pull_request_that_is_not_merged_is_not_fixed_forward()
+    {
+        var (conductor, git) = await MergedInGit(ciGreen: false);
+        _facts.Merged = false;
+
+        var result = await conductor.DecideAsync(git.Id, new ControllerDecision(ControllerDecisionKind.End, ["the pipeline of the pull request is red"], null), Ct);
+
+        result.Failures.Should().NotContain(PreconditionFailure.IntegrationBranchRedAfterMerge);
+        _problems.Get("problem-1")!.Entry.PullRequest.Should().Be(Entry().PullRequest, "nothing is merged: the problem keeps its pull request");
+        _restarts.Problems.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_pipeline_of_the_merge_that_is_not_over_is_not_a_red_branch()
+    {
+        var (conductor, git) = await MergedInGit(ciGreen: null);
+
+        var result = await conductor.DecideAsync(git.Id, new ControllerDecision(ControllerDecisionKind.SendBack, ["the pipeline runs"], "wait for it"), Ct);
+
+        result.Mission!.World.Should().Be(World.Git, "the worker waits for the pipeline where it is");
+        result.Mandate.Should().BeNull();
+        _restarts.Problems.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task A_red_integration_branch_of_an_application_with_no_staging_stops_the_work_with_its_reason()
+    {
+        var (conductor, git) = await MergedInGit(ciGreen: false, staged: false);
+
+        var result = await conductor.DecideAsync(git.Id, new ControllerDecision(ControllerDecisionKind.End, ["red"], null), Ct);
+
+        result.Mandate.Should().BeNull();
+        var run = _problems.Get("problem-1")!;
+        run.State.Should().Be(ProblemState.Failed);
+        run.Note.Should().Contain("no staging world");
+    }
+
     [Fact]
     public async Task An_application_with_no_staging_goes_back_to_the_git_world()
     {
@@ -1146,6 +1318,17 @@ public sealed class ProblemConductorTests : IDisposable
     }
 
     [Fact]
+    public async Task The_pipelines_are_in_the_frame_of_a_mission_unless_its_problem_is_about_them()
+    {
+        var library = await StartStaged(Conductor(), Entry());
+        var red = await StartStaged(Build(_authority, null, "red", locks: null), Entry() with { ProblemId = "problem-red", Brief = new ProblemBrief("FailingCi", "example/shop", "the pipeline fails", true) });
+
+        library.Mandate!.Mandate.Frame.ForbiddenPaths.Should().Contain(".github/**", "a library bump does not touch what judges it");
+        red.Mandate!.Mandate.Frame.ForbiddenPaths.Should().NotContain(".github/**", "a red pipeline is repaired in its pipeline");
+        red.Mandate.Mandate.Frame.ForbiddenPaths.Should().Contain("**/.env*", "the floor stays whatever the problem");
+    }
+
+    [Fact]
     public async Task The_mandates_carry_the_forbidden_paths_of_the_certificate_and_the_application_and_class_of_the_problem()
     {
         _authority.Adjust = request => request with { ForbiddenPaths = ["infra/prod/**"] };
@@ -1153,7 +1336,7 @@ public sealed class ProblemConductorTests : IDisposable
 
         var staging = await StartStaged(conductor);
 
-        staging.Mandate!.Mandate.Frame.ForbiddenPaths.Should().Contain("infra/prod/**").And.Contain(".github/**");
+        staging.Mandate!.Mandate.Frame.ForbiddenPaths.Should().Contain("infra/prod/**").And.Contain("**/.env*");
         staging.Mandate.Mandate.ApplicationId.Should().Be("shop");
         staging.Mandate.Mandate.ProblemClass.Should().Be("deprecated-dependency");
     }
@@ -1642,11 +1825,11 @@ public sealed class ProblemConductorTests : IDisposable
     {
         var conductor = Conductor(ConductorOptions.Default with { ForbiddenPaths = [] });
         var staging = await StartStaged(conductor);
-        staging.Mandate!.Mandate.Frame.ForbiddenPaths.Should().Contain(".github/**", "the certificate's floor is in the frame whatever the options say");
+        staging.Mandate!.Mandate.Frame.ForbiddenPaths.Should().Contain("**/.env*", "the certificate's floor is in the frame whatever the options say");
         var id = staging.Mission!.Id;
         await conductor.StartedAsync(id, Ct);
         await conductor.HandOverAsync(id, DossierFor(id), Ct);
-        _facts.ChangedPaths = [".github/workflows/ci.yml"];
+        _facts.ChangedPaths = [".env.production"];
 
         var decided = await conductor.DecideAsync(id, Grant(), Ct);
 
@@ -1654,14 +1837,14 @@ public sealed class ProblemConductorTests : IDisposable
     }
 
     [Fact]
-    public async Task A_rename_out_of_a_forbidden_path_counts_by_its_old_path_so_a_pipeline_cannot_be_moved_out_of_the_floor()
+    public async Task A_rename_out_of_a_forbidden_path_counts_by_its_old_path_so_a_secret_cannot_be_moved_out_of_the_floor()
     {
         var conductor = Conductor();
         var id = (await StartStaged(conductor)).Mission!.Id;
         await conductor.StartedAsync(id, Ct);
         await conductor.HandOverAsync(id, DossierFor(id), Ct);
         _facts.DiffSaysClean = true;
-        _facts.ChangedPaths = [".github/workflows/codeql.yml", "src/codeql.yml"];
+        _facts.ChangedPaths = ["config/prod.enc.yaml", "src/prod.yaml"];
 
         (await conductor.DecideAsync(id, Grant(), Ct)).Failures.Should().Contain(PreconditionFailure.DiffTouchesForbiddenPath, "the source lists both sides of the rename, and the old path is in the floor");
     }

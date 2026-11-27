@@ -16,13 +16,14 @@ public sealed record ProblemBrief(
     string? Severity = null,
     int? Count = null,
     int? PullRequest = null,
-    IReadOnlyList<string>? Details = null)
+    IReadOnlyList<string>? Details = null,
+    string? Nature = null)
 {
     /// <summary>The brief of a row of the table: what the control plane read, and the description with where it came from (parsed by the control plane, or the text of someone else).</summary>
     public static ProblemBrief Of(ProblemRow row)
     {
         ArgumentNullException.ThrowIfNull(row);
-        return new ProblemBrief(row.Kind.ToString(), row.Source ?? row.Application, row.Description, row.ParsedChange is not null, row.UpdateClass?.ToString(), row.Checks?.ToString(), row.Severity?.ToString(), row.Count, row.PullRequest);
+        return new ProblemBrief(row.Kind.ToString(), row.Source ?? row.Application, row.Description, row.ParsedChange is not null, row.UpdateClass?.ToString(), row.Checks?.ToString(), row.Severity?.ToString(), row.Count, row.PullRequest, Nature: row.Nature.ToString());
     }
 }
 

@@ -3,6 +3,7 @@ using Orchestrarr.Core.Approvals;
 using Orchestrarr.Core.Accounts;
 using Orchestrarr.Core.Decisions;
 using Orchestrarr.Core.Infrastructure;
+using Orchestrarr.Core.Forge;
 using Orchestrarr.Core.Missions;
 using Orchestrarr.Core.Tasks;
 using Orchestrarr.Core.WorkItems;
@@ -48,7 +49,7 @@ internal static class PlanEndpoints
         api.MapGet("/plan", (IServiceProvider services) => Results.Ok(new PlanStatus(services.GetService<ProblemStarter>() is not null))).RequireAuthorization(Permissions.FleetRead);
         api.MapPost("/plan/validate", async (ValidatePlanRequest request, HttpContext context, IApproverAccessor accessor, WorkItemCatalog catalog, IApplicationCatalog applications, RunnerRegistry runners, IBatchQueue queue,
             IProblemHistory history, IApprovalStore approvalStore, TimeProvider time, RelevancePolicy policy, InfrastructureCatalog infrastructure, ProblemConductor conductor, IServiceProvider services,
-            LeadPlanner lead, IDependencyFindings findings, AgentsOptions agents, IMissionAudit audit, IStopSignal stop, ILiveNotifier live, CancellationToken ct) =>
+            LeadPlanner lead, IDependencyFindings findings, IPipelineFailures pipelines, AgentsOptions agents, IMissionAudit audit, IStopSignal stop, ILiveNotifier live, CancellationToken ct) =>
         {
             var (approver, refusal) = ApprovalEndpoints.Authorize(accessor, context);
             if (approver is null)
@@ -72,14 +73,24 @@ internal static class PlanEndpoints
             var table = ProblemsEndpoints.VisibleTable(TableInputs.Last(report, infrastructure), applications, runners, queue, history, approvalStore, time, policy).ToDictionary(row => row.Id, StringComparer.Ordinal);
             // The lead thinks about each problem first (two at a time), then the problems are started one after the other: nothing is started that the lead did not plan, and no approval is used for a problem that has no plan.
             // A row is asked once, at most Agents:LeadMaxRows rows are asked in one selection, and the global stop is read again before each question: every question is a run of the subscription
-            var rows = (request.Rows ?? []).DistinctBy(row => row.Id, StringComparer.Ordinal).ToList();
-            var prepared = await Task.WhenAll(rows.Select((chosen, index) => PrepareAsync(chosen, table, approver.Subject, lead, findings, conductor, audit, stop, NotAsked(index, agents.LeadMaxRows), time, ct)));
-            // One work site at a time on a repository: the first problem of a free repository starts, the others wait for their turn (ProblemQueue)
-            var started = new List<ValidatedProblem>();
-            foreach (var one in prepared)
-            {
-                started.Add(await starter.StartOrQueueAsync(one, ct));
-            }
+            // The rows are taken **in the order of the route** (ADR 0055: the runtime, then the alerts, then the updates), not in the order of the ticks, and a problem **starts as soon as its own plan is ready**: the machines
+            // do not wait for the lead to have thought about every row of the selection (a plan is a minute of the subscription, and a hundred rows would keep them idle for an hour). The planning goes on behind it
+            var rows = InRouteOrder(request.Rows ?? [], table);
+            var planning = rows.Select((chosen, index) => PrepareAsync(chosen, table, approver.Subject, lead, new ProblemSources(findings, pipelines), conductor, audit, stop, NotAsked(index, agents.LeadMaxRows), time, ct)).ToList();
+            // One work site at a time on a repository: the first problem of a free repository starts, the others wait for their turn (ProblemQueue). The plans of a lot are placed in the order of its route, and the lots
+            // go side by side: a plan that is slow to come holds its own lot only, never the machines of the others
+            var placed = new ValidatedProblem?[planning.Count];
+            var lots = planning.Select((plan, index) => (Plan: plan, Index: index, Lot: LotOf(rows[index], table)))
+                .GroupBy(item => item.Lot, StringComparer.Ordinal)
+                .Select(async lot =>
+                {
+                    foreach (var (plan, index, _) in lot)
+                    {
+                        placed[index] = await starter.StartOrQueueAsync(await plan, ct);
+                    }
+                });
+            await Task.WhenAll(lots);
+            var started = placed.OfType<ValidatedProblem>().ToList();
             live.Publish(LiveTopics.Missions);
             return Results.Json(new ValidatePlanResponse(started), statusCode: StatusCodes.Status201Created);
         }).RequireAuthorization(Permissions.ApprovalsCreate).RequireRateLimiting(ApprovalsServiceCollectionExtensions.ApprovingPolicy);
@@ -89,14 +100,22 @@ internal static class PlanEndpoints
     internal static IReadOnlyList<string> ImagePlaces(IReadOnlyList<Orchestrarr.Core.Infrastructure.CodeLocation> places, string repository) =>
         [.. places.Where(place => string.Equals(place.Repository, repository, StringComparison.OrdinalIgnoreCase) && place.Managed is null).Take(MaxPlaces).Select(place => $"image written in {place.Path} line {place.Line} as {place.Image.Name}{(place.Image.Tag is { } tag ? $":{tag}" : string.Empty)}")];
 
+    // The rows of a selection, each once, in the order of the route (ADR 0055); a row that the table does not know goes last. The order is stable: rows of the same rank keep the order of the ticks
+    internal static List<ValidatedRow> InRouteOrder(IEnumerable<ValidatedRow> chosen, IReadOnlyDictionary<string, ProblemRow> table) =>
+        [.. chosen.DistinctBy(row => row.Id, StringComparer.Ordinal).OrderBy(row => row.Id is { } rowId && table.TryGetValue(rowId, out var known) ? RouteRank.Of(known.Kind, known.Nature) : int.MaxValue)];
+
     internal static World CeilingOf(ValidatedRow chosen) => chosen.StopBeforeProduction ? World.Git : PlanCeiling;
+
+    // The lot of a row is its repository (ADR 0055); a row that the table does not know is a lot of its own
+    private static string LotOf(ValidatedRow chosen, Dictionary<string, ProblemRow> table) =>
+        chosen.Id is { } rowId && table.TryGetValue(rowId, out var known) ? known.Source ?? known.Application : $"row:{chosen.Id}";
 
     // Why a row is not asked about at all: the selection is beyond what the lead is asked about at once (Agents:LeadMaxRows)
     private static string? NotAsked(int index, int maxRows) => index >= maxRows ? "tooManyToPlanAtOnce" : null;
 
 
 
-    private static async Task<PreparedProblem> PrepareAsync(ValidatedRow chosen, Dictionary<string, ProblemRow> table, string approver, LeadPlanner lead, IDependencyFindings findings, ProblemConductor conductor, IMissionAudit audit, IStopSignal stop, string? notAsked, TimeProvider time, CancellationToken cancellationToken)
+    private static async Task<PreparedProblem> PrepareAsync(ValidatedRow chosen, Dictionary<string, ProblemRow> table, string approver, LeadPlanner lead, ProblemSources sources, ProblemConductor conductor, IMissionAudit audit, IStopSignal stop, string? notAsked, TimeProvider time, CancellationToken cancellationToken)
     {
         var id = chosen.Id ?? string.Empty;
         PreparedProblem Refused(string reason, string? problemId = null) => new(id, null, new ValidatedProblem(id, problemId, null, null, reason));
@@ -128,13 +147,19 @@ internal static class PlanEndpoints
         // A dependency alert is about dependencies: what the source knows of them goes to the lead, as data, with the problem
         if (row.Kind == ProblemKind.DependencyAlert && entry.Repositories.Count == 1)
         {
-            var known = await findings.ReadAsync(entry.Repositories[0], cancellationToken);
+            var known = await sources.Findings.ReadAsync(entry.Repositories[0], cancellationToken);
             brief = brief with { Details = [.. known.Select(finding => finding.Line)] };
         }
         // An image problem is about the places where the image is written: what the control plane read of them goes to the lead, as data, with the problem (the file, the line, the reference as written)
         if ((row.Kind is ProblemKind.ImageUpdate or ProblemKind.FloatingImage) && row.Locations is { Count: > 0 } places)
         {
             brief = brief with { Details = ImagePlaces(places, entry.Repositories[0]) };
+        }
+        // A red pipeline is about the pipelines that are red: which ones, read on the forge, go to the lead as data, so that the worker repairs those and not the one it guesses (ADR 0055)
+        if (row.Kind == ProblemKind.FailingCi && entry.Repositories.Count == 1)
+        {
+            var red = await sources.Pipelines.ReadAsync(entry.Repositories[0], cancellationToken);
+            brief = brief with { Details = red.Count > 0 ? red : ["the forge says the pipeline of the default branch fails, and which workflow could not be read: run them all and repair the ones that fail"] };
         }
         // The global stop is read again for each question: a row that waits for a free slot may be asked long after the request came
         if (stop.Engaged)
@@ -172,3 +197,6 @@ internal static class PlanEndpoints
 
     private static readonly World FirstWorld = World.Staging;
 }
+
+/// <summary>What the control plane reads about a problem before the lead plans it: the findings about its dependencies, and the pipelines that are red on its default branch.</summary>
+internal sealed record ProblemSources(IDependencyFindings Findings, IPipelineFailures Pipelines);

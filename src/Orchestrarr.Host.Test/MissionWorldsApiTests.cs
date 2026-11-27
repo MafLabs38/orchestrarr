@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -26,13 +27,63 @@ public sealed class MissionWorldsApiTests
     private static readonly object Hello = new { hello = new { name = "runner-staging", version = "1", kinds = new[] { "validatePullRequest" }, repositories = new[] { "example/*" }, delegations = Array.Empty<object>(), secondFactorRequired = false } };
 
     /// <summary>A forge in memory: a pull request that is green at its head, merged on demand, whose merge result has a tree and a pipeline of its own.</summary>
-    private sealed class FakeForge : IPullRequestFacts, IForgeActs, IDefaultBranchSource, IBranchSource
+    private sealed class FakeForge : IPullRequestFacts, IForgeActs, IDefaultBranchSource, IBranchSource, IPushCredentials
     {
+        /// <summary>The push credentials that the control plane asked the forge to make: for which repository, and whether with the permission on the pipelines.</summary>
+        public List<(string Repository, bool Pipelines)> CredentialsMade { get; } = [];
+
+        public const string PushToken = "push-token-of-the-forge";
+
+        /// <summary>The credentials revoked on the forge, in order.</summary>
+        public List<string> Revoked { get; } = [];
+
+        public Task<PushCredential?> IssueAsync(string repositoryFullName, bool pipelines, CancellationToken cancellationToken)
+        {
+            CredentialsMade.Add((repositoryFullName, pipelines));
+            return Task.FromResult<PushCredential?>(new PushCredential($"{PushToken}-{CredentialsMade.Count}", DateTimeOffset.UtcNow.AddHours(1), pipelines ? ["contents:write", "workflows:write"] : ["contents:write"]));
+        }
+
+        /// <summary>Whether the forge fails to revoke (down, a time-out): every try is still recorded.</summary>
+        public bool RevokeFails { get; set; }
+
+        public Task<bool> RevokeAsync(string token, CancellationToken cancellationToken)
+        {
+            lock (Revoked)
+            {
+                Revoked.Add(token);
+            }
+            return Task.FromResult(!RevokeFails);
+        }
+
         /// <summary>Where the branch of the agent is on the forge now (null: there is none).</summary>
         public string? BranchHead { get; set; } = AgentSha;
 
         /// <summary>What the forge says the branch holds on top of the default branch.</summary>
         public BranchChange? Change { get; set; } = new(Head, 0, 1, [new BranchFile("package.json", "modified", 2, "@@ -1 +1 @@\n-a\n+b")], true);
+
+        /// <summary>Who made the pull requests, and what the forge says of their merge (behind, in conflict...).</summary>
+        public string? Author { get; set; }
+
+        /// <summary>Who wrote each commit of the pull request; null: every commit is its author's.</summary>
+        public IReadOnlyList<string>? CommitAuthors { get; set; }
+
+        /// <summary>The account the forge recorded as having pushed the head (null: the author of the pull request).</summary>
+        public string? Pusher { get; set; }
+
+        /// <summary>The commands that the bots were asked to rebase with, by pull request.</summary>
+        public List<(int Number, string Command)> RebaseCommands { get; } = [];
+
+        public MergeState PullMerge { get; set; } = MergeState.Unknown;
+
+        /// <summary>The pull requests that the starter asked a bot to rebase.</summary>
+        public List<int> RebaseAsked { get; } = [];
+
+        public Task<bool> RequestBotRebaseAsync(string repositoryFullName, int number, string command, CancellationToken cancellationToken)
+        {
+            RebaseAsked.Add(number);
+            RebaseCommands.Add((number, command));
+            return Task.FromResult(true);
+        }
 
         public Task<string?> HeadOfAsync(string repositoryFullName, string branch, CancellationToken cancellationToken) => Task.FromResult(BranchHead);
 
@@ -73,7 +124,7 @@ public sealed class MissionWorldsApiTests
         public string BaseRef { get; set; } = "main";
 
         public Task<PullRequestFacts?> ReadAsync(string repositoryFullName, int number, CancellationToken cancellationToken) =>
-            Task.FromResult<PullRequestFacts?>(new PullRequestFacts(Opened.Count > 0 && number == RepairNumber ? PullHead : Head, "base", false, Opened.Count > 0 && number == RepairNumber ? ChecksState.Passing : HeadChecks, ["package.json"], PathsComplete: true, Merged, Merged ? MergeCommit : null, Merged ? TreeOfTheMerge : null, Merged ? MergeChecks : ChecksState.Unknown, BaseRef: BaseRef, DefaultBranch: "main"));
+            Task.FromResult<PullRequestFacts?>(new PullRequestFacts(Opened.Count > 0 && number == RepairNumber ? PullHead : Head, "base", false, Opened.Count > 0 && number == RepairNumber ? ChecksState.Passing : HeadChecks, ["package.json"], PathsComplete: true, Merged, Merged ? MergeCommit : null, Merged ? TreeOfTheMerge : null, Merged ? MergeChecks : ChecksState.Unknown, BaseRef: BaseRef, DefaultBranch: "main", Author: Author, Merge: PullMerge, Closed: Closed.Contains(number), CommitAuthors: CommitAuthors ?? (Author is null ? null : [Author]), HeadPushedBy: Pusher ?? Author));
 
         public Task<DefaultBranchHead?> ReadAsync(string repositoryFullName, CancellationToken cancellationToken) =>
             Task.FromResult<DefaultBranchHead?>(DefaultReadable ? new DefaultBranchHead("main", DefaultHead) : null);
@@ -135,12 +186,15 @@ public sealed class MissionWorldsApiTests
                 services.AddSingleton<IForgeActs>(forge);
                 services.AddSingleton<IDefaultBranchSource>(forge);
                 services.AddSingleton<IBranchSource>(forge);
+                services.AddSingleton<IPushCredentials>(forge);
             });
             builder.UseEnvironment("Development");
             builder.UseSetting("Missions:Sandbox", "true");
             builder.UseSetting("Missions:SandboxMaxWorld", "Release");
             builder.UseSetting("Missions:ForbiddenPaths:0", ".github/**");
             builder.UseSetting("Missions:ForbiddenPaths:1", "infra/prod/**");
+            builder.UseSetting("Missions:BotRebaseRecheckSeconds", "0");
+            builder.UseSetting("Missions:BotRebaseUnknownWaitSeconds", "0");
             builder.UseSetting("Missions:StagingRunner", "runner-staging");
             builder.UseSetting("Missions:GitRunner", "runner-staging");
             builder.UseSetting("Missions:ReleaseRunner", "runner-staging");
@@ -284,6 +338,227 @@ public sealed class MissionWorldsApiTests
         // the same problem validated again while it waits is not put in line twice
         (await starter.StartOrQueueAsync(Prepared("p-b", 8, "example/shop"), Ct)).Refusal.Should().Be("alreadyQueued");
     }
+
+    [Fact]
+    public async Task A_bots_pull_request_that_is_behind_its_base_is_parked_and_the_lot_goes_on_with_its_next_operation()
+    {
+        var forge = new FakeForge { Author = "dependabot[bot]", PullMerge = MergeState.Conflicting };
+        using var factory = new WorldsFactory(forge);
+        var starter = factory.Services.GetRequiredService<ProblemStarter>();
+        var line = factory.Services.GetRequiredService<ProblemQueue>();
+
+        var parked = await starter.StartOrQueueAsync(Prepared("p-bot", 7, "example/shop"), Ct);
+        // the next operation of the lot has no pull request (an alert, an image): nothing to judge, the lot is free, so it starts
+        var next = await starter.StartOrQueueAsync(NoPullRequest("p-next", "example/shop"), Ct);
+
+        parked.Queued.Should().BeTrue("the bot is asked and the operation waits");
+        forge.RebaseCommands.Should().Equal([(7, "@dependabot rebase")], "each bot is asked with its own command");
+        factory.Services.GetRequiredService<ProblemParking>().IsParked("p-bot").Should().BeTrue();
+        line.Contains("p-bot").Should().BeTrue();
+        next.MissionId.Should().NotBeNull("a parked operation does not hold its lot");
+        factory.Services.GetRequiredService<IProblemStore>().Get("p-bot").Should().BeNull("a parked operation is planned, not started");
+    }
+
+    [Fact]
+    public async Task A_bot_that_has_no_command_to_rebase_is_not_waited_for_and_its_pull_request_is_put_aside_at_once()
+    {
+        var forge = new FakeForge { Author = "renovate[bot]", PullMerge = MergeState.Conflicting };
+        using var factory = new WorldsFactory(forge);
+        var starter = factory.Services.GetRequiredService<ProblemStarter>();
+
+        var answer = await starter.StartOrQueueAsync(Prepared("p-bot", 7, "example/shop"), Ct);
+
+        answer.Refusal.Should().Be("putAside", "the answer says what the flow did, not that it waits");
+        forge.RebaseAsked.Should().BeEmpty("nothing is written on a pull request in a language its bot does not speak");
+        factory.Services.GetRequiredService<ProblemParking>().IsParked("p-bot").Should().BeFalse();
+        var run = factory.Services.GetRequiredService<IProblemStore>().Get("p-bot")!;
+        run.State.Should().Be(ProblemState.Failed);
+        run.Note.Should().Contain("renovate[bot]").And.Contain("no command");
+    }
+
+    [Fact]
+    public async Task A_bot_is_asked_to_rebase_a_bounded_number_of_times_over_the_whole_life_of_the_problem()
+    {
+        var forge = new FakeForge { Author = "dependabot[bot]", PullMerge = MergeState.Conflicting };
+        using var factory = new WorldsFactory(forge);
+        var starter = factory.Services.GetRequiredService<ProblemStarter>();
+        _ = await starter.StartOrQueueAsync(Prepared("p-bot", 7, "example/shop"), Ct);
+        var parking = factory.Services.GetRequiredService<ProblemParking>();
+        // the lot was held meanwhile, so this wait starts again; but the bot was already asked four times in all (Missions:BotRebaseRequestsInAll)
+        parking.Set("p-bot", new ParkedProblem(DateTimeOffset.UtcNow - TimeSpan.FromMinutes(31), 2, DateTimeOffset.UtcNow - TimeSpan.FromMinutes(31), DateTimeOffset.UtcNow - TimeSpan.FromMinutes(31), "it conflicts with its base branch", AllRequests: 4));
+        parking.LotBusy("p-bot");
+        forge.RebaseAsked.Clear();
+
+        await starter.StartReadyAsync(Ct);
+
+        forge.RebaseAsked.Should().BeEmpty("a bot is not asked again and again over the life of a problem");
+        parking.IsParked("p-bot").Should().BeTrue("it still waits, until the wait is over");
+    }
+
+    [Fact]
+    public async Task A_parked_pull_request_that_its_bot_brought_up_to_date_starts_when_its_lot_is_free()
+    {
+        var forge = new FakeForge { Author = "dependabot[bot]", PullMerge = MergeState.Behind };
+        using var factory = new WorldsFactory(forge);
+        var starter = factory.Services.GetRequiredService<ProblemStarter>();
+        var line = factory.Services.GetRequiredService<ProblemQueue>();
+        _ = await starter.StartOrQueueAsync(Prepared("p-bot", 7, "example/shop"), Ct);
+        forge.PullMerge = MergeState.Clean;
+
+        await starter.StartReadyAsync(Ct);
+
+        // the forge still says the head it always said, so the pull request is ready as ticked: it starts, and is not parked any more
+        factory.Services.GetRequiredService<ProblemParking>().IsParked("p-bot").Should().BeFalse();
+        line.Contains("p-bot").Should().BeFalse();
+        factory.Services.GetRequiredService<IProblemStore>().Get("p-bot").Should().NotBeNull("it started");
+        factory.Services.GetRequiredService<IMissionStore>().ForProblem("p-bot").Should().NotBeEmpty("its first mission was issued");
+    }
+
+    [Fact]
+    public async Task A_bots_pull_request_that_the_runner_refused_goes_back_in_the_line_on_its_new_head_a_bounded_number_of_times()
+    {
+        var forge = new FakeForge { Author = "dependabot[bot]" };
+        using var factory = new WorldsFactory(forge);
+        var starter = factory.Services.GetRequiredService<ProblemStarter>();
+        var line = factory.Services.GetRequiredService<ProblemQueue>();
+        _ = await starter.StartOrQueueAsync(Prepared("p-bot", 7, "example/shop"), Ct);
+
+        await starter.RequeueAfterRefusalAsync("p-bot", Ct);
+        line.Contains("p-bot").Should().BeTrue();
+        line.Remove("p-bot");
+        await starter.RequeueAfterRefusalAsync("p-bot", Ct);
+        line.Remove("p-bot");
+        await starter.RequeueAfterRefusalAsync("p-bot", Ct);
+
+        line.Contains("p-bot").Should().BeFalse("two goes back in the line at most (Missions:BotRebaseRequests)");
+    }
+
+    [Fact]
+    public async Task A_pull_request_that_is_not_a_bots_is_never_put_back_in_the_line_after_a_refusal()
+    {
+        var forge = new FakeForge { Author = "alice" };
+        using var factory = new WorldsFactory(forge);
+        var starter = factory.Services.GetRequiredService<ProblemStarter>();
+        _ = await starter.StartOrQueueAsync(Prepared("p-human", 7, "example/shop"), Ct);
+
+        await starter.RequeueAfterRefusalAsync("p-human", Ct);
+
+        factory.Services.GetRequiredService<ProblemQueue>().Contains("p-human").Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_parked_pull_request_that_its_bot_never_rebases_is_put_aside_with_its_reason_where_the_work_is_followed()
+    {
+        var forge = new FakeForge { Author = "dependabot[bot]", PullMerge = MergeState.Conflicting };
+        using var factory = new WorldsFactory(forge);
+        var starter = factory.Services.GetRequiredService<ProblemStarter>();
+        _ = await starter.StartOrQueueAsync(Prepared("p-bot", 7, "example/shop"), Ct);
+        // it has been parked for longer than the bot is given
+        factory.Services.GetRequiredService<ProblemParking>().Set("p-bot", new ParkedProblem(DateTimeOffset.UtcNow - TimeSpan.FromMinutes(31), 2, DateTimeOffset.UtcNow - TimeSpan.FromMinutes(1), DateTimeOffset.UtcNow - TimeSpan.FromMinutes(16), "it conflicts with its base branch"));
+
+        await starter.StartReadyAsync(Ct);
+
+        factory.Services.GetRequiredService<ProblemQueue>().Contains("p-bot").Should().BeFalse();
+        var run = factory.Services.GetRequiredService<IProblemStore>().Get("p-bot")!;
+        run.State.Should().Be(ProblemState.Failed);
+        run.Note.Should().Contain("the bot did not rebase").And.Contain("put aside before it started");
+    }
+
+    [Fact]
+    public async Task The_clock_of_a_parked_pull_request_does_not_run_while_another_operation_of_its_lot_holds_it()
+    {
+        var forge = new FakeForge { Author = "dependabot[bot]", PullMerge = MergeState.Conflicting };
+        using var factory = new WorldsFactory(forge);
+        var starter = factory.Services.GetRequiredService<ProblemStarter>();
+        _ = await starter.StartOrQueueAsync(Prepared("p-bot", 7, "example/shop"), Ct);
+        // parked 31 minutes ago, past its wait: but another operation of its lot held the lot meanwhile, so its bot's clock did not run
+        var parking = factory.Services.GetRequiredService<ProblemParking>();
+        parking.Set("p-bot", new ParkedProblem(DateTimeOffset.UtcNow - TimeSpan.FromMinutes(31), 2, DateTimeOffset.UtcNow - TimeSpan.FromMinutes(31), DateTimeOffset.UtcNow - TimeSpan.FromMinutes(31), "it conflicts with its base branch", AllRequests: 2));
+        parking.LotBusy("p-bot");
+
+        await starter.StartReadyAsync(Ct);
+
+        factory.Services.GetRequiredService<ProblemQueue>().Contains("p-bot").Should().BeTrue("the wait starts again when the lot is free: the base moved meanwhile");
+        var parked = factory.Services.GetRequiredService<ProblemParking>().Get("p-bot")!;
+        parked.Since.Should().BeAfter(DateTimeOffset.UtcNow - TimeSpan.FromMinutes(1));
+        parked.Requests.Should().Be(1, "the bot is asked again at once, on the base as it is now");
+        parked.AllRequests.Should().Be(3, "the requests are counted over the whole life of the problem");
+    }
+
+    [Fact]
+    public async Task A_waiting_pull_request_that_its_bot_closed_because_another_change_brought_it_is_done_not_failed()
+    {
+        var forge = new FakeForge { Author = "dependabot[bot]", PullMerge = MergeState.Conflicting };
+        using var factory = new WorldsFactory(forge);
+        var starter = factory.Services.GetRequiredService<ProblemStarter>();
+        _ = await starter.StartOrQueueAsync(Prepared("p-bot", 7, "example/shop"), Ct);
+        forge.Closed.Add(7);
+
+        await starter.StartReadyAsync(Ct);
+
+        var run = factory.Services.GetRequiredService<IProblemStore>().Get("p-bot")!;
+        run.State.Should().Be(ProblemState.Closed);
+        run.Note.Should().Contain("done by another operation");
+    }
+
+    [Fact]
+    public async Task A_pull_request_that_moved_and_is_not_a_bots_is_not_started_and_the_maintainer_ticks_it_again()
+    {
+        var forge = new FakeForge { Author = "alice" };
+        using var factory = new WorldsFactory(forge);
+        var starter = factory.Services.GetRequiredService<ProblemStarter>();
+        var moved = Prepared("p-moved", 7, "example/shop");
+
+        var answer = await starter.StartOrQueueAsync(moved with { Entry = moved.Entry! with { HeadSha = "0000000000000000000000000000000000000001" } }, Ct);
+
+        answer.Refusal.Should().Be("thePullRequestMoved");
+        factory.Services.GetRequiredService<IProblemStore>().Get("p-moved").Should().BeNull();
+    }
+
+    [Fact]
+    public async Task A_pull_request_that_its_bot_made_again_is_followed_on_the_new_head()
+    {
+        var forge = new FakeForge { Author = "dependabot[bot]" };
+        using var factory = new WorldsFactory(forge);
+        var starter = factory.Services.GetRequiredService<ProblemStarter>();
+        var again = Prepared("p-again", 7, "example/shop");
+
+        var answer = await starter.StartOrQueueAsync(again with { Entry = again.Entry! with { HeadSha = "0000000000000000000000000000000000000001" } }, Ct);
+
+        answer.MissionId.Should().NotBeNull(answer.Refusal);
+        factory.Services.GetRequiredService<IProblemStore>().Get("p-again")!.Entry.HeadSha.Should().Be(Head, "the work follows the head that the bot made");
+        factory.Services.GetRequiredService<Orchestrarr.Core.Approvals.IAuditLog>().Page(100).Select(row => row.Entry.Event).Should().Contain(MissionAuditEvents.ProblemFollowedBot, "following a new head is in the trail");
+    }
+
+    [Fact]
+    public async Task A_new_head_that_another_account_pushed_is_not_followed_even_when_its_commits_claim_to_be_the_bots()
+    {
+        var forge = new FakeForge { Author = "dependabot[bot]", Pusher = "orchestrarr-sandbox-agent[bot]" };
+        using var factory = new WorldsFactory(forge);
+        var again = Prepared("p-again", 7, "example/shop");
+
+        var answer = await factory.Services.GetRequiredService<ProblemStarter>().StartOrQueueAsync(again with { Entry = again.Entry! with { HeadSha = "0000000000000000000000000000000000000001" } }, Ct);
+
+        answer.MissionId.Should().BeNull("the author and the signature of a commit can be made to look like the bot's; the account that pushed, as the forge recorded it, cannot");
+        answer.Refusal.Should().Be("thePullRequestMoved");
+    }
+
+    [Fact]
+    public async Task A_bots_branch_that_someone_else_pushed_to_is_not_followed_and_is_ticked_again()
+    {
+        var forge = new FakeForge { Author = "dependabot[bot]", CommitAuthors = ["dependabot[bot]", "orchestrarr-agent"] };
+        using var factory = new WorldsFactory(forge);
+        var starter = factory.Services.GetRequiredService<ProblemStarter>();
+        var again = Prepared("p-pushed", 7, "example/shop");
+
+        var answer = await starter.StartOrQueueAsync(again with { Entry = again.Entry! with { HeadSha = "0000000000000000000000000000000000000001" } }, Ct);
+
+        answer.Refusal.Should().Be("thePullRequestMoved", "the author of the pull request stays the bot whoever pushes to its branch: a head with someone else's commit is not the bot's");
+        factory.Services.GetRequiredService<IProblemStore>().Get("p-pushed").Should().BeNull();
+    }
+
+    private static PreparedProblem NoPullRequest(string problemId, params string[] repositories) =>
+        new($"row-{problemId}", new PlanEntry(problemId, "example/shop", "DependencyAlert", $"Solve {problemId}", repositories, World.Release, new MissionBudget(30, 3, 50), new Validation("alice", null), DateTimeOffset.UtcNow, null, null), null);
 
     [Fact]
     public async Task Two_problems_validated_at_the_same_time_on_one_repository_never_both_start()
@@ -459,6 +734,18 @@ public sealed class MissionWorldsApiTests
         refused.Error.Should().Contain("SandboxMergeRepositories");
         await inner.Received(1).MergePullRequestAsync("example/shop", 7, Head, Ct);
         await inner.DidNotReceive().MergePullRequestAsync("other/shop", Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task A_bot_is_asked_to_rebase_only_on_a_repository_that_the_settings_name()
+    {
+        var inner = Substitute.For<IForgeActs>();
+        _ = inner.RequestBotRebaseAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
+        var guarded = new GuardedForgeActs(inner, ["example/*"]);
+
+        (await guarded.RequestBotRebaseAsync("other/shop", 7, "@dependabot rebase", Ct)).Should().BeFalse("nothing is written on a repository outside the test bed");
+        (await guarded.RequestBotRebaseAsync("example/shop", 7, "@dependabot rebase", Ct)).Should().BeTrue();
+        await inner.DidNotReceive().RequestBotRebaseAsync("other/shop", Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -839,7 +1126,7 @@ public sealed class MissionWorldsApiTests
     }
 
     [Theory]
-    [InlineData("package.json")]
+    [InlineData("CLAUDE.md")]
     [InlineData(".github/workflows/ci.yml")]
     [InlineData("test/api.test.js")]
     [InlineData("../server.js")]
@@ -972,5 +1259,121 @@ public sealed class MissionWorldsApiTests
 
         merge.GetProperty("allowed").GetBoolean().Should().BeFalse("a staging mandate lists no act");
         forge.Merged.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task A_free_agent_gets_a_push_credential_for_its_one_repository_and_the_token_is_never_in_the_audit_trail()
+    {
+        var forge = new FakeForge();
+        using var factory = new WorldsFactory(forge);
+        _ = await StartChangeProblemAsync(factory);
+        using var runner = Runner(factory);
+        var staging = (await ClaimAsync(runner, "Staging")).GetProperty("missionId").GetString()!;
+        (await runner.PostAsync($"/api/v1/runner/missions/{staging}/started", null, Ct)).EnsureSuccessStatusCode();
+
+        var credential = await (await runner.PostAsync($"/api/v1/runner/missions/{staging}/acts/push-credential", null, Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct);
+
+        credential.GetProperty("allowed").GetBoolean().Should().BeTrue(credential.ToString());
+        credential.GetProperty("token").GetString().Should().Be($"{FakeForge.PushToken}-1");
+        forge.CredentialsMade.Should().Equal([("example/shop", false)], "an operation that is not about its pipeline gets a credential that cannot change a workflow");
+        var trail = factory.Services.GetRequiredService<Orchestrarr.Core.Approvals.IAuditLog>().Page(100).Select(row => $"{row.Entry.Event} {row.Entry.Detail}").ToList();
+        trail.Should().Contain(line => line.Contains("PushBranch", StringComparison.Ordinal) && line.Contains("not about its pipeline", StringComparison.Ordinal), "the credential and why it may or may not change a workflow are written down");
+        trail.Should().NotContain(line => line.Contains(FakeForge.PushToken, StringComparison.Ordinal));
+
+        // A renewal revokes the credential it replaces once the runner placed the new one, never before, and the end of the agent revokes the last one, on the forge itself
+        _ = await runner.PostAsync($"/api/v1/runner/missions/{staging}/acts/push-credential", null, Ct);
+        forge.Revoked.Should().BeEmpty("a runner that did not get the renewed credential keeps one that works");
+        (await runner.PostAsync($"/api/v1/runner/missions/{staging}/acts/push-credential/release?keepLatest=true", null, Ct)).EnsureSuccessStatusCode();
+        forge.Revoked.Should().Equal($"{FakeForge.PushToken}-1");
+        (await runner.PostAsync($"/api/v1/runner/missions/{staging}/acts/push-credential/release", null, Ct)).EnsureSuccessStatusCode();
+        forge.Revoked.Should().Equal($"{FakeForge.PushToken}-1", $"{FakeForge.PushToken}-2");
+    }
+
+    [Fact]
+    public async Task Engaging_the_global_stop_revokes_on_the_forge_the_push_credentials_that_are_still_valid()
+    {
+        var forge = new FakeForge();
+        using var factory = new WorldsFactory(forge);
+        _ = await StartChangeProblemAsync(factory);
+        using var runner = Runner(factory);
+        var staging = (await ClaimAsync(runner, "Staging")).GetProperty("missionId").GetString()!;
+        (await runner.PostAsync($"/api/v1/runner/missions/{staging}/started", null, Ct)).EnsureSuccessStatusCode();
+        _ = await runner.PostAsync($"/api/v1/runner/missions/{staging}/acts/push-credential", null, Ct);
+
+        _ = await factory.Services.GetRequiredService<IKillSwitchControl>().ChangeAsync(true, new AuditEntry(DateTimeOffset.UtcNow, AuditEvents.KillSwitchEngaged, "alice", null, null), Ct);
+        await factory.Services.GetServices<IHostedService>().OfType<MissionDriver>().Single().PassAsync(Ct);
+
+        forge.Revoked.Should().Equal([$"{FakeForge.PushToken}-1"], "deleting the file on the machine is not enough: an agent that copied it could push until it expires");
+        factory.Services.GetRequiredService<Orchestrarr.Core.Approvals.IAuditLog>().Page(100).Select(row => row.Entry.Detail ?? string.Empty).Should().Contain(detail => detail.Contains("revoked on the forge", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task No_push_credential_is_made_for_the_staging_of_a_pull_request_or_while_the_global_stop_is_engaged()
+    {
+        var forge = new FakeForge();
+        using var factory = new WorldsFactory(forge);
+        _ = await StartProblemAsync(factory);
+        using var runner = Runner(factory);
+        var pullRequest = (await ClaimAsync(runner, "Staging")).GetProperty("missionId").GetString()!;
+        (await runner.PostAsync($"/api/v1/runner/missions/{pullRequest}/started", null, Ct)).EnsureSuccessStatusCode();
+
+        (await runner.PostAsync($"/api/v1/runner/missions/{pullRequest}/acts/push-credential", null, Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound, "the staging of a pull request pushes nothing");
+
+        using var other = new WorldsFactory(forge);
+        _ = await StartChangeProblemAsync(other, "p-change");
+        using var changeRunner = Runner(other);
+        var change = (await ClaimAsync(changeRunner, "Staging")).GetProperty("missionId").GetString()!;
+        (await changeRunner.PostAsync($"/api/v1/runner/missions/{change}/started", null, Ct)).EnsureSuccessStatusCode();
+        _ = await other.Services.GetRequiredService<IKillSwitchControl>().ChangeAsync(true, new AuditEntry(DateTimeOffset.UtcNow, AuditEvents.KillSwitchEngaged, "alice", null, null), Ct);
+
+        var stopped = await (await changeRunner.PostAsync($"/api/v1/runner/missions/{change}/acts/push-credential", null, Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct);
+
+        stopped.GetProperty("allowed").GetBoolean().Should().BeFalse();
+        stopped.GetProperty("refusal").GetString().Should().Contain("stop");
+        stopped.GetProperty("token").ValueKind.Should().Be(JsonValueKind.Null);
+        forge.CredentialsMade.Should().BeEmpty("nothing is made when the act is not authorised");
+    }
+
+    [Fact]
+    public async Task A_push_credential_of_a_mission_that_no_longer_runs_is_revoked_at_the_next_pass_of_the_driver()
+    {
+        var forge = new FakeForge();
+        using var factory = new WorldsFactory(forge);
+        _ = await StartChangeProblemAsync(factory);
+        using var runner = Runner(factory);
+        var staging = (await ClaimAsync(runner, "Staging")).GetProperty("missionId").GetString()!;
+        (await runner.PostAsync($"/api/v1/runner/missions/{staging}/started", null, Ct)).EnsureSuccessStatusCode();
+        _ = await runner.PostAsync($"/api/v1/runner/missions/{staging}/acts/push-credential", null, Ct);
+        var driver = factory.Services.GetServices<IHostedService>().OfType<MissionDriver>().Single();
+        await driver.PassAsync(Ct);
+        forge.Revoked.Should().BeEmpty("the mission runs: its credential is the agent's");
+
+        // The runner hands over without saying that the agent is done: the mission no longer runs, and its credential goes with it
+        await HandOverBranchAsync(runner, staging, start: false);
+        await driver.PassAsync(Ct);
+
+        forge.Revoked.Should().Equal([$"{FakeForge.PushToken}-1"], "a credential never outlives its mission on the forge");
+    }
+
+    [Fact]
+    public async Task A_revocation_that_the_forge_did_not_confirm_is_tried_again_at_the_next_pass()
+    {
+        var forge = new FakeForge();
+        using var factory = new WorldsFactory(forge);
+        _ = await StartChangeProblemAsync(factory);
+        using var runner = Runner(factory);
+        var staging = (await ClaimAsync(runner, "Staging")).GetProperty("missionId").GetString()!;
+        (await runner.PostAsync($"/api/v1/runner/missions/{staging}/started", null, Ct)).EnsureSuccessStatusCode();
+        _ = await runner.PostAsync($"/api/v1/runner/missions/{staging}/acts/push-credential", null, Ct);
+        _ = await factory.Services.GetRequiredService<IKillSwitchControl>().ChangeAsync(true, new AuditEntry(DateTimeOffset.UtcNow, AuditEvents.KillSwitchEngaged, "alice", null, null), Ct);
+        var driver = factory.Services.GetServices<IHostedService>().OfType<MissionDriver>().Single();
+
+        forge.RevokeFails = true;
+        await driver.PassAsync(Ct);
+        forge.RevokeFails = false;
+        await driver.PassAsync(Ct);
+        await driver.PassAsync(Ct);
+
+        forge.Revoked.Should().Equal([$"{FakeForge.PushToken}-1", $"{FakeForge.PushToken}-1"], "a forge that was down is asked again, and a credential revoked once is not asked about again");
     }
 }

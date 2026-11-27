@@ -15,17 +15,15 @@ public static partial class RepairPolicy
 
     public static readonly IReadOnlyList<string> ProtectedPaths =
     [
-        // Dependencies: the change under repair is a bump, it is not the agent's to widen, pin or undo
-        "**/package.json", "**/package-lock.json", "**/yarn.lock", "**/pnpm-lock.yaml", "**/.npmrc", "**/requirements*.txt", "**/Pipfile*", "**/poetry.lock", "**/pyproject.toml", "**/setup.py", "**/setup.cfg",
-        "**/*.csproj", "**/Directory.Packages.props", "**/Directory.Build.*", "**/go.mod", "**/go.sum", "**/Cargo.toml", "**/Cargo.lock", "**/pom.xml", "**/*.gradle*", "**/Gemfile*", "**/composer.*",
+        // The dependencies are not among them (the maintainer, 2026-11-26, ADR 0055): a bump that needs a companion one (a library that requires a newer version of another) is repaired as a developer would, by raising it too
         // What decides whether it passes
         "test/**", "tests/**", "**/test/**", "**/tests/**", "**/__tests__/**", "**/*.test.*", "**/*.spec.*", "**/test_*.py", "**/*_test.py", "**/conftest.py", "**/pytest.ini", "**/tox.ini", "**/.mocharc*", "**/jest.config.*", "**/vitest.config.*",
         "**/.eslintrc*", "**/eslint.config.*", "**/tsconfig*.json", "**/Makefile",
-        // How it is built and released, and what instructs an agent
-        ".github/**", ".gitlab-ci.yml", "**/Dockerfile*", "**/.dockerignore", "**/docker-compose*", "**/compose.y*ml", ".git/**", "**/.git/**", "**/.claude/**", "**/CLAUDE.md", "**/CLAUDE.local.md", "**/.mcp.json", "**/.gitattributes", "**/.gitmodules",
+        // What instructs an agent and the repository's metadata (the pipelines and the container files are maintenance like the rest: the maintainer, 2026-11-26, ADR 0055)
+        ".git/**", "**/.git/**", "**/.claude/**", "**/CLAUDE.md", "**/CLAUDE.local.md", "**/.mcp.json", "**/.gitattributes", "**/.gitmodules",
         // The other ecosystems and forges: their tests, their pipelines, their runtimes and their package managers' settings. The list is a floor, not an inventory: a repair of a source that none of these names is still bounded by the limits and by the pipeline
-        "**/*_test.go", "**/*.Tests/**", "**/*.Test/**", "**/*Tests.cs", "**/*Test.cs", "**/*Test.java", "**/*Tests.java", "spec/**", "**/spec/**", "**/*_spec.rb", "**/__snapshots__/**", "**/Jenkinsfile*", ".circleci/**", "azure-pipelines*.yml", "**/.travis.yml", "**/bitbucket-pipelines.yml",
-        "**/.nvmrc", "**/.node-version", "**/.python-version", "**/.tool-versions", "**/.yarnrc*", "**/.pnpmfile.cjs", "**/pnpm-workspace.yaml", "**/pip.conf", "**/NuGet.config", "**/global.json", "**/dotnet-tools.json", "**/*.sln*", "**/Pipfile", "**/*.lock", "**/packages.lock.json",
+        "**/*_test.go", "**/*.Tests/**", "**/*.Test/**", "**/*Tests.cs", "**/*Test.cs", "**/*Test.java", "**/*Tests.java", "spec/**", "**/spec/**", "**/*_spec.rb", "**/__snapshots__/**",
+        "**/.nvmrc", "**/.node-version", "**/.python-version", "**/.tool-versions", "**/.yarnrc*", "**/.pnpmfile.cjs", "**/pnpm-workspace.yaml", "**/.npmrc", "**/pip.conf", "**/NuGet.config", "**/global.json", "**/dotnet-tools.json", "**/*.sln*",
         "**/jest.setup.*", "**/vitest.setup.*", "**/setupTests.*", "**/babel.config.*", "**/.babelrc*", "**/vite.config.*", "**/webpack.config.*", "**/rollup.config.*", "**/karma.conf.*", "**/playwright.config.*", "**/cypress/**", "**/e2e/**", "**/.husky/**", "**/.pre-commit-config.yaml", "**/*.snap", ".gitlab/**",
     ];
 
@@ -38,8 +36,14 @@ public static partial class RepairPolicy
     [GeneratedRegex(@"^[A-Za-z0-9_./@+-]+$", RegexOptions.None, 250)]
     private static partial Regex PlainPath();
 
-    /// <summary>Why a set of files cannot be a repair, or null when it can: how many, how big, where (the policy, and the paths that the frame of the mission forbids), and whether it is text.</summary>
-    public static string? Refusal(IReadOnlyList<PatchedFile> files, IEnumerable<string>? forbidden = null)
+    /// <summary>Whether the guards read this file line by line (a pipeline, a manifest or a container file): its text at the head that is repaired is worth reading, so that only what the repair adds is judged.</summary>
+    public static bool ReadsLines(string path) => PipelineChanges.IsPipeline(path) || DependencySources.Reads(path) || ChangePolicy.IsGenerated(path);
+
+    /// <summary>
+    /// Why a set of files cannot be a repair, or null when it can. <paramref name="before"/> holds the text of the files at the head that is repaired: no entry for a file that the head does not hold (it is new and judged whole), null for one
+    /// that could not be read (a pipeline is then refused, and the other guards judge the file whole), and its text otherwise (the guards then judge the lines that the repair adds).
+    /// </summary>
+    public static string? Refusal(IReadOnlyList<PatchedFile> files, IEnumerable<string>? forbidden = null, IReadOnlyDictionary<string, string?>? before = null)
     {
         ArgumentNullException.ThrowIfNull(files);
         if (files.Count is 0 or > MaxFiles)
@@ -73,7 +77,22 @@ public static partial class RepairPolicy
             }
             if (IsProtected(file.Path))
             {
-                return $"the path '{file.Path}' is protected: a repair does not change the tests, the dependencies, the build or the pipelines";
+                return $"the path '{file.Path}' is protected: a repair does not change the tests, the registries of the package managers or the instructions of the repository";
+            }
+            // A pipeline that the frame lets this operation change is never weakened by a repair (ADR 0055): read on the lines it adds to the file at the repaired head, or on the whole file
+            var added = Added(file, before);
+            if (PipelineChanges.IsPipeline(file.Path) && PipelineGuard(file, added, before) is { } weakened)
+            {
+                return weakened;
+            }
+            if ((DependencySources.Foreign(file.Path, added) ?? DependencySources.ScriptWeakening(file.Path, added)) is { } foreignDependency)
+            {
+                return foreignDependency;
+            }
+            // A lock file takes its packages from a registry too (the same rule as for a free agent's change)
+            if (ChangePolicy.IsGenerated(file.Path) && ChangePolicy.ForeignHost(file.Path, added) is { } host)
+            {
+                return $"the lock file '{file.Path}' points at {host}, which is not a registry that this policy knows";
             }
             var size = System.Text.Encoding.UTF8.GetByteCount(file.Content);
             total += size;
@@ -83,5 +102,51 @@ public static partial class RepairPolicy
             }
         }
         return null;
+    }
+
+    // The lines of the repaired file that the file at the repaired head does not hold (all of them when it is new or was not read)
+    private static string[] Added(PatchedFile file, IReadOnlyDictionary<string, string?>? before)
+    {
+        var lines = file.Content.Split('\n');
+        if (before is null || !before.TryGetValue(file.Path, out var old) || old is null)
+        {
+            return lines;
+        }
+        // Counted, not only compared: a line that the head holds once and the repair writes twice (a weakening copied into another job) is added once
+        var held = old.Split('\n').Select(line => line.TrimEnd('\r')).GroupBy(line => line, StringComparer.Ordinal).ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
+        var added = new List<string>();
+        foreach (var line in lines)
+        {
+            var key = line.TrimEnd('\r');
+            if (held.TryGetValue(key, out var count) && count > 0)
+            {
+                held[key] = count - 1;
+            }
+            else
+            {
+                added.Add(line);
+            }
+        }
+        return [.. added];
+    }
+
+    // A pipeline file against the file at the repaired head: a workflow read as YAML and compared, any other one on its lines; a file at the head that could not be read fails closed, and a new file has nothing to compare with
+    private static string? PipelineGuard(PatchedFile file, string[] added, IReadOnlyDictionary<string, string?>? before)
+    {
+        string? old = null;
+        if (before is not null && before.TryGetValue(file.Path, out var held))
+        {
+            if (held is null)
+            {
+                return $"the pipeline '{file.Path}' at the repaired head could not be read: what a repair takes out of it cannot be judged";
+            }
+            old = held;
+        }
+        if (WorkflowStructure.IsWorkflow(file.Path))
+        {
+            return PipelineChanges.Guard(file.Path, old, file.Content, added, []);
+        }
+        // Any other pipeline file: what the repair adds, and the steps of the whole file before and after it
+        return PipelineChanges.Weakening(file.Path, added) ?? (old is null ? null : PipelineChanges.Removal(file.Path, old.Split('\n'), file.Content.Split('\n')));
     }
 }

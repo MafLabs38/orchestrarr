@@ -8,7 +8,7 @@ namespace Orchestrarr.Host.Missions;
 /// conductor, which makes its own checks first and can refuse a grant that the controller gave. A controller that cannot answer is never a grant: the mission waits and is asked again later.
 /// </summary>
 internal sealed class MissionDriver(IMissionStore missions, IProblemStore problems, IDossierStore dossiers, IFactsSource facts, ControllerAgent controller, ProblemConductor conductor, MissionProgress progress, ILiveNotifier live, TimeProvider time,
-    ILogger<MissionDriver> logger) : BackgroundService
+    IServiceProvider services, ILogger<MissionDriver> logger) : BackgroundService
 {
     private static readonly TimeSpan Interval = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan Retry = TimeSpan.FromSeconds(45);
@@ -39,6 +39,11 @@ internal sealed class MissionDriver(IMissionStore missions, IProblemStore proble
 
     internal async Task PassAsync(CancellationToken cancellationToken)
     {
+        // A push credential outlives neither its mission nor the stop (ADR 0057)
+        if (services.GetService<PushCredentialLedger>() is { } ledger)
+        {
+            await ledger.SweepAsync(cancellationToken);
+        }
         foreach (var mission in missions.Recent(100).Where(candidate => candidate.State == MissionState.HandingOver))
         {
             if (_askedAt.TryGetValue(mission.Id, out var at) && time.GetUtcNow() - at < Retry)
@@ -93,13 +98,18 @@ internal sealed class MissionDriver(IMissionStore missions, IProblemStore proble
     {
         var why = refusal == MissionEvidence.RefusedConflict
             ? "the pull request conflicts with its base branch: it needs a new pull request (the bot rebases its own), and the work goes on with the next problem"
-            : "the pull request moved since the maintainer approved it: it is validated again on the commit it is now at, and the work goes on with the next problem";
+            : "the pull request moved since the maintainer approved it: a bot's goes back in the line on the commit it is now at, anyone else's waits for a new validation, and the work goes on with the next problem";
         progress.Add(mission.Id, $"the runner refused before building: {why}");
         var result = await conductor.EndRefusedAsync(mission.Id, why, cancellationToken);
         progress.Add(mission.Id, result.Ok || result.Moved ? $"the conductor ended the problem: {result.Mission?.World} {result.Mission?.State}" : $"the conductor refused: {result.Refusal}");
         if (result.Ok || result.Moved)
         {
             _askedAt.Remove(mission.Id);
+            // A bot's pull request that was made again while it was proved goes back in the line on its new head (ADR 0055); anyone else's stays ended
+            if (services.GetService<ProblemStarter>() is { } starter)
+            {
+                await starter.RequeueAfterRefusalAsync(mission.ProblemId, cancellationToken);
+            }
         }
         live.Publish(LiveTopics.Missions, mission.Id);
     }
