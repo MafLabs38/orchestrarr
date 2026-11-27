@@ -127,4 +127,8 @@ public sealed class WorkflowStructureTests
         var huge = $"on: push\njobs:\n  t:\n    runs-on: x\n    strategy:\n      matrix:\n{axes}\n    steps:\n      - run: make";
         Judge(huge, huge).Should().BeNull("the same matrix, whatever its size, is not a narrowing");
     }
+
+    [Fact]
+    public void A_workflow_whose_base_does_not_read_is_refused_rather_than_compared_with_nothing() =>
+        Judge(Base, "on: push\na: &a [x]\nb: *a\njobs: {}").Should().Contain("cannot be told");
 }

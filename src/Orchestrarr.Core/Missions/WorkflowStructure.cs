@@ -42,7 +42,20 @@ public static class WorkflowStructure
         {
             return $"the pipeline '{path}' does not read as a workflow: what cannot be read cannot be judged";
         }
-        var previous = (before is null ? null : Read(before)) ?? Workflow.Empty;
+        // A workflow before the change that does not read is not compared as an empty one (that would let anything be taken out of it): the change is refused, and a person reads it
+        Workflow previous;
+        if (before is null)
+        {
+            previous = Workflow.Empty;
+        }
+        else if (Read(before) is { } read)
+        {
+            previous = read;
+        }
+        else
+        {
+            return $"the change weakens the pipeline '{path}': it cannot be told, since the workflow before the change does not read here (an alias, or a size or a depth that no workflow has)";
+        }
         var reason = NewDangerousTrigger(previous, next) ?? LostTrigger(previous, next) ?? NewShell(previous, next) ?? Widened(previous.Permissions, next.Permissions, "the workflow");
         foreach (var (name, job) in next.Jobs)
         {
