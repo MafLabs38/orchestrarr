@@ -65,7 +65,12 @@ public static partial class ChangePolicy
             }
             if (IsProtected(file.Path))
             {
-                return $"the path '{file.Path}' is protected: a change never carries the pipelines, the files that hold a secret or the files that instruct an agent";
+                return $"the path '{file.Path}' is protected: a change never carries the files that hold a secret, the files that instruct an agent or where the dependencies come from";
+            }
+            // A pipeline that the frame lets this operation change is never weakened by it (ADR 0055): read on the lines that the change adds
+            if (PipelineChanges.IsPipeline(file.Path) && PipelineChanges.Weakening(file.Path, AddedLines(file.Patch)) is { } weakened)
+            {
+                return weakened;
             }
             if (!CarriedStatuses.Contains(file.Status, StringComparer.Ordinal))
             {
@@ -120,6 +125,9 @@ public static partial class ChangePolicy
     }
 
     // The changed lines of a patch (those that start with a plus or a minus), as the controller reads them
+    private static IEnumerable<string> AddedLines(string? patch) =>
+        (patch ?? string.Empty).Split('\n').Where(line => line.StartsWith('+') && !line.StartsWith("+++", StringComparison.Ordinal)).Select(line => line[1..]);
+
     private static string LineText(string? patch) =>
         patch is null ? string.Empty : string.Join('\n', patch.Split('\n').Where(line => line.StartsWith('+') || line.StartsWith('-')).Select(line => line.TrimEnd('\r')));
 

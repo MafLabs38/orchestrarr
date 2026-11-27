@@ -217,7 +217,7 @@ public static class DecisionTable
         {
             if (rows[index].Nature == ProblemNature.Other)
             {
-                rows[index] = rows[index] with { Nature = ProblemNatures.OfKind(rows[index].Kind) };
+                rows[index] = rows[index] with { Nature = ProblemNatures.OfRow(rows[index]) };
             }
         }
     }

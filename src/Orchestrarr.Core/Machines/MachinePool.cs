@@ -123,14 +123,16 @@ public sealed class MachinePool(IMachineStore store, TimeProvider time, MachineO
     public const string AutomaticRequalification = "automatic requalification after a fault";
 
     /// <summary>
-    /// A machine that went Down is qualified again by itself after <paramref name="after"/>, at most <paramref name="perHour"/> times an hour (ADR 0055): a passing fault (a route that did not answer for a minute) does not stop the
+    /// A machine that went Down is qualified again by itself after <paramref name="after"/>, at most <paramref name="perHour"/> times an hour, unless a check of <paramref name="never"/> is why it went down (ADR 0055): a passing fault (a route that did not answer for a minute) does not stop the
     /// flow until a person comes, and a machine that keeps failing stays Down for a person. The qualification is the whole one (restore and every check): it only puts back a machine that passes.
     /// </summary>
-    public IReadOnlyList<Machine> RequalifyAfterFault(TimeSpan after, int perHour)
+    public IReadOnlyList<Machine> RequalifyAfterFault(TimeSpan after, int perHour, IReadOnlyList<string>? never = null)
     {
         var now = time.GetUtcNow();
         var asked = new List<Machine>();
-        foreach (var machine in store.All().Where(machine => machine.State == MachineState.Down && now - machine.Since >= after))
+        // A machine that went down because one of these checks failed (an isolation that does not hold) stays down for a person: what ran on it may have to be looked at before a restore wipes it
+        bool KeptForAPerson(Machine machine) => machine.Reason is { } reason && (never ?? []).Any(check => reason.Contains($"{check}:", StringComparison.OrdinalIgnoreCase));
+        foreach (var machine in store.All().Where(machine => machine.State == MachineState.Down && now - machine.Since >= after && !KeptForAPerson(machine)))
         {
             var tries = store.Transitions(machine.Id, now.AddHours(-1)).Count(transition => transition.To == MachineState.Qualifying && transition.Reason?.StartsWith(AutomaticRequalification, StringComparison.Ordinal) == true);
             if (tries < perHour && BeginQualification(machine.Id, $"{AutomaticRequalification} ({machine.Reason})") is { Ok: true, Machine: { } qualifying })

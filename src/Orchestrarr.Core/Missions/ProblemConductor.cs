@@ -451,7 +451,7 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
 
     // The frame of a mission: the repositories of the plan entry, and the forbidden paths of the settings **and** of the certificate (the floor of the authority), written once
     private MissionFrame FrameFor(ProblemRun run, string place) =>
-        new(run.Entry.Repositories, [.. options.ForbiddenPaths.Union(run.Approval.Certificate.ForbiddenPaths, StringComparer.Ordinal)], place);
+        new(run.Entry.Repositories, [.. options.ForbiddenPaths.Union(run.Approval.Certificate.ForbiddenPaths, StringComparer.Ordinal).Union(PipelineChanges.ForbiddenFor(run.Entry), StringComparer.Ordinal)], place);
 
     // **Not cancellable**: it runs where the state has already moved (the mission before is accepted or ended and its mandate revoked), so a cancellation here would leave a problem with no mission to follow; the token is
     // read before the first write, never after.

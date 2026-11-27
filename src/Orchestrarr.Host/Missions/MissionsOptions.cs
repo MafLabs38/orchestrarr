@@ -18,13 +18,16 @@ public sealed class MissionsOptions
     /// <summary>The lab machines (ADR 0047): each has a state kept by the control plane, a role, and the one runner that may take it. With none, no mission is tied to a machine.</summary>
     public MachineSetting[] Machines { get; set; } = [];
 
-    /// <summary>How long a lease lives without a sign of life of its runner. Generous: a long troubleshooting is normal; only a runner that has disappeared must not keep a machine for ever.</summary>
-    /// <summary>A machine that went Down is qualified again by itself after this many minutes (ADR 0055).</summary>
+    /// <summary>A machine that went Down for a reason that a restore repairs (not a failed isolation: see <see cref="MachineRequalifyNever"/>) is qualified again by itself after this many minutes, never while the global stop is engaged (ADR 0055).</summary>
     public int MachineRequalifyMinutes { get; set; } = 5;
 
     /// <summary>At most this many automatic qualifications of one machine an hour; then it stays Down for a person. 0: never by itself.</summary>
     public int MachineRequalifyPerHour { get; set; } = 3;
 
+    /// <summary>The checks of a qualification whose failure keeps a machine Down for a person, never qualified again by itself: an isolation that does not hold may mean that something ran on it that must be looked at before it is restored.</summary>
+    public string[] MachineRequalifyNever { get; set; } = ["isolation"];
+
+    /// <summary>How long a lease lives without a sign of life of its runner. Generous: a long troubleshooting is normal; only a runner that has disappeared must not keep a machine for ever.</summary>
     public int MachineLeaseMinutes { get; set; } = (int)MachineOptions.Default.LeaseTimeout.TotalMinutes;
 
     public int MandateMinutes { get; set; } = (int)ConductorOptions.Default.MandateLifetime.TotalMinutes;
@@ -70,7 +73,6 @@ public sealed class MissionsOptions
     /// </summary>
     public string? SandboxFindingsFile { get; set; }
 
-    /// <summary>The paths no mission may touch, whatever its repository (pipelines, secrets). Unset: the pipelines of the forge, the encrypted files and the environment files.</summary>
     /// <summary>
     /// The accounts whose pull requests a bot makes and rebases by itself (ADR 0055): only for those is the bot asked to rebase a pull request that is behind or in conflict, and only those are followed when the bot made the pull
     /// request again. Anyone else's pull request that moved is left to be ticked again. A deployment names its bots; the test bed adds the account of the lab, which plays one.
@@ -80,8 +82,17 @@ public sealed class MissionsOptions
     /// <summary>How long a problem waits for its bot to rebase its pull request before it is put aside (ADR 0055).</summary>
     public int BotRebaseWaitMinutes { get; set; } = 30;
 
-    /// <summary>How many times the bot is asked to rebase one pull request.</summary>
+    /// <summary>How many times the bot is asked to rebase one pull request in one wait.</summary>
     public int BotRebaseRequests { get; set; } = 2;
+
+    /// <summary>How many times, in all, the bot of one pull request is asked to rebase it (each wait after another operation of its lot moved the base may ask again, never past this).</summary>
+    public int BotRebaseRequestsInAll { get; set; } = 4;
+
+    /// <summary>
+    /// The command that asks each bot to rebase its pull request, by the account that made the pull request (ADR 0055): written as a comment on the pull request. A bot that has none here (Renovate rebases from a box of its
+    /// pull request, not a comment) is not waited for: its pull request is put aside at once with the reason.
+    /// </summary>
+    public Dictionary<string, string> BotRebaseCommands { get; set; } = new(StringComparer.OrdinalIgnoreCase) { ["dependabot[bot]"] = "@dependabot rebase" };
 
     /// <summary>The forge works out the merge state of a pull request when it is asked, after a merge moved the base: an unknown state is read again, up to three times, after this many seconds.</summary>
     public int BotRebaseUnknownWaitSeconds { get; set; } = 3;
@@ -89,6 +100,7 @@ public sealed class MissionsOptions
     /// <summary>How often the forge is read again for a problem that waits for its bot to rebase its pull request.</summary>
     public int BotRebaseRecheckSeconds { get; set; } = 30;
 
+    /// <summary>The paths no mission may touch, whatever its repository, beyond the floor (the review owners, the dependency bot's configuration, the encrypted and environment files). Unset: the floor alone. The pipelines are forbidden by the frame of each operation that is not about them (ADR 0055).</summary>
     public string[]? ForbiddenPaths { get; set; }
 
     /// <summary>The public key of the approval authority (ADR 0031 point 7), a file in SubjectPublicKeyInfo form. Unset: no certificate is ever valid, so no real mandate is issued.</summary>

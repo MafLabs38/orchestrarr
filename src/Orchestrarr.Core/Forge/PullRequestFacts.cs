@@ -20,7 +20,8 @@ public sealed record PullRequestFacts(
     string? Author = null,
     MergeState Merge = MergeState.Unknown,
     bool Closed = false,
-    int? BehindBy = null)
+    int? BehindBy = null,
+    IReadOnlyList<string>? CommitAuthors = null)
 {
     /// <summary>Whether the pull request targets the default branch of its repository: the only base that staging proves a merge onto. Unknown counts as not.</summary>
     public bool TargetsDefaultBranch => BaseRef is not null && string.Equals(BaseRef, DefaultBranch, StringComparison.Ordinal);
@@ -39,7 +40,8 @@ public sealed class NoPullRequestFacts : IPullRequestFacts
 }
 
 /// <summary>What the forge answered to a merge: done, with the commit it made on the base branch, or why not.</summary>
-public sealed record MergeResult(bool Merged, string? Commit, string? Error);
+/// <summary>What a merge asked of the forge came to. <c>ChecksPending</c>: the forge refused only because a check that its rules require has not reported yet, a wait and not a refusal (each provider knows how its forge says it).</summary>
+public sealed record MergeResult(bool Merged, string? Commit, string? Error, bool ChecksPending = false);
 
 /// <summary>
 /// **The act of merging**, performed by the control plane's gateway and by nobody else, after the conductor authorised it on this exact head. The forge is told the head that was authorised and refuses if the branch moved since

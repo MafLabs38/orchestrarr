@@ -73,6 +73,11 @@ public static partial class RepairPolicy
             {
                 return $"the path '{file.Path}' is protected: a repair does not change the tests, the registries of the package managers or the instructions of the repository";
             }
+            // A pipeline that the frame lets this operation change is never weakened by a repair (ADR 0055); a repair carries whole files, so the whole file is read
+            if (PipelineChanges.IsPipeline(file.Path) && PipelineChanges.Weakening(file.Path, file.Content.Split('\n')) is { } weakened)
+            {
+                return weakened;
+            }
             var size = System.Text.Encoding.UTF8.GetByteCount(file.Content);
             total += size;
             if (size > MaxFileBytes || total > MaxTotalBytes || file.Content.Contains('\0', StringComparison.Ordinal))

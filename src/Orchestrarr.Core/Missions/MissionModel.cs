@@ -1,10 +1,14 @@
 namespace Orchestrarr.Core.Missions;
 
-/// <summary>The paths that no mission may touch whatever the settings say: the files that decide who must review (<c>CODEOWNERS</c>), the submodule list that CI checks out, the encrypted files and the environment files. **The pipelines are not among them** (the maintainer, 2026-11-26, ADR 0055): changing a pipeline is maintenance like any other, and an agent does it as a developer would. One list, for the conductor's options and for the authority's floor.</summary>
+/// <summary>
+/// The paths that no mission may touch whatever the settings say: the files that decide who must review (<c>CODEOWNERS</c>), the submodule list that CI checks out, where the dependency bot fetches from (its registries are what
+/// <c>.npmrc</c> is to a package manager), the encrypted files and the environment files. **The pipelines are not in the floor** (the maintainer, 2026-11-26, ADR 0055): an operation whose object is the pipeline may change it, under the
+/// guard of <see cref="PipelineChanges"/>; every other operation has them in the frame of its missions (<see cref="PipelineChanges.ForbiddenFor"/>). One list, for the conductor's options and for the authority's floor.
+/// </summary>
 public static class ForbiddenPathsDefaults
 {
     public static IReadOnlyList<string> Floor { get; } =
-    ["CODEOWNERS", "docs/CODEOWNERS", ".github/CODEOWNERS", ".gitmodules", "**/*.enc.*", "**/.env*"];
+    ["CODEOWNERS", "docs/CODEOWNERS", ".github/CODEOWNERS", ".github/dependabot.yml", ".github/dependabot.yaml", ".gitmodules", "**/*.enc.*", "**/.env*"];
 }
 
 /// <summary>The rule that a problem is on exactly one repository (D-95, ADR 0041), under one name: the authority, the verifier and the conductor all make this same check.</summary>

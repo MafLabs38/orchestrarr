@@ -72,7 +72,8 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefault
             {
                 // The forge works out the merge state of a pull request lazily, a while after the base moved; how many commits of the base the head lacks is known at once
                 var behind = baseRef is null ? null : await BehindByAsync(repositoryFullName, baseRef, head, cancellationToken);
-                return new PullRequestFacts(head, baseSha, draft, checks, paths, complete, BaseRef: baseRef, DefaultBranch: defaultBranch, Author: author, Merge: mergeState, Closed: closed, BehindBy: behind);
+                return new PullRequestFacts(head, baseSha, draft, checks, paths, complete, BaseRef: baseRef, DefaultBranch: defaultBranch, Author: author, Merge: mergeState, Closed: closed, BehindBy: behind,
+                    CommitAuthors: await CommitAuthorsAsync(repositoryFullName, number, cancellationToken));
             }
             // Once it is merged, what runs is the commit that the merge made on the base branch: its tree and the checks of its pipeline are the facts of the later worlds
             return new PullRequestFacts(head, baseSha, draft, checks, paths, complete, Merged: true, mergeCommit, await TreeOfAsync(repositoryFullName, mergeCommit, cancellationToken), await ChecksOfAsync(repositoryFullName, mergeCommit, [], cancellationToken), baseRef, defaultBranch);
@@ -129,8 +130,9 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefault
             var failing = new List<string>();
             foreach (var run in list.EnumerateArray())
             {
+                // Only the runs of the repository itself on its branch (a fork's pull request from a branch of the same name is someone else's text), and only the events that run the default branch
                 if (!run.TryGetProperty("path", out var pathValue) || pathValue.GetString() is not { Length: > 0 } path || path.StartsWith("dynamic/", StringComparison.Ordinal)
-                    || run.GetProperty("status").GetString() != "completed" || !seen.Add(path))
+                    || !OwnRun(run, repositoryFullName) || run.GetProperty("status").GetString() != "completed" || !seen.Add(path))
                 {
                     continue;
                 }
@@ -224,6 +226,13 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefault
             return 0;
         }
     }
+
+    private static readonly string[] BranchEvents = ["push", "workflow_dispatch", "schedule"];
+
+    private static bool OwnRun(JsonElement run, string repository) =>
+        run.TryGetProperty("event", out var trigger) && BranchEvents.Contains(trigger.GetString(), StringComparer.Ordinal)
+        && run.TryGetProperty("head_repository", out var head) && head.ValueKind == JsonValueKind.Object && head.TryGetProperty("full_name", out var name)
+        && string.Equals(name.GetString(), repository, StringComparison.OrdinalIgnoreCase);
 
     // One line of plain text, bounded: what the forge says is data for an agent, never a fence or a page
     private static string Plain(string value)
@@ -401,6 +410,17 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefault
             long? suite = run.TryGetProperty("check_suite", out var owner) && owner.ValueKind == JsonValueKind.Object && owner.TryGetProperty("id", out var id) && id.TryGetInt64(out var number) ? number : null;
             return new CheckRunRead(run.TryGetProperty("name", out var name) ? name.GetString() : null, completed, green, suite);
         }
+    }
+
+    // Who wrote each commit of the pull request, as the forge links it to an account (an empty name for a commit that no account is linked to); null when they cannot all be read
+    private async Task<IReadOnlyList<string>?> CommitAuthorsAsync(string repository, int number, CancellationToken cancellationToken)
+    {
+        using var commits = await GetAsync($"repos/{repository}/pulls/{number}/commits?per_page=100", cancellationToken);
+        if (commits is null || commits.RootElement.ValueKind != JsonValueKind.Array || commits.RootElement.GetArrayLength() >= 100)
+        {
+            return null;
+        }
+        return [.. commits.RootElement.EnumerateArray().Select(commit => commit.TryGetProperty("author", out var author) && author.ValueKind == JsonValueKind.Object && author.TryGetProperty("login", out var login) ? login.GetString() ?? string.Empty : string.Empty)];
     }
 
     private async Task<int?> BehindByAsync(string repositoryFullName, string baseRef, string head, CancellationToken cancellationToken)

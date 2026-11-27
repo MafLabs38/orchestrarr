@@ -37,6 +37,12 @@ public sealed class MissionWorldsApiTests
         /// <summary>Who made the pull requests, and what the forge says of their merge (behind, in conflict...).</summary>
         public string? Author { get; set; }
 
+        /// <summary>Who wrote each commit of the pull request; null: every commit is its author's.</summary>
+        public IReadOnlyList<string>? CommitAuthors { get; set; }
+
+        /// <summary>The commands that the bots were asked to rebase with, by pull request.</summary>
+        public List<(int Number, string Command)> RebaseCommands { get; } = [];
+
         public MergeState PullMerge { get; set; } = MergeState.Unknown;
 
         /// <summary>The pull requests that the starter asked a bot to rebase.</summary>
@@ -45,6 +51,7 @@ public sealed class MissionWorldsApiTests
         public Task<bool> RequestBotRebaseAsync(string repositoryFullName, int number, string command, CancellationToken cancellationToken)
         {
             RebaseAsked.Add(number);
+            RebaseCommands.Add((number, command));
             return Task.FromResult(true);
         }
 
@@ -87,7 +94,7 @@ public sealed class MissionWorldsApiTests
         public string BaseRef { get; set; } = "main";
 
         public Task<PullRequestFacts?> ReadAsync(string repositoryFullName, int number, CancellationToken cancellationToken) =>
-            Task.FromResult<PullRequestFacts?>(new PullRequestFacts(Opened.Count > 0 && number == RepairNumber ? PullHead : Head, "base", false, Opened.Count > 0 && number == RepairNumber ? ChecksState.Passing : HeadChecks, ["package.json"], PathsComplete: true, Merged, Merged ? MergeCommit : null, Merged ? TreeOfTheMerge : null, Merged ? MergeChecks : ChecksState.Unknown, BaseRef: BaseRef, DefaultBranch: "main", Author: Author, Merge: PullMerge, Closed: Closed.Contains(number)));
+            Task.FromResult<PullRequestFacts?>(new PullRequestFacts(Opened.Count > 0 && number == RepairNumber ? PullHead : Head, "base", false, Opened.Count > 0 && number == RepairNumber ? ChecksState.Passing : HeadChecks, ["package.json"], PathsComplete: true, Merged, Merged ? MergeCommit : null, Merged ? TreeOfTheMerge : null, Merged ? MergeChecks : ChecksState.Unknown, BaseRef: BaseRef, DefaultBranch: "main", Author: Author, Merge: PullMerge, Closed: Closed.Contains(number), CommitAuthors: CommitAuthors ?? (Author is null ? null : [Author])));
 
         public Task<DefaultBranchHead?> ReadAsync(string repositoryFullName, CancellationToken cancellationToken) =>
             Task.FromResult<DefaultBranchHead?>(DefaultReadable ? new DefaultBranchHead("main", DefaultHead) : null);
@@ -398,8 +405,10 @@ public sealed class MissionWorldsApiTests
         using var factory = new WorldsFactory(forge);
         var starter = factory.Services.GetRequiredService<ProblemStarter>();
         _ = await starter.StartOrQueueAsync(Prepared("p-bot", 7, "example/shop"), Ct);
-        // parked 31 minutes ago and last read 25 minutes ago: its lot was busy in between, so it was not read and its bot was not asked again
-        factory.Services.GetRequiredService<ProblemParking>().Set("p-bot", new ParkedProblem(DateTimeOffset.UtcNow - TimeSpan.FromMinutes(31), 1, DateTimeOffset.UtcNow - TimeSpan.FromMinutes(25), DateTimeOffset.UtcNow - TimeSpan.FromMinutes(31), "it conflicts with its base branch"));
+        // parked 31 minutes ago, past its wait: but another operation of its lot held the lot meanwhile, so its bot's clock did not run
+        var parking = factory.Services.GetRequiredService<ProblemParking>();
+        parking.Set("p-bot", new ParkedProblem(DateTimeOffset.UtcNow - TimeSpan.FromMinutes(31), 2, DateTimeOffset.UtcNow - TimeSpan.FromMinutes(31), DateTimeOffset.UtcNow - TimeSpan.FromMinutes(31), "it conflicts with its base branch", AllRequests: 2));
+        parking.LotBusy("p-bot");
 
         await starter.StartReadyAsync(Ct);
 
@@ -407,6 +416,7 @@ public sealed class MissionWorldsApiTests
         var parked = factory.Services.GetRequiredService<ProblemParking>().Get("p-bot")!;
         parked.Since.Should().BeAfter(DateTimeOffset.UtcNow - TimeSpan.FromMinutes(1));
         parked.Requests.Should().Be(1, "the bot is asked again at once, on the base as it is now");
+        parked.AllRequests.Should().Be(3, "the requests are counted over the whole life of the problem");
     }
 
     [Fact]
@@ -451,6 +461,20 @@ public sealed class MissionWorldsApiTests
 
         answer.MissionId.Should().NotBeNull(answer.Refusal);
         factory.Services.GetRequiredService<IProblemStore>().Get("p-again")!.Entry.HeadSha.Should().Be(Head, "the work follows the head that the bot made");
+    }
+
+    [Fact]
+    public async Task A_bots_branch_that_someone_else_pushed_to_is_not_followed_and_is_ticked_again()
+    {
+        var forge = new FakeForge { Author = "dependabot[bot]", CommitAuthors = ["dependabot[bot]", "orchestrarr-agent"] };
+        using var factory = new WorldsFactory(forge);
+        var starter = factory.Services.GetRequiredService<ProblemStarter>();
+        var again = Prepared("p-pushed", 7, "example/shop");
+
+        var answer = await starter.StartOrQueueAsync(again with { Entry = again.Entry! with { HeadSha = "0000000000000000000000000000000000000001" } }, Ct);
+
+        answer.Refusal.Should().Be("thePullRequestMoved", "the author of the pull request stays the bot whoever pushes to its branch: a head with someone else's commit is not the bot's");
+        factory.Services.GetRequiredService<IProblemStore>().Get("p-pushed").Should().BeNull();
     }
 
     private static PreparedProblem NoPullRequest(string problemId, params string[] repositories) =>

@@ -9,8 +9,8 @@ public sealed class ProblemQueueTests
     private static QueuedProblem Problem(string id, string repository, int minutes = 0) =>
         new($"row-{id}", new PlanEntry(id, "app", "dependency-update", "x", [repository], World.Release, new MissionBudget(30, 3, 50), new Validation("alice", null), T0, 1, "abc"), T0.AddMinutes(minutes));
 
-    private static QueuedProblem OfKind(string id, string repository, string kind, int minutes) =>
-        new($"row-{id}", new PlanEntry(id, "app", "x", "x", [repository], World.Release, new MissionBudget(30, 3, 50), new Validation("alice", null), T0, null, null, new ProblemBrief(kind, repository, "d", true)), T0.AddMinutes(minutes));
+    private static QueuedProblem OfKind(string id, string repository, string kind, int minutes, string? nature = null) =>
+        new($"row-{id}", new PlanEntry(id, "app", "x", "x", [repository], World.Release, new MissionBudget(30, 3, 50), new Validation("alice", null), T0, null, null, new ProblemBrief(kind, repository, "d", true, Nature: nature)), T0.AddMinutes(minutes));
 
     [Fact]
     public void A_repository_goes_through_its_route_whatever_the_order_of_the_ticks()
@@ -18,16 +18,20 @@ public sealed class ProblemQueueTests
         var line = new ProblemQueue();
         line.Enqueue(OfKind("bump", "o/one", "DependencyUpdate", 0));
         line.Enqueue(OfKind("alert", "o/one", "DependencyAlert", 1));
-        line.Enqueue(OfKind("image", "o/one", "ImageUpdate", 2));
+        line.Enqueue(OfKind("image", "o/one", "ImageUpdate", 2, "BaseImageUpdate"));
         line.Enqueue(OfKind("tag", "o/one", "FloatingImage", 3));
+        line.Enqueue(OfKind("sidecar", "o/one", "ImageUpdate", 4, "ImageBehind"));
+        line.Enqueue(OfKind("docker-bump", "o/one", "DependencyUpdate", 5, "BaseImageUpdate"));
+        line.Enqueue(OfKind("red", "o/one", "FailingCi", 6));
         var order = new List<string>();
 
-        for (var turn = 0; turn < 4; turn++)
+        for (var turn = 0; turn < 7; turn++)
         {
             order.AddRange(line.TakeReady(_ => false).Select(problem => problem.Entry.ProblemId));
         }
 
-        order.Should().Equal("image", "alert", "bump", "tag");
+        // A red pipeline first, then the base image (whoever raises it), the alerts, the updates, and the rest (an image that is not a base, a moving tag)
+        order.Should().Equal("red", "image", "docker-bump", "alert", "bump", "tag", "sidecar");
     }
 
     [Fact]

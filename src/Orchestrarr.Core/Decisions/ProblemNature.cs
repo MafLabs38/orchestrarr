@@ -59,7 +59,16 @@ public static class ProblemNatures
         return parts.Length > 2 && parts[^1].StartsWith("multi-", StringComparison.Ordinal) ? ProblemNature.LibrariesUpdate : ProblemNature.LibraryUpdate;
     }
 
-    /// <summary>The nature of a row that is not a bot's pull request: what its kind says.</summary>
+    /// <summary>The nature of a row that is not a bot's pull request: what its kind says, and for an image, whether it is written in a <c>FROM</c> of a Dockerfile (the base image, whose runtime the application runs on).</summary>
+    public static ProblemNature OfRow(ProblemRow row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+        return row.Kind == ProblemKind.ImageUpdate && row.Locations is { } places && places.Any(place => place.Form == Infrastructure.VersionForm.DockerfileFrom)
+            ? ProblemNature.BaseImageUpdate
+            : OfKind(row.Kind);
+    }
+
+    /// <summary>The nature of a row that is not a bot's pull request, from its kind alone.</summary>
     public static ProblemNature OfKind(ProblemKind kind) => kind switch
     {
         ProblemKind.DependencyAlert => ProblemNature.SecurityAlert,

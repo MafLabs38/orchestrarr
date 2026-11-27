@@ -59,7 +59,7 @@ public sealed partial class GitHubForgeActs : IForgeActs
                 return new MergeResult(true, commit, null);
             }
             var message = body?.RootElement.TryGetProperty("message", out var text) == true ? text.GetString() : null;
-            return new MergeResult(false, null, $"{(int)response.StatusCode}: {message ?? "the forge refused the merge"}");
+            return new MergeResult(false, null, $"{(int)response.StatusCode}: {message ?? "the forge refused the merge"}", ChecksNotOverYet(message));
         }
         catch (Exception failure) when (failure is HttpRequestException or TaskCanceledException or JsonException)
         {
@@ -258,4 +258,9 @@ public sealed partial class GitHubForgeActs : IForgeActs
             return null;
         }
     }
+
+    // What GitHub says when a check that the rules of the branch require has not reported yet: "Required status check \"build\" is queued" (or in progress, or expected, or pending)
+    internal static bool ChecksNotOverYet(string? message) =>
+        message is not null && message.Contains("Required status check", StringComparison.OrdinalIgnoreCase)
+        && (message.Contains("is queued", StringComparison.OrdinalIgnoreCase) || message.Contains("is in progress", StringComparison.OrdinalIgnoreCase) || message.Contains("is expected", StringComparison.OrdinalIgnoreCase) || message.Contains("is pending", StringComparison.OrdinalIgnoreCase));
 }

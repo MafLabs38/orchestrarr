@@ -284,6 +284,7 @@ internal static class SandboxMissionsExtensions
         return services
             .AddSingleton<SandboxApprovals>()
             .AddSingleton<RepairRegistry>()
+            .AddSingleton<BotPullRequests>()
             .AddSingleton<ProblemStarter>()
             .AddSingleton<IApprovalSource>(provider => provider.GetRequiredService<SandboxApprovals>())
             .AddSingleton(provider => provider.GetRequiredService<SandboxApprovals>().Verifier)

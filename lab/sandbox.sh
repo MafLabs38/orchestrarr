@@ -57,8 +57,11 @@ clone() {
   echo "$dir"
 }
 
-# The identity of the lab's own commits
-lab_commit() { git -C "$1" -c user.name="lab" -c user.email="lab@users.noreply.github.com" commit -q -m "$2"; }
+# The identity of the lab's own commits: the account of its token, under the forge's no-reply address, so that the forge links each commit to the account that opens the pull request (a bot's new head is followed only when every
+# commit of the pull request is its author's own, ADR 0055)
+LAB_ACCOUNT="${LAB_ACCOUNT:-$(gh api user --jq '.login' 2>/dev/null)}"
+LAB_EMAIL="${LAB_EMAIL:-$(gh api user --jq '"\(.id)+\(.login)@users.noreply.github.com"' 2>/dev/null)}"
+lab_commit() { git -C "$1" -c user.name="${LAB_ACCOUNT:-lab}" -c user.email="${LAB_EMAIL:-lab@users.noreply.github.com}" commit -q -m "$2"; }
 
 # The seed of a repository is pinned in lab/seeds.json (repository -> commit): the tag of the remote is only where the commit is fetched from.
 # A moved tag, or a repository that is not pinned, is no seed: nothing is restored or planted there. A seed marked "red" has red pipelines as its fault (pipeline-scenarios): its restore is not held

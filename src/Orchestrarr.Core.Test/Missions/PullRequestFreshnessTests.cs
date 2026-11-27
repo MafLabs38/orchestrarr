@@ -12,10 +12,30 @@ public sealed class PullRequestFreshnessTests
     private static PlanEntry Entry(int? pullRequest = 7) =>
         new("p", "app", "x", "x", ["o/r"], World.Release, new MissionBudget(30, 3, 50), new Validation("alice", null), T0, pullRequest, Ticked);
 
-    private static PullRequestFacts Facts(string head = Ticked, string? author = "dependabot[bot]", MergeState merge = MergeState.Clean, bool merged = false, bool closed = false, int? behindBy = null) =>
-        new(head, "base", false, ChecksState.Passing, ["package.json"], true, Merged: merged, Author: author, Merge: merge, Closed: closed, BehindBy: behindBy);
+    private static PullRequestFacts Facts(string head = Ticked, string? author = "dependabot[bot]", MergeState merge = MergeState.Clean, bool merged = false, bool closed = false, int? behindBy = null, IReadOnlyList<string>? commits = null) =>
+        new(head, "base", false, ChecksState.Passing, ["package.json"], true, Merged: merged, Author: author, Merge: merge, Closed: closed, BehindBy: behindBy, CommitAuthors: commits ?? (author is null ? null : [author]));
 
     private static bool IsBot(string? login) => login == "dependabot[bot]";
+
+    [Theory]
+    [InlineData("orchestrarr-agent")]
+    [InlineData("")]
+    public void A_new_head_with_a_commit_that_is_not_the_bots_own_is_left_to_be_ticked_again(string other)
+    {
+        var verdict = PullRequestFreshness.Of(Entry(), Facts(head: "new", commits: ["dependabot[bot]", other]), IsBot);
+
+        verdict.Kind.Should().Be(Freshness.Left, "the author of a pull request stays the bot whoever pushes to its branch: only the bot's own commits are followed");
+        verdict.Reason.Should().Contain("someone other than its bot");
+    }
+
+    [Fact]
+    public void A_new_head_whose_commits_cannot_be_read_is_not_followed()
+    {
+        var facts = Facts(head: "new") with { CommitAuthors = null };
+
+        PullRequestFreshness.Of(Entry(), facts, IsBot).Kind.Should().Be(Freshness.Left);
+        PullRequestFreshness.IsTheBotsOwn(facts with { CommitAuthors = [] }).Should().BeFalse();
+    }
 
     [Fact]
     public void A_pull_request_as_it_was_ticked_and_clean_is_ready()

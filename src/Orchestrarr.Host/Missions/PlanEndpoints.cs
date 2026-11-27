@@ -75,7 +75,7 @@ internal static class PlanEndpoints
             // A row is asked once, at most Agents:LeadMaxRows rows are asked in one selection, and the global stop is read again before each question: every question is a run of the subscription
             // The rows are taken **in the order of the route** (ADR 0055: the runtime, then the alerts, then the updates), not in the order of the ticks, and a problem **starts as soon as its own plan is ready**: the machines
             // do not wait for the lead to have thought about every row of the selection (a plan is a minute of the subscription, and a hundred rows would keep them idle for an hour). The planning goes on behind it
-            var rows = (request.Rows ?? []).DistinctBy(row => row.Id, StringComparer.Ordinal).OrderBy(chosen => chosen.Id is { } rowId && table.TryGetValue(rowId, out var known) ? RouteRank.Of(known.Kind.ToString()) : int.MaxValue).ToList();
+            var rows = (request.Rows ?? []).DistinctBy(row => row.Id, StringComparer.Ordinal).OrderBy(chosen => chosen.Id is { } rowId && table.TryGetValue(rowId, out var known) ? RouteRank.Of(known.Kind, known.Nature) : int.MaxValue).ToList();
             var planning = rows.Select((chosen, index) => PrepareAsync(chosen, table, approver.Subject, lead, new ProblemSources(findings, pipelines), conductor, audit, stop, NotAsked(index, agents.LeadMaxRows), time, ct)).ToList();
             // One work site at a time on a repository: the first problem of a free repository starts, the others wait for their turn (ProblemQueue). The plans of a lot are placed in the order of its route, and the lots
             // go side by side: a plan that is slow to come holds its own lot only, never the machines of the others
