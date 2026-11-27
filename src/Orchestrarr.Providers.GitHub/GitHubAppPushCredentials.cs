@@ -133,7 +133,9 @@ public sealed partial class GitHubAppPushCredentials : IPushCredentials, IDispos
                 return false;
             }
             using var rules = await SendAsync(HttpMethod.Get, $"repos/{repository}/rules/branches/{Uri.EscapeDataString(guarded)}", token, null, cancellationToken);
-            if (rules?.RootElement is not { ValueKind: JsonValueKind.Array } list || !list.EnumerateArray().Any(rule => rule.TryGetProperty("type", out var type) && type.GetString() == "update"))
+            // Updates and deletions are two rules of the forge: both must hold, or the token could merge into the branch or delete it
+            var types = rules?.RootElement is { ValueKind: JsonValueKind.Array } list ? list.EnumerateArray().Select(rule => rule.TryGetProperty("type", out var type) ? type.GetString() : null).ToHashSet(StringComparer.Ordinal) : [];
+            if (!types.Contains("update") || !types.Contains("deletion"))
             {
                 return false;
             }

@@ -16,6 +16,9 @@ public static class WorkflowStructure
     // The conditions under which a step or a job still runs whenever the ones before it passed
     private static readonly string[] AlwaysRuns = ["success()", "always()", "!cancelled()"];
 
+    // A workflow is a few hundred lines: far more than that is not read
+    private const int MaxEvents = 20_000;
+
     private static readonly string[] NeverRuns = ["false", "0", "''", "\"\"", "null"];
 
     // The shells the forge knows: any other value is a template of its own, which can make every step pass
@@ -147,6 +150,16 @@ public static class WorkflowStructure
     {
         try
         {
+            // An alias makes the graph share nodes, and a few lines of them can make a walk of it explode: a workflow that uses one is not read here (a person reads it)
+            var events = new YamlDotNet.Core.Parser(new StringReader(text));
+            var count = 0;
+            while (events.MoveNext())
+            {
+                if (events.Current is YamlDotNet.Core.Events.AnchorAlias || ++count > MaxEvents)
+                {
+                    return null;
+                }
+            }
             var stream = new YamlStream();
             stream.Load(new StringReader(text));
             if (stream.Documents.Count == 0 || stream.Documents[0].RootNode is not YamlMappingNode root)

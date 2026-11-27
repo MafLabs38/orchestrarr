@@ -202,11 +202,25 @@ public sealed partial class ChangeProof(IShell shell, MissionRunnerOptions optio
     private async Task RenewAsync(ClaimedMission mission, string machine, DateTimeOffset expiresAt, List<string> issued, Func<string, Task> report, CancellationToken cancellationToken)
     {
         var wait = RenewalDelay(expiresAt, _time.GetUtcNow(), options.Repair.FreeCredentialRenewMinutes);
+        (string Token, DateTimeOffset ExpiresAt)? unplaced = null;
         try
         {
             while (true)
             {
                 await Task.Delay(wait, _time, cancellationToken);
+                // A renewed credential that could not be placed is placed again, not asked for again: asking again would make one more live credential each time
+                if (unplaced is { } again)
+                {
+                    if ((await PlaceAsync(machine, again.Token, cancellationToken)).ExitCode != 0)
+                    {
+                        wait = TimeSpan.FromMinutes(1);
+                        continue;
+                    }
+                    unplaced = null;
+                    await ReleaseEarlierAsync(mission, report, cancellationToken);
+                    wait = RenewalDelay(again.ExpiresAt, _time.GetUtcNow(), options.Repair.FreeCredentialRenewMinutes);
+                    continue;
+                }
                 PushCredentialResponse renewed;
                 try
                 {
@@ -233,29 +247,32 @@ public sealed partial class ChangeProof(IShell shell, MissionRunnerOptions optio
                 issued.Add(next);
                 if ((await PlaceAsync(machine, next, cancellationToken)).ExitCode != 0)
                 {
-                    // The one in place still works until it expires: it is not revoked, and the next try is a minute later, not on the expiry of the one that was not placed
+                    // The one in place still works until it expires: it is not revoked, and the same renewed one is placed again a minute later
                     await report("The renewed push credential could not be placed on the machine");
+                    unplaced = (next, nextExpiry);
                     wait = TimeSpan.FromMinutes(1);
                     continue;
                 }
-                else
-                {
-                    // Placed: the ones it replaces are revoked on the forge
-                    try
-                    {
-                        await credentials.ReleasePushCredentialAsync(mission.MissionId, keepLatest: true, cancellationToken);
-                    }
-                    catch (Exception failure) when (failure is HttpRequestException || failure is TaskCanceledException && !cancellationToken.IsCancellationRequested)
-                    {
-                        await report("The control plane could not be told that the renewed credential is placed: the earlier one is revoked when the mission ends, or expires within the hour");
-                    }
-                }
+                // Placed: the ones it replaces are revoked on the forge
+                await ReleaseEarlierAsync(mission, report, cancellationToken);
                 wait = RenewalDelay(nextExpiry, _time.GetUtcNow(), options.Repair.FreeCredentialRenewMinutes);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             // The agent finished: nothing more is asked for
+        }
+    }
+
+    private async Task ReleaseEarlierAsync(ClaimedMission mission, Func<string, Task> report, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await credentials.ReleasePushCredentialAsync(mission.MissionId, keepLatest: true, cancellationToken);
+        }
+        catch (Exception failure) when (failure is HttpRequestException || failure is TaskCanceledException && !cancellationToken.IsCancellationRequested)
+        {
+            await report("The control plane could not be told that the renewed credential is placed: the earlier one is revoked when the mission ends, or expires within the hour");
         }
     }
 

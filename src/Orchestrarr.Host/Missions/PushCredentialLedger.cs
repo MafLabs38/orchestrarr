@@ -9,7 +9,7 @@ namespace Orchestrarr.Host.Missions;
 /// pass of the driver when the stop is engaged or the mission no longer runs. Deleting the file on the machine is not enough: an agent that copied it could still push until it expires. A restart of the control plane forgets them: they
 /// then expire within the hour.
 /// </summary>
-internal sealed class PushCredentialLedger(IPushCredentials credentials, IMissionStore missions, IStopSignal stop, ProblemConductor conductor, ILogger<PushCredentialLedger> logger)
+internal sealed class PushCredentialLedger(IPushCredentials credentials, IMissionStore missions, IStopSignal stop, ProblemConductor conductor, TimeProvider time, ILogger<PushCredentialLedger> logger)
 {
     private readonly Lock _gate = new();
 
@@ -18,11 +18,15 @@ internal sealed class PushCredentialLedger(IPushCredentials credentials, IMissio
     // The credentials whose revocation already failed once and was said: a forge that stays down is tried at each pass, and said once
     private readonly HashSet<string> _toldFailed = new(StringComparer.Ordinal);
 
+    // When each credential expires on the forge: one that has expired is dropped, never tried again
+    private readonly Dictionary<string, DateTimeOffset> _expires = new(StringComparer.Ordinal);
+
     /// <summary>A new credential of the mission, kept to be revoked in its turn; the earlier ones stay valid until the runner says that it placed this one.</summary>
-    public void Issued(string missionId, string token)
+    public void Issued(string missionId, string token, DateTimeOffset expiresAt)
     {
         lock (_gate)
         {
+            _expires[token] = expiresAt;
             if (_live.TryGetValue(missionId, out var held))
             {
                 held.Add(token);
@@ -71,6 +75,21 @@ internal sealed class PushCredentialLedger(IPushCredentials credentials, IMissio
         List<string> ids;
         lock (_gate)
         {
+            // What has expired on the forge can push no more: it is forgotten, whatever its revocation said
+            var now = time.GetUtcNow();
+            foreach (var (id, held) in _live.ToList())
+            {
+                foreach (var token in held.Where(token => _expires.TryGetValue(token, out var at) && at <= now).ToList())
+                {
+                    _ = held.Remove(token);
+                    _ = _expires.Remove(token);
+                    _ = _toldFailed.Remove(token);
+                }
+                if (held.Count == 0)
+                {
+                    _ = _live.Remove(id);
+                }
+            }
             ids = [.. _live.Keys];
         }
         foreach (var id in ids)

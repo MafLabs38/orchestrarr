@@ -99,7 +99,7 @@ internal static class MissionActEndpoints
             }
             var said = $"push credential for {repository} ({string.Join(", ", issued.Permissions)}) until {issued.ExpiresAt:u}: {grant.Justification}";
             // Kept before anything else can fail, so that whatever happens next it is revoked on the forge (and tried again if the forge does not confirm)
-            ledger?.Issued(id, issued.Token);
+            ledger?.Issued(id, issued.Token, issued.ExpiresAt);
             if (!await conductor.RecordActPerformedAsync(id, GatedAct.PushBranch, said, ct))
             {
                 // A credential whose making cannot be written down is not handed out, and is revoked at once

@@ -109,4 +109,12 @@ public sealed class WorkflowStructureTests
         const string Filtered = "on:\n  push:\n    paths: [src/**]\njobs:\n  t:\n    runs-on: x\n    steps:\n      - run: make\n        shell: bash";
         Judge(Filtered.Replace("run: make", "run: make test", StringComparison.Ordinal), Filtered).Should().BeNull();
     }
+
+    [Fact]
+    public void A_workflow_that_uses_yaml_aliases_is_not_read_and_the_change_is_refused()
+    {
+        var bomb = "on: push\na: &a [x, x, x, x, x, x, x, x, x]\nb: &b [*a, *a, *a, *a, *a, *a, *a, *a, *a]\nc: &c [*b, *b, *b, *b, *b, *b, *b, *b, *b]\nd: [*c, *c, *c, *c, *c, *c, *c, *c, *c]\njobs: {}";
+
+        Judge(bomb).Should().Contain("does not read as a workflow", "an alias is refused before its graph is walked");
+    }
 }

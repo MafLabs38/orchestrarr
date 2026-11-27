@@ -33,9 +33,9 @@ public sealed class GitHubAppPushCredentialsTests : IDisposable
                 "/repos/example/shop/installation" => """{ "id": 4242 }""",
                 "/app/installations/4242/access_tokens" when granted is not null => $$"""{ "token": "ghs_the_token", "expires_at": "2026-11-27T10:00:00Z", "permissions": {{granted}} }""",
                 "/repos/example/shop" => """{ "default_branch": "develop" }""",
-                "/repos/example/shop/rules/branches/develop" => guarded ? """[ { "type": "pull_request" }, { "type": "update" } ]""" : """[ { "type": "pull_request" } ]""",
+                "/repos/example/shop/rules/branches/develop" => guarded ? """[ { "type": "pull_request" }, { "type": "update" }, { "type": "deletion" } ]""" : """[ { "type": "pull_request" }, { "type": "deletion" } ]""",
                 "/repos/example/shop/branches/main" when mainExists => """{ "name": "main" }""",
-                "/repos/example/shop/rules/branches/main" => mainGuarded ? """[ { "type": "update" } ]""" : "[]",
+                "/repos/example/shop/rules/branches/main" => mainGuarded ? """[ { "type": "update" }, { "type": "deletion" } ]""" : """[ { "type": "update" } ]""",
                 "/installation/token" => "{}",
                 _ => null,
             };
