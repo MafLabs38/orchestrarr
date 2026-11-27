@@ -137,6 +137,16 @@ public sealed class GitHubPullRequestFactsTests
         facts.MergeTree.Should().Be(Tree);
         facts.MergeChecks.Should().Be(ChecksState.Failing);
         facts.Checks.Should().Be(ChecksState.Passing, "the checks of the head are the head's");
+        facts.BaseWasRed.Should().BeNull("a base that cannot be read is not known to have been green: the merge is not blamed for a red it may not have made");
+
+        const string Parent = "5555555555555555555555555555555555555555";
+        _routes[$"/repos/example/app/commits/{MergeSha}"] = $$"""{ "parents": [ { "sha": "{{Parent}}" } ] }""";
+        _routes[$"/repos/example/app/commits/{Parent}/check-runs"] = """{ "check_runs": [ { "status": "completed", "conclusion": "success" } ] }""";
+        (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!.BaseWasRed.Should().BeFalse("the base was read green: the merge turned it red");
+        _routes[$"/repos/example/app/commits/{Parent}/check-runs"] = """{ "check_runs": [ { "status": "completed", "conclusion": "failure" } ] }""";
+        (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!.BaseWasRed.Should().BeTrue();
+        _routes[$"/repos/example/app/commits/{Parent}/check-runs"] = """{ "check_runs": [ { "status": "in_progress", "conclusion": null } ] }""";
+        (await Facts().ReadAsync("example/app", 3, TestContext.Current.CancellationToken))!.BaseWasRed.Should().BeNull("a pipeline of the base that is not over says nothing yet");
     }
 
     [Fact]

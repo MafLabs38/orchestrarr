@@ -1,0 +1,41 @@
+# 0057 — The control plane justifies the powers on a pipeline, and checks what is done with them
+
+- **Status**: proposed (accepted when the pull request that carries it is merged)
+- **Date**: 2026-11-27
+- **Spec**: D-111 ([SPEC.md](../SPEC.md)), FR-WLD-7 ([FUNCTIONAL.md](../FUNCTIONAL.md)). Amends [ADR 0048](0048-a-problem-with-no-pull-request-is-solved-by-a-free-agent-in-staging.md) (the free agent's push token), [ADR 0035](0035-the-frame-is-enforced-by-the-environment.md) (an agent identity without the `workflows` permission) and [ADR 0055](0055-the-flow-is-a-fab-lots-routes-machines-and-rules-that-keep-it-moving.md) (the pipelines in the frame, the fix forward, following a bot's head).
+
+## Context
+
+The review of the pull request that carries ADR 0055 left four serious points, which the maintainer read in the chat of 2026-11-27 and decided to fix, not to decline (*"les quatre points sont légitimes et on va les corriger … par la supervision"*):
+
+1. **The free agent's one push token held the `workflows` permission for every operation.** A workflow that it pushes runs on the forge as soon as it is pushed, before the control plane reads the commit and refuses it: an agent steered by text it read (a README, an advisory) could make one run. *"Il ne faut pas qu'il ait une permission workflow, il faut qu'il ait une permission workflow qui soit justifiée, donc que le control plane justifie."*
+2. **A repository with nothing the runner builds is proved only by its pipeline**, and an operation about the pipeline modifies the judge with the change. The checks of the code (`PipelineChanges`) refuse what is known to weaken a pipeline, but they read patterns, not intent. *"Si tu donnes des droits de toucher au [pipeline], il faut que l'agent … ait une justification … un double contrôle par control plane."*
+3. **Following a bot's new head trusted a signature that another account can obtain**: a commit made through the forge's API by any account with write access is signed by the forge (`web-flow`) and can name the bot as its author. *"Il faudrait que ça soit pas possible."*
+4. **A merge that turned the integration branch red was fixed forward once**, the bound being found by comparing an end reason. *"Il ne devrait pas y avoir de règle une seule relance … à la limite il faut mettre un blocage, mais … c'est au control plane de décider si c'est judicieux."*
+
+## Decision
+
+1. **The free agent holds no standing credential. The control plane makes one for each mission** and the runner only relays it. The act gateway authorises a new act, `PushBranch` (the one act of the staging world, listed only for a problem with no pull request), with the power read now (mandate, certificate, grant, global stop), then has the forge make **an installation token of a GitHub App, for the mission's one repository, valid an hour at most**, with `contents: write` and **`workflows: write` only when the control plane justifies it** (`PushGrants`): the operation is about its pipeline as the control plane read the row (`PipelineChanges.MayChange`) **and** the frame of the mission, which falls inside the approval the maintainer signed, leaves the pipeline files open. Otherwise the token cannot change a workflow: **the forge itself refuses the push**, before any of it runs. What the forge granted is read back; a token that may do more or less than was asked is not handed out. The grant and its reason are written to the audit trail before the token is given, never the token. The runner asks again before it expires; a refusal then (the stop, a withdrawn approval, an expired mandate) takes the credential away from the machine, and the agent can no longer push.
+2. **A change to a pipeline file is justified by the agent, then checked by the controller.** The agent writes, for each pipeline file it changed, what failed and why each change is needed (`/out/pipeline-changes.md` in its container; the runner hands it over with the branch). The control plane does not keep a branch that touches a pipeline file without that justification (`PipelineChanges.Unjustified`), and the controller, the second control, is given the pipeline files that the change touches, the justification as untrusted data and, when the repository has nothing the runner builds, the fact that the pipeline it modifies is the only proof: it grants only if every change to a pipeline file is needed by the problem and none makes a check pass that would fail without it, sends back what is not justified, and escalates when the pipeline is the only proof and it cannot tell from the lines that it still checks what it checked before. The checks of the code (`PipelineChanges`, `DependencySources`) stay the floor under that judgement.
+3. **A bot's new head is followed only when the forge recorded the bot as the one that pushed it.** The account that pushed is read from the activity log of the repository (a push is made by a signed-in account, and no commit can claim it), and every commit must still be linked to that account. The signature is no longer read, and `Missions:BotUnsignedAuthors` is removed: a test bed's lab bot is followed because it pushes its own branches.
+4. **A red integration branch is fixed forward as many times as it is worth it.** The problem counts its fixes forward (`ProblemRun.FixesForward`); fix *n* is told that the *n − 1* before it did not hold; the controller grants only a fix that says why the last one did not hold and does something else, and escalates one that repeats an earlier attempt, a failure outside the repository or a loop that does not converge; the bound of the loop (`Missions:MaxFixesForwardPerProblem`, 3) is the block above that judgement.
+
+## As built
+
+- `IPushCredentials` (Core) and `GitHubAppPushCredentials` (the GitHub provider: an RS256 assertion signed with the App's key, the installation of the repository, `POST /app/installations/{id}/access_tokens` with one repository and the permissions asked, the permissions read back). On the test bed, `Missions:SandboxAgentAppClientId` and `Missions:SandboxAgentAppKeyFile`, wrapped so that a credential is made only for a repository of `Missions:SandboxMergeRepositories`.
+- The act gateway's route `POST /api/v1/runner/missions/{id}/acts/push-credential`; `GatedAct.PushBranch = 7`; `WorldActs.Of(world, entry)`.
+- The runner of missions (`ChangeProof`): it asks for the credential before it starts the agent (no credential, no agent), places it where git's helper reads it at each push, renews it every `MissionRunner:Repair:FreeCredentialRenewMinutes` (40) and at the latest five minutes before it expires, removes it when the agent is done or the control plane refuses, and scrubs every credential it was given from what it hands over. `FreeGitTokenFile` is removed.
+- Checked on the forge on 2026-11-27, on the test bed's App: a token made without `workflows` is refused by the forge on a push that changes a workflow (*"refusing to allow a GitHub App to create or update workflow … without `workflows` permission"*); the activity log records `dependabot[bot]` as the account that force-pushed its branch.
+
+## What this does not do
+
+- The gateway's own token (`Missions:SandboxMergeToken`), which merges and opens pull requests, is not made per mission yet; it never runs an agent's code, and moving it to the App is the next step when a need comes.
+- The justification is a text the controller reads; it is not a proof. The controller can be wrong, and the floor of the checks of the code is still what refuses the known ways to weaken a pipeline.
+- A deployment has none of this: Orchestrarr still holds no write power outside the development test bed.
+
+## Consequences
+
+- No credential that can run a workflow exists outside an operation about its pipeline, and none lives longer than an hour or outside the mission it was made for.
+- The maintainer creates the App once per test bed (its private key is a secret of the host); the runner needs no token of its own.
+- A pipeline change costs the agent a few sentences, and the controller one more rule; an unexplained one comes back to the agent instead of reaching the forge's pipeline.
+- Following a bot reads one more page of the forge per pull request read (the activity log of its branch).

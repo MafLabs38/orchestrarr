@@ -75,7 +75,7 @@ public sealed class ProblemConductorTests : IDisposable
         /// <summary>Whether the source reads the pull request as merged (the Git world after the merge).</summary>
         public bool? Merged { get; set; }
 
-        public bool? BaseWasRed { get; set; }
+        public bool? BaseWasRed { get; set; } = false;
 
         /// <summary>What the forge says the head is; null: the head is the commit that was asked about.</summary>
         public string? HeadCommit { get; set; }
@@ -1062,6 +1062,19 @@ public sealed class ProblemConductorTests : IDisposable
         result.Failures.Should().Contain(PreconditionFailure.IntegrationBranchRedBeforeMerge);
         _restarts.Problems.Should().BeEmpty();
         _problems.Get("problem-1")!.State.Should().Be(ProblemState.Escalated, "no mission of this problem can make the branch green: it does not go round until its loop ends");
+    }
+
+    [Fact]
+    public async Task A_merge_whose_base_could_not_be_read_green_is_not_fixed_forward_and_goes_to_a_person()
+    {
+        var (conductor, git) = await MergedInGit(ciGreen: false);
+        _facts.BaseWasRed = null;
+
+        var result = await conductor.DecideAsync(git.Id, new ControllerDecision(ControllerDecisionKind.End, ["red"], null), Ct);
+
+        result.Failures.Should().NotContain(PreconditionFailure.IntegrationBranchRedAfterMerge, "an unknown fact never leads to an act");
+        _restarts.Problems.Should().BeEmpty("no agent is started to fix a red that the merge may not have made");
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.Escalated);
     }
 
     [Fact]

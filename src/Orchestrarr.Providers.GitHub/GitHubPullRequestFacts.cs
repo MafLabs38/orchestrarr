@@ -80,9 +80,14 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefault
             }
             // Once it is merged, what runs is the commit that the merge made on the base branch: its tree and the checks of its pipeline are the facts of the later worlds
             var mergeChecks = await ChecksOfAsync(repositoryFullName, mergeCommit, [], cancellationToken, ownWorkflowsOnly: true);
-            // A merge commit that is red turned the branch red only if the base before it was not red already (a push-only job that fails on every commit is not the merge's doing)
-            var baseWasRed = mergeChecks == ChecksState.Failing && await FirstParentAsync(repositoryFullName, mergeCommit, cancellationToken) is { } parent
-                && await ChecksOfAsync(repositoryFullName, parent, [], cancellationToken, ownWorkflowsOnly: true) == ChecksState.Failing;
+            // A merge commit that is red turned the branch red only if the base before it was green (a push-only job that fails on every commit is not the merge's doing). A base that cannot be read, or whose pipeline is not over
+            // or never ran, is not known: null, and the merge is not blamed for a red it may not have made
+            bool? baseWasRed = false;
+            if (mergeChecks == ChecksState.Failing)
+            {
+                var before = await FirstParentAsync(repositoryFullName, mergeCommit, cancellationToken) is { } parent ? await ChecksOfAsync(repositoryFullName, parent, [], cancellationToken, ownWorkflowsOnly: true) : ChecksState.Unknown;
+                baseWasRed = before switch { ChecksState.Failing => true, ChecksState.Passing => false, _ => null };
+            }
             return new PullRequestFacts(head, baseSha, draft, checks, paths, complete, Merged: true, mergeCommit, await TreeOfAsync(repositoryFullName, mergeCommit, cancellationToken), mergeChecks, baseRef, defaultBranch, BaseWasRed: baseWasRed);
             // The checks of the commit that the merge made are those that ran on it (a push), not the checks that the rules require of a pull request, which may run on pull requests only
         }
