@@ -67,6 +67,23 @@ function fileOnForge(repo, filePath) {
 }
 
 // "1.2.10" is above "1.2.9": the numbers are compared one by one, a missing one counts as zero
+// "greenPipelines": every workflow of the repository that ran on its base branch since the run began ended green on its latest run (they are waited for while they run)
+function checkGreenPipelines(repo) {
+  const base = scenario.base ?? 'develop';
+  let latest = new Map();
+  for (let attempt = 0; attempt < 60; attempt++) {
+    const runs = JSON.parse(execFileSync('gh', ['run', 'list', '-R', `${org}/${repo}`, '--branch', base, '--limit', '50', '--json', 'workflowName,status,conclusion,createdAt,event'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }));
+    latest = new Map();
+    for (const run of runs.filter((candidate) => Date.parse(candidate.createdAt) >= runStart && candidate.event !== 'dynamic')) {
+      if (!latest.has(run.workflowName)) latest.set(run.workflowName, run);
+    }
+    if (latest.size > 0 && [...latest.values()].every((run) => run.status === 'completed')) break;
+    execFileSync('sleep', ['10']);
+  }
+  const red = [...latest.values()].filter((run) => run.status !== 'completed' || run.conclusion !== 'success').map((run) => `${run.workflowName} ${run.conclusion || run.status}`);
+  expect(latest.size > 0 && red.length === 0, `the pipelines of ${repo} are green on its base (${latest.size} workflow(s)${red.length ? `; red: ${red.join(', ')}` : ''})`);
+}
+
 const versionAtLeast = (found, wanted) => {
   const numbers = (text) => String(text).replace(/^[^\d]*/, '').split(/[.\-+]/).map((part) => Number.parseInt(part, 10) || 0);
   const [a, b] = [numbers(found), numbers(wanted)];
@@ -184,9 +201,11 @@ async function tickAndValidate(page, ticks) {
 // Follows the missions this validation created until the expected pull requests are in their final state and released, or one ends
 // "lastWorld": the world where the chain ends when the application is not deployed by the product (a compose stack is merged, not deployed): Git; the release world by default
 // "endsWithoutDone": how many missions may end without being done in this round (a problem that the control plane ends at once, such as a pull request that conflicts with its base)
+// "ends": "escalated": the round ends well when its problem is escalated to a person (the agent cannot solve it): nothing goes on, and what it merged is what the round expects (nothing, by default)
 async function followMissions(page, known, round = scenario) {
   await page.getByRole('link', { name: UI.missions }).click();
   const begin = Date.now();
+  const escalates = round.ends === 'escalated';
   const wanted = round.expect?.pullRequests ?? [];
   const mayEnd = round.endsWithoutDone ?? 0;
   const lastWorld = round.lastWorld ?? 'Release';
@@ -196,6 +215,13 @@ async function followMissions(page, known, round = scenario) {
     mine = (await missionsOf(page)).filter((m) => !known.has(m.id));
     const labels = mine.map((m) => `${m.world} ${m.state}${m.end ? ` (${m.end})` : ''}`).join(' | ');
     if (labels !== last) { console.log(`[${Math.round((Date.now() - begin) / 1000)}s] ${labels}`); last = labels; }
+    if (escalates) {
+      const ours = (await apiList(page, '/api/v1/flow')).filter((problem) => Date.parse(problem.startedAt) >= runStart);
+      if (ours.length > 0 && ours.every((problem) => problem.state === 'escalated') && mine.every((m) => m.state === 'Ended' || m.state === 'Accepted')) { outcome = 'escalated'; break; }
+      if (ours.some((problem) => problem.state === 'closed')) { outcome = 'closed although it should escalate'; break; }
+      await page.waitForTimeout(5000);
+      continue;
+    }
     if (mine.filter((m) => m.state === 'Ended' && m.end !== 'Done').length > mayEnd) { outcome = 'ended badly'; break; }
     // done when what the round expects is on the forge and no mission is still going: each is ended or accepted (a problem that waits in line has no mission yet, but what it merges is expected)
     const finished = mine.every((m) => m.state === 'Ended' || m.state === 'Accepted');
@@ -203,6 +229,10 @@ async function followMissions(page, known, round = scenario) {
     await page.waitForTimeout(5000);
   }
   followed = mine;
+  if (escalates) {
+    expect(outcome === 'escalated', `the problem was escalated to a person, nothing going on (${outcome}; last: ${last || 'nothing'})`);
+    return;
+  }
   expect(outcome === 'released', `the chain went from staging to the ${lastWorld.toLowerCase()} (${outcome}; last: ${last || 'nothing'})`);
   if (outcome !== 'released') for (const m of mine) console.log(`${m.world} ${m.state}: end=${m.end ?? ''} ${m.endReason ?? ''}`);
 }
@@ -268,6 +298,7 @@ async function followMissions(page, known, round = scenario) {
       expect(state === want.state, `${want.repo} ${want.title ?? want.branch} is ${want.state} (is ${state})`);
     }
     for (const want of scenario.expect?.files ?? []) checkFile(want);
+    for (const repo of scenario.expect?.greenPipelines ?? []) checkGreenPipelines(repo);
     // What the missions of this run said along the way (the lead's marks, the controller's decisions), as the Missions screen shows it
     if ((scenario.expect?.progress ?? []).length > 0) {
       const lines = [];
