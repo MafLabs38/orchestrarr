@@ -15,7 +15,8 @@ internal sealed class BotPullRequests(IServiceProvider services, MissionsOptions
     private const int UnknownReads = 3;
 
     // What the forge says of the pull request now, against what was ticked. A problem with no pull request, or a forge that does not answer, is ready as it was
-    internal async Task<FreshnessVerdict> JudgeAsync(PlanEntry entry, CancellationToken cancellationToken)
+    // waitForMergeState: at validation, an unknown merge state is asked again after a short wait; in the passes over the line it is not (a pass holds the repository's gate, and the next pass reads it again)
+    internal async Task<FreshnessVerdict> JudgeAsync(PlanEntry entry, CancellationToken cancellationToken, bool waitForMergeState = true)
     {
         if (entry.PullRequest is not { } number || entry.Repositories.Count != 1 || services.GetService<IPullRequestFacts>() is not { } facts)
         {
@@ -23,7 +24,7 @@ internal sealed class BotPullRequests(IServiceProvider services, MissionsOptions
         }
         var read = await facts.ReadAsync(entry.Repositories[0], number, cancellationToken);
         // The forge works out whether a pull request still merges when it is asked, a moment after a merge moved the base: an unknown state is asked again before it is taken for a clean one
-        for (var attempt = 0; attempt < UnknownReads && read is { Merged: false, Merge: MergeState.Unknown }; attempt++)
+        for (var attempt = 0; waitForMergeState && attempt < UnknownReads && read is { Merged: false, Merge: MergeState.Unknown }; attempt++)
         {
             await Task.Delay(TimeSpan.FromSeconds(Math.Max(0, options.BotRebaseUnknownWaitSeconds)), time, cancellationToken);
             read = await facts.ReadAsync(entry.Repositories[0], number, cancellationToken);

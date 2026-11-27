@@ -153,7 +153,7 @@ internal sealed class ProblemStarter(IServiceProvider services, MissionsOptions 
             {
                 continue;
             }
-            if (await bots.ApplyInLineAsync(entry, await bots.JudgeAsync(entry, cancellationToken), cancellationToken))
+            if (await bots.ApplyInLineAsync(entry, await bots.JudgeAsync(entry, cancellationToken, waitForMergeState: false), cancellationToken))
             {
                 return;
             }
