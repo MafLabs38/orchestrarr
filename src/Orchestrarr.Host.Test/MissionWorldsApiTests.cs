@@ -43,13 +43,16 @@ public sealed class MissionWorldsApiTests
             return Task.FromResult<PushCredential?>(new PushCredential($"{PushToken}-{CredentialsMade.Count}", DateTimeOffset.UtcNow.AddHours(1), pipelines ? ["contents:write", "workflows:write"] : ["contents:write"]));
         }
 
+        /// <summary>Whether the forge fails to revoke (down, a time-out): every try is still recorded.</summary>
+        public bool RevokeFails { get; set; }
+
         public Task<bool> RevokeAsync(string token, CancellationToken cancellationToken)
         {
             lock (Revoked)
             {
                 Revoked.Add(token);
             }
-            return Task.FromResult(true);
+            return Task.FromResult(!RevokeFails);
         }
 
         /// <summary>Where the branch of the agent is on the forge now (null: there is none).</summary>
@@ -1350,5 +1353,27 @@ public sealed class MissionWorldsApiTests
         await driver.PassAsync(Ct);
 
         forge.Revoked.Should().Equal([$"{FakeForge.PushToken}-1"], "a credential never outlives its mission on the forge");
+    }
+
+    [Fact]
+    public async Task A_revocation_that_the_forge_did_not_confirm_is_tried_again_at_the_next_pass()
+    {
+        var forge = new FakeForge();
+        using var factory = new WorldsFactory(forge);
+        _ = await StartChangeProblemAsync(factory);
+        using var runner = Runner(factory);
+        var staging = (await ClaimAsync(runner, "Staging")).GetProperty("missionId").GetString()!;
+        (await runner.PostAsync($"/api/v1/runner/missions/{staging}/started", null, Ct)).EnsureSuccessStatusCode();
+        _ = await runner.PostAsync($"/api/v1/runner/missions/{staging}/acts/push-credential", null, Ct);
+        _ = await factory.Services.GetRequiredService<IKillSwitchControl>().ChangeAsync(true, new AuditEntry(DateTimeOffset.UtcNow, AuditEvents.KillSwitchEngaged, "alice", null, null), Ct);
+        var driver = factory.Services.GetServices<IHostedService>().OfType<MissionDriver>().Single();
+
+        forge.RevokeFails = true;
+        await driver.PassAsync(Ct);
+        forge.RevokeFails = false;
+        await driver.PassAsync(Ct);
+        await driver.PassAsync(Ct);
+
+        forge.Revoked.Should().Equal([$"{FakeForge.PushToken}-1", $"{FakeForge.PushToken}-1"], "a forge that was down is asked again, and a credential revoked once is not asked about again");
     }
 }

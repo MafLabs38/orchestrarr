@@ -109,9 +109,21 @@ public sealed partial class GitHubAppPushCredentials : IPushCredentials, IDispos
         {
             return false;
         }
-        using var rules = await SendAsync(HttpMethod.Get, $"repos/{repository}/rules/branches/{Uri.EscapeDataString(branch)}", token, null, cancellationToken);
-        return rules?.RootElement is { ValueKind: JsonValueKind.Array } list
-            && list.EnumerateArray().Any(rule => rule.TryGetProperty("type", out var type) && type.GetString() == "update");
+        // The branches a merge can integrate into: the default branch and the release branch (main), when it exists
+        foreach (var guarded in branch == "main" ? [branch] : new[] { branch, "main" })
+        {
+            using var exists = guarded == branch ? null : await SendAsync(HttpMethod.Get, $"repos/{repository}/branches/{guarded}", token, null, cancellationToken);
+            if (guarded != branch && exists is null)
+            {
+                continue;
+            }
+            using var rules = await SendAsync(HttpMethod.Get, $"repos/{repository}/rules/branches/{Uri.EscapeDataString(guarded)}", token, null, cancellationToken);
+            if (rules?.RootElement is not { ValueKind: JsonValueKind.Array } list || !list.EnumerateArray().Any(rule => rule.TryGetProperty("type", out var type) && type.GetString() == "update"))
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     public async Task<bool> RevokeAsync(string token, CancellationToken cancellationToken)

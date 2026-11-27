@@ -15,7 +15,7 @@ public sealed class GitHubAppPushCredentialsTests : IDisposable
 
     public void Dispose() => _key.Dispose();
 
-    private sealed class Forge(string? granted, bool guarded = true) : HttpMessageHandler
+    private sealed class Forge(string? granted, bool guarded = true, bool mainExists = true, bool mainGuarded = true) : HttpMessageHandler
     {
         public List<(HttpMethod Method, string Path, string? Authorization, string Body)> Requests { get; } = [];
 
@@ -29,6 +29,8 @@ public sealed class GitHubAppPushCredentialsTests : IDisposable
                 "/app/installations/4242/access_tokens" when granted is not null => $$"""{ "token": "ghs_the_token", "expires_at": "2026-11-27T10:00:00Z", "permissions": {{granted}} }""",
                 "/repos/example/shop" => """{ "default_branch": "develop" }""",
                 "/repos/example/shop/rules/branches/develop" => guarded ? """[ { "type": "pull_request" }, { "type": "update" } ]""" : """[ { "type": "pull_request" } ]""",
+                "/repos/example/shop/branches/main" when mainExists => """{ "name": "main" }""",
+                "/repos/example/shop/rules/branches/main" => mainGuarded ? """[ { "type": "update" } ]""" : "[]",
                 "/installation/token" => "{}",
                 _ => null,
             };
@@ -118,6 +120,14 @@ public sealed class GitHubAppPushCredentialsTests : IDisposable
         using var credentials = Credentials(forge);
 
         (await credentials.IssueAsync("example/shop", pipelines: false, Ct)).Should().BeNull("a token that writes contents could merge a pull request through the API on a default branch that any writer may update");
+        using (var unguardedMain = Credentials(new Forge("""{ "contents": "write" }""", mainGuarded: false)))
+        {
+            (await unguardedMain.IssueAsync("example/shop", pipelines: false, Ct)).Should().BeNull("a release pull request into main could be merged as well");
+        }
+        using (var noMain = Credentials(new Forge("""{ "contents": "write" }""", mainExists: false, mainGuarded: false)))
+        {
+            (await noMain.IssueAsync("example/shop", pipelines: false, Ct)).Should().NotBeNull("a repository with no main has only its default branch to guard");
+        }
         forge.Requests.Should().Contain(request => request.Method == HttpMethod.Delete && request.Path == "/installation/token" && request.Authorization == "ghs_the_token");
     }
 

@@ -86,18 +86,38 @@ internal sealed class PushCredentialLedger(IPushCredentials credentials, IMissio
     private async Task<int> RevokeAllAsync(string missionId, List<string> tokens, string why, CancellationToken cancellationToken)
     {
         var revoked = 0;
+        var failed = new List<string>();
         foreach (var token in tokens)
         {
             if (await credentials.RevokeAsync(token, cancellationToken))
             {
                 revoked++;
             }
+            else
+            {
+                failed.Add(token);
+            }
+        }
+        // A revocation that the forge did not confirm is kept, and the driver's next pass tries again (the mission no longer runs, or the stop is engaged, so the sweep takes it)
+        if (failed.Count > 0)
+        {
+            lock (_gate)
+            {
+                if (_live.TryGetValue(missionId, out var held))
+                {
+                    held.InsertRange(0, failed);
+                }
+                else
+                {
+                    _live[missionId] = failed;
+                }
+            }
         }
         if (tokens.Count == 0)
         {
             return 0;
         }
-        var said = revoked == tokens.Count ? $"{revoked} push credential(s) revoked on the forge: {why}" : $"{tokens.Count - revoked} of {tokens.Count} push credential(s) could not be revoked on the forge ({why}): they expire within the hour";
+        var said = revoked == tokens.Count ? $"{revoked} push credential(s) revoked on the forge: {why}" : $"{tokens.Count - revoked} of {tokens.Count} push credential(s) could not be revoked on the forge ({why}): tried again at the next pass, and they expire within the hour";
         if (revoked < tokens.Count)
         {
             logger.LogWarning("Push credentials of mission {Mission} could not all be revoked: {Why}", missionId, why);
