@@ -13,7 +13,11 @@ public sealed record FlowWaiting(string Code, string? Subject);
 public sealed record FlowActivity(string Kind, string? Text, DateTimeOffset? At, FlowWaiting? Waiting);
 
 /// <summary>One problem as a person follows it: what it is, where it stands in each world, what it does now, how urgent it is.</summary>
-public sealed record FlowProblem(string ProblemId, string Title, string? Kind, string Repository, string State, int Priority, DateTimeOffset StartedAt, IReadOnlyList<FlowStep> Steps, FlowActivity? Activity, string? Note);
+public sealed record FlowProblem(string ProblemId, string Title, string? Kind, string Repository, string State, int Priority, DateTimeOffset StartedAt, IReadOnlyList<FlowStep> Steps, FlowActivity? Activity, string? Note)
+{
+    /// <summary>What the operation does now, in the words of every screen (ADR 0056): one rule, <see cref="OperationStates"/>.</summary>
+    public string Operation => OperationStates.Of(this);
+}
 
 /// <summary>
 /// The read model of the Missions screen (the maintainer, 2026-11-25: follow the flow, understand what happens and where, whether it is blocked or active). It is computed from what the conductor keeps and says nothing the stores do not: the problems that wait in the
@@ -21,10 +25,11 @@ public sealed record FlowProblem(string ProblemId, string Title, string? Kind, s
 /// </summary>
 internal static class FlowView
 {
-    private const int MaxFinished = 20;
+    private const int MaxFinished = 50;
 
-    internal static IReadOnlyList<FlowProblem> Build(IReadOnlyList<Mission> recent, IProblemStore problems, IReadOnlyList<QueuedProblem> waiting, IReadOnlyList<Machine> machines, bool runnerConnected, Func<string, (string? Line, DateTimeOffset? At)> lastNews, Func<Mission, DateTimeOffset?> issuedAt, Func<Mission, bool>? reworkPending = null, Func<string, int>? lanesOf = null, Func<string, string?>? parkedReason = null)
+    internal static IReadOnlyList<FlowProblem> Build(IReadOnlyList<Mission> recent, IProblemStore problems, IReadOnlyList<QueuedProblem> waiting, IReadOnlyList<Machine> machines, bool runnerConnected, Func<string, (string? Line, DateTimeOffset? At)> lastNews, Func<Mission, DateTimeOffset?> issuedAt, Func<Mission, bool>? reworkPending = null, Func<string, int>? lanesOf = null, Func<string, string?>? parkedReason = null, Func<string, HeldProblem?>? heldOf = null, IReadOnlyList<PlannedRow>? planning = null)
     {
+        heldOf ??= _ => null;
         reworkPending ??= _ => false;
         lanesOf ??= _ => 0;
         parkedReason ??= _ => null;
@@ -55,8 +60,12 @@ internal static class FlowView
         var going = working.OrderBy(pair => pair.Run.StartedAt).ThenBy(pair => pair.Run.ProblemId, StringComparer.Ordinal).Select(pair => pair.Flow).ToList();
         var started = going.Select(flow => flow.ProblemId).ToHashSet(StringComparer.Ordinal);
         // A problem that has just left the line and is not yet saved as started is in both lists for an instant: it is shown once
-        var queued = ProblemQueue.InOrder(waiting.Where(problem => !started.Contains(problem.Entry.ProblemId))).Select(problem => Queued(problem, inProgress, parkedReason(problem.Entry.ProblemId))).ToList();
-        return [.. going, .. queued, .. finished.Take(MaxFinished)];
+        var queued = ProblemQueue.InOrder(waiting.Where(problem => !started.Contains(problem.Entry.ProblemId))).Select(problem => Queued(problem, inProgress, parkedReason(problem.Entry.ProblemId), heldOf(problem.Entry.ProblemId))).ToList();
+        // What the lead is planning comes at the entry of the line: validated, not placed yet
+        var shownNow = going.Concat(queued).Select(flow => flow.ProblemId).ToHashSet(StringComparer.Ordinal);
+        var planned = (planning ?? []).Where(row => !shownNow.Contains(row.ProblemId))
+            .Select(row => new FlowProblem(row.ProblemId, row.Title, row.Kind, row.Repository, "queued", FlowPriority.Normal, row.Since, [], new FlowActivity("waiting", null, row.Since, new FlowWaiting("planning", null)), null)).ToList();
+        return [.. going, .. queued, .. planned, .. finished.Take(MaxFinished)];
     }
 
     private static FlowProblem Of(ProblemRun run, IReadOnlyList<Mission> missions, IReadOnlyList<ProblemRun> inProgress, IReadOnlyList<Machine> machines, bool runnerConnected, Func<string, (string? Line, DateTimeOffset? At)> lastNews,
@@ -67,17 +76,26 @@ internal static class FlowView
             StepsOf(run, missions, reworkPending), run.State == ProblemState.InProgress && active is not null ? ActivityOf(active, run, inProgress, machines, runnerConnected, lastNews, reworkPending(active), LoadOf(active.World, all, reworkPending, lanesOf)) : null, run.Note);
     }
 
-    private static FlowProblem Queued(QueuedProblem problem, IReadOnlyList<ProblemRun> inProgress, string? parked)
+    private static FlowProblem Queued(QueuedProblem problem, IReadOnlyList<ProblemRun> inProgress, string? parked, HeldProblem? held)
     {
         var entry = problem.Entry;
         var ahead = AheadOf(entry.Repositories.FirstOrDefault(), entry.ProblemId, inProgress);
         var behind = ahead is null ? null : TitleOf(ahead.Entry);
-        var waiting = parked is not null ? new FlowWaiting("bot", parked) : new FlowWaiting("turn", behind);
-        return new FlowProblem(entry.ProblemId, TitleOf(entry), entry.Brief?.Kind ?? entry.ProblemClass, entry.Repositories.FirstOrDefault() ?? string.Empty, "queued", FlowPriority.Normal, problem.QueuedAt,
+        // A hold comes first: it is a person's, and it is why the operation does not start whatever else it waits for (ADR 0056)
+        var waiting = new FlowWaiting("turn", behind);
+        if (held is not null)
+        {
+            waiting = new FlowWaiting("held", $"{held.Reason} ({held.By})");
+        }
+        else if (parked is not null)
+        {
+            waiting = new FlowWaiting("bot", parked);
+        }
+        return new FlowProblem(entry.ProblemId, TitleOf(entry), entry.Brief?.Kind ?? entry.ProblemClass, entry.Repositories.FirstOrDefault() ?? string.Empty, "queued", problem.Priority, problem.QueuedAt,
             [.. Worlds(entry.MaxWorld, true).Select(world => new FlowStep(world.ToString(), "notStarted", null, 0))], new FlowActivity("waiting", null, problem.QueuedAt, waiting), null);
     }
 
-    private static string StateOf(ProblemState state) => state switch
+    internal static string StateOf(ProblemState state) => state switch
     {
         ProblemState.InProgress => "inProgress",
         ProblemState.Escalated => "escalated",
@@ -88,7 +106,17 @@ internal static class FlowView
     };
 
     // What a person reads as the name of the problem: what the control plane read of the row (an image, a version, a count of alerts), then where
-    private static string TitleOf(PlanEntry entry) => entry.Brief is { Description.Length: > 0 } brief ? brief.Description : entry.Objective;
+    // A row of alerts or of a red pipeline is read as a number (how many): it is said as what it is
+    internal static string TitleOf(PlanEntry entry) => TitleOf(entry.Brief?.Kind, entry.Brief?.Description, entry.Objective);
+
+    /// <summary>The one rule that names an operation for every screen: a row of alerts or of a red pipeline is read as a number (how many), and is said as what it is.</summary>
+    internal static string TitleOf(string? kind, string? description, string otherwise) => (kind, description) switch
+    {
+        (nameof(Core.Decisions.ProblemKind.DependencyAlert), { } count) when int.TryParse(count, out _) => $"{count} dependency alerts",
+        (nameof(Core.Decisions.ProblemKind.FailingCi), { } count) when int.TryParse(count, out _) => "the pipeline is red",
+        (_, { Length: > 0 }) => description,
+        _ => otherwise,
+    };
 
     private static IEnumerable<World> Worlds(World highest, bool uses) =>
         Enum.GetValues<World>().Where(world => world <= highest && (uses || world != World.Staging));

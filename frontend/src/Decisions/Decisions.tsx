@@ -26,10 +26,12 @@ import formatTime from 'Utilities/formatTime';
 import translate from 'Utilities/translate';
 
 import styles from './Decisions.module.css';
+import History from './History';
 import ProblemTable, { isActionable } from './ProblemTable';
 import SelectionBar from './SelectionBar';
 import { type Sort, sortRows } from './sortRows';
-import useProblems, { useRefreshProblems, useSkipProblems } from './useProblems';
+import TakenDecisions from './TakenDecisions';
+import useProblems, { isToTake, useRefreshProblems, useSkipProblems } from './useProblems';
 
 const ceilingOrder: Ceiling[] = ['production', 'mergeIntoDevelop', 'repair', 'qualification', 'noAction'];
 const workshopOrder: WorkshopVerdict[] = ['fails', 'passes', 'repaired', 'unknown'];
@@ -95,7 +97,9 @@ function Table({ report }: Readonly<{ report: ProblemsReport }>) {
   );
 }
 
-function Problems({ report }: Readonly<{ report: ProblemsReport }>) {
+function Problems({ report: all }: Readonly<{ report: ProblemsReport }>) {
+  // The decisions to take: a row that was validated is a decision taken, shown below with what became of it (ADR 0056)
+  const report = { ...all, rows: all.rows.filter(isToTake) };
   const { data: status } = useSystemStatus();
   const [filters, setFilters] = useState<Filters>(noFilters);
   // The selection remembers the commit that was shown: a row whose pull request moved since is no longer what was chosen
@@ -228,6 +232,8 @@ function Problems({ report }: Readonly<{ report: ProblemsReport }>) {
               }
             />
           )}
+          <TakenDecisions />
+          <SetAside canDecide={status?.approvals.isOperator ?? false} />
           <SelectionBar
             chosen={chosen}
             descriptionsVersion={report.descriptionsVersion}
@@ -239,5 +245,16 @@ function Problems({ report }: Readonly<{ report: ProblemsReport }>) {
         </>
       )}
     </>
+  );
+}
+
+// The rows set aside (which can be taken back) and the approvals of the first design: read only when it is opened
+function SetAside({ canDecide }: Readonly<{ canDecide: boolean }>) {
+  const [open, setOpen] = useState(false);
+  return (
+    <details className={styles.setAside} onToggle={(event) => setOpen(event.currentTarget.open)}>
+      <summary>{translate('SetAsideAndEarlier')}</summary>
+      {open ? <History canDecide={canDecide} /> : null}
+    </details>
   );
 }

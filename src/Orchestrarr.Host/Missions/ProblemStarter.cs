@@ -11,7 +11,7 @@ internal sealed record PreparedProblem(string RowId, PlanEntry? Entry, Validated
 /// Starts the problems of the test bed, **one work site at a time on a repository** (ADR 0049): the decision "start now, or wait in line" and the start itself are made under one gate per repository, by the endpoint that validates and by the
 /// driver that takes the line, so that two requests, or a request and a pass of the driver, never both find the repository free. A problem that waits is planned and not started: it has no mandate and uses no approval until it starts.
 /// </summary>
-internal sealed class ProblemStarter(IServiceProvider services, MissionsOptions options, BotPullRequests bots, ProblemParking parking, IProblemStore problems, ProblemQueue line, ProblemLocks locks, ProblemConductor conductor, MissionProgress progress, IMissionAudit audit, IStopSignal stop, TimeProvider time)
+internal sealed class ProblemStarter(IServiceProvider services, MissionsOptions options, BotPullRequests bots, ProblemParking parking, ProblemHolds holds, IProblemStore problems, ProblemQueue line, ProblemLocks locks, ProblemConductor conductor, MissionProgress progress, IMissionAudit audit, IStopSignal stop, TimeProvider time)
 {
     /// <summary>
     /// How long a problem may wait: the lifetime of the approval that was proved for it (two hours). A problem that waited longer is not started on a validation that old: the maintainer validates again.
@@ -70,7 +70,7 @@ internal sealed class ProblemStarter(IServiceProvider services, MissionsOptions 
                 }
             }
             // A problem already in progress is the conductor's to refuse ("already being worked on"), not a reason to queue it again
-            if (problems.Get(entry.ProblemId) is { State: ProblemState.InProgress } || (!line.Waits(repository, parked => parking.IsParked(parked.Entry.ProblemId)) && !Busy(repository)))
+            if (problems.Get(entry.ProblemId) is { State: ProblemState.InProgress } || (!line.Waits(repository, waiting => CannotStart(waiting.Entry.ProblemId)) && !Busy(repository)))
             {
                 return await StartAsync(one, cancellationToken);
             }
@@ -127,7 +127,7 @@ internal sealed class ProblemStarter(IServiceProvider services, MissionsOptions 
                         parking.LotBusy(parked.Entry.ProblemId);
                     }
                 }
-                foreach (var ready in line.TakeReady(other => !string.Equals(other, repository, StringComparison.Ordinal) || Busy(other), waiting => !parking.IsParked(waiting.Entry.ProblemId)))
+                foreach (var ready in line.TakeReady(other => !string.Equals(other, repository, StringComparison.Ordinal) || Busy(other), waiting => !CannotStart(waiting.Entry.ProblemId)))
                 {
                     parking.Release(ready.Entry.ProblemId);
                     await StartQueuedAsync(ready, cancellationToken);
@@ -144,8 +144,9 @@ internal sealed class ProblemStarter(IServiceProvider services, MissionsOptions 
     // parked one is read again only every half minute, and the lot goes on with the next operation of its route meanwhile
     private async Task FreshenAsync(string repository, CancellationToken cancellationToken)
     {
-        var candidates = line.Waiting().Where(waiting => waiting.Entry.Repositories.Count == 1 && waiting.Entry.Repositories[0] == repository && waiting.Entry.PullRequest is not null)
-            .OrderBy(waiting => RouteRank.Of(waiting.Entry)).ThenBy(waiting => waiting.QueuedAt).Select(waiting => waiting.Entry).ToList();
+        // In the order the line goes (priority, route, arrival), and never a held one: a hold stops all work on the operation, the reading of its pull request and the request to its bot included (ADR 0056)
+        var candidates = ProblemQueue.InOrder(line.Waiting().Where(waiting => waiting.Entry.Repositories.Count == 1 && waiting.Entry.Repositories[0] == repository && waiting.Entry.PullRequest is not null && waiting.Held is null))
+            .Select(waiting => waiting.Entry).ToList();
         foreach (var entry in candidates)
         {
             var id = entry.ProblemId;
@@ -160,6 +161,9 @@ internal sealed class ProblemStarter(IServiceProvider services, MissionsOptions 
         }
     }
 
+    // A problem that waits for its bot or that a person held does not start, and does not hold its lot (ADR 0055, ADR 0056)
+    private bool CannotStart(string problemId) => parking.IsParked(problemId) || holds.IsHeld(problemId);
+
 
     // A problem that leaves the line without starting says why in the trail; an exception of the start is a refusal like any other, so that it neither loses the problem silently nor stops the others
     private async Task StartQueuedAsync(QueuedProblem ready, CancellationToken cancellationToken)
@@ -167,7 +171,8 @@ internal sealed class ProblemStarter(IServiceProvider services, MissionsOptions 
         string? refusal;
         try
         {
-            refusal = (await StartAsync(new PreparedProblem(ready.RowId, ready.Entry, null), cancellationToken)).Refusal;
+            // The priority that a person gave it in the line goes with it, from its first mission (ADR 0056)
+            refusal = (await StartAsync(new PreparedProblem(ready.RowId, ready.Entry, null), cancellationToken, ready.Priority)).Refusal;
         }
         catch (Exception failure) when (failure is not OperationCanceledException)
         {
@@ -179,7 +184,7 @@ internal sealed class ProblemStarter(IServiceProvider services, MissionsOptions 
         }
     }
 
-    internal async Task<ValidatedProblem> StartAsync(PreparedProblem one, CancellationToken cancellationToken)
+    internal async Task<ValidatedProblem> StartAsync(PreparedProblem one, CancellationToken cancellationToken, int priority = FlowPriority.Normal)
     {
         if (one.Entry is not { } entry)
         {
@@ -191,7 +196,7 @@ internal sealed class ProblemStarter(IServiceProvider services, MissionsOptions 
             return new ValidatedProblem(id, entry.ProblemId, null, null, "noApproval");
         }
         // The staging of the test bed is declared, and its baseline is the snapshot of the lab VMs (a reset brings them back to it)
-        var result = await conductor.StartAsync(entry, StagingDeclaration.DeclaredStaging, StagingRequirement.Dependencies, StagingState.BaselineProven, cancellationToken);
+        var result = await conductor.StartAsync(entry, StagingDeclaration.DeclaredStaging, StagingRequirement.Dependencies, StagingState.BaselineProven, cancellationToken, priority);
         if (result.Ok)
         {
             // The same row is the same problem: what a run of it made (a repair, the pull request that carried it) is not the business of the run that starts now

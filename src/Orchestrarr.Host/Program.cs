@@ -152,6 +152,7 @@ app.MapHub<LiveHub>(LiveHub.Path, options => options.CloseOnAuthenticationExpira
 api.MapProblemsEndpoints();
 api.MapRunEndpoints();
 api.MapMissionEndpoints();
+api.MapFlowEndpoints();
 api.MapPlanEndpoints();
 api.MapMachineEndpoints();
 if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Testing"))

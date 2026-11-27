@@ -1,0 +1,171 @@
+.map {
+  display: grid;
+  gap: 0;
+  border: var(--borderWidth) solid var(--hairline);
+  border-radius: var(--radiusMedium);
+  overflow: hidden;
+}
+
+.row {
+  display: contents;
+}
+
+.header,
+.lot,
+.cell {
+  padding: 8px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.header {
+  background: var(--paperSunken);
+  color: var(--inkMuted);
+  font-size: var(--fontSizeMeta);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.cell + .cell,
+.lot + .cell,
+.header + .header {
+  border-left: 1px solid var(--hairline);
+}
+
+.lot {
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.operations {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.operation {
+  display: grid;
+  gap: 2px;
+  padding: 6px 8px;
+  border: var(--borderWidth) solid currentcolor;
+  border-radius: var(--radiusSmall);
+  background: var(--paperCard);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .operation {
+    animation: arrive 400ms ease-out;
+  }
+}
+
+@keyframes arrive {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.waiting {
+  border-style: dashed;
+}
+
+.default {
+  color: var(--inkSoft);
+}
+
+.info {
+  color: var(--infoColor);
+}
+
+.purple {
+  color: var(--purple);
+}
+
+.warning {
+  color: var(--warningColor);
+}
+
+.pink {
+  color: var(--pink);
+}
+
+.success {
+  color: var(--successColor);
+}
+
+.danger {
+  color: var(--dangerColor);
+}
+
+.operationHead {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+.operationTitle {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: var(--fontSizeMeta);
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.operationState {
+  font-size: var(--fontSizeMeta);
+}
+
+.place {
+  display: none;
+}
+
+.more {
+  margin: 6px 0 0;
+  color: var(--inkMuted);
+  font-size: var(--fontSizeMeta);
+}
+
+@media (width < 768px) {
+  .map {
+    display: block;
+  }
+
+  .row {
+    display: block;
+    padding: 8px;
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .row:first-child {
+    display: none;
+  }
+
+  .lot,
+  .cell {
+    padding: 4px 0;
+    border: none;
+  }
+
+  .cell:empty {
+    display: none;
+  }
+
+  .place {
+    display: inline;
+  }
+}
+
+.operationHead:hover .operationTitle {
+  text-decoration: underline;
+}

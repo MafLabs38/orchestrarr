@@ -36,6 +36,24 @@ public sealed class AuditLogContractTests : IDisposable
 
     [Theory]
     [MemberData(nameof(Logs))]
+    public async Task The_entries_about_some_subjects_are_read_oldest_first_and_the_newest_when_there_are_more(string kind)
+    {
+        var log = Make(kind, capacity: 100);
+        await Accepted(log, [
+            new(Noon, "problem.queued", "p-1", null, "waits"),
+            new(Noon.AddSeconds(1), "mission.handed-over", "m-1", null, null),
+            new(Noon.AddSeconds(2), "problem.queued", "p-2", null, "another"),
+            new(Noon.AddSeconds(3), "problem.closed", "p-1", null, "done"),
+        ]);
+
+        log.About(["p-1", "m-1"], 10).Select(row => row.Entry.Event).Should().Equal("problem.queued", "mission.handed-over", "problem.closed");
+        log.About(["p-1", "m-1"], 2).Select(row => row.Entry.Event).Should().Equal("mission.handed-over", "problem.closed");
+        log.About(["p-1' OR '1'='1"], 10).Should().BeEmpty("a subject is a value, never a part of the query");
+        log.About([], 10).Should().BeEmpty();
+    }
+
+    [Theory]
+    [MemberData(nameof(Logs))]
     public async Task Refusals_stop_at_their_share_even_when_decisions_come_first_and_decisions_still_fit(string kind)
     {
         var log = Make(kind, capacity: 20);

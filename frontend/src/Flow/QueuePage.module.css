@@ -1,0 +1,64 @@
+.section {
+  margin: 24px 0 8px;
+  font-family: var(--displayFontFamily);
+  font-size: var(--fontSizeBody);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.wrap {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  min-width: 860px;
+  border: var(--borderWidth) solid var(--hairlineStrong);
+  border-collapse: collapse;
+  font-size: var(--fontSizeBody);
+}
+
+.table th,
+.table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--hairline);
+  text-align: left;
+  vertical-align: top;
+}
+
+.table th {
+  background: var(--paperSunken);
+  color: var(--inkMuted);
+  font-size: var(--fontSizeMeta);
+  text-transform: uppercase;
+}
+
+.operation {
+  font-weight: 800;
+}
+
+.operation > span {
+  margin-left: 8px;
+}
+
+.why {
+  margin: 4px 0 0;
+  color: var(--inkMuted);
+  font-size: var(--fontSizeMeta);
+}
+
+.inline {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.priority {
+  width: 5em;
+}
+
+.refused {
+  color: var(--dangerColor);
+  font-size: var(--fontSizeMeta);
+}

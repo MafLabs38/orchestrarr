@@ -1,6 +1,6 @@
 import useSession, { accountsManage, can } from 'Account/useSession';
-import { useApprovals } from 'Approvals/useApprovals';
-import useProblems from 'Decisions/useProblems';
+import useProblems, { isToTake } from 'Decisions/useProblems';
+import { useDispatch } from 'Flow/useDispatch';
 import * as icons from 'Helpers/Props/icons';
 import { iconSizes } from 'Helpers/Props/sizes';
 import translate from 'Utilities/translate';
@@ -10,7 +10,7 @@ import SidebarLink from './SidebarLink';
 
 export default function PageSidebar() {
   const { data } = useProblems();
-  const { data: approvals } = useApprovals();
+  const { data: dispatch } = useDispatch();
   const { data: session } = useSession();
   return (
     <nav className={styles.sidebar} aria-label={translate('MainNavigation')}>
@@ -19,7 +19,12 @@ export default function PageSidebar() {
         end
         icon={<icons.DECISIONS size={iconSizes.LARGE} aria-hidden="true" />}
         label={translate('Decisions')}
-        badge={data?.rows.length}
+        badge={data?.rows.filter(isToTake).length}
+      />
+      <SidebarLink
+        to="/flow"
+        icon={<icons.FLOW size={iconSizes.LARGE} aria-hidden="true" />}
+        label={translate('Flow')}
       />
       <SidebarLink
         to="/history"
@@ -30,17 +35,12 @@ export default function PageSidebar() {
         to="/queue"
         icon={<icons.QUEUE size={iconSizes.LARGE} aria-hidden="true" />}
         label={translate('Queue')}
-        badge={approvals?.length}
+        badge={dispatch?.line.length}
       />
       <SidebarLink
         to="/missions"
         icon={<icons.RUNS size={iconSizes.LARGE} aria-hidden="true" />}
         label={translate('Missions')}
-      />
-      <SidebarLink
-        to="/runs"
-        icon={<icons.RUNS size={iconSizes.LARGE} aria-hidden="true" />}
-        label={translate('Runs')}
       />
       <div className={styles.group}>{translate('System')}</div>
       <SidebarLink

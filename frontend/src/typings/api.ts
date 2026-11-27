@@ -298,6 +298,8 @@ export interface ProblemRow {
   canStopBeforeProduction: boolean;
   workshop: WorkshopVerdict;
   inProgress: boolean;
+  // Done lately: a decision taken, not one to take, while the fleet still reports what it fixed (ADR 0056)
+  recentlyDone?: boolean;
   // The application a person knows, as the source of the fleet names it, and the name of its icon; the repository or the image stays in `source`
   applicationId: string | null;
   icon: string | null;
@@ -376,7 +378,7 @@ export interface FlowStep {
 }
 
 export interface FlowWaiting {
-  code: 'turn' | 'machine' | 'busy' | 'bot' | 'runner' | 'pickup';
+  code: 'turn' | 'machine' | 'busy' | 'bot' | 'held' | 'planning' | 'runner' | 'pickup';
   subject: string | null;
 }
 
@@ -398,6 +400,8 @@ export interface FlowProblem {
   steps: FlowStep[];
   activity: FlowActivity | null;
   note: string | null;
+  // What it does now, one rule for every screen (ADR 0056)
+  operation: OperationState;
 }
 
 // A mission of a problem, in the world where it works (FUNCTIONAL 5.12), with what its runner reported and the dossier it handed over
@@ -483,4 +487,134 @@ export interface MachineView {
 export interface MachinesResponse {
   machines: MachineView[];
   windowHours: number;
+}
+
+// The factory view of the flow (ADR 0056): workshops (worlds) with their equipment, lots (repositories) with their operations placed where they are
+export type EquipmentState = 'inProcess' | 'idle' | 'qualifying' | 'down';
+
+export interface BoardEquipment {
+  id: string;
+  kind: 'machine' | 'slot';
+  state: EquipmentState;
+  problemId: string | null;
+  title: string | null;
+  repository: string | null;
+  since: string | null;
+  reason: string | null;
+  operationKind: string | null;
+}
+
+export type OperationState =
+  | 'working'
+  | 'judging'
+  | 'waitingMachine'
+  | 'waitingLane'
+  | 'waitingPickup'
+  | 'waitingRunner'
+  | 'waitingTurn'
+  | 'waitingBot'
+  | 'held'
+  | 'planning'
+  | 'done'
+  | 'putAside'
+  | 'escalated';
+
+export interface BoardWorkshop {
+  world: string;
+  equipment: BoardEquipment[];
+  inProcess: number;
+  waiting: number;
+  why: OperationState[];
+}
+
+export interface BoardOperation {
+  problemId: string;
+  title: string;
+  kind: string | null;
+  repository: string;
+  place: string;
+  state: OperationState;
+  detail: string | null;
+  priority: number;
+  since: string;
+  equipment: string | null;
+}
+
+export interface BoardLot {
+  repository: string;
+  operations: BoardOperation[];
+}
+
+export interface BoardCounters {
+  queued: number;
+  inProcess: number;
+  waiting: number;
+  done: number;
+  putAside: number;
+  escalated: number;
+  oldestQueuedSince: string | null;
+  held: number;
+}
+
+export interface FlowBoard {
+  places: string[];
+  workshops: BoardWorkshop[];
+  lots: BoardLot[];
+  counters: BoardCounters;
+}
+
+// The dispatch list (ADR 0056): the line in the order it goes, and the operations in process
+export interface HeldBy {
+  by: string;
+  at: string;
+  reason: string;
+}
+
+export interface DispatchEntry {
+  position: number;
+  problemId: string;
+  title: string;
+  kind: string | null;
+  repository: string;
+  priority: number;
+  rank: number;
+  since: string;
+  state: 'waitingTurn' | 'waitingBot' | 'held';
+  detail: string | null;
+  held: HeldBy | null;
+  next: boolean;
+}
+
+export interface InProcessEntry {
+  problemId: string;
+  title: string;
+  kind: string | null;
+  repository: string;
+  place: string;
+  priority: number;
+}
+
+export interface DispatchView {
+  line: DispatchEntry[];
+  inProcess: InProcessEntry[];
+}
+
+// The traveler of an operation (ADR 0056): its steps one after the other, read from the audit trail
+export interface TravelerStep {
+  at: string;
+  event: string;
+  world: string | null;
+  text: string | null;
+  times: number;
+}
+
+export interface TravelerView {
+  problemId: string;
+  title: string;
+  kind: string | null;
+  repository: string;
+  state: string;
+  priority: number;
+  note: string | null;
+  steps: TravelerStep[];
 }

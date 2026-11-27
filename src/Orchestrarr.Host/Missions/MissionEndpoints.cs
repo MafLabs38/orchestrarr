@@ -20,7 +20,13 @@ public sealed record MissionView(
 internal static class MissionEndpoints
 {
     private const int DefaultPageSize = 50;
-    private const int MaxPageSize = 200;
+    internal const int MaxPageSize = 200;
+
+    // The flow of the problems, as the Missions and Flow screens read it: the recent missions, the line, the machines, the runners, the last news of each mission and the bots that are waited for
+    internal static IReadOnlyList<FlowProblem> FlowOf(IServiceProvider services, IReadOnlyList<Mission> recent, IMandateLedger mandates, IProblemStore problems, MissionProgress progress, RunnerRegistry runners) =>
+        FlowView.Build(recent, problems, services.GetService<ProblemQueue>()?.Waiting() ?? [], services.GetService<MachinePool>()?.All() ?? [], runners.Snapshot().Any(runner => runner.Connected), progress.LastNews,
+            mission => mission.MandateId is { } id && mandates.Get(id) is { } signed ? signed.Mandate.IssuedAt : null, mission => mission.State == MissionState.Running && mission.SendBacks > 0 && !progress.WasOffered(mission.Id, mission.SendBacks),
+            runners.LanesOf, id => services.GetService<ProblemParking>()?.Get(id)?.Reason, id => services.GetService<ProblemHolds>()?.Get(id), services.GetService<ProblemPlanning>()?.All());
 
     public static void MapMissionEndpoints(this RouteGroupBuilder api)
     {
@@ -28,7 +34,16 @@ internal static class MissionEndpoints
             WhenReadable(() => Results.Ok(Views(missions.Recent(Math.Clamp(limit ?? DefaultPageSize, 1, MaxPageSize)), mandates, problems, dossiers, progress)))).RequireAuthorization(Permissions.FleetRead);
         // What the Missions screen follows: one entry per problem, with where it stands in each world, what it does now and what it waits for
         api.MapGet("/flow", (IServiceProvider services, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, MissionProgress progress, RunnerRegistry runners) =>
-            WhenReadable(() => Results.Ok(FlowView.Build(missions.Recent(MaxPageSize), problems, services.GetService<ProblemQueue>()?.Waiting() ?? [], services.GetService<MachinePool>()?.All() ?? [], runners.Snapshot().Any(runner => runner.Connected), progress.LastNews, mission => mission.MandateId is { } id && mandates.Get(id) is { } signed ? signed.Mandate.IssuedAt : null, mission => mission.State == MissionState.Running && mission.SendBacks > 0 && !progress.WasOffered(mission.Id, mission.SendBacks), runners.LanesOf, id => services.GetService<ProblemParking>()?.Get(id)?.Reason))))
+            WhenReadable(() => Results.Ok(FlowOf(services, missions.Recent(MaxPageSize), mandates, problems, progress, runners))))
+            .RequireAuthorization(Permissions.FleetRead);
+        // What the Flow screen draws: the same flow, arranged as a fab's factory view (workshops, equipment, lots, ADR 0056)
+        api.MapGet("/flow/board", (IServiceProvider services, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, MissionProgress progress, RunnerRegistry runners) =>
+            WhenReadable(() =>
+            {
+                var recent = missions.Recent(MaxPageSize);
+                var machines = services.GetService<MachinePool>()?.All() ?? [];
+                return Results.Ok(FlowBoard.Build(FlowOf(services, recent, mandates, problems, progress, runners), machines, recent, runners.LanesOf));
+            }))
             .RequireAuthorization(Permissions.FleetRead);
         api.MapGet("/missions/{id}", (string id, IMissionStore missions, IMandateLedger mandates, IProblemStore problems, IDossierStore dossiers, MissionProgress progress) =>
             WhenReadable(() => missions.Get(id) is { } mission ? Results.Ok(View(mission, mandates, problems, dossiers, progress)) : Results.NotFound())).RequireAuthorization(Permissions.FleetRead);
@@ -55,7 +70,7 @@ internal static class MissionEndpoints
         })];
     }
 
-    private static IResult WhenReadable(Func<IResult> read)
+    internal static IResult WhenReadable(Func<IResult> read)
     {
         try
         {

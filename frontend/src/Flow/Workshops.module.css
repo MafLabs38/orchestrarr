@@ -1,0 +1,130 @@
+.line {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.station {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 150px;
+  max-width: 100%;
+  padding: 12px;
+  overflow: hidden;
+  border: var(--borderWidth) solid var(--hairline);
+  border-radius: var(--radiusMedium);
+  background: var(--paperCard);
+  box-shadow: var(--shadowCard);
+}
+
+.stationName {
+  margin: 0;
+  font-family: var(--displayFontFamily);
+  font-size: var(--fontSizeBody);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.big {
+  margin: 0;
+  font-family: var(--displayFontFamily);
+  font-size: var(--fontSizePage);
+  line-height: 1;
+}
+
+.counts,
+.buffer,
+.repository,
+.reason {
+  margin: 0;
+  color: var(--inkMuted);
+  font-size: var(--fontSizeMeta);
+}
+
+.buffer {
+  color: var(--warningColor);
+  font-weight: 800;
+}
+
+.reason {
+  color: var(--dangerColor);
+}
+
+.outcome {
+  margin: 0;
+}
+
+.equipmentList {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.equipment {
+  min-width: 0;
+  padding: 8px;
+  border: var(--borderWidth) solid var(--hairline);
+  border-radius: var(--radiusSmall);
+  background: var(--paperSunken);
+}
+
+.equipment[data-state='inProcess'] {
+  border-color: var(--infoColor);
+}
+
+.equipment[data-state='down'] {
+  border-color: var(--dangerColor);
+}
+
+.equipment[data-state='qualifying'] {
+  border-style: dashed;
+  border-color: var(--warningColor);
+}
+
+.equipmentHead {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.equipmentName {
+  font-weight: 800;
+}
+
+.on {
+  margin: 4px 0 0;
+  overflow: hidden;
+  font-size: var(--fontSizeMeta);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.arrow {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  color: var(--inkMuted);
+}
+
+@media (width < 768px) {
+  .line {
+    flex-direction: column;
+    overflow-x: visible;
+  }
+
+  .station {
+    min-width: 0;
+  }
+
+  .arrow {
+    justify-content: center;
+    transform: rotate(90deg);
+  }
+}

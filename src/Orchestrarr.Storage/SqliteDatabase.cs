@@ -305,6 +305,8 @@ public sealed class SqliteDatabase : IDisposable
               BEGIN SELECT RAISE(ABORT, 'the audit trail is append-only'); END;
             CREATE TRIGGER IF NOT EXISTS audit_is_append_only_delete BEFORE DELETE ON audit
               BEGIN SELECT RAISE(ABORT, 'the audit trail is append-only'); END;
+            -- The traveler of an operation reads the trail by subject, newest first (ADR 0056): an index, so that it never reads the whole trail
+            CREATE INDEX IF NOT EXISTS audit_by_subject ON audit (subject, id);
             CREATE TABLE IF NOT EXISTS kill_switch (
               id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
               engaged INTEGER NOT NULL CHECK (engaged IN (0, 1))

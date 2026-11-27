@@ -17,6 +17,11 @@ export function intervalFor(report: ProblemsReport | undefined): number {
   return report?.rows.some((row) => row.kind === 'pullRequestsNotRead') ? pendingIntervalMs : refreshIntervalMs;
 }
 
+// A decision to take: not validated (in the line or in process), and not done lately (ADR 0056)
+export function isToTake(row: ProblemRow): boolean {
+  return !row.inProgress && !row.recentlyDone;
+}
+
 export default function useProblems() {
   return useApiQuery<ProblemsReport>(problemsPath, { refetchInterval: intervalFor });
 }

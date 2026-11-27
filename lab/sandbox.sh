@@ -53,7 +53,8 @@ clone() {
   git -C "$dir" remote set-url origin "https://github.com/${ORG}/${repo}.git"
   git -C "$dir" reset -q --hard
   git -C "$dir" clean -qfdx
-  git -C "$dir" fetch -q --prune --tags origin
+  # The tags are taken as the forge has them (--force): a seed that was marked again moves its tag, and the tag is checked against the pinned seed before any use
+  git -C "$dir" fetch -q --prune --tags --force origin
   echo "$dir"
 }
 
@@ -171,7 +172,9 @@ reset_one() {
   has_seed "$dir" "$repo" || { echo "$repo: no seed, nothing to restore" >&2; return 1; }
   close_pull_requests "$repo"
   delete_work_branches "$dir"
-  git -C "$dir" fetch -q --prune --tags origin
+  git -C "$dir" fetch -q --prune --tags --force origin
+  # The tag is checked again after every fetch: a tag moved on the forge meanwhile (any token that writes the repository's refs can) is never used as the seed
+  has_seed "$dir" "$repo" || return 1
   if same_as_seed "$dir"; then echo "$repo: already at the seed"; run_pipelines "$repo"; return 0; fi
 
   local branch="lab/restore-$(date +%Y%m%d%H%M%S)"
@@ -182,23 +185,27 @@ reset_one() {
   lab_commit "$dir" "chore(lab): restore the seed"
   git -C "$dir" push -q origin "$branch"
   local pr; pr=$(gh pr create -R "$ORG/$repo" --base "$BASE" --head "$branch" --title "chore(lab): restore the seed" --body "The test-bed repository goes back to its seed so that a scenario can be played again." | grep -oE '[0-9]+$')
+  # The protected branches are updated by the administrators only (ADR 0057: so that an agent's push credential can never merge); the lab's account is one, and says so with --admin. On the test bed only
+  # that rule lists the administrators as able to bypass it: the rule of the required checks lists no one, so the forge still waits for them. A test bed that lets the administrators bypass the checks too would merge
+  # the seed without them (it is pinned, and checked against its tag above)
   # The forge can still list a required check as queued when the rollup already shows the earlier ones as passed: a merge it refuses for that is asked for again after the checks are waited for again
   local head attempt
   # A red seed is restored with its red pipelines: its checks fail by design, so the merge is pinned to the head that was pushed and does not wait for them
   if [ "$(pinned_red "$repo")" = true ]; then
     head=$(gh pr view "$pr" -R "$ORG/$repo" --json headRefOid --jq .headRefOid)
-    gh pr merge "$pr" -R "$ORG/$repo" --squash --match-head-commit "$head" >/dev/null || return 1
+    gh pr merge "$pr" -R "$ORG/$repo" --squash --admin --match-head-commit "$head" >/dev/null || return 1
   fi
   for attempt in 1 2 3; do
     [ "$(pinned_red "$repo")" = true ] && break
     head=$(wait_checks "$repo" "$pr")
-    if gh pr merge "$pr" -R "$ORG/$repo" --squash --match-head-commit "$head" >/dev/null 2>"${TMPDIR:-/tmp}/lab-merge-$$.err"; then rm -f "${TMPDIR:-/tmp}/lab-merge-$$.err"; break; fi
+    if gh pr merge "$pr" -R "$ORG/$repo" --squash --admin --match-head-commit "$head" >/dev/null 2>"${TMPDIR:-/tmp}/lab-merge-$$.err"; then rm -f "${TMPDIR:-/tmp}/lab-merge-$$.err"; break; fi
     if [ "$attempt" = 3 ] || ! grep -qiE 'status check|queued|in progress|pending|base branch policy' "${TMPDIR:-/tmp}/lab-merge-$$.err"; then cat "${TMPDIR:-/tmp}/lab-merge-$$.err" >&2; rm -f "${TMPDIR:-/tmp}/lab-merge-$$.err"; return 1; fi
     sleep 15
   done
   # A repository may delete the branch of a merged pull request by itself: one that is already gone is not an error
   delete_branch "$dir" "$branch"
-  git -C "$dir" fetch -q --prune --tags origin
+  git -C "$dir" fetch -q --prune --tags --force origin
+  has_seed "$dir" "$repo" || return 1
   same_as_seed "$dir" || { echo "$repo: restored, but $BASE still differs from the seed" >&2; return 1; }
   echo "$repo: restored through #$pr"
   run_pipelines "$repo"

@@ -198,6 +198,7 @@ public sealed class ProblemConductorTests : IDisposable
         closed.Ok.Should().BeTrue();
         closed.Mission!.State.Should().Be(MissionState.Accepted);
         _problems.Get("problem-1")!.State.Should().Be(ProblemState.Closed);
+        _problems.Get("problem-1")!.EndedAt.Should().NotBeNull("a problem says when it was done: the table of decisions compares it with the last read of the fleet");
         _missions.ForProblem("problem-1").Should().HaveCount(3);
     }
 
@@ -931,6 +932,30 @@ public sealed class ProblemConductorTests : IDisposable
         _mandates.IsRevoked(release.MandateId!).Should().BeTrue("the power never outlives the work");
         _problems.Get("problem-1")!.State.Should().Be(ProblemState.InProgress);
         _mandates.CountForProblem("problem-1").Should().Be(4, "the new mandate counts against the loop's bound and the certificate's count");
+    }
+
+    [Fact]
+    public async Task Setting_the_priority_of_a_problem_in_progress_changes_its_order_and_nothing_else()
+    {
+        var conductor = Conductor();
+        (await StartStaged(conductor)).Ok.Should().BeTrue();
+        var before = _problems.Get("problem-1")!;
+
+        (await conductor.SetPriorityAsync("problem-1", 250, "alice", Ct)).Ok.Should().BeTrue();
+
+        var after = _problems.Get("problem-1")!;
+        after.Priority.Should().Be(FlowPriority.Highest, "a priority is bounded");
+        after.Should().Be(before with { Priority = FlowPriority.Highest }, "a priority grants no power: nothing else of the problem changes");
+        _audit.Events.Should().Contain(line => line.StartsWith("problem.priority-set problem-1") && line.Contains("by alice"));
+
+        _audit.Writable = false;
+        (await conductor.SetPriorityAsync("problem-1", 10, "alice", Ct)).Refusal.Should().Be(ProblemConductor.Unrecorded);
+        _problems.Get("problem-1")!.Priority.Should().Be(FlowPriority.Highest, "a priority the trail did not take is not set");
+        _audit.Writable = true;
+
+        _problems.Save(after with { State = ProblemState.Closed });
+        (await conductor.SetPriorityAsync("problem-1", 60, "alice", Ct)).Ok.Should().BeFalse("only a problem in progress takes a priority here");
+        _problems.Get("problem-1")!.Priority.Should().Be(FlowPriority.Highest);
     }
 
     [Theory]

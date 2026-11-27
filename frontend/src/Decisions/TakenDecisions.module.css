@@ -1,0 +1,50 @@
+.taken {
+  margin: 32px 0 96px;
+}
+
+.title {
+  margin: 0 0 4px;
+  font-family: var(--displayFontFamily);
+  font-size: var(--fontSizeCardTitle);
+}
+
+.description,
+.detail {
+  margin: 0 0 8px;
+  color: var(--inkMuted);
+  font-size: var(--fontSizeMeta);
+}
+
+.detail {
+  margin: 4px 0 0;
+}
+
+.wrap {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  min-width: 720px;
+  border: var(--borderWidth) solid var(--hairlineStrong);
+  border-collapse: collapse;
+}
+
+.table th,
+.table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--hairline);
+  text-align: left;
+  vertical-align: top;
+}
+
+.table th {
+  background: var(--paperSunken);
+  color: var(--inkMuted);
+  font-size: var(--fontSizeMeta);
+  text-transform: uppercase;
+}
+
+.operation {
+  font-weight: 800;
+}

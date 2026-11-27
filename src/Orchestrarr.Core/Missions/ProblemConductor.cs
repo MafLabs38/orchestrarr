@@ -131,7 +131,7 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
         && entry.Budget.MaxMinutes <= approval.Certificate.Budget.MaxMinutes && entry.Budget.MaxAttempts <= approval.Certificate.Budget.MaxAttempts && entry.Budget.MaxTurns <= approval.Certificate.Budget.MaxTurns;
 
     /// <summary>Starts a problem that is in the plan: the stop, the proved approval, the staging gate, the powers, then the first mandate in the first world.</summary>
-    public async Task<ConductResult> StartAsync(PlanEntry entry, StagingDeclaration declaration, StagingRequirement requirement, StagingState state, CancellationToken cancellationToken)
+    public async Task<ConductResult> StartAsync(PlanEntry entry, StagingDeclaration declaration, StagingRequirement requirement, StagingState state, CancellationToken cancellationToken, int priority = FlowPriority.Normal)
     {
         ArgumentNullException.ThrowIfNull(entry);
         return await LockedAsync(entry.ProblemId, async () =>
@@ -187,7 +187,8 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
             }
             await RecordLeadAsync(entry);
             // The run is kept by Open once the first mandate exists: a start that fails leaves nothing in progress
-            var run = new ProblemRun(entry.ProblemId, entry.ApplicationId, ProblemState.InProgress, time.GetUtcNow(), entry, highest, usesStaging, approval, first);
+            // The priority a person gave it in the line goes with it from its first mission (ADR 0056)
+            var run = new ProblemRun(entry.ProblemId, entry.ApplicationId, ProblemState.InProgress, time.GetUtcNow(), entry, highest, usesStaging, approval, first, Priority: Math.Clamp(priority, FlowPriority.Lowest, FlowPriority.Highest));
             if (first == World.Git)
             {
                 // An application with no staging starts in the Git world: the frame of the merge is checked here too, since no crossing will do it (the diff, the CI and the executed files are checked at the merge itself)
@@ -342,7 +343,7 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
     private async Task<ConductResult> CloseAsync(ProblemRun run, Mission mission, bool complex, string? problemNote, string acceptedDetail, string? closedDetail)
     {
         var closed = MissionMachine.Apply(mission, MissionEvent.Granted, options.Loop, complex: complex).Mission ?? mission;
-        await SettleAsync(mission, closed, run with { State = ProblemState.Closed, CurrentWorld = null, Note = problemNote },
+        await SettleAsync(mission, closed, run with { State = ProblemState.Closed, CurrentWorld = null, Note = problemNote, EndedAt = time.GetUtcNow() },
             new AuditLine(MissionAuditEvents.MissionAccepted, mission.Id, acceptedDetail), new AuditLine(MissionAuditEvents.ProblemClosed, run.ProblemId, closedDetail));
         return ConductResult.Success(closed);
     }
@@ -365,7 +366,7 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
         var sentBack = new AuditLine(MissionAuditEvents.MissionSentBack, mission.Id, Text($"send-back {sent.SendBacks}"));
         if (sent.State == MissionState.Ended)
         {
-            await SettleAsync(mission, sent, run with { State = ProblemState.Failed, Note = sent.EndReason }, sentBack, new AuditLine(MissionAuditEvents.ProblemFailed, run.ProblemId, sent.EndReason));
+            await SettleAsync(mission, sent, run with { State = ProblemState.Failed, Note = sent.EndReason, EndedAt = time.GetUtcNow() }, sentBack, new AuditLine(MissionAuditEvents.ProblemFailed, run.ProblemId, sent.EndReason));
         }
         else
         {
@@ -383,7 +384,7 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
         {
             return ConductResult.Fail(transition.Refusal ?? "refused");
         }
-        await SettleAsync(mission, ended, run with { State = ProblemState.Escalated, Note = reason },
+        await SettleAsync(mission, ended, run with { State = ProblemState.Escalated, Note = reason, EndedAt = time.GetUtcNow() },
             new AuditLine(MissionAuditEvents.MissionEnded, mission.Id, Text($"escalated: {reason}")), new AuditLine(MissionAuditEvents.ProblemEscalated, run.ProblemId, reason));
         return ConductResult.Success(ended);
     }
@@ -395,7 +396,7 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
         {
             return ConductResult.Fail(transition.Refusal ?? "refused");
         }
-        await SettleAsync(mission, ended, run with { State = ProblemState.Failed, Note = reason },
+        await SettleAsync(mission, ended, run with { State = ProblemState.Failed, Note = reason, EndedAt = time.GetUtcNow() },
             new AuditLine(MissionAuditEvents.MissionEnded, mission.Id, Text($"{ended.End}: {reason}")), new AuditLine(MissionAuditEvents.ProblemFailed, run.ProblemId, reason));
         return ConductResult.Success(ended);
     }
@@ -503,7 +504,7 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
     // A mandate that cannot be issued ends the problem as failed, with the reason and an entry in the trail: nothing is left in progress with no mission and no way forward
     private async Task<ConductResult> FailedAsync(ProblemRun run, string reason, IReadOnlyList<PreconditionFailure>? failures = null)
     {
-        problems.Save(run with { State = ProblemState.Failed, Note = reason });
+        problems.Save(run with { State = ProblemState.Failed, Note = reason, EndedAt = time.GetUtcNow() });
         await BestEffortAsync(MissionAuditEvents.ProblemFailed, run.ProblemId, reason);
         return ConductResult.Fail(reason, failures);
     }

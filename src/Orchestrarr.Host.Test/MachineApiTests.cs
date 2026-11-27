@@ -276,4 +276,24 @@ public sealed class MachineApiTests
         missionId.Should().NotBeNullOrEmpty();
         _ = runner;
     }
+
+    [Fact]
+    public async Task The_factory_view_places_the_operation_in_its_workshop_in_front_of_the_machine_it_waits_for_and_is_read_by_a_person_only()
+    {
+        using var factory = new MachineFactory();
+        _ = await StartProblemAsync(factory);
+        using var person = await SignedIn(factory);
+        using var stranger = factory.CreateClient();
+
+        (await stranger.GetAsync("/api/v1/flow/board", Ct)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        var board = await person.GetFromJsonAsync<JsonElement>("/api/v1/flow/board", Ct);
+
+        board.GetProperty("places").EnumerateArray().Select(place => place.GetString()).Should().StartWith("queue").And.Contain("Staging").And.EndWith("out");
+        var staging = board.GetProperty("workshops").EnumerateArray().Single(workshop => workshop.GetProperty("world").GetString() == "Staging");
+        staging.GetProperty("equipment").EnumerateArray().Select(equipment => equipment.GetProperty("id").GetString()).Should().Contain("leipzig");
+        staging.GetProperty("waiting").GetInt32().Should().Be(1, "the operation waits in front of the workshop for a machine");
+        var operation = board.GetProperty("lots").EnumerateArray().SelectMany(lot => lot.GetProperty("operations").EnumerateArray()).Single(entry => entry.GetProperty("problemId").GetString() == "p-test");
+        operation.GetProperty("place").GetString().Should().Be("Staging");
+        operation.GetProperty("state").GetString().Should().Be("waitingMachine");
+    }
 }

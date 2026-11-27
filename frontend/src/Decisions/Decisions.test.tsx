@@ -1,11 +1,10 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-import { problem, problemsReport, readerOnly, renderWithProviders, status } from 'testUtils';
+import { problem, problemsReport, readerOnly, renderWithProviders, status, stubApi } from 'testUtils';
 import type { HistoryLine, HistoryReport, ProblemRow, ProblemsReport } from 'typings/api';
 
 import Decisions from './Decisions';
-import HistoryPage from './HistoryPage';
 
 const head = (letter: string) => letter.repeat(40);
 const rows: ProblemRow[] = [
@@ -723,14 +722,63 @@ describe('Decisions', () => {
     expect(screen.getAllByTitle('Jellyfin · example/media').length).toBeGreaterThan(0);
   });
 
-  it('shows an approved row as in progress', async () => {
-    stub(problemsReport([problem({ inProgress: true })]));
+  it('moves a validated row out of the decisions to take and shows it in the decisions taken, with what became of it', async () => {
+    stubApi({
+      '/api/v1/problems': problemsReport([
+        problem({ inProgress: true, description: 'express 4 → 5' }),
+        problem({ id: 'pr:example/shop#3', recentlyDone: true, description: 'mocha 8 → 10' }),
+        problem({ id: 'pr:example/shop#4', description: 'lodash 4.17.4 → 4.17.21' }),
+      ]),
+      '/api/v1/flow/board': {
+        places: ['queue', 'Staging', 'Git', 'out'],
+        workshops: [],
+        lots: [
+          {
+            repository: 'example/shop',
+            operations: [
+              {
+                problemId: 'p-1',
+                title: 'express 4 → 5',
+                kind: 'DependencyUpdate',
+                repository: 'example/shop',
+                place: 'Staging',
+                state: 'working',
+                detail: null,
+                priority: 50,
+                since: new Date().toISOString(),
+                equipment: 'leipzig',
+              },
+              {
+                problemId: 'p-2',
+                title: 'mocha 8 → 10',
+                kind: 'DependencyUpdate',
+                repository: 'example/shop',
+                place: 'out',
+                state: 'done',
+                detail: null,
+                priority: 50,
+                since: new Date().toISOString(),
+                equipment: null,
+              },
+            ],
+          },
+        ],
+        counters: { queued: 0, inProcess: 1, waiting: 0, done: 1, putAside: 0, oldestQueuedSince: null, held: 0 },
+      },
+    });
     renderWithProviders(<Decisions />);
 
-    expect(await screen.findByText('In progress')).toBeInTheDocument();
+    const toTake = await screen.findByRole('table', { name: 'Decisions to take' });
+    expect(within(toTake).getByText(/lodash/)).toBeInTheDocument();
+    expect(within(toTake).queryByText(/express/)).not.toBeInTheDocument();
+    expect(within(toTake).queryByText(/mocha/)).not.toBeInTheDocument();
+    const taken = screen.getByRole('region', { name: 'Decisions taken' });
+    expect(await within(taken).findByText('express 4 → 5')).toBeInTheDocument();
+    expect(within(taken).getByText('in process')).toBeInTheDocument();
+    expect(within(taken).getByText('done')).toBeInTheDocument();
   });
 
-  it('reads the history only when its tab is opened, newest first, and takes a skip back', async () => {
+  it('reads the rows set aside only when they are opened, newest first, and takes a skip back', async () => {
     const line = (id: number, state: HistoryLine['state'], outcome: HistoryLine['outcome']): HistoryLine => ({
       id,
       state,
@@ -750,12 +798,15 @@ describe('Decisions', () => {
       lines: [line(3, 'skipped', 'skipped'), line(2, 'approved', 'repaired'), line(1, 'approved', 'failed')],
       next: null,
     });
-    const view = renderWithProviders(<Decisions />);
+    renderWithProviders(<Decisions />);
     await screen.findByText('express 4.16.0 → 4.21.2');
     expect(fetchMock.mock.calls.some(([path]) => String(path).startsWith('/api/v1/problems/history'))).toBe(false);
-    view.unmount();
-
-    renderWithProviders(<HistoryPage />);
+    const setAside = screen.getByText('Rows set aside, and the approvals of the first design').closest('details');
+    expect(setAside).not.toBeNull();
+    if (setAside) {
+      setAside.open = true;
+      fireEvent(setAside, new Event('toggle'));
+    }
 
     expect(await screen.findByText('express 3')).toBeInTheDocument();
     expect(screen.getByText('Repaired')).toBeInTheDocument();

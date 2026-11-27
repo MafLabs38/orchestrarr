@@ -45,6 +45,12 @@ public static class MissionAuditEvents
     public const string ProblemStarted = "problem.started";
     public const string MachineRequalified = "machine.requalified";
     public const string PriorityRaised = "problem.priority-raised";
+    public const string PrioritySet = "problem.priority-set";
+    public const string ProblemHeld = "problem.held";
+    public const string ProblemReleased = "problem.released";
+
+    /// <summary>An act of a person that was written before it was made, and could not be made after all (the operation had left the line meanwhile).</summary>
+    public const string ActNotMade = "problem.act-not-made";
     public const string ProblemQueued = "problem.queued";
     public const string QueuedProblemRefused = "problem.queue-refused";
     public const string ProblemParked = "problem.parked";

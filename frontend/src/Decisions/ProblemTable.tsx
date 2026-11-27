@@ -105,7 +105,7 @@ export default function ProblemTable({
 
   return (
     <div className={styles.wrap}>
-      <table className={styles.table}>
+      <table className={styles.table} aria-label={translate('DecisionsToTake')}>
         <thead>
           <tr>
             <th className={styles.narrow}>

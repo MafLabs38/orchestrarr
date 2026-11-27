@@ -114,4 +114,11 @@ public sealed class PortarrFleetMapperTests
     {
         Image("\"status\": \"behind\"").Placements.Should().BeEmpty();
     }
+
+    [Fact]
+    public void What_portarr_observed_is_dated_by_its_last_scan_of_the_code_not_by_the_time_it_was_read()
+    {
+        Map("""{ "codeSource": { "scannedAt": "2026-11-01T07:40:00Z" } }""").ObservedAt.Should().Be(Now.AddMinutes(-20));
+        Map("{}").ObservedAt.Should().BeNull("a Portarr that does not say leaves the time it was read");
+    }
 }

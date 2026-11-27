@@ -480,10 +480,11 @@ sequenceDiagram
 
 | Screen | Becomes |
 |---|---|
-| **Decisions** (the table) | **The plan**: problems, where each stands, how far it may go, priority |
-| **Queue** (approvals) | **Mandates and approvals** waiting and running |
-| **Runs** | **Missions in progress**: the world, the trace live, the evidence as it appears |
-| **History** | What was done and decided, with dossiers and reports |
+| **Decisions** (the table) | **The plan**: problems, where each stands, how far it may go, priority; the decisions taken below it (ADR 0056) |
+| **Flow** | The factory view: workshops (worlds), their equipment and its state, the buffer in front of each, the operations of each lot where they are (ADR 0056) |
+| **Queue** | The dispatch list: what waits, in order, and why; the operator's priority and hold (ADR 0056) |
+| **Missions** | One card per problem, live (ADR 0052) |
+| **History** | The traveler of an operation, from the audit trail (ADR 0056) |
 | **Activity** | The audit trail |
 | **Status** | Sources, runners, the staging state per application, the kill switch |
 | The bell | Notices (unreadable repositories, a broken staging, a loop that hit its limit) |

@@ -32,6 +32,25 @@ public sealed class FlowViewTests
     }
 
     [Fact]
+    public void A_row_that_the_lead_plans_is_at_the_entry_of_the_line_until_it_has_its_place()
+    {
+        var store = new InMemoryProblemStore();
+        var planning = new[] { new PlannedRow("p-planned", "mocha 8 → 10", "DependencyUpdate", "o/shop", T0), new PlannedRow("p-waits", "redis", "ImageUpdate", "o/shop", T0) };
+
+        var flow = FlowView.Build([], store, [new QueuedProblem("row", Entry("p-waits"), T0)], [], true, _ => (null, null), _ => null, planning: planning);
+
+        flow.Select(problem => (problem.ProblemId, problem.Activity?.Waiting?.Code)).Should().Equal(("p-waits", "turn"), ("p-planned", "planning"));
+        FlowBoard.Build(flow, [], [], _ => 0).Lots.Single().Operations.Single(operation => operation.ProblemId == "p-planned").Should().Match<BoardOperation>(operation => operation.Place == "queue" && operation.State == "planning");
+    }
+
+    [Theory]
+    [InlineData("DependencyAlert", "5", "5 dependency alerts")]
+    [InlineData("FailingCi", "1", "the pipeline is red")]
+    [InlineData("ImageUpdate", "nginx:1.14 → 1.28", "nginx:1.14 → 1.28")]
+    public void A_row_read_as_a_number_is_titled_as_what_it_is(string kind, string description, string title) =>
+        FlowView.TitleOf(Entry("p") with { Brief = new ProblemBrief(kind, "o/shop", description, true) }).Should().Be(title);
+
+    [Fact]
     public void A_problem_that_waits_for_its_bot_to_rebase_its_pull_request_says_so_and_not_that_it_waits_for_its_turn()
     {
         var waiting = new QueuedProblem("row-2", Entry("p2", description: "mocha 8.0.1 → 8.4.0"), T0.AddMinutes(1));
@@ -122,13 +141,13 @@ public sealed class FlowViewTests
     [Fact]
     public void What_is_over_comes_after_what_is_going_on_and_is_kept_to_a_few()
     {
-        var finished = Enumerable.Range(1, 30).Select(index => Run($"f{index}", ProblemState.Closed, repository: $"o/r{index}")).ToArray();
+        var finished = Enumerable.Range(1, 60).Select(index => Run($"f{index}", ProblemState.Closed, repository: $"o/r{index}")).ToArray();
         var missions = finished.Select(run => Mission("m-" + run.ProblemId, run.ProblemId, World.Staging, MissionState.Accepted, MissionEnd.Done)).Append(Mission("m-live", "live", World.Staging, MissionState.Running)).ToList();
 
         var flow = Build(missions, Store([.. finished, Run("live", repository: "o/live")]));
 
         flow[0].ProblemId.Should().Be("live");
-        flow.Should().HaveCount(21);
+        flow.Should().HaveCount(51);
         flow.Skip(1).Should().OnlyContain(problem => problem.State == "closed" && problem.Activity == null);
     }
 

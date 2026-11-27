@@ -12,8 +12,25 @@
   border-radius: var(--radiusSmall);
 }
 
-.active {
-  border-color: var(--warningColor);
+.frameInfo {
+  border-color: var(--infoColor);
+}
+
+.framePurple {
+  border-color: var(--purple);
+}
+
+.frameWaiting {
+  border-style: dashed;
+  border-color: var(--hairlineStrong);
+}
+
+.framePink {
+  border-color: var(--pink);
+}
+
+.frameDanger {
+  border-color: var(--dangerColor);
 }
 
 .head {

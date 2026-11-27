@@ -43,3 +43,11 @@
 .disabled {
   color: var(--disabledColor);
 }
+
+.purple {
+  color: var(--purple);
+}
+
+.pink {
+  color: var(--pink);
+}
