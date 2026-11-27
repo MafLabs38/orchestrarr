@@ -35,11 +35,7 @@ public static class WorkflowStructure
     }
 
     /// <summary>Why the workflow after the change checks less, or runs with more rights, than before it; null when it does not. <paramref name="before"/> is null for a new file (or one that did not read as a workflow).</summary>
-    /// <param name="path">The path of the workflow in the repository.</param>
-    /// <param name="before">The workflow at the merge base, or null for a new file.</param>
-    /// <param name="after">The workflow at the commit of the change.</param>
-    /// <param name="files">The files of the repository that the change did not add, when the forge listed them: a change of a trigger's path filters is then measured on them, and only a filter that covered none of them, made to cover some, passes (ADR 0057); without them it is refused.</param>
-    public static string? Weakening(string path, string? before, string after, IReadOnlyCollection<string>? files = null)
+    public static string? Weakening(string path, string? before, string after)
     {
         ArgumentNullException.ThrowIfNull(after);
         if (Read(after) is not { } next)
@@ -60,7 +56,7 @@ public static class WorkflowStructure
         {
             return $"the change weakens the pipeline '{path}': it cannot be told, since the workflow before the change does not read here (an alias, or a size or a depth that no workflow has)";
         }
-        var reason = NewDangerousTrigger(previous, next) ?? LostTrigger(previous, next, files) ?? NewShell(previous, next) ?? SwappedAction(previous, next) ?? Widened(previous.Permissions, next.Permissions, "the workflow");
+        var reason = NewDangerousTrigger(previous, next) ?? LostTrigger(previous, next) ?? NewShell(previous, next) ?? SwappedAction(previous, next) ?? Widened(previous.Permissions, next.Permissions, "the workflow");
         foreach (var (name, job) in next.Jobs)
         {
             reason ??= previous.Jobs.TryGetValue(name, out var was) ? JobWeakening(name, was, job, previous, next) : NewJobWeakening(name, job, previous, next);
@@ -72,9 +68,8 @@ public static class WorkflowStructure
     private static string? NewDangerousTrigger(Workflow previous, Workflow next) =>
         next.Triggers.Keys.Where(trigger => DangerousTriggers.Contains(trigger, StringComparer.Ordinal) && !previous.Triggers.ContainsKey(trigger)).Select(trigger => $"adds the trigger '{trigger}', which runs with the base's credentials").FirstOrDefault();
 
-    // A workflow that no longer runs where it ran checks nothing there: a trigger removed, or its filters changed. A path filter that covered no file of the repository (a dead control) may be made to cover some, measured on the
-    // files of the repository; any other change of the path filters, a change of its branches or tags, or one that cannot be measured, is refused
-    private static string? LostTrigger(Workflow previous, Workflow next, IReadOnlyCollection<string>? files)
+    // A workflow that no longer runs where it ran checks nothing there: a trigger removed, or its filters (branches, paths, tags) changed
+    private static string? LostTrigger(Workflow previous, Workflow next)
     {
         foreach (var (trigger, filters) in previous.Triggers)
         {
@@ -82,80 +77,22 @@ public static class WorkflowStructure
             {
                 return $"stops the workflow from running on '{trigger}'";
             }
-            if (string.Equals(filters, now, StringComparison.Ordinal))
+            if (!string.Equals(filters, now, StringComparison.Ordinal))
             {
-                continue;
-            }
-            var was = previous.PathFilters.GetValueOrDefault(trigger, PathFilter.None);
-            var becomes = next.PathFilters.GetValueOrDefault(trigger, PathFilter.None);
-            if (!string.Equals(was.Other, becomes.Other, StringComparison.Ordinal))
-            {
-                return $"changes the branches or tags that the trigger '{trigger}' runs on";
-            }
-            // A dormant trigger that runs with the base's credentials stays dormant: waking it is a person's decision, never a mend
-            if (DangerousTriggers.Contains(trigger, StringComparer.Ordinal))
-            {
-                return $"changes the path filters of the trigger '{trigger}', which runs with the base's credentials";
-            }
-            if (FilterChangeRefusal(was, becomes, files) is { } refusal)
-            {
-                return $"changes the path filters of the trigger '{trigger}' ({refusal})";
-            }
-            // A dormant workflow that can write or reads a secret stays dormant: waking it gives it powers, a person's decision
-            if (next.HoldsPowers)
-            {
-                return $"wakes the workflow on '{trigger}' while it can write or reads a secret";
+                return $"changes the filters of the trigger '{trigger}'";
             }
         }
         return null;
     }
 
-    // A pattern that stands for a filter that does not read as a list of names: no plain pattern contains a line break
-    private const string Unreadable = "\n";
-
-    // At most this many patterns, this long, on one trigger: more than any workflow writes
-    private const int MaxPatterns = 50;
-    private const int MaxPatternLength = 200;
-
-    // The characters whose meaning in a path filter is the same for the forge and for PathGlob: letters, digits, '.', '_', '/', '-' and the '*' of '*' and '**' (a leading '!' negates). '?', '+', '[ ]' and '\' mean other things to the
-    // forge, and a filter that uses them is not measured
-    private static readonly System.Text.RegularExpressions.Regex PlainPattern = new("^!?[A-Za-z0-9._/*-]+$", System.Text.RegularExpressions.RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
-
-    // The one change of a path filter that mends a control (the maintainer, 2026-11-27): a filter that covered no file of the repository (a dead control) made to cover some. Any other change of the path filters is refused, and so is one
-    // that cannot be measured exactly (no list of the files, a pattern the forge reads otherwise, both kinds of filter at once). Null when it is that mend
-    private static string? FilterChangeRefusal(PathFilter was, PathFilter becomes, IReadOnlyCollection<string>? files)
-    {
-        if (files is null)
-        {
-            return "what they cover cannot be measured here";
-        }
-        if (!was.IsPlain || !becomes.IsPlain)
-        {
-            return "a pattern that cannot be measured exactly, or both paths and paths-ignore";
-        }
-        try
-        {
-            if (files.Any(was.Covers))
-            {
-                return "the filter was running on files of the repository: only a filter that covered none may be mended";
-            }
-            return files.Any(becomes.Covers) ? null : "the filter still covers no file of the repository";
-        }
-        catch (System.Text.RegularExpressions.RegexMatchTimeoutException)
-        {
-            return "a pattern that cannot be measured";
-        }
-    }
-
-    // An action is mended by another version of the same action, never replaced by another one: a change that takes an action out of the workflow and brings a new one in is refused (adding an action, or a version of one,
-    // is judged by the controller). Only for a workflow that existed: a new workflow has nothing to swap
+    // An action is mended by another version of the same action, never replaced by another one (ADR 0057 point 5): a change that takes an action out of the workflow and brings a new one in is refused (adding an action is
+    // judged by the controller). Counted, not as a set: an action used twice and replaced in one place is a swap too. Only for a workflow that existed: a new workflow has nothing to swap
     private static string? SwappedAction(Workflow previous, Workflow next)
     {
         if (ReferenceEquals(previous, Workflow.Empty))
         {
             return null;
         }
-        // Counted, not as a set: an action used twice and replaced in one place is a swap too
         var gone = previous.Actions.Where(used => next.Actions.GetValueOrDefault(used.Key) < used.Value).Select(used => used.Key).ToList();
         var come = next.Actions.Where(used => previous.Actions.GetValueOrDefault(used.Key) < used.Value).Select(used => used.Key).ToList();
         return gone.Count > 0 && come.Count > 0 ? $"replaces the action '{gone[0]}' with '{come[0]}' (an action is mended by another version of the same action)" : null;
@@ -232,58 +169,9 @@ public static class WorkflowStructure
 
     private sealed record Job(int Steps, int AlwaysRunningSteps, int CannotFailSteps, bool CannotFail, string? Condition, int MatrixValues, Dictionary<string, string>? Permissions);
 
-    private sealed record Workflow(Dictionary<string, string> Triggers, Dictionary<string, string>? Permissions, Dictionary<string, Job> Jobs, HashSet<string> CustomShells, Dictionary<string, PathFilter> PathFilters, Dictionary<string, int> Actions, bool ReadsSecrets = false)
+    private sealed record Workflow(Dictionary<string, string> Triggers, Dictionary<string, string>? Permissions, Dictionary<string, Job> Jobs, HashSet<string> CustomShells, Dictionary<string, int> Actions)
     {
-        public static Workflow Empty { get; } = new([], null, [], [], [], []);
-
-        /// <summary>Whether the workflow, or one of its jobs, asks for a token that can write, reads a secret, or leaves its token to the repository's default (which may write).</summary>
-        public bool HoldsPowers => ReadsSecrets || (Permissions is null && Jobs.Values.Any(job => job.Permissions is null)) || CanWrite(Permissions) || Jobs.Values.Any(job => CanWrite(job.Permissions));
-
-        private static bool CanWrite(Dictionary<string, string>? permissions) => permissions is not null && permissions.Values.Any(level => level.Contains("write", StringComparison.OrdinalIgnoreCase));
-    }
-
-    /// <summary>The path filters of a trigger (<c>paths</c> with its <c>!</c> negations, last match wins; <c>paths-ignore</c>), and the rest of its filters in one canonical text.</summary>
-    private sealed record PathFilter(IReadOnlyList<string>? Paths, IReadOnlyList<string>? Ignore, string Other)
-    {
-        public static PathFilter None { get; } = new(null, null, string.Empty);
-
-        /// <summary>Whether the filter can be measured exactly: one kind of filter, a bounded number of patterns, each of the plain characters only.</summary>
-        public bool IsPlain
-        {
-            get
-            {
-                if (Paths is not null && Ignore is not null)
-                {
-                    return false;
-                }
-                var patterns = Paths ?? Ignore ?? [];
-                // An empty list, or a list of negations only, is a shape whose reading by the forge is not certain: it is not measured
-                if ((Paths ?? Ignore) is { Count: 0 } || Paths is not null && Paths.All(pattern => pattern.StartsWith('!')))
-                {
-                    return false;
-                }
-                return patterns.Count <= MaxPatterns && patterns.All(pattern => pattern.Length <= MaxPatternLength && PlainPattern.IsMatch(pattern) && (Paths is not null || !pattern.StartsWith('!')));
-            }
-        }
-
-        /// <summary>Whether a change of this file makes the trigger run.</summary>
-        public bool Covers(string file)
-        {
-            if (Paths is { } paths)
-            {
-                var covered = false;
-                foreach (var pattern in paths)
-                {
-                    var negated = pattern.StartsWith('!');
-                    if (Orchestrarr.Core.Infrastructure.PathGlob.IsMatch(negated ? pattern[1..] : pattern, file))
-                    {
-                        covered = !negated;
-                    }
-                }
-                return covered;
-            }
-            return Ignore is not { } ignore || !ignore.Any(pattern => Orchestrarr.Core.Infrastructure.PathGlob.IsMatch(pattern, file));
-        }
+        public static Workflow Empty { get; } = new([], null, [], [], []);
     }
 
     private static Workflow? Read(string text)
@@ -329,7 +217,7 @@ public static class WorkflowStructure
             CollectShells(root, shells);
             var actions = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             CollectActions(root, actions);
-            return new Workflow(TriggersOf(Child(root, "on")), PermissionsOf(Child(root, "permissions")), jobs, shells, PathFiltersOf(Child(root, "on")), actions, text.Contains("secrets", StringComparison.OrdinalIgnoreCase));
+            return new Workflow(TriggersOf(Child(root, "on")), PermissionsOf(Child(root, "permissions")), jobs, shells, actions);
         }
         catch (Exception failure) when (failure is YamlException or ArgumentException or InvalidOperationException or InvalidCastException)
         {
@@ -358,35 +246,6 @@ public static class WorkflowStructure
         _ => new(StringComparer.Ordinal),
     };
 
-    // The path filters of each trigger written as a mapping (a trigger written as a name or in a list has none)
-    private static Dictionary<string, PathFilter> PathFiltersOf(YamlNode? node)
-    {
-        var found = new Dictionary<string, PathFilter>(StringComparer.Ordinal);
-        if (node is not YamlMappingNode map)
-        {
-            return found;
-        }
-        foreach (var (key, value) in map.Children)
-        {
-            if (key is not YamlScalarNode { Value: { } trigger } || value is not YamlMappingNode filters)
-            {
-                continue;
-            }
-            // A filter written in a shape the forge reads otherwise (a mapping, a list of lists) is kept as a pattern that is never plain: it is not measured
-            IReadOnlyList<string>? List(string name) => Child(filters, name) switch
-            {
-                null => null,
-                YamlSequenceNode items when items.Children.All(item => item is YamlScalarNode { Value: not null }) => [.. items.Children.Cast<YamlScalarNode>().Select(item => item.Value ?? string.Empty)],
-                YamlScalarNode { Value: { } one } => [one],
-                _ => [Unreadable],
-            };
-            var other = new YamlMappingNode(filters.Children.Where(pair => pair.Key is not YamlScalarNode { Value: "paths" or "paths-ignore" }));
-            // A trigger with no other filter compares equal to one written as a bare name
-            found[trigger] = new PathFilter(List("paths"), List("paths-ignore"), other.Children.Count == 0 ? string.Empty : Canonical(other));
-        }
-        return found;
-    }
-
     private static string Canonical(YamlNode node) => node switch
     {
         YamlScalarNode scalar => scalar.Value ?? string.Empty,
@@ -395,7 +254,7 @@ public static class WorkflowStructure
         _ => string.Empty,
     };
 
-    // Every action a step or a job uses, without its version: `owner/name` (and a path inside it), a local action or a container image as written
+    // Every action a step or a job uses, without its version (`owner/name`, a local action or an image as written), with how many times
     private static void CollectActions(YamlNode node, Dictionary<string, int> found)
     {
         switch (node)

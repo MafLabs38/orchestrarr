@@ -98,7 +98,7 @@ public sealed class WorkflowStructureTests
 
     [Theory]
     [InlineData("on: [push, pull_request]", "on: [workflow_dispatch]", "stops the workflow from running")]
-    [InlineData("on: [push, pull_request]", "on:\n  push:\n    paths-ignore: ['**']\n  pull_request:", "path filters of the trigger 'push'")]
+    [InlineData("on: [push, pull_request]", "on:\n  push:\n    paths-ignore: ['**']\n  pull_request:", "changes the filters of the trigger 'push'")]
     [InlineData("      - run: npm test", "      - run: npm test\n        shell: true {0}", "shell of its own")]
     public void A_workflow_that_no_longer_runs_where_it_ran_or_runs_its_steps_in_a_shell_of_its_own_is_refused(string from, string to, string reason) =>
         Judge(Base.Replace(from, to, StringComparison.Ordinal)).Should().Contain(reason);
@@ -133,106 +133,11 @@ public sealed class WorkflowStructureTests
         Judge(Base, "on: push\na: &a [x]\nb: *a\njobs: {}").Should().Contain("cannot be told");
 
     [Fact]
-    public void A_dead_path_filter_mended_to_cover_the_code_is_a_fix_and_any_other_filter_change_is_refused()
+    public void An_action_is_mended_only_by_another_version_of_itself()
     {
-        string[] files = ["src/feature.js", "src/feature.test.js", "README.md"];
-        const string Dead = "on:\n  push:\n    paths: ['source/**']\npermissions:\n  contents: read\njobs:\n  t:\n    runs-on: x\n    steps:\n      - run: make";
-        var live = Dead.Replace("source/**", "src/**", StringComparison.Ordinal);
-
-        WorkflowStructure.Weakening(Path, Dead, live, files).Should().BeNull("the filter covered no file; it now covers the code: the control is mended, not weakened");
-        WorkflowStructure.Weakening(Path, live, Dead.Replace("source/**", "src/*.test.js", StringComparison.Ordinal), files).Should().Contain("was running on files", "a filter that ran is never narrowed");
-        WorkflowStructure.Weakening(Path, live, Dead.Replace("['source/**']", "['src/**', 'lib/**']", StringComparison.Ordinal), files).Should().Contain("was running on files", "only a dead filter may change");
-        WorkflowStructure.Weakening(Path, Dead, Dead.Replace("source/**", "lib/**", StringComparison.Ordinal), files).Should().Contain("still covers no file");
-        WorkflowStructure.Weakening(Path, Dead, live).Should().Contain("cannot be measured", "without the files of the repository a filter change is not judged");
-        WorkflowStructure.Weakening(Path, Dead, Dead.Replace("    paths: ['source/**']", "    branches: [main]\n    paths: ['source/**']", StringComparison.Ordinal), files).Should().Contain("branches or tags");
-    }
-
-    [Theory]
-    [InlineData("['sr?/**']")]
-    [InlineData("['src/**', '!src/[a-z]*.js']")]
-    [InlineData("['src/fea+ture.js']")]
-    [InlineData("[\"\\x02\"]")]
-    [InlineData("{ src: yes }")]
-    [InlineData("[[src/**]]")]
-    public void A_path_filter_the_forge_reads_otherwise_is_not_measured(string patterns)
-    {
-        string[] files = ["src/feature.js"];
-        const string Dead = "on:\n  push:\n    paths: ['source/**']\npermissions:\n  contents: read\njobs:\n  t:\n    runs-on: x\n    steps:\n      - run: make";
-
-        WorkflowStructure.Weakening(Path, Dead, Dead.Replace("['source/**']", patterns, StringComparison.Ordinal), files).Should().Contain("cannot be measured exactly");
-    }
-
-    [Fact]
-    public void A_trigger_with_both_kinds_of_path_filter_is_not_measured()
-    {
-        const string Dead = "on:\n  push:\n    paths: ['source/**']\npermissions:\n  contents: read\njobs:\n  t:\n    runs-on: x\n    steps:\n      - run: make";
-
-        WorkflowStructure.Weakening(Path, Dead, Dead.Replace("    paths: ['source/**']", "    paths: ['src/**']\n    paths-ignore: ['src/x/**']", StringComparison.Ordinal), ["src/feature.js"]).Should().Contain("cannot be measured exactly");
-    }
-
-    private static string Push(string filters) => $"on:\n  push:\n    {filters}\npermissions:\n  contents: read\njobs:\n  t:\n    runs-on: x\n    steps:\n      - run: make";
-
-    [Theory]
-    [InlineData("paths: ['sr?/**']", "paths: ['src/feature.js']", "cannot be measured exactly")]
-    [InlineData("paths-ignore: ['**']", "paths-ignore: ['docs/**']", null)]
-    [InlineData("paths-ignore: ['docs/**']", "paths-ignore: ['src/**']", "was running on files")]
-    [InlineData("paths: ['src/**', '!src/**']", "paths: ['src/**']", null)]
-    [InlineData("paths: ['!src/**', 'src/**']", "paths: ['src/feature.js']", "was running on files")]
-    [InlineData("paths: []", "paths: ['src/**']", "cannot be measured exactly")]
-    [InlineData("paths: ['!docs/**']", "paths: ['README.md']", "cannot be measured exactly")]
-    [InlineData("paths-ignore: []", "paths-ignore: ['docs/**']", "cannot be measured exactly")]
-    [InlineData("paths: ['./src/**']", "paths: ['src/**']", null)]
-    [InlineData("paths-ignore: ['!src/**']", "paths-ignore: ['docs/**']", "cannot be measured exactly")]
-    public void A_change_of_a_path_filter_is_judged_on_what_it_covered_and_what_it_covers(string before, string after, string? refusal)
-    {
-        string[] files = ["src/feature.js", "docs/a.md"];
-
-        var judged = WorkflowStructure.Weakening(Path, Push(before), Push(after), files);
-
-        if (refusal is null)
-        {
-            judged.Should().BeNull();
-        }
-        else
-        {
-            judged.Should().Contain(refusal);
-        }
-    }
-
-    [Fact]
-    public void A_filter_added_to_a_trigger_that_had_none_narrows_it_and_a_filter_past_its_bounds_is_not_measured()
-    {
-        string[] files = ["src/feature.js"];
-        const string Bare = "on: [push]\njobs:\n  t:\n    runs-on: x\n    steps:\n      - run: make";
-
-        WorkflowStructure.Weakening(Path, Bare, Push("paths: ['src/**']"), files).Should().Contain("was running on files", "a trigger with no filter runs for every file");
-        var many = "paths: [" + string.Join(", ", Enumerable.Range(0, 51).Select(index => $"'src/a{index}'")) + ", 'src/**']";
-        WorkflowStructure.Weakening(Path, Push("paths: ['source/**']"), Push(many), files).Should().Contain("cannot be measured exactly");
-        WorkflowStructure.Weakening(Path, Push("paths: ['source/**']"), Push($"paths: ['src/{new string('a', 200)}', 'src/**']"), files).Should().Contain("cannot be measured exactly");
-    }
-
-    [Fact]
-    public void A_dormant_trigger_that_runs_with_the_base_credentials_is_never_woken_and_an_action_is_mended_only_by_another_version_of_itself()
-    {
-        string[] files = ["src/feature.js"];
-        const string Dormant = "on:\n  pull_request_target:\n    paths: ['old/**']\njobs:\n  t:\n    runs-on: x\n    steps:\n      - run: make";
-
-        WorkflowStructure.Weakening(Path, Dormant, Dormant.Replace("old/**", "src/**", StringComparison.Ordinal), files).Should().Contain("runs with the base's credentials");
         Judge(Base.Replace("actions/checkout@v4", "actions/checkout@v5", StringComparison.Ordinal)).Should().BeNull("another version of the same action mends it");
         Judge(Base.Replace("actions/checkout@v4", "someone/checkout@v1", StringComparison.Ordinal)).Should().Contain("replaces the action 'actions/checkout' with 'someone/checkout'");
         var twice = Base.Replace("      - run: npm ci", "      - uses: actions/checkout@v4\n      - run: npm ci", StringComparison.Ordinal);
         Judge(twice.Replace("      - uses: actions/checkout@v4\n      - run: npm ci", "      - uses: someone/checkout@v1\n      - run: npm ci", StringComparison.Ordinal), twice).Should().Contain("replaces the action", "an action used twice and replaced in one place is a swap");
-    }
-
-    [Theory]
-    [InlineData("permissions:\n  contents: write\n")]
-    [InlineData("permissions: write-all\n")]
-    [InlineData("env:\n  TOKEN: ${{ secrets.NPM_TOKEN }}\n")]
-    [InlineData("")]
-    public void A_dormant_workflow_that_can_write_or_reads_a_secret_is_never_woken(string powers)
-    {
-        var dormant = "on:\n  push:\n    paths: ['old/**']\n" + powers + "jobs:\n  t:\n    runs-on: x\n    steps:\n      - run: make";
-
-        WorkflowStructure.Weakening(Path, dormant, dormant.Replace("old/**", "src/**", StringComparison.Ordinal), ["src/feature.js"]).Should().Contain("can write or reads a secret");
     }
 }

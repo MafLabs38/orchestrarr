@@ -142,9 +142,6 @@ public interface IBranchSource
 
     /// <summary>A file at a commit (<see cref="FileAt"/>), or null when it cannot be read: a repair is then judged on the whole file it carries, and what it removes from a pipeline cannot be judged (ADR 0055).</summary>
     Task<FileAt?> FileAtAsync(string repositoryFullName, string sha, string path, CancellationToken cancellationToken) => Task.FromResult<FileAt?>(null);
-
-    /// <summary>The paths of every file at a commit, or null when they cannot all be listed: a change of a pipeline's path filters is measured on them (ADR 0057).</summary>
-    Task<IReadOnlyList<string>?> FilesAtAsync(string repositoryFullName, string sha, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<string>?>(null);
 }
 
 /// <summary>A file read at a commit: its text, or that the commit has no such file.</summary>

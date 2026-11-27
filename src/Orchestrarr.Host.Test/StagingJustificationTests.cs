@@ -36,14 +36,4 @@ public sealed class StagingJustificationTests
         dossiers.Save(Dossier("m-forward"));
         MissionDriver.WithStagingJustification(missions, dossiers, git, Dossier("m-git")).PipelineJustification.Should().BeNull();
     }
-
-    [Fact]
-    public void A_dead_filter_is_measured_on_the_files_that_were_there_never_on_a_file_the_change_adds()
-    {
-        var change = new Orchestrarr.Core.Forge.BranchChange("base", 0, 1, [new Orchestrarr.Core.Forge.BranchFile("src/made-up.js", "added", 1, "+x"), new Orchestrarr.Core.Forge.BranchFile("src/feature.js", "modified", 1, "+y")], FilesComplete: true);
-
-        RepairBase.Preexisting(["src/made-up.js", "src/feature.js", "README.md"], change).Should().Equal("src/feature.js", "README.md");
-        RepairBase.Preexisting(["src/feature.js"], change with { FilesComplete = false }).Should().BeNull("what the change added cannot be told when the forge cut its list");
-        RepairBase.Preexisting(null, change).Should().BeNull();
-    }
 }

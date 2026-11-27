@@ -37,7 +37,7 @@ public static partial class ChangePolicy
     /// texts of the workflows that the change touches, at the merge base and at the commit (ADR 0057): a workflow is then read as YAML and compared; a text that could not be read is null, and a workflow
     /// that is new has no text before.
     /// </summary>
-    public static string? Refusal(BranchChange change, IEnumerable<string>? forbidden = null, IReadOnlyDictionary<string, string?>? before = null, IReadOnlyDictionary<string, string?>? after = null, IReadOnlyCollection<string>? files = null)
+    public static string? Refusal(BranchChange change, IEnumerable<string>? forbidden = null, IReadOnlyDictionary<string, string?>? before = null, IReadOnlyDictionary<string, string?>? after = null)
     {
         ArgumentNullException.ThrowIfNull(change);
         if (change.Files.Count is 0 or > MaxFiles || !change.FilesComplete)
@@ -70,7 +70,7 @@ public static partial class ChangePolicy
                 return $"the path '{file.Path}' is protected: a change never carries the files that hold a secret, the files that instruct an agent or where the dependencies come from";
             }
             // A pipeline that the frame lets this operation change is never weakened by it (ADR 0055): a workflow read as YAML against the file before it, any other pipeline on the lines that the change adds and removes
-            if (PipelineChanges.IsPipeline(file.Path) && PipelineGuard(file, before, after, files) is { } weakened)
+            if (PipelineChanges.IsPipeline(file.Path) && PipelineGuard(file, before, after) is { } weakened)
             {
                 return weakened;
             }
@@ -138,7 +138,7 @@ public static partial class ChangePolicy
     }
 
     // The lines that a patch adds
-    private static string? PipelineGuard(BranchFile file, IReadOnlyDictionary<string, string?>? before, IReadOnlyDictionary<string, string?>? after, IReadOnlyCollection<string>? files)
+    private static string? PipelineGuard(BranchFile file, IReadOnlyDictionary<string, string?>? before, IReadOnlyDictionary<string, string?>? after)
     {
         var added = AddedLines(file.Patch).ToList();
         var removed = RemovedLines(file.Patch).ToList();
@@ -160,7 +160,7 @@ public static partial class ChangePolicy
             }
             was = old;
         }
-        return PipelineChanges.Guard(file.Path, was, now, added, removed, files);
+        return PipelineChanges.Guard(file.Path, was, now, added, removed);
     }
 
     private static IEnumerable<string> AddedLines(string? patch) =>

@@ -50,13 +50,13 @@ public static partial class PipelineChanges
     /// Why a change of a pipeline file weakens it, or null (ADR 0055, ADR 0057). A workflow of the forge whose text after the change is known is **read as YAML and compared with the file before it** (<see cref="WorkflowStructure"/>),
     /// and the lines it adds are read for what only text says (a shell command made to succeed, a secret read); any other pipeline file is read on its lines (<see cref="Weakening"/>, <see cref="Removal"/>).
     /// </summary>
-    public static string? Guard(string path, string? before, string? after, IReadOnlyList<string> addedLines, IReadOnlyList<string> removedLines, IReadOnlyCollection<string>? files = null)
+    public static string? Guard(string path, string? before, string? after, IReadOnlyList<string> addedLines, IReadOnlyList<string> removedLines)
     {
         ArgumentNullException.ThrowIfNull(addedLines);
         ArgumentNullException.ThrowIfNull(removedLines);
         if (WorkflowStructure.IsWorkflow(path) && after is not null)
         {
-            return WorkflowStructure.Weakening(path, before, after, files) ?? Matched(path, addedLines, ShellWeakens());
+            return WorkflowStructure.Weakening(path, before, after) ?? Matched(path, addedLines, ShellWeakens());
         }
         return Weakening(path, addedLines) ?? Removal(path, removedLines, addedLines);
     }

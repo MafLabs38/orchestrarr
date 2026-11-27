@@ -335,33 +335,6 @@ public sealed partial class GitHubPullRequestFacts : IPullRequestFacts, IDefault
         }
     }
 
-    // A tree of more files than this is not listed: a change of a path filter on it is not measured, and is refused
-    private const int MaxListedFiles = 100_000;
-
-    public async Task<IReadOnlyList<string>?> FilesAtAsync(string repositoryFullName, string sha, CancellationToken cancellationToken)
-    {
-        if (!RepositoryName().IsMatch(repositoryFullName) || !Sha().IsMatch(sha))
-        {
-            return null;
-        }
-        try
-        {
-            using var tree = await GetAsync($"repos/{repositoryFullName}/git/trees/{sha}?recursive=1", cancellationToken);
-            // A tree the forge cut short is not the list of the files: what it leaves out could be what a filter covered
-            if (tree is null || tree.RootElement.TryGetProperty("truncated", out var truncated) && truncated.ValueKind == JsonValueKind.True
-                || !tree.RootElement.TryGetProperty("tree", out var entries) || entries.ValueKind != JsonValueKind.Array || entries.GetArrayLength() > MaxListedFiles)
-            {
-                return null;
-            }
-            return [.. entries.EnumerateArray().Where(entry => entry.TryGetProperty("type", out var type) && type.GetString() == "blob")
-                .Select(entry => entry.TryGetProperty("path", out var path) ? path.GetString() : null).OfType<string>()];
-        }
-        catch (Exception failure) when (failure is HttpRequestException or JsonException or InvalidOperationException || failure is TaskCanceledException && !cancellationToken.IsCancellationRequested)
-        {
-            return null;
-        }
-    }
-
     public async Task<string?> HeadOfAsync(string repositoryFullName, string branch, CancellationToken cancellationToken)
     {
         if (!RepositoryName().IsMatch(repositoryFullName) || !Orchestrarr.Core.Missions.AgentBranch.IsName(branch))

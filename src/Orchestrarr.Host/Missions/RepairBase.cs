@@ -32,17 +32,6 @@ internal static class RepairBase
     /// The texts of the workflows that a free agent's branch touches, at the merge base and at the commit it finished at (ADR 0057), for <see cref="ChangePolicy.Refusal"/> to read them as YAML: a workflow that the base does not
     /// hold is new (no text before), and one that could not be read has no text (null), which the policy refuses.
     /// </summary>
-    /// <summary>The files of the repository at the commit that the change did not add: a dead path filter is mended only when it is made to cover files that were already there, never a file the agent added for it (ADR 0057).</summary>
-    internal static IReadOnlyList<string>? Preexisting(IReadOnlyList<string>? files, BranchChange change)
-    {
-        if (files is null || !change.FilesComplete)
-        {
-            return null;
-        }
-        var added = change.Files.Where(file => file.Status == "added").Select(file => file.Path).ToHashSet(StringComparer.Ordinal);
-        return [.. files.Where(file => !added.Contains(file))];
-    }
-
     internal static async Task<(IReadOnlyDictionary<string, string?> Before, IReadOnlyDictionary<string, string?> After)> WorkflowsAsync(IBranchSource branches, string repository, BranchChange change, string commit, CancellationToken cancellationToken)
     {
         var before = new Dictionary<string, string?>(StringComparer.Ordinal);
