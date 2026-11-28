@@ -267,4 +267,15 @@ public sealed class AgentBranchTests
         ChangePolicy.Refusal(change, null, new Dictionary<string, string?> { [path] = "FROM python:3.7" }, new Dictionary<string, string?> { [path] = "FROM evil/python:3.12" }).Should().Contain("instead of 'python'");
         ChangePolicy.IsContainerFile("compose.yaml").Should().BeFalse();
     }
+
+    [Fact]
+    public void A_new_container_file_is_read_alone_a_removed_one_is_not_judged_and_a_modified_one_without_its_text_before_is_refused()
+    {
+        ChangePolicy.SwappedBaseImage(new Orchestrarr.Core.Forge.BranchFile("Dockerfile", "added", 2, null), null, "FROM python:3.8").Should().BeNull("a new container file is the controller's to judge on the patch");
+        ChangePolicy.SwappedBaseImage(new Orchestrarr.Core.Forge.BranchFile("Dockerfile", "added", 2, null), null, "FROM ${BASE}").Should().Contain("cannot be told from the file");
+        ChangePolicy.SwappedBaseImage(new Orchestrarr.Core.Forge.BranchFile("Dockerfile", "added", 2, null), "FROM python:3.7", "FROM evil/img").Should().Contain("run on 'evil/img'", "a path that existed at the merge base is compared, whatever the forge calls it");
+        ChangePolicy.SwappedBaseImage(new Orchestrarr.Core.Forge.BranchFile("Dockerfile", "removed", 0, null), "FROM python:3.7", null).Should().BeNull();
+        ChangePolicy.SwappedBaseImage(new Orchestrarr.Core.Forge.BranchFile("Dockerfile", "modified", 2, null), null, "FROM python:3.8").Should().Contain("could not be read whole");
+        ChangePolicy.SwappedBaseImage(new Orchestrarr.Core.Forge.BranchFile("Dockerfile", "modified", 2, null), "FROM python:3.7", null).Should().Contain("could not be read whole");
+    }
 }

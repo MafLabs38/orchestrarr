@@ -36,6 +36,7 @@ The maintainer had answered Q-06 on 2026-11-25: the check after a deployment is 
 
 - The check is `GET /health` on the published port answering 200 within a minute. An application that has no such route fails its verification and is fixed forward as a release that did not verify. A health route that answers while the application is broken is not seen (Q-06).
 - The control plane does not tell which version answers its health check; it relies on the runner's report of the deployment, which can only stop work.
+- An image that has no newer tag of itself (an image line at its end, a deprecated image name replaced by its successor) cannot be fixed by the product: replacing a runtime is the maintainer's decision and the check refuses it on every free agent's branch, so the problem is escalated and the maintainer makes that change by hand. An approval that names the replacement image (part of the frame, read by the check) would be a later vertical, the maintainer's to decide.
 
 ## Consequences
 
