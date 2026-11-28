@@ -432,7 +432,7 @@ sequenceDiagram
     participant M as Maintainer
     R->>R: verification fails
     R-->>CP: dossier: verification failed (a claim)
-    CP->>CP: failure read from the facts (forge pipelines, health in Portarr)
+    CP->>CP: failure read from the runner's steps (deploy and verify exit codes) and the facts (forge pipelines, health); a grant without both exit=0 is overruled (ADR 0058)
     CP->>C: dossier and facts
     C-->>CP: decision: the release did not verify
     alt the problem was approved by a standing rule (proposed)
@@ -442,7 +442,7 @@ sequenceDiagram
         alt limit reached
             CP->>M: notify, work stops
         else within the limit
-            CP->>CP: new mandate for the same problem in the first world, through the same checks as any mandate
+            CP->>CP: fixed forward in staging: a free agent on the integration branch, told the failed step (ADR 0058); with no staging, a person decides
         end
     end
 ```

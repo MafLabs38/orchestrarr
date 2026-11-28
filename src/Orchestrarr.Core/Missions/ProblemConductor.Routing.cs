@@ -20,7 +20,7 @@ public sealed partial class ProblemConductor
         /// <summary>The work stops: nothing that going back could change.</summary>
         Stop,
 
-        /// <summary>The release did not verify: the problem starts again in the first world.</summary>
+        /// <summary>The release did not verify: the problem is fixed forward in staging, or goes to a person with no staging (ADR 0058).</summary>
         BackToFirstWorld,
 
         /// <summary>The merge turned the integration branch red: the problem goes back to the staging world to bring it back to green (ADR 0055).</summary>

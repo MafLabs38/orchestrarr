@@ -2,6 +2,7 @@
 
 - **Status**: proposed (accepted when the pull request that carries it is merged)
 - **Date**: 2026-11-24
+- **Amended by**: [ADR 0058](0058-a-release-that-fails-after-its-merge-is-fixed-forward.md): a base image is raised, never replaced by another image (point 3)
 - **Spec**: D-105 ([SPEC.md](../SPEC.md)). Amends [ADR 0028](0028-the-description-is-the-perimeter-and-the-version-lives-in-the-code.md) §2 (a new kind of file of the description, `dockerfile`). Builds on [ADR 0048](0048-a-problem-with-no-pull-request-is-solved-by-a-free-agent-in-staging.md) (a problem with no pull request, the free agent that pushes its own branch) and [ADR 0028](0028-the-description-is-the-perimeter-and-the-version-lives-in-the-code.md) (the description is the perimeter of the code). Cases 04, 05 and 09 of [CASE-GRID.md](../CASE-GRID.md).
 
 ## Context

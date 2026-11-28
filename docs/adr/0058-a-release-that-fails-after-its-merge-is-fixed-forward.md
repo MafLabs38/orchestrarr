@@ -18,10 +18,11 @@ The maintainer had answered Q-06 on 2026-11-25: the check after a deployment is 
 1. **A release is granted only on its runner's word that the deployment and its verification passed** (`deploy:exit=0` and `verify:exit=0`, `MissionEvidence.ReleaseVerified`), besides the facts: what answers on the health route may be the version before. A grant without that word is overruled by the code: when the runner says the release failed (`MissionEvidence.ReleaseFailureOf`), it is routed as a release that did not verify; otherwise it goes to a person. **Only a grant is overruled**: an end or an escalation of the controller stands, since a claim of failure can only stop work; the controller is told that a release that did not deploy is a send-back, which takes the loop up again.
 2. **A release that fails after its merge is fixed forward in staging**, as a merge that turns the integration branch red is (ADR 0055).
    - The change is in, so the problem goes back to staging as a problem with no pull request.
-   - A free agent works on the integration branch as it is, told only the step that failed (the deployment or the verification), never the output of the build or of the application, which is the repository's text. It reproduces the build the way production does it.
+   - A free agent works on the integration branch as it is, told what failed and nothing of the output: the step its runner reports as failed (the deployment or the verification); a red pipeline on the released commit, fixed forward as a red pipeline (ADR 0055); otherwise that the controller judged it not to verify. It reproduces the build the way production does it.
+   - A release approved by a standing rule that fails is still escalated (FR-WLD-13).
    - Same approval, raised priority, and the bound of the fixes forward (`Missions:MaxFixesForwardPerProblem`); past it, a person decides.
    - An application with no staging has no world to fix it forward in, and going back to the Git world would replay a pull request that the merge closed: a person decides.
-3. **A base image is raised to the smallest newer version of the same image that the change needs**, never replaced by another image. The check of the code refuses a Dockerfile change that takes an image out of its `FROM` lines and brings another in (`ChangePolicy.SwappedBaseImage`), and the controller grants a newer version of the same image as maintenance when it is the smallest the change needs and it builds, starts and passes. Another runtime, a rewrite or features removed stay the maintainer's.
+3. **A base image is raised to the smallest newer version of the same image that the change needs**, never replaced by another image. The check of the code refuses, in a free agent's commit, a change to a container file (`Dockerfile*`, `Containerfile*`, `*.dockerfile`) that takes an image out of its `FROM` lines and brings another in (`ChangePolicy.SwappedBaseImage`; stages, tags, digests and the default registry are not counted, and a new stage next to the kept image is the controller's to judge), and the controller grants a newer version of the same image as maintenance when it is the smallest the change needs and it builds, starts and passes. Another runtime, a rewrite or features removed stay the maintainer's.
 4. **The verification after a deployment is the health check** (the maintainer, 2026-11-25, Q-06): the application answers its health route within a minute. No tester agent and no declared routes.
 
 ## As built
@@ -33,10 +34,10 @@ The maintainer had answered Q-06 on 2026-11-25: the check after a deployment is 
 
 ## What this does not do
 
-- A health route that the application does not have, or that answers while the application is broken, is not seen: the check is what the application offers (Q-06).
+- The check is `GET /health` on the published port answering 200 within a minute. An application that has no such route fails its verification and is fixed forward as a release that did not verify. A health route that answers while the application is broken is not seen (Q-06).
 - The control plane does not tell which version answers its health check; it relies on the runner's report of the deployment, which can only stop work.
 
 ## Consequences
 
-- The production that ran before keeps running while a release that cannot deploy is fixed forward. Nothing is rolled back by hand, and nothing is promoted on the word of the previous version.
+- When the image does not build, the version that ran before keeps running while the release is fixed forward. When the new container does not start or does not answer its health route, the version before has already been replaced, and production stays down or broken until the fix forward is released (nothing is rolled back, ADR 0040). Nothing is promoted on the word of the previous version.
 - A release that failed costs a fix forward in staging (about ten minutes on the test bed) instead of ending the problem.
