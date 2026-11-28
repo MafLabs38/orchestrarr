@@ -70,7 +70,7 @@ public static partial class ChangePolicy
                 return $"the path '{file.Path}' is protected: a change never carries the files that hold a secret, the files that instruct an agent or where the dependencies come from";
             }
             // A pipeline that the frame lets this operation change is never weakened by it (ADR 0055): a workflow read as YAML against the file before it, any other pipeline on the lines that the change adds and removes
-            if (SwappedBaseImage(file) is { } swapped)
+            if (SwappedBaseImage(file, Text(before, file.Path), Text(after, file.Path)) is { } swapped)
             {
                 return swapped;
             }
@@ -141,19 +141,31 @@ public static partial class ChangePolicy
         return null;
     }
 
-    // A base image is raised to a newer tag of the same image, never replaced by another one (ADR 0058): a container file change that takes an image out of its FROM lines with no newer tag of it, and brings another in, is refused.
-    // A stage named by an earlier FROM (`FROM base`) is not an image, and an image added next to the ones kept (a new stage) is the controller's to judge
-    internal static string? SwappedBaseImage(BranchFile file)
+    /// <summary>Whether a path is a container file (a Dockerfile, a Containerfile), whose base images are compared before and after a change (ADR 0058).</summary>
+    public static bool IsContainerFile(string path)
     {
-        var name = file.Path[(file.Path.LastIndexOf('/') + 1)..];
-        if (!name.StartsWith("Dockerfile", StringComparison.OrdinalIgnoreCase) && !name.StartsWith("Containerfile", StringComparison.OrdinalIgnoreCase) && !name.EndsWith(".dockerfile", StringComparison.OrdinalIgnoreCase))
+        var name = path[(path.LastIndexOf('/') + 1)..];
+        return name.StartsWith("Dockerfile", StringComparison.OrdinalIgnoreCase) || name.StartsWith("Containerfile", StringComparison.OrdinalIgnoreCase) || name.EndsWith(".dockerfile", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? Text(IReadOnlyDictionary<string, string?>? texts, string path) => texts is not null && texts.TryGetValue(path, out var text) ? text : null;
+
+    // A base image is raised to a newer tag of the same image, never replaced by another one (ADR 0058). The whole file before and after the change is read when the forge gave it, and every FROM is resolved against the
+    // defaults of the ARGs of the file (`ARG BASE=python:3.7` with `FROM ${BASE}`, `${BASE:-python:3.7}`): a change that takes an image out and brings another in is refused, and so is a FROM that cannot be resolved there
+    // (its value would come from outside the file). Without the whole file, the lines of the patch are read the same way. A stage named by an earlier FROM is not an image; a new stage next to the kept images is the
+    // controller's to judge
+    internal static string? SwappedBaseImage(BranchFile file, string? before = null, string? after = null)
+    {
+        if (!IsContainerFile(file.Path))
         {
             return null;
         }
-        var removed = RemovedLines(file.Patch).ToList();
-        var added = AddedLines(file.Patch).ToList();
-        var gone = ImagesOf(removed).ToList();
-        var come = ImagesOf(added).ToList();
+        var gone = ImagesOf(before is not null && after is not null ? Lines(before) : RemovedLines(file.Patch).ToList());
+        var come = ImagesOf(after is not null ? Lines(after) : AddedLines(file.Patch).ToList());
+        if (come.FirstOrDefault(image => image.StartsWith(Unresolved, StringComparison.Ordinal) && !gone.Contains(image, StringComparer.OrdinalIgnoreCase)) is { } unknown)
+        {
+            return $"the change gives '{file.Path}' a base image that cannot be told from the file ({unknown[Unresolved.Length..]}): a base image is raised to a newer version of the same image, never replaced by another";
+        }
         var lost = gone.FirstOrDefault(image => !come.Contains(image, StringComparer.OrdinalIgnoreCase));
         var newcomer = come.FirstOrDefault(image => !gone.Contains(image, StringComparer.OrdinalIgnoreCase));
         return lost is not null && newcomer is not null
@@ -161,17 +173,42 @@ public static partial class ChangePolicy
             : null;
     }
 
-    // The images of FROM lines without their tag or digest, the default registry and library left out; a stage that a FROM of the same lines names (`AS base`) is not an image. The default of an ARG that names an image
-    // (`ARG BASE=python:3.7`, which a `FROM ${BASE}` uses) counts as an image too, and a FROM is read whatever the space after it
-    private static IEnumerable<string> ImagesOf(List<string> lines)
+    private const string Unresolved = "unresolved:";
+
+    private static List<string> Lines(string text) => [.. text.Split('\n')];
+
+    // The base images of FROM lines, each resolved against the ARG defaults of the same lines, without tag or digest, the default registry and library left out
+    private static List<string> ImagesOf(List<string> lines)
     {
+        var defaults = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var groups in lines.Select(line => ArgLine().Match(line.Trim())).Where(match => match.Success).Select(match => match.Groups))
+        {
+            defaults[groups[1].Value] = groups[2].Value.Trim('"', '\'');
+        }
         var froms = lines.Select(line => line.Trim()).Where(line => FromLine().IsMatch(line))
             .Select(line => Words().Split(line).Skip(1).Where(word => word.Length > 0 && !word.StartsWith("--", StringComparison.Ordinal)).ToList())
             .Where(words => words.Count > 0).ToList();
         var stages = froms.Where(words => words.Count >= 3 && words[1].Equals("AS", StringComparison.OrdinalIgnoreCase)).Select(words => words[2]).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var argImages = lines.Select(line => ArgImage().Match(line.Trim())).Where(match => match.Success).Select(match => match.Groups[1].Value.Trim('"', '\''));
-        return froms.Select(words => words[0]).Where(image => !stages.Contains(image) && !image.Contains('$')).Concat(argImages).Select(Normalised).Distinct(StringComparer.OrdinalIgnoreCase);
+        return [.. froms.Select(words => Resolved(words[0], defaults)).Where(image => !stages.Contains(image))
+            .Select(image => image.Contains('$') ? Unresolved + image : Normalised(image)).Distinct(StringComparer.OrdinalIgnoreCase)];
     }
+
+    // ${X}, $X, ${X:-d} and ${X:+d} replaced by what the file says of X (its ARG default), or by the default written in place
+    private static string Resolved(string word, Dictionary<string, string> defaults) =>
+        Variable().Replace(word, match =>
+        {
+            var name = match.Groups[1].Success ? match.Groups[1].Value : match.Groups[4].Value;
+            var known = defaults.GetValueOrDefault(name);
+            return (match.Groups[2].Value, known) switch
+            {
+                (":-" or "-", null) => match.Groups[3].Value,
+                (":-" or "-", { Length: 0 }) => match.Groups[3].Value,
+                (":+" or "+", { Length: > 0 }) => match.Groups[3].Value,
+                (":+" or "+", _) => string.Empty,
+                (_, { } value) => value,
+                _ => match.Value,
+            };
+        });
 
     [System.Text.RegularExpressions.GeneratedRegex(@"^FROM\s", System.Text.RegularExpressions.RegexOptions.IgnoreCase)]
     private static partial System.Text.RegularExpressions.Regex FromLine();
@@ -179,9 +216,11 @@ public static partial class ChangePolicy
     [System.Text.RegularExpressions.GeneratedRegex(@"\s+")]
     private static partial System.Text.RegularExpressions.Regex Words();
 
-    // An ARG whose default names an image: it has a registry, an owner or a tag (a bare version, `3.12`, is not an image)
-    [System.Text.RegularExpressions.GeneratedRegex(@"^ARG\s+\w+=([^\s]*[/:][^\s]*)$", System.Text.RegularExpressions.RegexOptions.IgnoreCase)]
-    private static partial System.Text.RegularExpressions.Regex ArgImage();
+    [System.Text.RegularExpressions.GeneratedRegex(@"^ARG\s+(\w+)=(\S*)$", System.Text.RegularExpressions.RegexOptions.IgnoreCase)]
+    private static partial System.Text.RegularExpressions.Regex ArgLine();
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"\$\{(\w+)(?:(:?[-+])([^}]*))?\}|\$(\w+)")]
+    private static partial System.Text.RegularExpressions.Regex Variable();
 
     private static readonly string[] DefaultRegistryPrefixes = ["docker.io/library/", "docker.io/", "library/"];
 

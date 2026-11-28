@@ -221,7 +221,6 @@ public sealed class AgentBranchTests
     [InlineData("-FROM python:3.7\n+FROM python:3.8\n+FROM node:20 AS assets", null)]
     [InlineData("-FROM python:3.7\n+FROM docker.io/library/python:3.8", null)]
     [InlineData("-FROM python:3.7\n+FROM\tevil/python:3.12", "replaces the base image")]
-    [InlineData("-ARG BASE=python:3.7\n+ARG BASE=ghcr.io/someone/python:3.12", "replaces the base image")]
     [InlineData("-ARG BASE=python:3.7\n+ARG BASE=python:3.8", null)]
     [InlineData("-ARG PYTHON_VERSION=3.7\n+ARG PYTHON_VERSION=3.8", null)]
     [InlineData("-FROM python:3.7\n+FROM ghcr.io/someone/python:3.12", "replaces the base image 'python' with 'ghcr.io/someone/python'")]
@@ -254,5 +253,26 @@ public sealed class AgentBranchTests
     {
         ChangePolicy.Refusal(new Orchestrarr.Core.Forge.BranchChange("0123456789abcdef0123456789abcdef01234567", 0, 1, [new Orchestrarr.Core.Forge.BranchFile("Dockerfile", "modified", 2, "@@ -1 +1 @@\n-FROM python:3.7\n+FROM python:3.8")], true)).Should().BeNull("the fix of CASE-06 passes");
         ChangePolicy.Refusal(new Orchestrarr.Core.Forge.BranchChange("0123456789abcdef0123456789abcdef01234567", 0, 1, [new Orchestrarr.Core.Forge.BranchFile("Dockerfile", "modified", 2, "@@ -1 +1 @@\n-FROM python:3.7\n+FROM ghcr.io/someone/python:3.12")], true)).Should().Contain("replaces the base image");
+    }
+
+    [Theory]
+    [InlineData("ARG BASE=python:3.7\nFROM ${BASE}", "ARG BASE=ghcr.io/someone/python:3.12\nFROM ${BASE}", "replaces the base image 'python' with 'ghcr.io/someone/python'")]
+    [InlineData("ARG BASE=python:3.7\nFROM ${BASE}", "ARG BASE=python:3.8\nFROM ${BASE}", null)]
+    [InlineData("FROM python:3.7", "ARG BASE\nFROM ${BASE:-node:20}", "replaces the base image 'python' with 'node'")]
+    [InlineData("FROM python:3.7", "ARG BASE=node\nFROM ${BASE}", "replaces the base image 'python' with 'node'")]
+    [InlineData("FROM python:3.7", "FROM ${BASE}", "cannot be told from the file")]
+    [InlineData("ARG URL=https://example.test/tool-1.2.tgz\nFROM python:3.7", "ARG URL=https://example.test/tool-1.3.tgz\nFROM python:3.8", null)]
+    public void A_base_image_is_read_on_the_whole_file_with_the_defaults_of_its_args(string before, string after, string? refusal)
+    {
+        var verdict = ChangePolicy.SwappedBaseImage(new Orchestrarr.Core.Forge.BranchFile("Dockerfile", "modified", 2, "@@ -1 +1 @@"), before, after);
+
+        if (refusal is null)
+        {
+            verdict.Should().BeNull();
+        }
+        else
+        {
+            verdict.Should().Contain(refusal);
+        }
     }
 }
