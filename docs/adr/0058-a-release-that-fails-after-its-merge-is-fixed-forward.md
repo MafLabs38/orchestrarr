@@ -15,21 +15,20 @@ The maintainer had answered Q-06 on 2026-11-25: the check after a deployment is 
 
 ## Decision
 
-1. **A failure that the runner of the release reports is never overruled.** When the evidence of a release says that its deployment or its verification ended with an exit code that is not 0 (`MissionEvidence.ReleaseFailureOf`), the code routes the mission as a release that did not verify, whatever the controller judged short of escalating: a grant, an end or a send-back all take the loop up again. A claim of failure can only stop work, never widen a power. What answers on the health route may be the version before.
+1. **A release is granted only on its runner's word that the deployment and its verification passed** (`deploy:exit=0` and `verify:exit=0`, `MissionEvidence.ReleaseVerified`), besides the facts: what answers on the health route may be the version before. A grant without that word is overruled by the code: when the runner says the release failed (`MissionEvidence.ReleaseFailureOf`), it is routed as a release that did not verify; otherwise it goes to a person. **Only a grant is overruled**: an end or an escalation of the controller stands, since a claim of failure can only stop work; the controller is told that a release that did not deploy is a send-back, which takes the loop up again.
 2. **A release that fails after its merge is fixed forward in staging**, as a merge that turns the integration branch red is (ADR 0055).
    - The change is in, so the problem goes back to staging as a problem with no pull request.
-   - A free agent works on the integration branch as it is, told what the runner said of the release (the runner's own output, given as data). It reproduces the build the way production does it and makes the change that makes the application build, start and answer.
+   - A free agent works on the integration branch as it is, told only the step that failed (the deployment or the verification), never the output of the build or of the application, which is the repository's text. It reproduces the build the way production does it.
    - Same approval, raised priority, and the bound of the fixes forward (`Missions:MaxFixesForwardPerProblem`); past it, a person decides.
-   - An application with no staging goes back to its first world as before.
-3. **A newer version of the same runtime is maintenance, not a runtime replaced** (raising a base image from Python 3.7 to 3.8 or 3.12, Node 16 to 22). The controller grants it when the change needs it and it builds, starts and passes; another runtime, a rewrite or features removed stay the maintainer's.
+   - An application with no staging has no world to fix it forward in, and going back to the Git world would replay a pull request that the merge closed: a person decides.
+3. **A base image is raised to the smallest newer version of the same image that the change needs**, never replaced by another image. The check of the code refuses a Dockerfile change that takes an image out of its `FROM` lines and brings another in (`ChangePolicy.SwappedBaseImage`), and the controller grants a newer version of the same image as maintenance when it is the smallest the change needs and it builds, starts and passes. Another runtime, a rewrite or features removed stay the maintainer's.
 4. **The verification after a deployment is the health check** (the maintainer, 2026-11-25, Q-06): the application answers its health route within a minute. No tester agent and no declared routes.
 
 ## As built
 
-- `MissionEvidence.ReleaseFailureOf`.
-- The override in `ProblemConductor.DecideAsync` for the release world.
-- `BackToFirstWorldAsync` builds a fix forward entry with the release's failure (`FixForwardEntry(…, releaseFailure)`) when the application has a staging.
-- The controller prompt: the proportion rule now names a newer version of the same runtime.
+- `MissionEvidence.ReleaseVerified` and `ReleaseFailureOf`; the override of a grant in `ProblemConductor.DecideAsync` for the release world.
+- `BackToFirstWorldAsync`: a fix forward entry with the failed step (`FixForwardEntry(…, releaseFailure)`) when the application has a staging, an escalation when it has none.
+- `ChangePolicy.SwappedBaseImage`; the controller prompt (the smallest newer version of the same image; a failed release is a send-back).
 - `lab/scenarios/CASE-06.json`: the release fails, is fixed forward, and the new release is verified. The checks: the bump's pull request is closed, the fix forward is merged in the run, Flask is at least 3.0.3 and the base image at least Python 3.8.
 
 ## What this does not do

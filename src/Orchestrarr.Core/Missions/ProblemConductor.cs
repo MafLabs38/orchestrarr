@@ -253,14 +253,17 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
                 && await ClosingChecksAsync(run, mission, dossiers.Get(mission.Id), cancellationToken) is { } closing && (closing.Contains(PreconditionFailure.IntegrationBranchRedAfterMerge) || closing.Contains(PreconditionFailure.IntegrationBranchRedBeforeMerge)))
             {
                 _ = await RequiredAsync(MissionAuditEvents.ControllerDecided, missionId, Text($"{decision.Kind}: {string.Join(" | ", decision.Reasons)}"), cancellationToken);
-                return await RouteFailuresAsync(mission, run, closing, cancellationToken);
+                return await RouteFailuresAsync(mission, run, closing);
             }
-            // A release whose runner says the deployment or its verification failed is never granted nor ended there: what answers on the health route may be the version before it, still running, and a release that failed
-            // is a failed push that the loop takes up again (CASE-06, ADR 0040). The code routes it as a release that did not verify, whatever the controller judged short of escalating
-            if (mission.World == World.Release && decision.Kind is ControllerDecisionKind.Grant or ControllerDecisionKind.End or ControllerDecisionKind.SendBack && MissionEvidence.ReleaseFailureOf(dossiers.Get(mission.Id)?.EvidenceDigests) is { } failedStep)
+            // A release is granted only on its runner's word that the deployment and its verification passed, besides the facts: what answers on the health route may be the version before it (CASE-06). A runner that says
+            // the release failed takes the loop up again (a failed push, ADR 0040, 0058); a release with no such word is a person's. Only a grant is overruled: an end or an escalation stands
+            if (mission.World == World.Release && decision.Kind == ControllerDecisionKind.Grant && !MissionEvidence.ReleaseVerified(dossiers.Get(mission.Id)?.EvidenceDigests))
             {
-                _ = await RequiredAsync(MissionAuditEvents.ControllerDecided, missionId, Text($"{decision.Kind}, overridden by the code: the runner says the release failed ({failedStep}): {string.Join(" | ", decision.Reasons)}"), cancellationToken);
-                return await ReleaseJudgedFailedAsync(mission, run, cancellationToken);
+                var failedStep = MissionEvidence.ReleaseFailureOf(dossiers.Get(mission.Id)?.EvidenceDigests);
+                _ = await RequiredAsync(MissionAuditEvents.ControllerDecided, missionId, Text($"{decision.Kind}, overridden by the code: {(failedStep is null ? "the runner does not say that the deployment and its verification passed" : $"the runner says the release failed ({failedStep})")}: {string.Join(" | ", decision.Reasons)}"), cancellationToken);
+                return failedStep is null
+                    ? await EscalateAsync(run, mission, "the release has no word of its runner that the deployment and its verification passed: a person decides")
+                    : await ReleaseJudgedFailedAsync(mission, run, cancellationToken);
             }
             var decided = await RequiredAsync(MissionAuditEvents.ControllerDecided, missionId, Text($"{decision.Kind}: {string.Join(" | ", decision.Reasons)}"), cancellationToken);
             if (!decided && decision.Kind == ControllerDecisionKind.Grant)
@@ -307,7 +310,7 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
         {
             // The last world: the controller closes the problem on facts (FR-CTL-9), after the same checks
             var closing = await ClosingChecksAsync(run, mission, dossier, cancellationToken);
-            return closing.Count > 0 ? await RouteFailuresAsync(mission, run, closing, cancellationToken) : await CloseAsync(run, mission, complex, null, "release verified", null);
+            return closing.Count > 0 ? await RouteFailuresAsync(mission, run, closing) : await CloseAsync(run, mission, complex, null, "release verified", null);
         }
         // The power is read again here, at every crossing: a grant withdrawn since the start stops the problem (the grant of an application is the maintainer's to give and to take back)
         if (HighestNow(run.Entry, run.Approval) is not { } highest)
@@ -321,7 +324,7 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
             var checks = await ClosingChecksAsync(run, mission, dossier, cancellationToken);
             if (checks.Count > 0)
             {
-                return await RouteFailuresAsync(mission, run, checks, cancellationToken);
+                return await RouteFailuresAsync(mission, run, checks);
             }
             // The work stopped because the lead planned it so, which is not a limit of the powers: the note says which
             return run.Entry.Plan is { } plan && plan.Last == mission.World
@@ -331,7 +334,7 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
         var failures = await CheckFactsAsync(run, new FactsCheck(next, mission.Frame, mission.Id, dossier, HasPreviousDossier: dossier is not null, Commit: dossier?.Commit, Issuing: true, new FactsScope()), cancellationToken);
         if (!ControllerLimits.MayGrant(decision, next, highest, failures))
         {
-            return failures.Count > 0 ? await RouteFailuresAsync(mission, run, failures, cancellationToken) : ConductResult.Fail("the controller may not grant a world that the plan does not allow");
+            return failures.Count > 0 ? await RouteFailuresAsync(mission, run, failures) : ConductResult.Fail("the controller may not grant a world that the plan does not allow");
         }
         var accepted = MissionMachine.Apply(mission, MissionEvent.Granted, options.Loop, complex: complex).Mission ?? mission;
         // The mandate of an accepted mission is withdrawn at once: the power never outlives the work, and the two writes go in together

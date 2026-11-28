@@ -70,6 +70,10 @@ public static partial class ChangePolicy
                 return $"the path '{file.Path}' is protected: a change never carries the files that hold a secret, the files that instruct an agent or where the dependencies come from";
             }
             // A pipeline that the frame lets this operation change is never weakened by it (ADR 0055): a workflow read as YAML against the file before it, any other pipeline on the lines that the change adds and removes
+            if (SwappedBaseImage(file) is { } swapped)
+            {
+                return swapped;
+            }
             if (PipelineChanges.IsPipeline(file.Path) && PipelineGuard(file, before, after) is { } weakened)
             {
                 return weakened;
@@ -136,6 +140,30 @@ public static partial class ChangePolicy
         }
         return null;
     }
+
+    // A base image is raised to a newer tag of the same image, never replaced by another one (ADR 0058): a Dockerfile change that takes an image out of its FROM lines and brings another in is refused
+    internal static string? SwappedBaseImage(BranchFile file)
+    {
+        var name = file.Path[(file.Path.LastIndexOf('/') + 1)..];
+        if (!name.StartsWith("Dockerfile", StringComparison.Ordinal) && !name.EndsWith(".dockerfile", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+        var gone = ImagesOf(RemovedLines(file.Patch)).ToList();
+        var come = ImagesOf(AddedLines(file.Patch)).ToList();
+        var newcomer = come.FirstOrDefault(image => !gone.Contains(image, StringComparer.OrdinalIgnoreCase));
+        return gone.Count > 0 && newcomer is not null
+            ? $"the change replaces the base image '{gone[0]}' with '{newcomer}' in '{file.Path}': a base image is raised to a newer version of the same image, never replaced by another"
+            : null;
+    }
+
+    // The images of FROM lines without their tag or digest (a stage named by an earlier FROM is not an image)
+    private static IEnumerable<string> ImagesOf(IEnumerable<string> lines) =>
+        lines.Select(line => line.Trim()).Where(line => line.StartsWith("FROM ", StringComparison.OrdinalIgnoreCase))
+            .Select(line => line[5..].Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault(word => !word.StartsWith("--", StringComparison.Ordinal)))
+            .OfType<string>()
+            .Select(image => image.Split('@')[0])
+            .Select(image => image.LastIndexOf(':') > image.LastIndexOf('/') ? image[..image.LastIndexOf(':')] : image);
 
     // The lines that a patch adds
     private static string? PipelineGuard(BranchFile file, IReadOnlyDictionary<string, string?>? before, IReadOnlyDictionary<string, string?>? after)

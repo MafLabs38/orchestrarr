@@ -70,6 +70,13 @@ public static class MissionEvidence
     public static string? ReleaseFailureOf(IEnumerable<string>? evidence) =>
         (evidence ?? []).FirstOrDefault(entry => (entry.StartsWith("deploy:exit=", StringComparison.Ordinal) || entry.StartsWith("verify:exit=", StringComparison.Ordinal)) && !entry.StartsWith("deploy:exit=0:", StringComparison.Ordinal) && !entry.StartsWith("verify:exit=0:", StringComparison.Ordinal))?.Split(":sha256=")[0];
 
+    /// <summary>Whether the runner of a release says both that the deployment and that its verification passed (<c>deploy:exit=0:…</c> and <c>verify:exit=0:…</c>): what a grant of the release world needs, besides the facts.</summary>
+    public static bool ReleaseVerified(IEnumerable<string>? evidence)
+    {
+        var said = (evidence ?? []).ToList();
+        return said.Exists(entry => entry.StartsWith("deploy:exit=0:", StringComparison.Ordinal)) && said.Exists(entry => entry.StartsWith("verify:exit=0:", StringComparison.Ordinal));
+    }
+
     /// <summary>The reason written by a refusal marker of a dossier, or null when the dossier holds none.</summary>
     public static string? RefusalOf(IEnumerable<string> evidence) => evidence.FirstOrDefault(entry => entry is RefusedConflict or RefusedMoved);
 }

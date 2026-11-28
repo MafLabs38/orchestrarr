@@ -87,14 +87,14 @@ public sealed partial class ProblemConductor
         return (Route.SendBackInPlace, "a check of the code failed: the mission is sent back");
     }
 
-    private async Task<ConductResult> RouteFailuresAsync(Mission mission, ProblemRun run, IReadOnlyList<PreconditionFailure> failures, CancellationToken cancellationToken, bool controllerJudgedFailed = false)
+    private async Task<ConductResult> RouteFailuresAsync(Mission mission, ProblemRun run, IReadOnlyList<PreconditionFailure> failures, bool controllerJudgedFailed = false)
     {
         var (route, why) = RouteOf(mission.World, failures, controllerJudgedFailed, run.Approval.Certificate.Kind == CertificateKind.Rule);
         return route switch
         {
             Route.Escalate => Moved(await EscalateAsync(run, mission, why), "escalated to the maintainer", failures),
             Route.Stop => Moved(await EndAsync(run, mission, MissionEvent.EndedByController, why), $"{why}: the work stops", failures),
-            Route.BackToFirstWorld => await BackToFirstWorldAsync(mission, run, failures, cancellationToken),
+            Route.BackToFirstWorld => await BackToFirstWorldAsync(mission, run, failures),
             Route.FixForward => await FixForwardAsync(mission, run, failures),
             _ => Moved(await SendBackAsync(mission, run), why, failures),
         };
@@ -106,11 +106,11 @@ public sealed partial class ProblemConductor
 
     // The controller judged that the release does not verify (a send-back in the release world): the facts of the control plane are read all the same and the one table routes them with that judgement
     private async Task<ConductResult> ReleaseJudgedFailedAsync(Mission mission, ProblemRun run, CancellationToken cancellationToken) =>
-        await RouteFailuresAsync(mission, run, await ClosingChecksAsync(run, mission, dossiers.Get(mission.Id), cancellationToken), cancellationToken, controllerJudgedFailed: true);
+        await RouteFailuresAsync(mission, run, await ClosingChecksAsync(run, mission, dossiers.Get(mission.Id), cancellationToken), controllerJudgedFailed: true);
 
     // The release did not verify, said by the facts of the control plane (a pipeline that failed) or by the controller's judgement of the dossier (the verification of the release does not hold): the mission
     // ends and the problem goes back to the first world (a staging if the application has one, else the Git world). A release that failed under a standing rule is a person's: nobody approved this problem
-    private async Task<ConductResult> BackToFirstWorldAsync(Mission mission, ProblemRun run, IReadOnlyList<PreconditionFailure> failures, CancellationToken cancellationToken)
+    private async Task<ConductResult> BackToFirstWorldAsync(Mission mission, ProblemRun run, IReadOnlyList<PreconditionFailure> failures)
     {
         // The power is read again here, as at every crossing: a grant or a certificate withdrawn while the release ran stops the problem, and the first world must be within what the powers allow
         var first = run.UsesStaging ? World.Staging : World.Git;
@@ -118,9 +118,10 @@ public sealed partial class ProblemConductor
         {
             return await EndAsync(run, mission, MissionEvent.EndedByController, "the powers of the problem no longer reach the first world, or the grant was withdrawn");
         }
-        if (first == World.Git && await GitFrameFailuresAsync(run, cancellationToken) is { Count: > 0 } frame)
+        // Without a staging there is no world to fix a merged change forward in, and going back to the Git world would replay a pull request that the merge closed: a person decides
+        if (first == World.Git)
         {
-            return Moved(await EndAsync(run, mission, MissionEvent.EndedByController, "the merge could deploy beyond the approval, or the agent could create tags or reach a write credential"), "the frame of the Git world no longer holds: the work stops", frame);
+            return Moved(await EscalateAsync(run, mission, "the release failed after the merge and the application has no staging to fix it forward in: a person decides"), "the release did not verify: a person decides", failures);
         }
         // The change is merged: going back to the first world with it as it was would prove a pull request that is closed or merged. With a staging, the problem is fixed forward there, as a red integration branch is
         // (CASE-06): a free agent works on the integration branch as it is, told what the release said, under the bound of the fixes forward
@@ -146,7 +147,7 @@ public sealed partial class ProblemConductor
         var priority = FlowPriority.Raised(run.Priority);
         var released = dossiers.Get(mission.Id);
         var next = first == World.Staging
-            ? run with { Entry = FixForwardEntry(run.Entry, released?.Commit, highest, run.FixesForward + 1, releaseFailure: Flat(released?.Claim ?? "the release did not verify")), CurrentWorld = first, Priority = priority, FixesForward = run.FixesForward + 1 }
+            ? run with { Entry = FixForwardEntry(run.Entry, released?.Commit, highest, run.FixesForward + 1, releaseFailure: MissionEvidence.ReleaseFailureOf(released?.EvidenceDigests) ?? "verify:"), CurrentWorld = first, Priority = priority, FixesForward = run.FixesForward + 1 }
             : run with { CurrentWorld = first, Priority = priority };
         if (first == World.Staging)
         {

@@ -213,4 +213,24 @@ public sealed class AgentBranchTests
         AgentBranch.IsName("agent/../x").Should().BeFalse();
         AgentBranch.IsName(null).Should().BeFalse();
     }
+
+    [Theory]
+    [InlineData("-FROM python:3.7\n+FROM python:3.8", null)]
+    [InlineData("-FROM python:3.7 AS build\n+FROM python:3.12 AS build", null)]
+    [InlineData("-FROM python:3.7\n+FROM ghcr.io/someone/python:3.12", "replaces the base image 'python' with 'ghcr.io/someone/python'")]
+    [InlineData("-FROM --platform=linux/amd64 node:16\n+FROM --platform=linux/amd64 nodejs:22", "replaces the base image 'node' with 'nodejs'")]
+    [InlineData("-FROM localhost:5000/app:1\n+FROM localhost:5000/app:2", null)]
+    public void A_base_image_is_raised_never_replaced(string patch, string? refusal)
+    {
+        var verdict = ChangePolicy.SwappedBaseImage(new Orchestrarr.Core.Forge.BranchFile("Dockerfile", "modified", 2, "@@ -1 +1 @@\n" + patch));
+
+        if (refusal is null)
+        {
+            verdict.Should().BeNull();
+        }
+        else
+        {
+            verdict.Should().Contain(refusal);
+        }
+    }
 }

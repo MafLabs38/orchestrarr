@@ -48,7 +48,7 @@ internal sealed class DemoRun(MissionStores stores, ProblemLocks locks, IRunnerD
             _ = await conductor.StartedAsync(current.Id, cancellationToken);
             // In the red scenario the pipelines are red only after the release, so that every return to the first world goes through the worlds again
             facts.Ci = !(scenario == DemoScenario.Red && current.World == World.Release);
-            _ = await conductor.HandOverAsync(current.Id, new Dossier(current.Id, "done", $"worked in the {current.World} world", ["sha256:demo"], [], current.World == World.Staging, current.World == World.Staging ? "a refactor" : null, Commit: "demo-commit"), cancellationToken);
+            _ = await conductor.HandOverAsync(current.Id, new Dossier(current.Id, "done", $"worked in the {current.World} world", current.World == World.Release ? ["sha256:demo", "deploy:exit=0:sha256=demo", "verify:exit=0:sha256=demo"] : ["sha256:demo"], [], current.World == World.Staging, current.World == World.Staging ? "a refactor" : null, Commit: "demo-commit"), cancellationToken);
             var decision = scenario == DemoScenario.Escalate && current.World == World.Git
                 ? new ControllerDecision(ControllerDecisionKind.Escalate, ["no fixed version exists"], null)
                 : new ControllerDecision(ControllerDecisionKind.Grant, ["the evidence supports the claim"], null);
