@@ -150,9 +150,10 @@ public static partial class ChangePolicy
 
     private static string? Text(IReadOnlyDictionary<string, string?>? texts, string path) => texts is not null && texts.TryGetValue(path, out var text) ? text : null;
 
-    // A base image is raised to a newer tag of the same image, never replaced by another, and a container file never gets an image it did not have (ADR 0058). The whole file is read before and after the change, and every FROM
-    // is resolved as Docker does (the ARGs declared before the first FROM; `${BASE:-python:3.7}`); a file that could not be read whole, or a FROM that cannot be resolved there, is refused: the check fails closed. A stage named
-    // by an earlier FROM is not an image
+    // The image an application runs on (the final stage of a container file, followed through the stages it is built from) is raised to a newer tag of the same image, never replaced by another (ADR 0055, ADR 0058): a runtime
+    // replaced is the maintainer's decision. The whole file is read before and after the change and the final FROM is resolved as Docker does (the ARGs declared before the first FROM, several on a line, continued lines,
+    // `${BASE:-python:3.7}`); a file that could not be read whole, an ARG or a FROM that cannot be read, or a changed escape directive, is refused: the check fails closed. What a build runs on the way (a build stage, a
+    // frontend, a `--from`, a RUN line) is the controller's to judge on the patch, like any line of the change
     internal static string? SwappedBaseImage(BranchFile file, string? before = null, string? after = null)
     {
         if (!IsContainerFile(file.Path) || file.Status == "removed")
@@ -161,70 +162,101 @@ public static partial class ChangePolicy
         }
         if (after is null || (before is null && file.Status != "added"))
         {
-            return $"the container file '{file.Path}' could not be read whole before and after the change: what it does with its base images cannot be judged";
+            return $"the container file '{file.Path}' could not be read whole before and after the change: the image it runs on cannot be judged";
         }
-        var had = before is null ? [] : ImagesOf(Lines(before));
-        var has = ImagesOf(Lines(after));
-        if (has.FirstOrDefault(image => image.StartsWith(Unresolved, StringComparison.Ordinal)) is { } unknown && !had.Contains(unknown, StringComparer.OrdinalIgnoreCase))
+        if (before is not null && !string.Equals(EscapeOf(before), EscapeOf(after), StringComparison.Ordinal))
         {
-            return $"the change gives '{file.Path}' a base image that cannot be told from the file ({unknown[Unresolved.Length..]}): a base image is raised to a newer version of the same image, never replaced by another";
+            return $"the change alters the escape directive of '{file.Path}': the image it runs on cannot be judged";
         }
-        var newcomer = before is null ? null : has.FirstOrDefault(image => !had.Contains(image, StringComparer.OrdinalIgnoreCase));
-        return newcomer is not null
-            ? $"the change brings the base image '{newcomer}' into '{file.Path}', which did not use it: a base image is raised to a newer version of the same image, never replaced by another nor added"
-            : null;
+        var runtime = RuntimeOf(after);
+        if (runtime.Contains('$'))
+        {
+            return $"'{file.Path}' would run on an image that cannot be told from the file ({runtime}): the image an application runs on is raised to a newer version of the same image, never replaced by another";
+        }
+        var previous = before is null ? runtime : RuntimeOf(before);
+        return string.Equals(runtime, previous, StringComparison.OrdinalIgnoreCase)
+            ? null
+            : $"the change makes '{file.Path}' run on '{runtime}' instead of '{previous}': the image an application runs on is raised to a newer version of the same image, never replaced by another (a runtime replaced is the maintainer's decision)";
     }
 
-    private const string Unresolved = "unresolved:";
-
-    private static List<string> Lines(string text) => [.. text.Split('\n')];
-
-    // The base images of the FROM lines, each resolved against the ARGs declared before the first FROM (the only ones a FROM sees), without tag or digest, the default registry and library left out; a FROM that names a stage
-    // defined by an earlier FROM is that stage, not an image
-    private static List<string> ImagesOf(List<string> lines)
+    // The image of the final stage, without tag or digest, the default registry and library left out, followed through the stages it is built from; an image that cannot be resolved keeps its `$`
+    private static string RuntimeOf(string text)
     {
-        var defaults = new Dictionary<string, string>(StringComparer.Ordinal);
-        var stages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var images = new List<string>();
+        var defaults = new Dictionary<string, string?>(StringComparer.Ordinal);
+        var stages = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var runtime = "$none";
         var seenFrom = false;
-        foreach (var line in lines.Select(line => line.Trim()))
+        foreach (var line in Instructions(text))
         {
-            if (!seenFrom && ArgLine().Match(line) is { Success: true } arg)
+            var words = Words().Split(line).Where(word => word.Length > 0).ToList();
+            if (!seenFrom && words[0].Equals("ARG", StringComparison.OrdinalIgnoreCase))
             {
-                defaults[arg.Groups[1].Value] = arg.Groups[2].Value.Trim('"', '\'');
+                Declare([.. words.Skip(1)], defaults);
                 continue;
             }
-            if (!FromLine().IsMatch(line))
+            if (!words[0].Equals("FROM", StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
             seenFrom = true;
-            var words = Words().Split(line).Skip(1).Where(word => word.Length > 0 && !word.StartsWith("--", StringComparison.Ordinal)).ToList();
-            if (words.Count == 0)
+            var rest = words.Skip(1).Where(word => !word.StartsWith("--", StringComparison.Ordinal)).ToList();
+            if (rest.Count == 0)
             {
+                runtime = "$unreadable FROM";
                 continue;
             }
-            var image = Resolved(words[0], defaults);
-            if (!stages.Contains(image))
+            var image = Resolved(rest[0], defaults);
+            runtime = image.Contains('$') ? image : Normalised(image);
+            if (stages.TryGetValue(image, out var stage))
             {
-                images.Add(image.Contains('$') ? Unresolved + image : Normalised(image));
+                runtime = stage;
             }
-            if (words.Count >= 3 && words[1].Equals("AS", StringComparison.OrdinalIgnoreCase))
+            if (rest.Count >= 3 && rest[1].Equals("AS", StringComparison.OrdinalIgnoreCase))
             {
-                _ = stages.Add(words[2]);
+                stages[rest[2]] = runtime;
             }
         }
-        return [.. images.Distinct(StringComparer.OrdinalIgnoreCase)];
+        return runtime;
     }
 
-    // ${X}, $X, ${X:-d} and ${X:+d} replaced by what the file says of X (its ARG default), or by the default written in place
-    private static string Resolved(string word, Dictionary<string, string> defaults) =>
+    // The ARG words of one instruction, applied in order (a value in quotes without spaces is that value); a word that is not `name` or `name=value` makes every name of the line unknown (the FROM that reads it is then unresolved)
+    private static void Declare(List<string> words, Dictionary<string, string?> defaults)
+    {
+        var parsed = words.Select(word => ArgWord().Match(word)).ToList();
+        var values = parsed.Select(match => match.Groups[2].Success ? Unquoted(match.Groups[3].Value) : null).ToList();
+        if (parsed.Any(match => !match.Success) || values.Any(value => value is not null && (value.Contains('"') || value.Contains('\''))))
+        {
+            foreach (var name in words.Select(word => word.Split('=')[0]))
+            {
+                defaults[name] = "$unknown";
+            }
+            return;
+        }
+        for (var i = 0; i < parsed.Count; i++)
+        {
+            var name = parsed[i].Groups[1].Value;
+            defaults[name] = values[i] ?? (defaults.ContainsKey(name) ? "$unknown" : null);
+        }
+    }
+
+    private static string Unquoted(string value) =>
+        value.Length >= 2 && (value[0] == '"' || value[0] == '\'') && value[^1] == value[0] ? value[1..^1] : value;
+
+    // The instructions of a container file: comments and blank lines left out, a line continued by `\` joined to the next
+    private static IEnumerable<string> Instructions(string text) =>
+        Continuation().Replace(text.Replace("\r\n", "\n", StringComparison.Ordinal), " ").Split('\n').Select(line => line.Trim()).Where(line => line.Length > 0 && !line.StartsWith('#'));
+
+    private static string? EscapeOf(string text) => EscapeDirective().Match(text) is { Success: true } found ? found.Groups[1].Value : null;
+
+    // ${X}, $X, ${X:-d} and ${X:+d} replaced by what the file says of X (its ARG default), or by the default written in place; a name whose value is unknown stays unresolved
+    private static string Resolved(string word, Dictionary<string, string?> defaults) =>
         Variable().Replace(word, match =>
         {
             var name = match.Groups[1].Success ? match.Groups[1].Value : match.Groups[4].Value;
             var known = defaults.GetValueOrDefault(name);
             return (match.Groups[2].Value, known) switch
             {
+                (_, { } value) when value.Contains('$') => match.Value,
                 (":-" or "-", null) => match.Groups[3].Value,
                 (":-" or "-", { Length: 0 }) => match.Groups[3].Value,
                 (":+" or "+", { Length: > 0 }) => match.Groups[3].Value,
@@ -234,14 +266,17 @@ public static partial class ChangePolicy
             };
         });
 
-    [System.Text.RegularExpressions.GeneratedRegex(@"^FROM\s", System.Text.RegularExpressions.RegexOptions.IgnoreCase)]
-    private static partial System.Text.RegularExpressions.Regex FromLine();
-
     [System.Text.RegularExpressions.GeneratedRegex(@"\s+")]
     private static partial System.Text.RegularExpressions.Regex Words();
 
-    [System.Text.RegularExpressions.GeneratedRegex(@"^ARG\s+(\w+)=(\S*)$", System.Text.RegularExpressions.RegexOptions.IgnoreCase)]
-    private static partial System.Text.RegularExpressions.Regex ArgLine();
+    [System.Text.RegularExpressions.GeneratedRegex(@"^(\w+)(=(\S*))?$")]
+    private static partial System.Text.RegularExpressions.Regex ArgWord();
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"\\[ \t]*\n")]
+    private static partial System.Text.RegularExpressions.Regex Continuation();
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"\A(?:#[^\n]*\n)*?#\s*escape\s*=\s*(\S)", System.Text.RegularExpressions.RegexOptions.IgnoreCase)]
+    private static partial System.Text.RegularExpressions.Regex EscapeDirective();
 
     [System.Text.RegularExpressions.GeneratedRegex(@"\$\{(\w+)(?:(:?[-+])([^}]*))?\}|\$(\w+)")]
     private static partial System.Text.RegularExpressions.Regex Variable();

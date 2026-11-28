@@ -218,16 +218,24 @@ public sealed class AgentBranchTests
     [InlineData("FROM python:3.7 AS b\nFROM b", "FROM python:3.8 AS b\nFROM b", null)]
     [InlineData("FROM python:3.7", "FROM python:3.8 AS base\nFROM base", null)]
     [InlineData("FROM python:3.7", "FROM docker.io/library/python:3.8", null)]
-    [InlineData("FROM python:3.7", "FROM\tevil/python:3.12", "brings the base image 'evil/python'")]
-    [InlineData("FROM python:3.7", "FROM python:3.7 AS unused\nFROM evil/img", "brings the base image 'evil/img'")]
-    [InlineData("FROM python:3.7", "FROM python:3.8\nFROM node:20 AS assets", "brings the base image 'node'")]
+    [InlineData("FROM python:3.7", "FROM golang:1.23 AS build\nFROM python:3.8", null)]
+    [InlineData("FROM python:3.7", "# syntax=docker/dockerfile:1\nFROM python:3.8\n# a comment\nCOPY --from=build /x /", null)]
+    [InlineData("FROM python:3.7", "FROM\tevil/python:3.12", "run on 'evil/python' instead of 'python'")]
+    [InlineData("FROM python:3.7", "FROM python:3.7 AS unused\nFROM evil/img", "run on 'evil/img'")]
+    [InlineData("FROM python:3.7", "FROM python:3.8\nFROM node:20 AS assets", "run on 'node'")]
+    [InlineData("FROM python:3.7", "FROM evil/img AS python\nFROM python", "run on 'evil/img'")]
     [InlineData("ARG BASE=python:3.7\nFROM ${BASE}", "ARG BASE=python:3.7\nFROM ${BASE}\nARG BASE=evil/img", null)]
-    [InlineData("FROM python:3.7", "FROM evil/img AS python\nFROM python", "brings the base image 'evil/img'")]
-    [InlineData("ARG BASE=python:3.7\nFROM ${BASE}", "ARG BASE=ghcr.io/someone/python:3.12\nFROM ${BASE}", "brings the base image 'ghcr.io/someone/python'")]
     [InlineData("ARG BASE=python:3.7\nFROM ${BASE}", "ARG BASE=python:3.8\nFROM ${BASE}", null)]
-    [InlineData("FROM python:3.7", "ARG BASE\nFROM ${BASE:-node:20}", "brings the base image 'node'")]
-    [InlineData("FROM python:3.7", "ARG BASE=node\nFROM ${BASE}", "brings the base image 'node'")]
+    [InlineData("ARG BASE=\"python:3.7\"\nFROM ${BASE}", "ARG BASE=\"python:3.8\"\nFROM ${BASE}", null)]
+    [InlineData("ARG BASE=python:3.7\nFROM ${BASE}", "ARG BASE=ghcr.io/someone/python:3.12\nFROM ${BASE}", "run on 'ghcr.io/someone/python'")]
+    [InlineData("ARG BASE=python:3.7\nFROM ${BASE}", "ARG BASE=python:3.7\nARG X=1 BASE=evil/img\nFROM ${BASE}", "run on 'evil/img'")]
+    [InlineData("ARG BASE=python:3.7\nFROM ${BASE}", "ARG BASE=python:3.7 \\\n  BASE=evil/img\nFROM ${BASE}", "run on 'evil/img'")]
+    [InlineData("ARG BASE=python:3.7\nFROM ${BASE}", "ARG BASE=\"evil/img x\"\nFROM ${BASE}", "cannot be told from the file")]
+    [InlineData("FROM python:3.7", "FROM \\\n  evil/img", "run on 'evil/img'")]
+    [InlineData("FROM python:3.7", "ARG BASE\nFROM ${BASE:-node:20}", "run on 'node'")]
+    [InlineData("FROM python:3.7", "ARG BASE=node\nFROM ${BASE}", "run on 'node'")]
     [InlineData("FROM python:3.7", "FROM ${BASE}", "cannot be told from the file")]
+    [InlineData("FROM python:3.7", "# escape=`\nFROM python:3.8", "escape directive")]
     [InlineData("ARG URL=https://example.test/tool-1.2.tgz\nFROM python:3.7", "ARG URL=https://example.test/tool-1.3.tgz\nFROM python:3.8", null)]
     public void A_base_image_is_read_on_the_whole_file_with_the_defaults_of_its_args(string before, string after, string? refusal)
     {
@@ -253,7 +261,7 @@ public sealed class AgentBranchTests
         var change = new Orchestrarr.Core.Forge.BranchChange("0123456789abcdef0123456789abcdef01234567", 0, 1, [new Orchestrarr.Core.Forge.BranchFile(path, "modified", 2, "@@ -1 +1 @@\n-FROM python:3.7\n+FROM python:3.8")], true);
         ChangePolicy.Refusal(change).Should().Contain("could not be read whole", "the check fails closed");
         ChangePolicy.Refusal(change, null, new Dictionary<string, string?> { [path] = "FROM python:3.7" }, new Dictionary<string, string?> { [path] = "FROM python:3.8" }).Should().BeNull("the fix of CASE-06 passes");
-        ChangePolicy.Refusal(change, null, new Dictionary<string, string?> { [path] = "FROM python:3.7" }, new Dictionary<string, string?> { [path] = "FROM evil/python:3.12" }).Should().Contain("brings the base image");
+        ChangePolicy.Refusal(change, null, new Dictionary<string, string?> { [path] = "FROM python:3.7" }, new Dictionary<string, string?> { [path] = "FROM evil/python:3.12" }).Should().Contain("instead of 'python'");
         ChangePolicy.IsContainerFile("compose.yaml").Should().BeFalse();
     }
 }
