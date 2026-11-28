@@ -262,21 +262,21 @@ public static partial class ChangePolicy
 
     private static string? EscapeOf(string text) => EscapeDirective().Match(text) is { Success: true } found ? found.Groups[1].Value : null;
 
-    // ${X}, $X, ${X:-d} and ${X:+d} replaced by what the file says of X (its ARG default), or by the default written in place; a name whose value is unknown stays unresolved
+    // ${X}, $X, ${X:-d}, ${X-d}, ${X:+d} and ${X+d} replaced as Docker does, for a name that an ARG before the first FROM gives a value in the file; a name the file does not give a value (BuildKit sets some itself, such as TARGETOS)
+    // or whose value is unknown stays unresolved
     private static string Resolved(string word, Dictionary<string, string?> defaults) =>
         Variable().Replace(word, match =>
         {
             var name = match.Groups[1].Success ? match.Groups[1].Value : match.Groups[4].Value;
-            var known = defaults.GetValueOrDefault(name);
-            return (match.Groups[2].Value, known) switch
+            var given = match.Groups[3].Value;
+            return (match.Groups[2].Value, defaults.GetValueOrDefault(name)) switch
             {
+                (_, null) => match.Value,
                 (_, { } value) when value.Contains('$') => match.Value,
-                (":-" or "-", null) => match.Groups[3].Value,
-                (":-" or "-", { Length: 0 }) => match.Groups[3].Value,
-                (":+" or "+", { Length: > 0 }) => match.Groups[3].Value,
-                (":+" or "+", _) => string.Empty,
+                (":-", { Length: 0 }) => given,
+                (":+", { Length: 0 }) => string.Empty,
+                (":+" or "+", _) => given,
                 (_, { } value) => value,
-                _ => match.Value,
             };
         });
 
