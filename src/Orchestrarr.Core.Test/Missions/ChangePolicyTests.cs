@@ -16,7 +16,6 @@ public sealed class ChangePolicyTests
     [InlineData("package.json")]
     [InlineData("package-lock.json")]
     [InlineData("requirements.txt")]
-    [InlineData("Dockerfile")]
     [InlineData("src/server.js")]
     [InlineData("test/server.test.js")]
     [InlineData("tests/new_test.py")]
@@ -215,51 +214,19 @@ public sealed class AgentBranchTests
     }
 
     [Theory]
-    [InlineData("-FROM python:3.7\n+FROM python:3.8", null)]
-    [InlineData("-FROM python:3.7 AS b\n-FROM b\n+FROM python:3.8 AS b\n+FROM b", null)]
-    [InlineData("-FROM python:3.7\n+FROM python:3.8 AS base\n+FROM base", null)]
-    [InlineData("-FROM python:3.7\n+FROM python:3.8\n+FROM node:20 AS assets", null)]
-    [InlineData("-FROM python:3.7\n+FROM docker.io/library/python:3.8", null)]
-    [InlineData("-FROM python:3.7\n+FROM\tevil/python:3.12", "replaces the base image")]
-    [InlineData("-ARG BASE=python:3.7\n+ARG BASE=python:3.8", null)]
-    [InlineData("-ARG PYTHON_VERSION=3.7\n+ARG PYTHON_VERSION=3.8", null)]
-    [InlineData("-FROM python:3.7\n+FROM ghcr.io/someone/python:3.12", "replaces the base image 'python' with 'ghcr.io/someone/python'")]
-    [InlineData("-FROM --platform=linux/amd64 node:16\n+FROM --platform=linux/amd64 nodejs:22", "replaces the base image 'node' with 'nodejs'")]
-    [InlineData("-FROM localhost:5000/app:1\n+FROM localhost:5000/app:2", null)]
-    public void A_base_image_is_raised_never_replaced(string patch, string? refusal)
-    {
-        var verdict = ChangePolicy.SwappedBaseImage(new Orchestrarr.Core.Forge.BranchFile("Dockerfile", "modified", 2, "@@ -1 +1 @@\n" + patch));
-
-        if (refusal is null)
-        {
-            verdict.Should().BeNull();
-        }
-        else
-        {
-            verdict.Should().Contain(refusal);
-        }
-    }
-
-    [Theory]
-    [InlineData("Containerfile", true)]
-    [InlineData("dockerfile", true)]
-    [InlineData("build/app.dockerfile", true)]
-    [InlineData("compose.yaml", false)]
-    public void Every_container_file_is_read_for_its_base_image(string path, bool refused) =>
-        (ChangePolicy.SwappedBaseImage(new Orchestrarr.Core.Forge.BranchFile(path, "modified", 2, "@@ -1 +1 @@\n-FROM python:3.7\n+FROM evil/python:3.12")) is not null).Should().Be(refused);
-
-    [Fact]
-    public void A_dockerfile_change_is_judged_by_the_whole_policy()
-    {
-        ChangePolicy.Refusal(new Orchestrarr.Core.Forge.BranchChange("0123456789abcdef0123456789abcdef01234567", 0, 1, [new Orchestrarr.Core.Forge.BranchFile("Dockerfile", "modified", 2, "@@ -1 +1 @@\n-FROM python:3.7\n+FROM python:3.8")], true)).Should().BeNull("the fix of CASE-06 passes");
-        ChangePolicy.Refusal(new Orchestrarr.Core.Forge.BranchChange("0123456789abcdef0123456789abcdef01234567", 0, 1, [new Orchestrarr.Core.Forge.BranchFile("Dockerfile", "modified", 2, "@@ -1 +1 @@\n-FROM python:3.7\n+FROM ghcr.io/someone/python:3.12")], true)).Should().Contain("replaces the base image");
-    }
-
-    [Theory]
-    [InlineData("ARG BASE=python:3.7\nFROM ${BASE}", "ARG BASE=ghcr.io/someone/python:3.12\nFROM ${BASE}", "replaces the base image 'python' with 'ghcr.io/someone/python'")]
+    [InlineData("FROM python:3.7", "FROM python:3.8", null)]
+    [InlineData("FROM python:3.7 AS b\nFROM b", "FROM python:3.8 AS b\nFROM b", null)]
+    [InlineData("FROM python:3.7", "FROM python:3.8 AS base\nFROM base", null)]
+    [InlineData("FROM python:3.7", "FROM docker.io/library/python:3.8", null)]
+    [InlineData("FROM python:3.7", "FROM\tevil/python:3.12", "brings the base image 'evil/python'")]
+    [InlineData("FROM python:3.7", "FROM python:3.7 AS unused\nFROM evil/img", "brings the base image 'evil/img'")]
+    [InlineData("FROM python:3.7", "FROM python:3.8\nFROM node:20 AS assets", "brings the base image 'node'")]
+    [InlineData("ARG BASE=python:3.7\nFROM ${BASE}", "ARG BASE=python:3.7\nFROM ${BASE}\nARG BASE=evil/img", null)]
+    [InlineData("FROM python:3.7", "FROM evil/img AS python\nFROM python", "brings the base image 'evil/img'")]
+    [InlineData("ARG BASE=python:3.7\nFROM ${BASE}", "ARG BASE=ghcr.io/someone/python:3.12\nFROM ${BASE}", "brings the base image 'ghcr.io/someone/python'")]
     [InlineData("ARG BASE=python:3.7\nFROM ${BASE}", "ARG BASE=python:3.8\nFROM ${BASE}", null)]
-    [InlineData("FROM python:3.7", "ARG BASE\nFROM ${BASE:-node:20}", "replaces the base image 'python' with 'node'")]
-    [InlineData("FROM python:3.7", "ARG BASE=node\nFROM ${BASE}", "replaces the base image 'python' with 'node'")]
+    [InlineData("FROM python:3.7", "ARG BASE\nFROM ${BASE:-node:20}", "brings the base image 'node'")]
+    [InlineData("FROM python:3.7", "ARG BASE=node\nFROM ${BASE}", "brings the base image 'node'")]
     [InlineData("FROM python:3.7", "FROM ${BASE}", "cannot be told from the file")]
     [InlineData("ARG URL=https://example.test/tool-1.2.tgz\nFROM python:3.7", "ARG URL=https://example.test/tool-1.3.tgz\nFROM python:3.8", null)]
     public void A_base_image_is_read_on_the_whole_file_with_the_defaults_of_its_args(string before, string after, string? refusal)
@@ -274,5 +241,19 @@ public sealed class AgentBranchTests
         {
             verdict.Should().Contain(refusal);
         }
+    }
+
+    [Theory]
+    [InlineData("Dockerfile")]
+    [InlineData("dockerfile")]
+    [InlineData("Containerfile")]
+    [InlineData("build/app.dockerfile")]
+    public void A_container_file_that_was_not_read_whole_is_refused_and_every_container_file_is_read(string path)
+    {
+        var change = new Orchestrarr.Core.Forge.BranchChange("0123456789abcdef0123456789abcdef01234567", 0, 1, [new Orchestrarr.Core.Forge.BranchFile(path, "modified", 2, "@@ -1 +1 @@\n-FROM python:3.7\n+FROM python:3.8")], true);
+        ChangePolicy.Refusal(change).Should().Contain("could not be read whole", "the check fails closed");
+        ChangePolicy.Refusal(change, null, new Dictionary<string, string?> { [path] = "FROM python:3.7" }, new Dictionary<string, string?> { [path] = "FROM python:3.8" }).Should().BeNull("the fix of CASE-06 passes");
+        ChangePolicy.Refusal(change, null, new Dictionary<string, string?> { [path] = "FROM python:3.7" }, new Dictionary<string, string?> { [path] = "FROM evil/python:3.12" }).Should().Contain("brings the base image");
+        ChangePolicy.IsContainerFile("compose.yaml").Should().BeFalse();
     }
 }

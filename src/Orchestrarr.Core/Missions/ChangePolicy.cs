@@ -150,26 +150,28 @@ public static partial class ChangePolicy
 
     private static string? Text(IReadOnlyDictionary<string, string?>? texts, string path) => texts is not null && texts.TryGetValue(path, out var text) ? text : null;
 
-    // A base image is raised to a newer tag of the same image, never replaced by another one (ADR 0058). The whole file before and after the change is read when the forge gave it, and every FROM is resolved against the
-    // defaults of the ARGs of the file (`ARG BASE=python:3.7` with `FROM ${BASE}`, `${BASE:-python:3.7}`): a change that takes an image out and brings another in is refused, and so is a FROM that cannot be resolved there
-    // (its value would come from outside the file). Without the whole file, the lines of the patch are read the same way. A stage named by an earlier FROM is not an image; a new stage next to the kept images is the
-    // controller's to judge
+    // A base image is raised to a newer tag of the same image, never replaced by another, and a container file never gets an image it did not have (ADR 0058). The whole file is read before and after the change, and every FROM
+    // is resolved as Docker does (the ARGs declared before the first FROM; `${BASE:-python:3.7}`); a file that could not be read whole, or a FROM that cannot be resolved there, is refused: the check fails closed. A stage named
+    // by an earlier FROM is not an image
     internal static string? SwappedBaseImage(BranchFile file, string? before = null, string? after = null)
     {
-        if (!IsContainerFile(file.Path))
+        if (!IsContainerFile(file.Path) || file.Status == "removed")
         {
             return null;
         }
-        var gone = ImagesOf(before is not null && after is not null ? Lines(before) : RemovedLines(file.Patch).ToList());
-        var come = ImagesOf(after is not null ? Lines(after) : AddedLines(file.Patch).ToList());
-        if (come.FirstOrDefault(image => image.StartsWith(Unresolved, StringComparison.Ordinal) && !gone.Contains(image, StringComparer.OrdinalIgnoreCase)) is { } unknown)
+        if (after is null || (before is null && file.Status != "added"))
+        {
+            return $"the container file '{file.Path}' could not be read whole before and after the change: what it does with its base images cannot be judged";
+        }
+        var had = before is null ? [] : ImagesOf(Lines(before));
+        var has = ImagesOf(Lines(after));
+        if (has.FirstOrDefault(image => image.StartsWith(Unresolved, StringComparison.Ordinal)) is { } unknown && !had.Contains(unknown, StringComparer.OrdinalIgnoreCase))
         {
             return $"the change gives '{file.Path}' a base image that cannot be told from the file ({unknown[Unresolved.Length..]}): a base image is raised to a newer version of the same image, never replaced by another";
         }
-        var lost = gone.FirstOrDefault(image => !come.Contains(image, StringComparer.OrdinalIgnoreCase));
-        var newcomer = come.FirstOrDefault(image => !gone.Contains(image, StringComparer.OrdinalIgnoreCase));
-        return lost is not null && newcomer is not null
-            ? $"the change replaces the base image '{lost}' with '{newcomer}' in '{file.Path}': a base image is raised to a newer version of the same image, never replaced by another"
+        var newcomer = before is null ? null : has.FirstOrDefault(image => !had.Contains(image, StringComparer.OrdinalIgnoreCase));
+        return newcomer is not null
+            ? $"the change brings the base image '{newcomer}' into '{file.Path}', which did not use it: a base image is raised to a newer version of the same image, never replaced by another nor added"
             : null;
     }
 
@@ -177,20 +179,42 @@ public static partial class ChangePolicy
 
     private static List<string> Lines(string text) => [.. text.Split('\n')];
 
-    // The base images of FROM lines, each resolved against the ARG defaults of the same lines, without tag or digest, the default registry and library left out
+    // The base images of the FROM lines, each resolved against the ARGs declared before the first FROM (the only ones a FROM sees), without tag or digest, the default registry and library left out; a FROM that names a stage
+    // defined by an earlier FROM is that stage, not an image
     private static List<string> ImagesOf(List<string> lines)
     {
         var defaults = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var groups in lines.Select(line => ArgLine().Match(line.Trim())).Where(match => match.Success).Select(match => match.Groups))
+        var stages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var images = new List<string>();
+        var seenFrom = false;
+        foreach (var line in lines.Select(line => line.Trim()))
         {
-            defaults[groups[1].Value] = groups[2].Value.Trim('"', '\'');
+            if (!seenFrom && ArgLine().Match(line) is { Success: true } arg)
+            {
+                defaults[arg.Groups[1].Value] = arg.Groups[2].Value.Trim('"', '\'');
+                continue;
+            }
+            if (!FromLine().IsMatch(line))
+            {
+                continue;
+            }
+            seenFrom = true;
+            var words = Words().Split(line).Skip(1).Where(word => word.Length > 0 && !word.StartsWith("--", StringComparison.Ordinal)).ToList();
+            if (words.Count == 0)
+            {
+                continue;
+            }
+            var image = Resolved(words[0], defaults);
+            if (!stages.Contains(image))
+            {
+                images.Add(image.Contains('$') ? Unresolved + image : Normalised(image));
+            }
+            if (words.Count >= 3 && words[1].Equals("AS", StringComparison.OrdinalIgnoreCase))
+            {
+                _ = stages.Add(words[2]);
+            }
         }
-        var froms = lines.Select(line => line.Trim()).Where(line => FromLine().IsMatch(line))
-            .Select(line => Words().Split(line).Skip(1).Where(word => word.Length > 0 && !word.StartsWith("--", StringComparison.Ordinal)).ToList())
-            .Where(words => words.Count > 0).ToList();
-        var stages = froms.Where(words => words.Count >= 3 && words[1].Equals("AS", StringComparison.OrdinalIgnoreCase)).Select(words => words[2]).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        return [.. froms.Select(words => Resolved(words[0], defaults)).Where(image => !stages.Contains(image))
-            .Select(image => image.Contains('$') ? Unresolved + image : Normalised(image)).Distinct(StringComparer.OrdinalIgnoreCase)];
+        return [.. images.Distinct(StringComparer.OrdinalIgnoreCase)];
     }
 
     // ${X}, $X, ${X:-d} and ${X:+d} replaced by what the file says of X (its ARG default), or by the default written in place
