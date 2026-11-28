@@ -63,6 +63,13 @@ public static class MissionEvidence
 
     public const string RefusedMoved = Refused + "moved";
 
+    /// <summary>
+    /// The step of a release that the runner itself says failed (the deployment or the verification ended with an exit code that is not 0: <c>deploy:exit=1:sha256=…</c>), or null. A claim of failure can only stop work: a release
+    /// whose runner says its deployment did not complete is never granted, whatever answers on the health route (the version before it may still be running there, CASE-06).
+    /// </summary>
+    public static string? ReleaseFailureOf(IEnumerable<string>? evidence) =>
+        (evidence ?? []).FirstOrDefault(entry => (entry.StartsWith("deploy:exit=", StringComparison.Ordinal) || entry.StartsWith("verify:exit=", StringComparison.Ordinal)) && !entry.StartsWith("deploy:exit=0:", StringComparison.Ordinal) && !entry.StartsWith("verify:exit=0:", StringComparison.Ordinal))?.Split(":sha256=")[0];
+
     /// <summary>The reason written by a refusal marker of a dossier, or null when the dossier holds none.</summary>
     public static string? RefusalOf(IEnumerable<string> evidence) => evidence.FirstOrDefault(entry => entry is RefusedConflict or RefusedMoved);
 }

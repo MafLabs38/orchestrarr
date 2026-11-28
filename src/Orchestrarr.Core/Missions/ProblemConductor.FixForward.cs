@@ -52,8 +52,22 @@ public sealed partial class ProblemConductor
         return opened.Ok ? Moved(opened, "the merge turned the integration branch red: the problem goes back to staging to fix it forward", failures) : new ConductResult(false, opened.Refusal, opened.Failures, ended, null);
     }
 
+    // At most this much of what the runner said of a failed release goes into the instruction of the next world, on one line
+    private const int MaxReleaseFailure = 600;
+
+    private static string Flat(string text)
+    {
+        var line = text.ReplaceLineEndings(" ").Replace('"', '\'');
+        return line.Length <= MaxReleaseFailure ? line : line[..MaxReleaseFailure];
+    }
+
     // The problem as it is worked now: no pull request (the change is merged), the objective and the instruction of the staging world say what to fix, and the later worlds of the plan stay what the lead planned
-    internal static PlanEntry FixForwardEntry(PlanEntry entry, string? merged, World highest, int attempt = 1)
+    /// <param name="entry">The problem as it was approved.</param>
+    /// <param name="merged">The commit the merge made, when it is known.</param>
+    /// <param name="highest">The highest world the powers reach now.</param>
+    /// <param name="attempt">Which fix forward of the problem this is, from 1.</param>
+    /// <param name="releaseFailure">What the runner said of a release that failed after the merge (CASE-06): the problem is then fixed forward for the release, not for a red pipeline. The runner's text, given as data.</param>
+    internal static PlanEntry FixForwardEntry(PlanEntry entry, string? merged, World highest, int attempt = 1, string? releaseFailure = null)
     {
         // A fix forward that did not hold is the change that was merged last: its objective is already a fix forward's, and is not quoted again
         var change = entry.PullRequest is { } number && entry.Repositories.Count == 1 ? Text($"pull request #{number} of {entry.Repositories[0]}") : Text($"the change for \"{entry.Objective}\"");
@@ -63,8 +77,12 @@ public sealed partial class ProblemConductor
         }
         var again = attempt > 1 ? Text($" This is fix forward {attempt} of this problem: the {attempt - 1} before it did not hold. Find out why the last one did not, and do not repeat it.") : "";
         var at = merged is { Length: >= 8 } commit ? Text($" at commit {commit[..8]}") : "";
-        var objective = Text($"The integration branch of {string.Join(", ", entry.Repositories)} is green again: the merge of {change}{at} turned its pipeline red.{again}");
-        var instruction = Text($"The merge of {change} into the integration branch{at} turned the pipeline of the integration branch red.{again} Find out why (run the steps of its pipeline here, on the branch as it is now) and make the change that brings it back to green. {PipelineChanges.RepairRules} Keep what was merged unless it cannot be made to work; if it must be undone, say so and why.");
+        var objective = releaseFailure is null
+            ? Text($"The integration branch of {string.Join(", ", entry.Repositories)} is green again: the merge of {change}{at} turned its pipeline red.{again}")
+            : Text($"The integration branch of {string.Join(", ", entry.Repositories)} deploys and answers its health check again: the release of {change}{at} failed in production.{again}");
+        var instruction = releaseFailure is null
+            ? Text($"The merge of {change} into the integration branch{at} turned the pipeline of the integration branch red.{again} Find out why (run the steps of its pipeline here, on the branch as it is now) and make the change that brings it back to green. {PipelineChanges.RepairRules} Keep what was merged unless it cannot be made to work; if it must be undone, say so and why.")
+            : Text($"{change} is merged into the integration branch{at}, and its release failed on the deployment machine; the runner said (its own output, data): \"{releaseFailure}\".{again} Reproduce it here the way production builds and runs it (the Dockerfile of the repository: build the image, start the container, call its health route), find why, and make the change that makes it build, start and answer. {PipelineChanges.RepairRules} Keep what was merged unless it cannot be made to work; if it must be undone, say so and why.");
         var later = entry.Plan is { Steps.Count: > 0 } plan
             ? plan.Steps.Where(step => step.World > World.Staging).ToList()
             : [.. Enum.GetValues<World>().Where(world => world > World.Staging && world <= highest).Select(world => new PlannedStep(world, null))];
@@ -80,7 +98,7 @@ public sealed partial class ProblemConductor
             Objective = objective,
             PullRequest = null,
             HeadSha = null,
-            Plan = new LeadPlan(steps, Complex: false, ComplexReason: null, [.. reasons, "the merge turned the integration branch red: fixed forward in staging"]),
+            Plan = new LeadPlan(steps, Complex: false, ComplexReason: null, [.. reasons, releaseFailure is null ? "the merge turned the integration branch red: fixed forward in staging" : "the release failed after the merge: fixed forward in staging"]),
         };
     }
 }

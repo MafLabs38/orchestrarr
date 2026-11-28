@@ -255,6 +255,13 @@ public sealed partial class ProblemConductor(MandateSigner signer, MissionStores
                 _ = await RequiredAsync(MissionAuditEvents.ControllerDecided, missionId, Text($"{decision.Kind}: {string.Join(" | ", decision.Reasons)}"), cancellationToken);
                 return await RouteFailuresAsync(mission, run, closing, cancellationToken);
             }
+            // A release whose runner says the deployment or its verification failed is never granted nor ended there: what answers on the health route may be the version before it, still running, and a release that failed
+            // is a failed push that the loop takes up again (CASE-06, ADR 0040). The code routes it as a release that did not verify, whatever the controller judged short of escalating
+            if (mission.World == World.Release && decision.Kind is ControllerDecisionKind.Grant or ControllerDecisionKind.End or ControllerDecisionKind.SendBack && MissionEvidence.ReleaseFailureOf(dossiers.Get(mission.Id)?.EvidenceDigests) is { } failedStep)
+            {
+                _ = await RequiredAsync(MissionAuditEvents.ControllerDecided, missionId, Text($"{decision.Kind}, overridden by the code: the runner says the release failed ({failedStep}): {string.Join(" | ", decision.Reasons)}"), cancellationToken);
+                return await ReleaseJudgedFailedAsync(mission, run, cancellationToken);
+            }
             var decided = await RequiredAsync(MissionAuditEvents.ControllerDecided, missionId, Text($"{decision.Kind}: {string.Join(" | ", decision.Reasons)}"), cancellationToken);
             if (!decided && decision.Kind == ControllerDecisionKind.Grant)
             {

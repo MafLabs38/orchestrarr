@@ -970,6 +970,31 @@ public sealed class ProblemConductorTests : IDisposable
         _audit.Events.Should().Contain(line => line.StartsWith("problem.priority-raised problem-1") && line.Contains("50 to 70"));
     }
 
+    [Theory]
+    [InlineData(ControllerDecisionKind.Grant)]
+    [InlineData(ControllerDecisionKind.End)]
+    public async Task A_release_whose_runner_says_the_deployment_failed_is_never_granted_whatever_answers_on_the_health_route(ControllerDecisionKind kind)
+    {
+        var conductor = Conductor();
+        var release = (await Through(conductor, await Through(conductor, await StartStaged(conductor)))).Mission!;
+        await conductor.StartedAsync(release.Id, Ct);
+        await conductor.HandOverAsync(release.Id, DossierFor(release.Id) with { EvidenceDigests = ["deploy:exit=1:sha256=aa", "previous:orch-app:1234abcd"] }, Ct);
+
+        var result = await conductor.DecideAsync(release.Id, new ControllerDecision(kind, ["the health check answers"], null), Ct);
+
+        result.Ok.Should().BeFalse("the version before it may be what answers: a release that did not deploy is not verified, and it is taken up again, not ended");
+        _missions.Get(release.Id)!.State.Should().Be(MissionState.Ended);
+        _problems.Get("problem-1")!.State.Should().Be(ProblemState.InProgress, "a release that failed is a failed push: the problem goes back to the first world");
+        _audit.Events.Should().Contain(line => line.Contains("overridden by the code") && line.Contains("deploy:exit=1"));
+        var again = _problems.Get("problem-1")!;
+        again.FixesForward.Should().Be(1, "the change is merged: the release is fixed forward in staging, not proved again as the pull request it was");
+        again.Entry.PullRequest.Should().BeNull();
+        again.Entry.Objective.Should().Contain("deploys and answers its health check again");
+        again.Entry.Plan!.Steps[0].Instruction.Should().Contain("its release failed on the deployment machine");
+        MissionEvidence.ReleaseFailureOf(["deploy:exit=0:sha256=aa", "verify:exit=0:sha256=bb"]).Should().BeNull();
+        MissionEvidence.ReleaseFailureOf(["deploy:exit=0:sha256=aa", "verify:exit=1:sha256=bb"]).Should().Be("verify:exit=1");
+    }
+
     private async Task<ConductResult> ReleaseThatFails(ProblemConductor conductor, bool staged, Action? before = null)
     {
         var step = staged ? await StartStaged(conductor) : await conductor.StartAsync(Entry(), StagingDeclaration.DeclaredNoStaging, StagingRequirement.BlankMachine, StagingState.NotDefined, Ct);
