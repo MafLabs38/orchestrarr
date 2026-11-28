@@ -8,7 +8,7 @@ namespace Orchestrarr.MissionRunner;
 
 /// <summary>
 /// The work of the release world: the act gateway says whether the commit that the controller accepted may be deployed now, then the runner deploys it **the way the environment is deployed** (here a container built on the deployment
-/// machine from the repository at that commit), and verifies the application as a tester would. The previous version is read before anything is replaced and said in the dossier, and nothing is rolled back by this runner: a release that
+/// machine from the repository at that commit), and verifies the application by its health check (Q-06). The previous version is read before anything is replaced and said in the dossier, and nothing is rolled back by this runner: a release that
 /// does not verify is a failed push, and the loop goes on with the same problem (ADR 0040).
 /// </summary>
 public sealed partial class ReleaseWorld(IMissionControlPlane controlPlane, IShell shell, MissionRunnerOptions options) : IWorldWork
@@ -40,7 +40,7 @@ public sealed partial class ReleaseWorld(IMissionControlPlane controlPlane, IShe
         var timeout = TimeSpan.FromMinutes(options.StepTimeoutMinutes);
         var evidence = new List<string>();
         var deploy = await OnMachineAsync(machine, DeployScript(mission.Repository, commit, app, port), timeout, cancellationToken);
-        Keep(evidence, "deploy", deploy);
+        Keep(evidence, MissionEvidence.DeployStep, deploy);
         var previous = PreviousLine().Match(deploy.Output) is { Success: true } found ? found.Groups[1].Value.Trim() : "none";
         evidence.Add($"previous:{previous}");
         var address = $"{options.DeployHost ?? machine}:{port}";
@@ -50,9 +50,9 @@ public sealed partial class ReleaseWorld(IMissionControlPlane controlPlane, IShe
             return Failed(commit, evidence, $"The deployment of {Short(commit)} to {machine} did not complete (exit {deploy.ExitCode}): {Tail(deploy.Output)}", previous);
         }
 
-        await report("Verifying the application as a tester would");
+        await report("Verifying the application by its health check");
         var verify = await OnMachineAsync(machine, VerifyScript(app, port), TimeSpan.FromMinutes(3), cancellationToken);
-        Keep(evidence, "verify", verify);
+        Keep(evidence, MissionEvidence.VerifyStep, verify);
         if (verify.ExitCode != 0 || verify.TimedOut)
         {
             await report("The verification failed");
@@ -63,7 +63,7 @@ public sealed partial class ReleaseWorld(IMissionControlPlane controlPlane, IShe
         var what = mission.PullRequest is { } number ? $"pull request #{number} of {mission.Repository}{replaces}, merged as {Short(commit)} after its proof in staging," : $"{mission.Repository} at {Short(commit)}";
         return new MissionHandOver($"The change ({what.TrimEnd(',')}) is deployed on {machine} as {app} ({address}) and verified: {Tail(verify.Output)}.",
             $"Deployed {commit}, the commit that the controller accepted for {mission.Repository}, on {machine} as the container orch-{app} (image orch-{app}:{commit[..8]}), from the repository at that commit. Previous version: {previous}. "
-            + $"The application was then checked as a tester would: {Tail(verify.Output)}. The deployment was allowed by the act gateway on that commit; nothing else was changed or rolled back.", evidence, [], Complex: false, ComplexReason: null, commit);
+            + $"The application was then checked by its health route: {Tail(verify.Output)}. The deployment was allowed by the act gateway on that commit; nothing else was changed or rolled back.", evidence, [], Complex: false, ComplexReason: null, commit);
     }
 
     // What is run on the deployment machine: every value in it is validated here (repository, commit, port); the application is built from the Dockerfile of the repository. A port that another application already holds stops the deployment.
@@ -104,7 +104,7 @@ public sealed partial class ReleaseWorld(IMissionControlPlane controlPlane, IShe
         new($"Nothing was deployed for {mission.Repository}: {reason}", reason, [], [reason], Complex: true, reason, Commit: null);
 
     private static void Keep(List<string> evidence, string step, ShellResult result) =>
-        evidence.Add($"{step}:exit={result.ExitCode}:sha256={Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(result.Output)))}");
+        evidence.Add(MissionEvidence.StepExit(step, result.ExitCode, Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(result.Output)))));
 
     private static string Short(string sha) => sha.Length > 8 ? sha[..8] : sha;
 

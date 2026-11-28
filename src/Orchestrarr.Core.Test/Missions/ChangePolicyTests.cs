@@ -216,7 +216,10 @@ public sealed class AgentBranchTests
 
     [Theory]
     [InlineData("-FROM python:3.7\n+FROM python:3.8", null)]
-    [InlineData("-FROM python:3.7 AS build\n+FROM python:3.12 AS build", null)]
+    [InlineData("-FROM python:3.7 AS b\n-FROM b\n+FROM python:3.8 AS b\n+FROM b", null)]
+    [InlineData("-FROM python:3.7\n+FROM python:3.8 AS base\n+FROM base", null)]
+    [InlineData("-FROM python:3.7\n+FROM python:3.8\n+FROM node:20 AS assets", null)]
+    [InlineData("-FROM python:3.7\n+FROM docker.io/library/python:3.8", null)]
     [InlineData("-FROM python:3.7\n+FROM ghcr.io/someone/python:3.12", "replaces the base image 'python' with 'ghcr.io/someone/python'")]
     [InlineData("-FROM --platform=linux/amd64 node:16\n+FROM --platform=linux/amd64 nodejs:22", "replaces the base image 'node' with 'nodejs'")]
     [InlineData("-FROM localhost:5000/app:1\n+FROM localhost:5000/app:2", null)]
@@ -232,5 +235,19 @@ public sealed class AgentBranchTests
         {
             verdict.Should().Contain(refusal);
         }
+    }
+
+    [Theory]
+    [InlineData("Containerfile", true)]
+    [InlineData("build/app.dockerfile", true)]
+    [InlineData("compose.yaml", false)]
+    public void Every_container_file_is_read_for_its_base_image(string path, bool refused) =>
+        (ChangePolicy.SwappedBaseImage(new Orchestrarr.Core.Forge.BranchFile(path, "modified", 2, "@@ -1 +1 @@\n-FROM python:3.7\n+FROM evil/python:3.12")) is not null).Should().Be(refused);
+
+    [Fact]
+    public void A_dockerfile_change_is_judged_by_the_whole_policy()
+    {
+        ChangePolicy.Refusal(new Orchestrarr.Core.Forge.BranchChange("0123456789abcdef0123456789abcdef01234567", 0, 1, [new Orchestrarr.Core.Forge.BranchFile("Dockerfile", "modified", 2, "@@ -1 +1 @@\n-FROM python:3.7\n+FROM python:3.8")], true)).Should().BeNull("the fix of CASE-06 passes");
+        ChangePolicy.Refusal(new Orchestrarr.Core.Forge.BranchChange("0123456789abcdef0123456789abcdef01234567", 0, 1, [new Orchestrarr.Core.Forge.BranchFile("Dockerfile", "modified", 2, "@@ -1 +1 @@\n-FROM python:3.7\n+FROM ghcr.io/someone/python:3.12")], true)).Should().Contain("replaces the base image");
     }
 }

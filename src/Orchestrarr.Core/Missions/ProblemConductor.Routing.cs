@@ -108,55 +108,14 @@ public sealed partial class ProblemConductor
     private async Task<ConductResult> ReleaseJudgedFailedAsync(Mission mission, ProblemRun run, CancellationToken cancellationToken) =>
         await RouteFailuresAsync(mission, run, await ClosingChecksAsync(run, mission, dossiers.Get(mission.Id), cancellationToken), controllerJudgedFailed: true);
 
-    // The release did not verify, said by the facts of the control plane (a pipeline that failed) or by the controller's judgement of the dossier (the verification of the release does not hold): the mission
-    // ends and the problem goes back to the first world (a staging if the application has one, else the Git world). A release that failed under a standing rule is a person's: nobody approved this problem
+    // The release did not verify, said by the facts of the control plane (a pipeline that failed), by its runner (the deployment or the verification failed) or by the controller's judgement of the dossier. The change is merged,
+    // so going back to the first world with the problem as it was approved would prove a pull request that the merge closed: the problem is fixed forward in staging (ADR 0058), or goes to a person when it has no staging
     private async Task<ConductResult> BackToFirstWorldAsync(Mission mission, ProblemRun run, IReadOnlyList<PreconditionFailure> failures)
     {
-        // The power is read again here, as at every crossing: a grant or a certificate withdrawn while the release ran stops the problem, and the first world must be within what the powers allow
-        var first = run.UsesStaging ? World.Staging : World.Git;
-        if (HighestNow(run.Entry, run.Approval) is not { } highest || first > highest)
-        {
-            return await EndAsync(run, mission, MissionEvent.EndedByController, "the powers of the problem no longer reach the first world, or the grant was withdrawn");
-        }
-        // Without a staging there is no world to fix a merged change forward in, and going back to the Git world would replay a pull request that the merge closed: a person decides
-        if (first == World.Git)
+        if (!run.UsesStaging)
         {
             return Moved(await EscalateAsync(run, mission, "the release failed after the merge and the application has no staging to fix it forward in: a person decides"), "the release did not verify: a person decides", failures);
         }
-        // The change is merged: going back to the first world with it as it was would prove a pull request that is closed or merged. With a staging, the problem is fixed forward there, as a red integration branch is
-        // (CASE-06): a free agent works on the integration branch as it is, told what the release said, under the bound of the fixes forward
-        if (first == World.Staging && run.FixesForward >= options.Loop.MaxFixesForwardPerProblem)
-        {
-            var bound = Text($"the release failed again after {run.FixesForward} fix(es) forward, the most the loop allows");
-            return Moved(await EscalateAsync(run, mission, bound), $"{bound}: a person decides", failures);
-        }
-        var transition = MissionMachine.Apply(mission, MissionEvent.EndedByController, options.Loop, reason: "the release did not verify: the problem goes back to the first world");
-        if (transition.Mission is not { } ended)
-        {
-            return ConductResult.Fail(transition.Refusal ?? "refused");
-        }
-        string? revoked = null;
-        unit.Atomically(() =>
-        {
-            missions.Save(ended);
-            revoked = RevokeStore(mission);
-        });
-        await TellRevokedAsync(mission, revoked);
-        await BestEffortAsync(MissionAuditEvents.MissionEnded, mission.Id, Text($"the release did not verify ({string.Join(", ", failures)}): back to the first world"));
-        // The problem touches production now: it goes ahead of the normal ones for the next free machine (a hot lot, ADR 0050). Its mandate is not wider for it: the priority orders the work, it grants no power
-        var priority = FlowPriority.Raised(run.Priority);
-        var released = dossiers.Get(mission.Id);
-        var next = first == World.Staging
-            ? run with { Entry = FixForwardEntry(run.Entry, released?.Commit, highest, run.FixesForward + 1, releaseFailure: MissionEvidence.ReleaseFailureOf(released?.EvidenceDigests) ?? "verify:"), CurrentWorld = first, Priority = priority, FixesForward = run.FixesForward + 1 }
-            : run with { CurrentWorld = first, Priority = priority };
-        if (first == World.Staging)
-        {
-            restarts?.Restarted(run.ProblemId);
-        }
-        var opened = await OpenAsync(next, first, MandateSource.Controller);
-        // The raised priority is kept with the problem whether or not a mandate could be issued (the run is saved either way): the trail says it after that step, so it never claims a raise that was not stored
-        await BestEffortAsync(MissionAuditEvents.PriorityRaised, run.ProblemId, Text($"the release did not verify: priority {run.Priority} to {priority}"));
-        // The mission ended whatever Open says: when no mandate can be issued the problem failed, and the answer still carries the mission that moved
-        return opened.Ok ? Moved(opened, "the release did not verify: the problem goes back to the first world", failures) : new ConductResult(false, opened.Refusal, opened.Failures, ended, null);
+        return await FixForwardAsync(mission, run, failures, afterRelease: true);
     }
 }

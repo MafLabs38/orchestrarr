@@ -63,18 +63,28 @@ public static class MissionEvidence
 
     public const string RefusedMoved = Refused + "moved";
 
+    /// <summary>The step of a release that deploys, and the one that verifies it: what the runner of the release writes, and the control plane reads, as <c>step:exit=N:sha256=…</c>.</summary>
+    public const string DeployStep = "deploy";
+
+    public const string VerifyStep = "verify";
+
+    /// <summary>The evidence of one step of a release, written by the runner and read by <see cref="ReleaseVerified"/> and <see cref="ReleaseFailureOf"/>: one format, here.</summary>
+    public static string StepExit(string step, int exitCode, string outputDigest) => $"{step}:exit={exitCode.ToString(System.Globalization.CultureInfo.InvariantCulture)}:sha256={outputDigest}";
+
     /// <summary>
-    /// The step of a release that the runner itself says failed (the deployment or the verification ended with an exit code that is not 0: <c>deploy:exit=1:sha256=…</c>), or null. A claim of failure can only stop work: a release
-    /// whose runner says its deployment did not complete is never granted, whatever answers on the health route (the version before it may still be running there, CASE-06).
+    /// The step of a release that the runner itself says failed (the deployment or the verification ended with an exit code that is not 0: <c>deploy:exit=1</c>), or null. A claim of failure can only stop work: a release whose
+    /// runner says its deployment did not complete is never granted, whatever answers on the health route (the version before it may still be running there, CASE-06).
     /// </summary>
     public static string? ReleaseFailureOf(IEnumerable<string>? evidence) =>
-        (evidence ?? []).FirstOrDefault(entry => (entry.StartsWith("deploy:exit=", StringComparison.Ordinal) || entry.StartsWith("verify:exit=", StringComparison.Ordinal)) && !entry.StartsWith("deploy:exit=0:", StringComparison.Ordinal) && !entry.StartsWith("verify:exit=0:", StringComparison.Ordinal))?.Split(":sha256=")[0];
+        (evidence ?? []).Select(entry => entry.Split(":sha256=")[0]).FirstOrDefault(step => IsReleaseStep(step) && !step.EndsWith(":exit=0", StringComparison.Ordinal));
 
-    /// <summary>Whether the runner of a release says both that the deployment and that its verification passed (<c>deploy:exit=0:…</c> and <c>verify:exit=0:…</c>): what a grant of the release world needs, besides the facts.</summary>
+    private static bool IsReleaseStep(string step) => step.StartsWith($"{DeployStep}:exit=", StringComparison.Ordinal) || step.StartsWith($"{VerifyStep}:exit=", StringComparison.Ordinal);
+
+    /// <summary>Whether the runner of a release says that the deployment and its verification passed, and that no step failed: what a grant of the release world needs, besides the facts.</summary>
     public static bool ReleaseVerified(IEnumerable<string>? evidence)
     {
         var said = (evidence ?? []).ToList();
-        return said.Exists(entry => entry.StartsWith("deploy:exit=0:", StringComparison.Ordinal)) && said.Exists(entry => entry.StartsWith("verify:exit=0:", StringComparison.Ordinal));
+        return said.Exists(entry => entry.StartsWith($"{DeployStep}:exit=0:", StringComparison.Ordinal)) && said.Exists(entry => entry.StartsWith($"{VerifyStep}:exit=0:", StringComparison.Ordinal)) && ReleaseFailureOf(said) is null;
     }
 
     /// <summary>The reason written by a refusal marker of a dossier, or null when the dossier holds none.</summary>

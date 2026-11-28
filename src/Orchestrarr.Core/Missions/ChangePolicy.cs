@@ -141,29 +141,45 @@ public static partial class ChangePolicy
         return null;
     }
 
-    // A base image is raised to a newer tag of the same image, never replaced by another one (ADR 0058): a Dockerfile change that takes an image out of its FROM lines and brings another in is refused
+    // A base image is raised to a newer tag of the same image, never replaced by another one (ADR 0058): a container file change that takes an image out of its FROM lines with no newer tag of it, and brings another in, is refused.
+    // A stage named by an earlier FROM (`FROM base`) is not an image, and an image added next to the ones kept (a new stage) is the controller's to judge
     internal static string? SwappedBaseImage(BranchFile file)
     {
         var name = file.Path[(file.Path.LastIndexOf('/') + 1)..];
-        if (!name.StartsWith("Dockerfile", StringComparison.Ordinal) && !name.EndsWith(".dockerfile", StringComparison.OrdinalIgnoreCase))
+        if (!name.StartsWith("Dockerfile", StringComparison.Ordinal) && !name.StartsWith("Containerfile", StringComparison.Ordinal) && !name.EndsWith(".dockerfile", StringComparison.OrdinalIgnoreCase))
         {
             return null;
         }
-        var gone = ImagesOf(RemovedLines(file.Patch)).ToList();
-        var come = ImagesOf(AddedLines(file.Patch)).ToList();
+        var removed = RemovedLines(file.Patch).ToList();
+        var added = AddedLines(file.Patch).ToList();
+        var gone = ImagesOf(removed).ToList();
+        var come = ImagesOf(added).ToList();
+        var lost = gone.FirstOrDefault(image => !come.Contains(image, StringComparer.OrdinalIgnoreCase));
         var newcomer = come.FirstOrDefault(image => !gone.Contains(image, StringComparer.OrdinalIgnoreCase));
-        return gone.Count > 0 && newcomer is not null
-            ? $"the change replaces the base image '{gone[0]}' with '{newcomer}' in '{file.Path}': a base image is raised to a newer version of the same image, never replaced by another"
+        return lost is not null && newcomer is not null
+            ? $"the change replaces the base image '{lost}' with '{newcomer}' in '{file.Path}': a base image is raised to a newer version of the same image, never replaced by another"
             : null;
     }
 
-    // The images of FROM lines without their tag or digest (a stage named by an earlier FROM is not an image)
-    private static IEnumerable<string> ImagesOf(IEnumerable<string> lines) =>
-        lines.Select(line => line.Trim()).Where(line => line.StartsWith("FROM ", StringComparison.OrdinalIgnoreCase))
-            .Select(line => line[5..].Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault(word => !word.StartsWith("--", StringComparison.Ordinal)))
-            .OfType<string>()
-            .Select(image => image.Split('@')[0])
-            .Select(image => image.LastIndexOf(':') > image.LastIndexOf('/') ? image[..image.LastIndexOf(':')] : image);
+    // The images of FROM lines without their tag or digest, the default registry and library left out; a stage that a FROM of the same lines names (`AS base`) is not an image
+    private static IEnumerable<string> ImagesOf(List<string> lines)
+    {
+        var froms = lines.Select(line => line.Trim()).Where(line => line.StartsWith("FROM ", StringComparison.OrdinalIgnoreCase))
+            .Select(line => line[5..].Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries).Where(word => !word.StartsWith("--", StringComparison.Ordinal)).ToList())
+            .Where(words => words.Count > 0).ToList();
+        var stages = froms.Where(words => words.Count >= 3 && words[1].Equals("AS", StringComparison.OrdinalIgnoreCase)).Select(words => words[2]).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return froms.Select(words => words[0]).Where(image => !stages.Contains(image)).Select(Normalised).Distinct(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static readonly string[] DefaultRegistryPrefixes = ["docker.io/library/", "docker.io/", "library/"];
+
+    private static string Normalised(string image)
+    {
+        var bare = image.Split('@')[0];
+        bare = bare.LastIndexOf(':') > bare.LastIndexOf('/') ? bare[..bare.LastIndexOf(':')] : bare;
+        var prefix = DefaultRegistryPrefixes.FirstOrDefault(candidate => bare.StartsWith(candidate, StringComparison.OrdinalIgnoreCase));
+        return prefix is null ? bare : bare[prefix.Length..];
+    }
 
     // The lines that a patch adds
     private static string? PipelineGuard(BranchFile file, IReadOnlyDictionary<string, string?>? before, IReadOnlyDictionary<string, string?>? after)
