@@ -131,4 +131,13 @@ public sealed class WorkflowStructureTests
     [Fact]
     public void A_workflow_whose_base_does_not_read_is_refused_rather_than_compared_with_nothing() =>
         Judge(Base, "on: push\na: &a [x]\nb: *a\njobs: {}").Should().Contain("cannot be told");
+
+    [Fact]
+    public void An_action_is_mended_only_by_another_version_of_itself()
+    {
+        Judge(Base.Replace("actions/checkout@v4", "actions/checkout@v5", StringComparison.Ordinal)).Should().BeNull("another version of the same action mends it");
+        Judge(Base.Replace("actions/checkout@v4", "someone/checkout@v1", StringComparison.Ordinal)).Should().Contain("replaces the action 'actions/checkout' with 'someone/checkout'");
+        var twice = Base.Replace("      - run: npm ci", "      - uses: actions/checkout@v4\n      - run: npm ci", StringComparison.Ordinal);
+        Judge(twice.Replace("      - uses: actions/checkout@v4\n      - run: npm ci", "      - uses: someone/checkout@v1\n      - run: npm ci", StringComparison.Ordinal), twice).Should().Contain("replaces the action", "an action used twice and replaced in one place is a swap");
+    }
 }

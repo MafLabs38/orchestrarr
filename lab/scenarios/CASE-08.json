@@ -1,0 +1,27 @@
+{
+  "case": "CASE-08",
+  "title": "The CI is broken and there is no pull request: a free agent mends every pipeline without weakening one",
+  "repos": [
+    "pipeline-scenarios"
+  ],
+  "findings": {
+    "pipeline-scenarios": []
+  },
+  "tick": [
+    "The build fails"
+  ],
+  "lastWorld": "Git",
+  "expect": {
+    "pullRequests": [
+      {
+        "repo": "pipeline-scenarios",
+        "title": "fix: failing ci of orchestrarr-sandbox/pipeline-scenarios",
+        "state": "MERGED",
+        "thisRun": true
+      }
+    ],
+    "greenPipelines": [
+      "pipeline-scenarios"
+    ]
+  }
+}

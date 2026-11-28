@@ -304,6 +304,29 @@ public sealed class GitHubPullRequestFactsTests
     }
 
     [Fact]
+    public async Task A_red_pipeline_says_which_step_failed_and_the_first_error_the_forge_annotated()
+    {
+        _routes["/repos/example/app"] = """{ "default_branch": "develop" }""";
+        _routes["/repos/example/app/branches/develop"] = $$"""{ "commit": { "sha": "{{Head}}" } }""";
+        _routes["/repos/example/app/actions/runs"] = """
+            { "workflow_runs": [ { "id": 41, "event": "push", "head_repository": { "full_name": "example/app" }, "path": ".github/workflows/p2.yml", "name": "p2", "status": "completed", "conclusion": "failure" } ] }
+            """;
+        _routes["/repos/example/app/actions/runs/41/jobs"] = """
+            { "jobs": [ { "id": 7, "conclusion": "success" }, { "id": 8, "name": "test (16)", "conclusion": "failure", "steps": [ { "name": "Set up job", "conclusion": "failure" } ] } ] }
+            """;
+        _routes["/repos/example/app/check-runs/8/annotations"] = """
+            [ { "annotation_level": "warning", "message": "a warning" }, { "annotation_level": "failure", "message": "Unable to resolve action `actions/checkout@v9.9.9`,\nunable to find version `v9.9.9`" } ]
+            """;
+
+        var red = await ((IPipelineFailures)Facts()).ReadAsync("example/app", TestContext.Current.CancellationToken);
+
+        red.Should().ContainSingle().Which.Should().Contain("in the job 'test (16)', the step 'Set up job' failed: Unable to resolve action").And.NotContain("\n");
+
+        _routes.Remove("/repos/example/app/check-runs/8/annotations");
+        (await ((IPipelineFailures)Facts()).ReadAsync("example/app", TestContext.Current.CancellationToken)).Should().ContainSingle().Which.Should().EndWith("the step 'Set up job' failed", "what cannot be read is not guessed");
+    }
+
+    [Fact]
     public async Task The_open_alerts_of_the_forge_are_one_finding_per_package_with_the_version_that_fixes_all_of_them()
     {
         _routes["/repos/example/app/dependabot/alerts"] = """

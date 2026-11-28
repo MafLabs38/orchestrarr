@@ -56,7 +56,7 @@ public static class WorkflowStructure
         {
             return $"the change weakens the pipeline '{path}': it cannot be told, since the workflow before the change does not read here (an alias, or a size or a depth that no workflow has)";
         }
-        var reason = NewDangerousTrigger(previous, next) ?? LostTrigger(previous, next) ?? NewShell(previous, next) ?? Widened(previous.Permissions, next.Permissions, "the workflow");
+        var reason = NewDangerousTrigger(previous, next) ?? LostTrigger(previous, next) ?? NewShell(previous, next) ?? SwappedAction(previous, next) ?? Widened(previous.Permissions, next.Permissions, "the workflow");
         foreach (var (name, job) in next.Jobs)
         {
             reason ??= previous.Jobs.TryGetValue(name, out var was) ? JobWeakening(name, was, job, previous, next) : NewJobWeakening(name, job, previous, next);
@@ -83,6 +83,19 @@ public static class WorkflowStructure
             }
         }
         return null;
+    }
+
+    // An action is mended by another version of the same action, never replaced by another one (ADR 0057 point 5): a change that takes an action out of the workflow and brings a new one in is refused (adding an action is
+    // judged by the controller). Counted, not as a set: an action used twice and replaced in one place is a swap too. Only for a workflow that existed: a new workflow has nothing to swap
+    private static string? SwappedAction(Workflow previous, Workflow next)
+    {
+        if (ReferenceEquals(previous, Workflow.Empty))
+        {
+            return null;
+        }
+        var gone = previous.Actions.Where(used => next.Actions.GetValueOrDefault(used.Key) < used.Value).Select(used => used.Key).ToList();
+        var come = next.Actions.Where(used => previous.Actions.GetValueOrDefault(used.Key) < used.Value).Select(used => used.Key).ToList();
+        return gone.Count > 0 && come.Count > 0 ? $"replaces the action '{gone[0]}' with '{come[0]}' (an action is mended by another version of the same action)" : null;
     }
 
     private static string? NewShell(Workflow previous, Workflow next) =>
@@ -156,9 +169,9 @@ public static class WorkflowStructure
 
     private sealed record Job(int Steps, int AlwaysRunningSteps, int CannotFailSteps, bool CannotFail, string? Condition, int MatrixValues, Dictionary<string, string>? Permissions);
 
-    private sealed record Workflow(Dictionary<string, string> Triggers, Dictionary<string, string>? Permissions, Dictionary<string, Job> Jobs, HashSet<string> CustomShells)
+    private sealed record Workflow(Dictionary<string, string> Triggers, Dictionary<string, string>? Permissions, Dictionary<string, Job> Jobs, HashSet<string> CustomShells, Dictionary<string, int> Actions)
     {
-        public static Workflow Empty { get; } = new([], null, [], []);
+        public static Workflow Empty { get; } = new([], null, [], [], []);
     }
 
     private static Workflow? Read(string text)
@@ -202,7 +215,9 @@ public static class WorkflowStructure
             }
             var shells = new HashSet<string>(StringComparer.Ordinal);
             CollectShells(root, shells);
-            return new Workflow(TriggersOf(Child(root, "on")), PermissionsOf(Child(root, "permissions")), jobs, shells);
+            var actions = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            CollectActions(root, actions);
+            return new Workflow(TriggersOf(Child(root, "on")), PermissionsOf(Child(root, "permissions")), jobs, shells, actions);
         }
         catch (Exception failure) when (failure is YamlException or ArgumentException or InvalidOperationException or InvalidCastException)
         {
@@ -238,6 +253,34 @@ public static class WorkflowStructure
         YamlMappingNode map => "{" + string.Join(",", map.Children.OrderBy(pair => (pair.Key as YamlScalarNode)?.Value, StringComparer.Ordinal).Select(pair => $"{Canonical(pair.Key)}:{Canonical(pair.Value)}")) + "}",
         _ => string.Empty,
     };
+
+    // Every action a step or a job uses, without its version (`owner/name`, a local action or an image as written), with how many times
+    private static void CollectActions(YamlNode node, Dictionary<string, int> found)
+    {
+        switch (node)
+        {
+            case YamlMappingNode map:
+                foreach (var (key, value) in map.Children)
+                {
+                    if (key is YamlScalarNode { Value: "uses" } && value is YamlScalarNode { Value: { } used })
+                    {
+                        var name = used.Split('@')[0].Trim();
+                        found[name] = found.GetValueOrDefault(name) + 1;
+                    }
+                    else
+                    {
+                        CollectActions(value, found);
+                    }
+                }
+                break;
+            case YamlSequenceNode list:
+                foreach (var item in list.Children)
+                {
+                    CollectActions(item, found);
+                }
+                break;
+        }
+    }
 
     // Every `shell` of the workflow (its defaults, a job's defaults, a step) that is not a shell the forge knows
     private static void CollectShells(YamlNode node, HashSet<string> found)

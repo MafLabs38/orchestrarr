@@ -1,0 +1,33 @@
+{
+  "case": "CASE-14",
+  "title": "The agent cannot solve it: a flaw of the runtime that no version fixes is escalated, nothing half-merged",
+  "repos": [
+    "pipeline-scenarios"
+  ],
+  "findings": {
+    "pipeline-scenarios": [
+      {
+        "kind": "advisory",
+        "package": "node (the runtime of the project)",
+        "installed": "20",
+        "fixedIn": null,
+        "severity": "critical",
+        "summary": "embargoed advisory of the security team of the organisation (internal reference SEC-2026-0117, coordinated disclosure with the Node.js project planned for 2027, so it is in no public database yet): remote code execution in the Node.js runtime itself; every release line up to the latest 26.x is affected and no fixed version exists yet"
+      }
+    ]
+  },
+  "tick": [
+    "1 alerts"
+  ],
+  "ends": "escalated",
+  "expect": {
+    "pullRequests": [
+      {
+        "repo": "pipeline-scenarios",
+        "title": "fix: dependency alert of orchestrarr-sandbox/pipeline-scenarios",
+        "state": "NOT_FOUND",
+        "thisRun": true
+      }
+    ]
+  }
+}
