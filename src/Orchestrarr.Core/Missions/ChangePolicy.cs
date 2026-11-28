@@ -186,7 +186,13 @@ public static partial class ChangePolicy
         var stages = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var runtime = "$none";
         var seenFrom = false;
-        foreach (var line in Instructions(text))
+        var instructions = Instructions(text);
+        // A heredoc holds lines that are not instructions (a FROM among them is not one): such a file is not judged here
+        if (instructions.Exists(line => Heredoc().IsMatch(line)))
+        {
+            return "$heredoc";
+        }
+        foreach (var line in instructions)
         {
             var words = Words().Split(line).Where(word => word.Length > 0).ToList();
             if (!seenFrom && words[0].Equals("ARG", StringComparison.OrdinalIgnoreCase))
@@ -242,9 +248,12 @@ public static partial class ChangePolicy
     private static string Unquoted(string value) =>
         value.Length >= 2 && (value[0] == '"' || value[0] == '\'') && value[^1] == value[0] ? value[1..^1] : value;
 
-    // The instructions of a container file: comments and blank lines left out, a line continued by `\` joined to the next
-    private static IEnumerable<string> Instructions(string text) =>
-        Continuation().Replace(text.Replace("\r\n", "\n", StringComparison.Ordinal), " ").Split('\n').Select(line => line.Trim()).Where(line => line.Length > 0 && !line.StartsWith('#'));
+    // The instructions of a container file as Docker reads them: comment and blank lines left out first (also inside a continued instruction), then a line continued by `\` joined to the next
+    private static List<string> Instructions(string text)
+    {
+        var lines = text.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n').Where(line => line.Trim() is { Length: > 0 } kept && !kept.StartsWith('#'));
+        return [.. Continuation().Replace(string.Join('\n', lines), " ").Split('\n').Select(line => line.Trim()).Where(line => line.Length > 0)];
+    }
 
     private static string? EscapeOf(string text) => EscapeDirective().Match(text) is { Success: true } found ? found.Groups[1].Value : null;
 
@@ -271,6 +280,9 @@ public static partial class ChangePolicy
 
     [System.Text.RegularExpressions.GeneratedRegex(@"^(\w+)(=(\S*))?$")]
     private static partial System.Text.RegularExpressions.Regex ArgWord();
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"<<-?\s*[""']?\w+")]
+    private static partial System.Text.RegularExpressions.Regex Heredoc();
 
     [System.Text.RegularExpressions.GeneratedRegex(@"\\[ \t]*\n")]
     private static partial System.Text.RegularExpressions.Regex Continuation();

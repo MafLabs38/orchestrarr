@@ -236,6 +236,9 @@ public sealed class AgentBranchTests
     [InlineData("FROM python:3.7", "ARG BASE=node\nFROM ${BASE}", "run on 'node'")]
     [InlineData("FROM python:3.7", "FROM ${BASE}", "cannot be told from the file")]
     [InlineData("FROM python:3.7", "# escape=`\nFROM python:3.8", "escape directive")]
+    [InlineData("FROM python:3.7", "FROM evil:1\nRUN true \\\n# note\nFROM python:3.7", "run on 'evil'")]
+    [InlineData("FROM python:3.7", "FROM evil:1\nRUN true \\\n\nFROM python:3.7", "run on 'evil'")]
+    [InlineData("FROM python:3.7", "FROM evil:1\nCOPY <<EOF /x\nFROM python:3.7\nEOF", "cannot be told from the file")]
     [InlineData("ARG URL=https://example.test/tool-1.2.tgz\nFROM python:3.7", "ARG URL=https://example.test/tool-1.3.tgz\nFROM python:3.8", null)]
     public void A_base_image_is_read_on_the_whole_file_with_the_defaults_of_its_args(string before, string after, string? refusal)
     {
