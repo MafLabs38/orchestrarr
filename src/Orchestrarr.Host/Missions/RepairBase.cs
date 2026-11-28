@@ -36,7 +36,7 @@ internal static class RepairBase
     {
         var before = new Dictionary<string, string?>(StringComparer.Ordinal);
         var after = new Dictionary<string, string?>(StringComparer.Ordinal);
-        foreach (var path in change.Files.Select(file => file.Path).Where(path => RepairPolicy.IsPlainPath(path) && WorkflowStructure.IsWorkflow(path)).Distinct(StringComparer.Ordinal).Take(RepairPolicy.MaxFiles))
+        foreach (var path in change.Files.Select(file => file.Path).Where(path => RepairPolicy.IsPlainPath(path) && (WorkflowStructure.IsWorkflow(path) || ChangePolicy.IsContainerFile(path))).Distinct(StringComparer.Ordinal).Take(2 * RepairPolicy.MaxFiles))
         {
             switch (await branches.FileAtAsync(repository, change.MergeBase, path, cancellationToken))
             {

@@ -179,6 +179,7 @@ public sealed class GitAndReleaseWorldTests
         dossier.Commit.Should().Be(Merge);
         dossier.OpenPoints.Should().BeEmpty();
         dossier.EvidenceDigests.Should().Contain("previous:orch-shop:11111111");
+        MissionEvidence.ReleaseVerified(dossier.EvidenceDigests).Should().BeTrue("the control plane grants a release only on this word of its runner");
         shell.Scripts.Should().HaveCount(2).And.OnlyContain(script => script.Contains("prod-1", StringComparison.Ordinal));
         shell.Scripts[0].Should().Contain($"git checkout --quiet -f {Merge}").And.Contain("docker build").And.Contain("orch-example-shop");
         shell.Scripts[0].Should().NotContain("docker compose", "a compose file is not deployed here");
@@ -218,6 +219,8 @@ public sealed class GitAndReleaseWorldTests
         var dossier = await new ReleaseWorld(Allowing(), shell, Options()).RunAsync(Mission("Release"), Quiet, Ct);
 
         dossier.Claim.Should().Contain("verification failed");
+        MissionEvidence.ReleaseFailureOf(dossier.EvidenceDigests).Should().Be("verify:exit=1", "the control plane reads which step failed");
+        MissionEvidence.ReleaseVerified(dossier.EvidenceDigests).Should().BeFalse();
         dossier.WhatChangedAndWhy.Should().Contain("Nothing was rolled back").And.Contain("11111111");
         dossier.Commit.Should().Be(Merge);
         shell.Scripts.Should().HaveCount(2);
@@ -232,7 +235,19 @@ public sealed class GitAndReleaseWorldTests
         var dossier = await new ReleaseWorld(Allowing(), shell, Options()).RunAsync(Mission("Release"), Quiet, Ct);
 
         dossier.Claim.Should().Contain("did not complete");
+        MissionEvidence.ReleaseFailureOf(dossier.EvidenceDigests).Should().Be("deploy:exit=3");
         shell.Scripts.Should().ContainSingle("the verification is for what was deployed");
+    }
+
+    [Fact]
+    public async Task A_step_that_runs_out_of_time_failed_whatever_its_exit_code_says()
+    {
+        var shell = new ScriptedShell(script => script.Contains("git clone", StringComparison.Ordinal) ? Ok("PREVIOUS orch-shop:11111111") : new ShellResult(0, "killed", TimedOut: true));
+
+        var dossier = await new ReleaseWorld(Allowing(), shell, Options()).RunAsync(Mission("Release"), Quiet, Ct);
+
+        MissionEvidence.ReleaseFailureOf(dossier.EvidenceDigests).Should().Be("verify:exit=timeout", "a grant needs the runner's word that the step passed");
+        MissionEvidence.ReleaseVerified(dossier.EvidenceDigests).Should().BeFalse();
     }
 
     [Theory]

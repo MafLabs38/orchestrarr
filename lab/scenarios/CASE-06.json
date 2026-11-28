@@ -1,0 +1,55 @@
+{
+  "case": "CASE-06",
+  "title": "Green in the tests, broken at run time: a Flask 3 bump passes on Python 3.12 and the image of production runs Python 3.7",
+  "repos": [
+    "ledger-worker"
+  ],
+  "findings": {
+    "ledger-worker": []
+  },
+  "plants": [
+    {
+      "repo": "ledger-worker",
+      "branch": "lab/case-06-flask",
+      "kind": "pip-bump",
+      "package": "Flask",
+      "from": "1.1.2",
+      "version": "3.0.3",
+      "title": "build(deps): Bump flask from 1.1.2 to 3.0.3",
+      "body": "A major bump, as a bot would open it: the tests pass on a recent Python, the image of the application runs an older one."
+    }
+  ],
+  "tick": [
+    "3.0.3"
+  ],
+  "expect": {
+    "pullRequests": [
+      {
+        "repo": "ledger-worker",
+        "branch": "lab/case-06-flask",
+        "state": "CLOSED"
+      },
+      {
+        "repo": "ledger-worker",
+        "title": "fix: dependency update of orchestrarr-sandbox/ledger-worker",
+        "state": "MERGED",
+        "thisRun": true
+      }
+    ],
+    "files": [
+      {
+        "repo": "ledger-worker",
+        "path": "requirements.txt",
+        "capture": "^Flask==([0-9.]+)",
+        "atLeast": "3.0.3"
+      },
+      {
+        "repo": "ledger-worker",
+        "path": "Dockerfile",
+        "capture": "^FROM python:([0-9]+\\.[0-9]+)",
+        "atLeast": "3.8"
+      }
+    ]
+  },
+  "endsWithoutDone": 1
+}

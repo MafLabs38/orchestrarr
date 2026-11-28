@@ -308,7 +308,7 @@ public sealed class MissionWorldsApiTests
         var deploy = await (await runner.PostAsync($"/api/v1/runner/missions/{release}/acts/deploy", null, Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct);
         deploy.GetProperty("allowed").GetBoolean().Should().BeTrue(deploy.ToString());
         deploy.GetProperty("commit").GetString().Should().Be(MergeCommit);
-        (await runner.PostAsJsonAsync($"/api/v1/runner/missions/{release}/handover", new { claim = "deployed and verified", whatChangedAndWhy = "container", evidenceDigests = new[] { "verify:ok" }, openPoints = Array.Empty<string>(), complex = false, commit = MergeCommit }, Ct)).EnsureSuccessStatusCode();
+        (await runner.PostAsJsonAsync($"/api/v1/runner/missions/{release}/handover", new { claim = "deployed and verified", whatChangedAndWhy = "container", evidenceDigests = new[] { "deploy:exit=0:sha256=aa", "verify:exit=0:sha256=bb" }, openPoints = Array.Empty<string>(), complex = false, commit = MergeCommit }, Ct)).EnsureSuccessStatusCode();
         var driver = factory.Services.GetServices<IHostedService>().OfType<MissionDriver>().Single();
         await driver.PassAsync(Ct);
 

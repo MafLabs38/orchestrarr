@@ -70,6 +70,10 @@ public static partial class ChangePolicy
                 return $"the path '{file.Path}' is protected: a change never carries the files that hold a secret, the files that instruct an agent or where the dependencies come from";
             }
             // A pipeline that the frame lets this operation change is never weakened by it (ADR 0055): a workflow read as YAML against the file before it, any other pipeline on the lines that the change adds and removes
+            if (SwappedBaseImage(file, Text(before, file.Path), Text(after, file.Path)) is { } swapped)
+            {
+                return swapped;
+            }
             if (PipelineChanges.IsPipeline(file.Path) && PipelineGuard(file, before, after) is { } weakened)
             {
                 return weakened;
@@ -135,6 +139,173 @@ public static partial class ChangePolicy
             }
         }
         return null;
+    }
+
+    /// <summary>Whether a path is a container file (a Dockerfile, a Containerfile), whose base images are compared before and after a change (ADR 0058).</summary>
+    public static bool IsContainerFile(string path)
+    {
+        var name = path[(path.LastIndexOf('/') + 1)..];
+        return name.StartsWith("Dockerfile", StringComparison.OrdinalIgnoreCase) || name.StartsWith("Containerfile", StringComparison.OrdinalIgnoreCase) || name.EndsWith(".dockerfile", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? Text(IReadOnlyDictionary<string, string?>? texts, string path) => texts is not null && texts.TryGetValue(path, out var text) ? text : null;
+
+    // The image an application runs on (the final stage of a container file, followed through the stages it is built from) is raised to a newer tag of the same image, never replaced by another (ADR 0055, ADR 0058): a runtime
+    // replaced is the maintainer's decision. The whole file is read before and after the change and the final FROM is resolved as Docker does (the ARGs declared before the first FROM, several on a line, continued lines,
+    // `${BASE:-python:3.7}`); a file that could not be read whole, an ARG or a FROM that cannot be read, or a changed escape directive, is refused: the check fails closed. What a build runs on the way (a build stage, a
+    // frontend, a `--from`, a RUN line) is the controller's to judge on the patch, like any line of the change
+    internal static string? SwappedBaseImage(BranchFile file, string? before = null, string? after = null)
+    {
+        if (!IsContainerFile(file.Path))
+        {
+            return null;
+        }
+        // Without it, the build may read another container file of the change, which is then judged alone: removing one is the controller's and the maintainer's, never a free agent's
+        if (file.Status == "removed")
+        {
+            return $"the change removes the container file '{file.Path}': the image the application runs on would then come from another file, which cannot be judged against it";
+        }
+        if (after is null || (before is null && file.Status != "added"))
+        {
+            return $"the container file '{file.Path}' could not be read whole before and after the change: the image it runs on cannot be judged";
+        }
+        if (before is not null && !string.Equals(EscapeOf(before), EscapeOf(after), StringComparison.Ordinal))
+        {
+            return $"the change alters the escape directive of '{file.Path}': the image it runs on cannot be judged";
+        }
+        var runtime = RuntimeOf(after);
+        if (runtime.Contains('$'))
+        {
+            return $"'{file.Path}' would run on an image that cannot be told from the file ({runtime}): the image an application runs on is raised to a newer version of the same image, never replaced by another";
+        }
+        var previous = before is null ? runtime : RuntimeOf(before);
+        return string.Equals(runtime, previous, StringComparison.OrdinalIgnoreCase)
+            ? null
+            : $"the change makes '{file.Path}' run on '{runtime}' instead of '{previous}': the image an application runs on is raised to a newer version of the same image, never replaced by another (a runtime replaced is the maintainer's decision)";
+    }
+
+    // The image of the final stage, without tag or digest, the default registry and library left out, followed through the stages it is built from; an image that cannot be resolved keeps its `$`
+    private static string RuntimeOf(string text)
+    {
+        var defaults = new Dictionary<string, string?>(StringComparer.Ordinal);
+        var stages = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var runtime = "$none";
+        var seenFrom = false;
+        var instructions = Instructions(text);
+        // A heredoc holds lines that are not instructions (a FROM among them is not one): such a file is not judged here
+        if (instructions.Exists(line => Heredoc().IsMatch(line)))
+        {
+            return "$heredoc";
+        }
+        foreach (var line in instructions)
+        {
+            var words = Words().Split(line).Where(word => word.Length > 0).ToList();
+            if (!seenFrom && words[0].Equals("ARG", StringComparison.OrdinalIgnoreCase))
+            {
+                Declare([.. words.Skip(1)], defaults);
+                continue;
+            }
+            if (!words[0].Equals("FROM", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            seenFrom = true;
+            var rest = words.Skip(1).Where(word => !word.StartsWith("--", StringComparison.Ordinal)).ToList();
+            if (rest.Count == 0)
+            {
+                runtime = "$unreadable FROM";
+                continue;
+            }
+            var image = Resolved(rest[0], defaults);
+            runtime = image.Contains('$') ? image : Normalised(image);
+            if (stages.TryGetValue(image, out var stage))
+            {
+                runtime = stage;
+            }
+            if (rest.Count >= 3 && rest[1].Equals("AS", StringComparison.OrdinalIgnoreCase))
+            {
+                stages[rest[2]] = runtime;
+            }
+        }
+        return runtime;
+    }
+
+    // The ARG words of one instruction, applied in order (a value in quotes without spaces is that value); a word that is not `name` or `name=value` makes every name of the line unknown (the FROM that reads it is then unresolved)
+    private static void Declare(List<string> words, Dictionary<string, string?> defaults)
+    {
+        var parsed = words.Select(word => ArgWord().Match(word)).ToList();
+        var values = parsed.Select(match => match.Groups[2].Success ? Unquoted(match.Groups[3].Value) : null).ToList();
+        if (parsed.Any(match => !match.Success) || values.Any(value => value is not null && (value.Contains('"') || value.Contains('\''))))
+        {
+            foreach (var name in words.Select(word => word.Split('=')[0]))
+            {
+                defaults[name] = "$unknown";
+            }
+            return;
+        }
+        for (var i = 0; i < parsed.Count; i++)
+        {
+            var name = parsed[i].Groups[1].Value;
+            defaults[name] = values[i] ?? (defaults.ContainsKey(name) ? "$unknown" : null);
+        }
+    }
+
+    private static string Unquoted(string value) =>
+        value.Length >= 2 && (value[0] == '"' || value[0] == '\'') && value[^1] == value[0] ? value[1..^1] : value;
+
+    // The instructions of a container file as Docker reads them: comment and blank lines left out first (also inside a continued instruction), then a line continued by `\` joined to the next
+    private static List<string> Instructions(string text)
+    {
+        var lines = text.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n').Where(line => line.Trim() is { Length: > 0 } kept && !kept.StartsWith('#'));
+        return [.. Continuation().Replace(string.Join('\n', lines), " ").Split('\n').Select(line => line.Trim()).Where(line => line.Length > 0)];
+    }
+
+    private static string? EscapeOf(string text) => EscapeDirective().Match(text) is { Success: true } found ? found.Groups[1].Value : null;
+
+    // ${X}, $X, ${X:-d}, ${X-d}, ${X:+d} and ${X+d} replaced as Docker does, for a name that an ARG before the first FROM gives a value in the file; a name the file does not give a value (BuildKit sets some itself, such as TARGETOS)
+    // or whose value is unknown stays unresolved
+    private static string Resolved(string word, Dictionary<string, string?> defaults) =>
+        Variable().Replace(word, match =>
+        {
+            var name = match.Groups[1].Success ? match.Groups[1].Value : match.Groups[4].Value;
+            var given = match.Groups[3].Value;
+            return (match.Groups[2].Value, defaults.GetValueOrDefault(name)) switch
+            {
+                (_, null) => match.Value,
+                (_, { } value) when value.Contains('$') => match.Value,
+                (":-", { Length: 0 }) => given,
+                (":+", { Length: 0 }) => string.Empty,
+                (":+" or "+", _) => given,
+                (_, { } value) => value,
+            };
+        });
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"\s+")]
+    private static partial System.Text.RegularExpressions.Regex Words();
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"^(\w+)(=(\S*))?$")]
+    private static partial System.Text.RegularExpressions.Regex ArgWord();
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"<<-?\s*[""']?\w+")]
+    private static partial System.Text.RegularExpressions.Regex Heredoc();
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"\\[ \t]*\n")]
+    private static partial System.Text.RegularExpressions.Regex Continuation();
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"\A(?:#[^\n]*\n)*?#\s*escape\s*=\s*(\S)", System.Text.RegularExpressions.RegexOptions.IgnoreCase)]
+    private static partial System.Text.RegularExpressions.Regex EscapeDirective();
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"\$\{(\w+)(?:(:?[-+])([^}]*))?\}|\$(\w+)")]
+    private static partial System.Text.RegularExpressions.Regex Variable();
+
+    private static readonly string[] DefaultRegistryPrefixes = ["docker.io/library/", "docker.io/", "library/"];
+
+    private static string Normalised(string image)
+    {
+        var bare = image.Split('@')[0];
+        bare = bare.LastIndexOf(':') > bare.LastIndexOf('/') ? bare[..bare.LastIndexOf(':')] : bare;
+        var prefix = DefaultRegistryPrefixes.FirstOrDefault(candidate => bare.StartsWith(candidate, StringComparison.OrdinalIgnoreCase));
+        return prefix is null ? bare : bare[prefix.Length..];
     }
 
     // The lines that a patch adds

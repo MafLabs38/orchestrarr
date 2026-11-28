@@ -16,7 +16,6 @@ public sealed class ChangePolicyTests
     [InlineData("package.json")]
     [InlineData("package-lock.json")]
     [InlineData("requirements.txt")]
-    [InlineData("Dockerfile")]
     [InlineData("src/server.js")]
     [InlineData("test/server.test.js")]
     [InlineData("tests/new_test.py")]
@@ -212,5 +211,73 @@ public sealed class AgentBranchTests
         AgentBranch.IsName("main").Should().BeFalse();
         AgentBranch.IsName("agent/../x").Should().BeFalse();
         AgentBranch.IsName(null).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("FROM python:3.7", "FROM python:3.8", null)]
+    [InlineData("FROM python:3.7 AS b\nFROM b", "FROM python:3.8 AS b\nFROM b", null)]
+    [InlineData("FROM python:3.7", "FROM python:3.8 AS base\nFROM base", null)]
+    [InlineData("FROM python:3.7", "FROM docker.io/library/python:3.8", null)]
+    [InlineData("FROM python:3.7", "FROM golang:1.23 AS build\nFROM python:3.8", null)]
+    [InlineData("FROM python:3.7", "# syntax=docker/dockerfile:1\nFROM python:3.8\n# a comment\nCOPY --from=build /x /", null)]
+    [InlineData("FROM python:3.7", "FROM\tevil/python:3.12", "run on 'evil/python' instead of 'python'")]
+    [InlineData("FROM python:3.7", "FROM python:3.7 AS unused\nFROM evil/img", "run on 'evil/img'")]
+    [InlineData("FROM python:3.7", "FROM python:3.8\nFROM node:20 AS assets", "run on 'node'")]
+    [InlineData("FROM python:3.7", "FROM evil/img AS python\nFROM python", "run on 'evil/img'")]
+    [InlineData("ARG BASE=python:3.7\nFROM ${BASE}", "ARG BASE=python:3.7\nFROM ${BASE}\nARG BASE=evil/img", null)]
+    [InlineData("ARG BASE=python:3.7\nFROM ${BASE}", "ARG BASE=python:3.8\nFROM ${BASE}", null)]
+    [InlineData("ARG BASE=\"python:3.7\"\nFROM ${BASE}", "ARG BASE=\"python:3.8\"\nFROM ${BASE}", null)]
+    [InlineData("ARG BASE=python:3.7\nFROM ${BASE}", "ARG BASE=ghcr.io/someone/python:3.12\nFROM ${BASE}", "run on 'ghcr.io/someone/python'")]
+    [InlineData("ARG BASE=python:3.7\nFROM ${BASE}", "ARG BASE=python:3.7\nARG X=1 BASE=evil/img\nFROM ${BASE}", "run on 'evil/img'")]
+    [InlineData("ARG BASE=python:3.7\nFROM ${BASE}", "ARG BASE=python:3.7 \\\n  BASE=evil/img\nFROM ${BASE}", "run on 'evil/img'")]
+    [InlineData("ARG BASE=python:3.7\nFROM ${BASE}", "ARG BASE=\"evil/img x\"\nFROM ${BASE}", "cannot be told from the file")]
+    [InlineData("FROM python:3.7", "FROM \\\n  evil/img", "run on 'evil/img'")]
+    [InlineData("FROM python:3.7", "ARG BASE\nFROM ${BASE:-node:20}", "cannot be told from the file")]
+    [InlineData("FROM python:3.7", "FROM ${TARGETOS:+evil/}python:3.8", "cannot be told from the file")]
+    [InlineData("ARG V=\nFROM python:3.7", "ARG V=\nFROM python:${V:-3.8}", null)]
+    [InlineData("FROM python:3.7", "ARG BASE=node\nFROM ${BASE}", "run on 'node'")]
+    [InlineData("FROM python:3.7", "FROM ${BASE}", "cannot be told from the file")]
+    [InlineData("FROM python:3.7", "# escape=`\nFROM python:3.8", "escape directive")]
+    [InlineData("FROM python:3.7", "FROM evil:1\nRUN true \\\n# note\nFROM python:3.7", "run on 'evil'")]
+    [InlineData("FROM python:3.7", "FROM evil:1\nRUN true \\\n\nFROM python:3.7", "run on 'evil'")]
+    [InlineData("FROM python:3.7", "FROM evil:1\nCOPY <<EOF /x\nFROM python:3.7\nEOF", "cannot be told from the file")]
+    [InlineData("ARG URL=https://example.test/tool-1.2.tgz\nFROM python:3.7", "ARG URL=https://example.test/tool-1.3.tgz\nFROM python:3.8", null)]
+    public void A_base_image_is_read_on_the_whole_file_with_the_defaults_of_its_args(string before, string after, string? refusal)
+    {
+        var verdict = ChangePolicy.SwappedBaseImage(new Orchestrarr.Core.Forge.BranchFile("Dockerfile", "modified", 2, "@@ -1 +1 @@"), before, after);
+
+        if (refusal is null)
+        {
+            verdict.Should().BeNull();
+        }
+        else
+        {
+            verdict.Should().Contain(refusal);
+        }
+    }
+
+    [Theory]
+    [InlineData("Dockerfile")]
+    [InlineData("dockerfile")]
+    [InlineData("Containerfile")]
+    [InlineData("build/app.dockerfile")]
+    public void A_container_file_that_was_not_read_whole_is_refused_and_every_container_file_is_read(string path)
+    {
+        var change = new Orchestrarr.Core.Forge.BranchChange("0123456789abcdef0123456789abcdef01234567", 0, 1, [new Orchestrarr.Core.Forge.BranchFile(path, "modified", 2, "@@ -1 +1 @@\n-FROM python:3.7\n+FROM python:3.8")], true);
+        ChangePolicy.Refusal(change).Should().Contain("could not be read whole", "the check fails closed");
+        ChangePolicy.Refusal(change, null, new Dictionary<string, string?> { [path] = "FROM python:3.7" }, new Dictionary<string, string?> { [path] = "FROM python:3.8" }).Should().BeNull("the fix of CASE-06 passes");
+        ChangePolicy.Refusal(change, null, new Dictionary<string, string?> { [path] = "FROM python:3.7" }, new Dictionary<string, string?> { [path] = "FROM evil/python:3.12" }).Should().Contain("instead of 'python'");
+        ChangePolicy.IsContainerFile("compose.yaml").Should().BeFalse();
+    }
+
+    [Fact]
+    public void A_new_container_file_is_read_alone_a_removed_one_is_refused_and_a_modified_one_without_its_text_before_is_refused()
+    {
+        ChangePolicy.SwappedBaseImage(new Orchestrarr.Core.Forge.BranchFile("Dockerfile", "added", 2, null), null, "FROM python:3.8").Should().BeNull("a new container file is the controller's to judge on the patch");
+        ChangePolicy.SwappedBaseImage(new Orchestrarr.Core.Forge.BranchFile("Dockerfile", "added", 2, null), null, "FROM ${BASE}").Should().Contain("cannot be told from the file");
+        ChangePolicy.SwappedBaseImage(new Orchestrarr.Core.Forge.BranchFile("Dockerfile", "added", 2, null), "FROM python:3.7", "FROM evil/img").Should().Contain("run on 'evil/img'", "a path that existed at the merge base is compared, whatever the forge calls it");
+        ChangePolicy.SwappedBaseImage(new Orchestrarr.Core.Forge.BranchFile("Dockerfile", "removed", 0, null), "FROM python:3.7", null).Should().Contain("removes the container file", "a build may then read another file, added beside it");
+        ChangePolicy.SwappedBaseImage(new Orchestrarr.Core.Forge.BranchFile("Dockerfile", "modified", 2, null), null, "FROM python:3.8").Should().Contain("could not be read whole");
+        ChangePolicy.SwappedBaseImage(new Orchestrarr.Core.Forge.BranchFile("Dockerfile", "modified", 2, null), "FROM python:3.7", null).Should().Contain("could not be read whole");
     }
 }

@@ -11,8 +11,9 @@ public sealed partial class ProblemConductor
 {
     private const string FixForwardReason = "the merge turned the integration branch red: the problem goes back to staging to fix it forward";
 
-    private async Task<ConductResult> FixForwardAsync(Mission mission, ProblemRun run, IReadOnlyList<PreconditionFailure> failures)
+    private async Task<ConductResult> FixForwardAsync(Mission mission, ProblemRun run, IReadOnlyList<PreconditionFailure> failures, bool afterRelease = false)
     {
+        var cause = afterRelease ? "the release failed after the merge" : "the merge turned the integration branch red";
         // A fix needs a world where an agent can work: an application with no staging has none, and the work stops with the reason
         if (!run.UsesStaging)
         {
@@ -26,11 +27,11 @@ public sealed partial class ProblemConductor
         // The block above the controller's judgement: a branch that stays red after so many fixes forward is a person's to look at
         if (run.FixesForward >= options.Loop.MaxFixesForwardPerProblem)
         {
-            var why = Text($"the integration branch is red again after {run.FixesForward} fix(es) forward, the most the loop allows");
+            var why = Text($"{cause} again after {run.FixesForward} fix(es) forward, the most the loop allows");
             return Moved(await EscalateAsync(run, mission, why), $"{why}: a person decides", failures);
         }
         var merged = dossiers.Get(mission.Id)?.Commit;
-        var transition = MissionMachine.Apply(mission, MissionEvent.EndedByController, options.Loop, reason: FixForwardReason);
+        var transition = MissionMachine.Apply(mission, MissionEvent.EndedByController, options.Loop, reason: afterRelease ? "the release did not verify: the problem is fixed forward in staging" : FixForwardReason);
         if (transition.Mission is not { } ended)
         {
             return ConductResult.Fail(transition.Refusal ?? "refused");
@@ -42,18 +43,46 @@ public sealed partial class ProblemConductor
             revoked = RevokeStore(mission);
         });
         await TellRevokedAsync(mission, revoked);
-        await BestEffortAsync(MissionAuditEvents.MissionEnded, mission.Id, Text($"the integration branch is red after the merge{(merged is null ? "" : $" ({merged})")}: back to staging to fix it forward"));
+        await BestEffortAsync(MissionAuditEvents.MissionEnded, mission.Id, Text($"{cause}{(merged is null ? "" : $" ({merged})")}{(failures.Count > 0 ? $" ({string.Join(", ", failures)})" : "")}: back to staging to fix it forward"));
         // What the host held of the earlier change is about a change that is merged now
         restarts?.Restarted(run.ProblemId);
-        var entry = FixForwardEntry(run.Entry, merged, highest, run.FixesForward + 1);
+        // What the agent is told of a failed release: the step its runner said failed, the red pipeline when that is what the facts say, else that the controller judged it; never the output of the build or of the application
+        var releaseFailure = afterRelease ? ReleaseFailureFor(dossiers.Get(mission.Id), failures) : null;
+        var entry = FixForwardEntry(run.Entry, merged, highest, run.FixesForward + 1, releaseFailure);
         var priority = FlowPriority.Raised(run.Priority);
         var opened = await OpenAsync(run with { Entry = entry, CurrentWorld = World.Staging, Priority = priority, FixesForward = run.FixesForward + 1 }, World.Staging, MandateSource.Controller);
-        await BestEffortAsync(MissionAuditEvents.PriorityRaised, run.ProblemId, Text($"the integration branch is red after the merge: priority {run.Priority} to {priority}"));
-        return opened.Ok ? Moved(opened, "the merge turned the integration branch red: the problem goes back to staging to fix it forward", failures) : new ConductResult(false, opened.Refusal, opened.Failures, ended, null);
+        await BestEffortAsync(MissionAuditEvents.PriorityRaised, run.ProblemId, Text($"{cause}: priority {run.Priority} to {priority}"));
+        return opened.Ok ? Moved(opened, $"{cause}: the problem goes back to staging to fix it forward", failures) : new ConductResult(false, opened.Refusal, opened.Failures, ended, null);
     }
 
+    private static string? ReleaseFailureFor(Dossier? released, IReadOnlyList<PreconditionFailure> failures)
+    {
+        if (MissionEvidence.ReleaseFailureOf(released?.EvidenceDigests) is { } step)
+        {
+            return step;
+        }
+        // A red pipeline on the released commit is fixed forward as a red pipeline
+        return failures.Contains(PreconditionFailure.CiNotGreenOnExactCommit) ? null : JudgedNotToVerify;
+    }
+
+    // A release that failed with no word of its runner nor a red pipeline: the controller judged, from the facts and the dossier, that it does not verify
+    private const string JudgedNotToVerify = "judged";
+
+    private static string ReleaseStep(string failure) => failure switch
+    {
+        _ when failure.StartsWith(MissionEvidence.VerifyStep + ":", StringComparison.Ordinal) => "of its verification (the application did not answer its health route)",
+        _ when failure.StartsWith(MissionEvidence.DeployStep + ":", StringComparison.Ordinal) => "of its deployment (the image did not build or the container did not start)",
+        _ => "that the controller judged, from the facts and the dossier, not to verify",
+    };
+
     // The problem as it is worked now: no pull request (the change is merged), the objective and the instruction of the staging world say what to fix, and the later worlds of the plan stay what the lead planned
-    internal static PlanEntry FixForwardEntry(PlanEntry entry, string? merged, World highest, int attempt = 1)
+    /// <param name="entry">The problem as it was approved.</param>
+    /// <param name="merged">The commit the merge made, when it is known.</param>
+    /// <param name="highest">The highest world the powers reach now.</param>
+    /// <param name="attempt">Which fix forward of the problem this is, from 1.</param>
+    /// <param name="releaseFailure">The step of a release that failed after the merge (<c>deploy:exit=1</c>, <c>verify:exit=1</c>; CASE-06): the problem is then fixed forward for the release, not for a red pipeline. Only the step, never the
+    /// output of the build or of the application (the repository's text): the agent reproduces it.</param>
+    internal static PlanEntry FixForwardEntry(PlanEntry entry, string? merged, World highest, int attempt = 1, string? releaseFailure = null)
     {
         // A fix forward that did not hold is the change that was merged last: its objective is already a fix forward's, and is not quoted again
         var change = entry.PullRequest is { } number && entry.Repositories.Count == 1 ? Text($"pull request #{number} of {entry.Repositories[0]}") : Text($"the change for \"{entry.Objective}\"");
@@ -63,8 +92,12 @@ public sealed partial class ProblemConductor
         }
         var again = attempt > 1 ? Text($" This is fix forward {attempt} of this problem: the {attempt - 1} before it did not hold. Find out why the last one did not, and do not repeat it.") : "";
         var at = merged is { Length: >= 8 } commit ? Text($" at commit {commit[..8]}") : "";
-        var objective = Text($"The integration branch of {string.Join(", ", entry.Repositories)} is green again: the merge of {change}{at} turned its pipeline red.{again}");
-        var instruction = Text($"The merge of {change} into the integration branch{at} turned the pipeline of the integration branch red.{again} Find out why (run the steps of its pipeline here, on the branch as it is now) and make the change that brings it back to green. {PipelineChanges.RepairRules} Keep what was merged unless it cannot be made to work; if it must be undone, say so and why.");
+        var objective = releaseFailure is null
+            ? Text($"The integration branch of {string.Join(", ", entry.Repositories)} is green again: the merge of {change}{at} turned its pipeline red.{again}")
+            : Text($"The integration branch of {string.Join(", ", entry.Repositories)} deploys and answers its health check again: the release of {change}{at} failed in production.{again}");
+        var instruction = releaseFailure is null
+            ? Text($"The merge of {change} into the integration branch{at} turned the pipeline of the integration branch red.{again} Find out why (run the steps of its pipeline here, on the branch as it is now) and make the change that brings it back to green. {PipelineChanges.RepairRules} Keep what was merged unless it cannot be made to work; if it must be undone, say so and why.")
+            : Text($"{change} is merged into the integration branch{at}, and its release failed on the deployment machine at the step {ReleaseStep(releaseFailure)}.{again} Reproduce it here the way production builds and runs it (the Dockerfile of the repository: build the image, start the container, call its health route), find why, and make the change that makes it build, start and answer. A base image is raised to the smallest newer version of the same image that the change needs, never replaced by another image. {PipelineChanges.RepairRules} Keep what was merged unless it cannot be made to work; if it must be undone, say so and why.");
         var later = entry.Plan is { Steps.Count: > 0 } plan
             ? plan.Steps.Where(step => step.World > World.Staging).ToList()
             : [.. Enum.GetValues<World>().Where(world => world > World.Staging && world <= highest).Select(world => new PlannedStep(world, null))];
@@ -80,7 +113,7 @@ public sealed partial class ProblemConductor
             Objective = objective,
             PullRequest = null,
             HeadSha = null,
-            Plan = new LeadPlan(steps, Complex: false, ComplexReason: null, [.. reasons, "the merge turned the integration branch red: fixed forward in staging"]),
+            Plan = new LeadPlan(steps, Complex: false, ComplexReason: null, [.. reasons, releaseFailure is null ? "the merge turned the integration branch red: fixed forward in staging" : "the release failed after the merge: fixed forward in staging"]),
         };
     }
 }

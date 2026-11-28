@@ -2,6 +2,7 @@
 
 - **Status**: proposed (accepted when the pull request that carries it is merged)
 - **Date**: 2026-11-25
+- **Amended by**: [ADR 0058](0058-a-release-that-fails-after-its-merge-is-fixed-forward.md): a release that fails after its merge is fixed forward the same way, under the same bound (point 8)
 - **Amended by**: [ADR 0056](0056-the-screens-follow-the-fab-flow-dispatch-traveler-and-decisions.md): the line goes by priority first, then rank, then arrival (point 2)
 - **Spec**: D-109 ([SPEC.md](../SPEC.md)). Builds on [ADR 0049](0049-problems-on-one-repository-are-done-one-at-a-time-and-a-conflict-is-not-mended-here.md) (a line per repository), [ADR 0050](0050-the-flow-has-a-priority-from-0-to-100-and-a-failed-release-goes-ahead.md) (priority) and [ADR 0053](0053-each-world-has-lanes-and-a-machine-is-never-idle-while-a-mission-waits.md) (lanes). It amends ADR 0049 on one point: a pull request that conflicts is no longer ended at once.
 

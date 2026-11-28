@@ -2,6 +2,7 @@
 
 - **Status**: proposed (decided by the maintainer in the chat on 2026-11-17; accepted when the pull request that carries it is merged)
 - **Date**: 2026-11-17
+- **Amended by**: [ADR 0058](0058-a-release-that-fails-after-its-merge-is-fixed-forward.md): a release that fails after its merge is fixed forward in staging, and a failure its runner reports is never overruled
 - **Spec**: D-93 ([SPEC.md](../SPEC.md), [FUNCTIONAL.md](../FUNCTIONAL.md) FR-WLD-13). Supersedes in part ADR 0001 point 3 and ADR 0036 points 2 and 4 (what the way back is). Closes Q-35, and Q-14 for the revert.
 
 ## Context

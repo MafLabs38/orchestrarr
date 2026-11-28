@@ -2,6 +2,7 @@
 
 - **Status**: proposed (accepted when the pull request that carries it is merged)
 - **Date**: 2026-11-24
+- **Amended by**: [ADR 0058](0058-a-release-that-fails-after-its-merge-is-fixed-forward.md): a release that did not verify is fixed forward in staging (point 4), and escalated when the application has no staging
 - **Amended by**: [ADR 0056](0056-the-screens-follow-the-fab-flow-dispatch-traveler-and-decisions.md): a person sets the priority of an operation in the line or in process, on the Queue screen
 - **Spec**: D-104 ([SPEC.md](../SPEC.md)). Extends [ADR 0049](0049-problems-on-one-repository-are-done-one-at-a-time-and-a-conflict-is-not-mended-here.md) (the line of one repository), [ADR 0040](0040-the-way-back-is-a-change-the-loop-makes.md) (a failed release is a failed push: the loop goes on with the same problem) and [ADR 0047](0047-a-machine-has-a-state-and-leaves-a-reset-isolated-and-qualified.md) (a machine is leased to one mission). Amends FR-WLD-13 and FR-MIS-6 ([FUNCTIONAL.md](../FUNCTIONAL.md)): a failed release no longer blocks anything by a rule of its own; it goes ahead.
 
