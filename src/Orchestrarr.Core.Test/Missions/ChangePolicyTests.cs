@@ -220,6 +220,10 @@ public sealed class AgentBranchTests
     [InlineData("-FROM python:3.7\n+FROM python:3.8 AS base\n+FROM base", null)]
     [InlineData("-FROM python:3.7\n+FROM python:3.8\n+FROM node:20 AS assets", null)]
     [InlineData("-FROM python:3.7\n+FROM docker.io/library/python:3.8", null)]
+    [InlineData("-FROM python:3.7\n+FROM\tevil/python:3.12", "replaces the base image")]
+    [InlineData("-ARG BASE=python:3.7\n+ARG BASE=ghcr.io/someone/python:3.12", "replaces the base image")]
+    [InlineData("-ARG BASE=python:3.7\n+ARG BASE=python:3.8", null)]
+    [InlineData("-ARG PYTHON_VERSION=3.7\n+ARG PYTHON_VERSION=3.8", null)]
     [InlineData("-FROM python:3.7\n+FROM ghcr.io/someone/python:3.12", "replaces the base image 'python' with 'ghcr.io/someone/python'")]
     [InlineData("-FROM --platform=linux/amd64 node:16\n+FROM --platform=linux/amd64 nodejs:22", "replaces the base image 'node' with 'nodejs'")]
     [InlineData("-FROM localhost:5000/app:1\n+FROM localhost:5000/app:2", null)]
@@ -239,6 +243,7 @@ public sealed class AgentBranchTests
 
     [Theory]
     [InlineData("Containerfile", true)]
+    [InlineData("dockerfile", true)]
     [InlineData("build/app.dockerfile", true)]
     [InlineData("compose.yaml", false)]
     public void Every_container_file_is_read_for_its_base_image(string path, bool refused) =>

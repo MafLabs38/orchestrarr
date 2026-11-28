@@ -146,7 +146,7 @@ public static partial class ChangePolicy
     internal static string? SwappedBaseImage(BranchFile file)
     {
         var name = file.Path[(file.Path.LastIndexOf('/') + 1)..];
-        if (!name.StartsWith("Dockerfile", StringComparison.Ordinal) && !name.StartsWith("Containerfile", StringComparison.Ordinal) && !name.EndsWith(".dockerfile", StringComparison.OrdinalIgnoreCase))
+        if (!name.StartsWith("Dockerfile", StringComparison.OrdinalIgnoreCase) && !name.StartsWith("Containerfile", StringComparison.OrdinalIgnoreCase) && !name.EndsWith(".dockerfile", StringComparison.OrdinalIgnoreCase))
         {
             return null;
         }
@@ -161,15 +161,27 @@ public static partial class ChangePolicy
             : null;
     }
 
-    // The images of FROM lines without their tag or digest, the default registry and library left out; a stage that a FROM of the same lines names (`AS base`) is not an image
+    // The images of FROM lines without their tag or digest, the default registry and library left out; a stage that a FROM of the same lines names (`AS base`) is not an image. The default of an ARG that names an image
+    // (`ARG BASE=python:3.7`, which a `FROM ${BASE}` uses) counts as an image too, and a FROM is read whatever the space after it
     private static IEnumerable<string> ImagesOf(List<string> lines)
     {
-        var froms = lines.Select(line => line.Trim()).Where(line => line.StartsWith("FROM ", StringComparison.OrdinalIgnoreCase))
-            .Select(line => line[5..].Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries).Where(word => !word.StartsWith("--", StringComparison.Ordinal)).ToList())
+        var froms = lines.Select(line => line.Trim()).Where(line => FromLine().IsMatch(line))
+            .Select(line => Words().Split(line).Skip(1).Where(word => word.Length > 0 && !word.StartsWith("--", StringComparison.Ordinal)).ToList())
             .Where(words => words.Count > 0).ToList();
         var stages = froms.Where(words => words.Count >= 3 && words[1].Equals("AS", StringComparison.OrdinalIgnoreCase)).Select(words => words[2]).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        return froms.Select(words => words[0]).Where(image => !stages.Contains(image)).Select(Normalised).Distinct(StringComparer.OrdinalIgnoreCase);
+        var argImages = lines.Select(line => ArgImage().Match(line.Trim())).Where(match => match.Success).Select(match => match.Groups[1].Value.Trim('"', '\''));
+        return froms.Select(words => words[0]).Where(image => !stages.Contains(image) && !image.Contains('$')).Concat(argImages).Select(Normalised).Distinct(StringComparer.OrdinalIgnoreCase);
     }
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"^FROM\s", System.Text.RegularExpressions.RegexOptions.IgnoreCase)]
+    private static partial System.Text.RegularExpressions.Regex FromLine();
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"\s+")]
+    private static partial System.Text.RegularExpressions.Regex Words();
+
+    // An ARG whose default names an image: it has a registry, an owner or a tag (a bare version, `3.12`, is not an image)
+    [System.Text.RegularExpressions.GeneratedRegex(@"^ARG\s+\w+=([^\s]*[/:][^\s]*)$", System.Text.RegularExpressions.RegexOptions.IgnoreCase)]
+    private static partial System.Text.RegularExpressions.Regex ArgImage();
 
     private static readonly string[] DefaultRegistryPrefixes = ["docker.io/library/", "docker.io/", "library/"];
 
