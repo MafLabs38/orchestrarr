@@ -104,7 +104,7 @@ public sealed partial class ReleaseWorld(IMissionControlPlane controlPlane, IShe
         new($"Nothing was deployed for {mission.Repository}: {reason}", reason, [], [reason], Complex: true, reason, Commit: null);
 
     private static void Keep(List<string> evidence, string step, ShellResult result) =>
-        evidence.Add(MissionEvidence.StepExit(step, result.ExitCode, Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(result.Output)))));
+        evidence.Add(MissionEvidence.StepExit(step, result.ExitCode, result.TimedOut, Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(result.Output)))));
 
     private static string Short(string sha) => sha.Length > 8 ? sha[..8] : sha;
 

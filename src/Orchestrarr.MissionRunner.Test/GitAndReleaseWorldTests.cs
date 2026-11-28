@@ -239,6 +239,17 @@ public sealed class GitAndReleaseWorldTests
         shell.Scripts.Should().ContainSingle("the verification is for what was deployed");
     }
 
+    [Fact]
+    public async Task A_step_that_runs_out_of_time_failed_whatever_its_exit_code_says()
+    {
+        var shell = new ScriptedShell(script => script.Contains("git clone", StringComparison.Ordinal) ? Ok("PREVIOUS orch-shop:11111111") : new ShellResult(0, "killed", TimedOut: true));
+
+        var dossier = await new ReleaseWorld(Allowing(), shell, Options()).RunAsync(Mission("Release"), Quiet, Ct);
+
+        MissionEvidence.ReleaseFailureOf(dossier.EvidenceDigests).Should().Be("verify:exit=timeout", "a grant needs the runner's word that the step passed");
+        MissionEvidence.ReleaseVerified(dossier.EvidenceDigests).Should().BeFalse();
+    }
+
     [Theory]
     [InlineData("example")]
     [InlineData("example/shop; rm -rf ~")]

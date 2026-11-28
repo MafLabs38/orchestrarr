@@ -68,8 +68,9 @@ public static class MissionEvidence
 
     public const string VerifyStep = "verify";
 
-    /// <summary>The evidence of one step of a release, written by the runner and read by <see cref="ReleaseVerified"/> and <see cref="ReleaseFailureOf"/>: one format, here.</summary>
-    public static string StepExit(string step, int exitCode, string outputDigest) => $"{step}:exit={exitCode.ToString(System.Globalization.CultureInfo.InvariantCulture)}:sha256={outputDigest}";
+    /// <summary>The evidence of one step of a release, written by the runner and read by <see cref="ReleaseVerified"/> and <see cref="ReleaseFailureOf"/>: one format, here. A step that ran out of time failed, whatever its exit code says.</summary>
+    public static string StepExit(string step, int exitCode, bool timedOut, string outputDigest) =>
+        $"{step}:exit={(timedOut ? "timeout" : exitCode.ToString(System.Globalization.CultureInfo.InvariantCulture))}:sha256={outputDigest}";
 
     /// <summary>
     /// The step of a release that the runner itself says failed (the deployment or the verification ended with an exit code that is not 0: <c>deploy:exit=1</c>), or null. A claim of failure can only stop work: a release whose

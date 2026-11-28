@@ -156,9 +156,14 @@ public static partial class ChangePolicy
     // frontend, a `--from`, a RUN line) is the controller's to judge on the patch, like any line of the change
     internal static string? SwappedBaseImage(BranchFile file, string? before = null, string? after = null)
     {
-        if (!IsContainerFile(file.Path) || file.Status == "removed")
+        if (!IsContainerFile(file.Path))
         {
             return null;
+        }
+        // Without it, the build may read another container file of the change, which is then judged alone: removing one is the controller's and the maintainer's, never a free agent's
+        if (file.Status == "removed")
+        {
+            return $"the change removes the container file '{file.Path}': the image the application runs on would then come from another file, which cannot be judged against it";
         }
         if (after is null || (before is null && file.Status != "added"))
         {
